@@ -1,0 +1,16 @@
+{
+  "name": "@golden-crm/api",
+  "version": "0.0.1",
+  "type": "module",
+  "dependencies": {
+    "@golden-crm/shared": "workspace:*",
+    "@trpc/server": "^11.16.0",
+    "zod": "^4.3.6"
+  },
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development tsx watch index.ts",
+    "dev:full": "cross-env NODE_ENV=development tsx watch start.ts",
+    "start": "cross-env NODE_ENV=production tsx index.ts",
+    "migrate": "cross-env NODE_ENV=development tsx migrate.ts"
+  }
+}

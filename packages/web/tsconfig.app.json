@@ -1,0 +1,45 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "skipLibCheck": true, // هذا السطر سيوفر عليك الكثير من الوقت بتجاهل فحص المكتبات الخارجية
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    /* Linting - إعدادات صارمة ولكن سريعة */
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    /* سرعة الفحص التزايدي */
+    "incremental": true,
+    /* Workspace package resolution */
+    "paths": {
+      "@golden-crm/shared": ["../shared/index.ts"],
+      "@golden-crm/shared/*": ["../shared/*"]
+    }
+  },
+  "references": [
+    { "path": "../shared" }
+  ],
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo"
+  },
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/web" }
+  ]
+}

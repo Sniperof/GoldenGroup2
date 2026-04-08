@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+    --font-sans: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+}
+
+body {
+    background-color: #f8fafc;
+    /* slate-50 */
+    color: #334155;
+    /* slate-700 */
+    font-family: var(--font-sans);
+    overflow: hidden;
+}
+
+
+/* Custom scrollbar — light theme */
+.custom-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.custom-scroll::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    /* slate-100 */
+}
+
+.custom-scroll::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    /* slate-300 */
+    border-radius: 4px;
+}
+
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+    /* slate-400 */
+}
+
+/* Range slider for route stations */
+.route-range-track {
+    position: relative;
+    height: 6px;
+    background: #e2e8f0;
+    /* slate-200 */
+    border-radius: 3px;
+    margin: 8px 0;
+}
+
+.route-range-fill {
+    position: absolute;
+    height: 100%;
+    background: linear-gradient(90deg, #0ea5e9, #38bdf8);
+    /* sky-500 → sky-400 */
+    border-radius: 3px;
+}
+
+input[type='range'].route-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    position: absolute;
+    top: -6px;
+    left: 0;
+    width: 100%;
+    height: 18px;
+    background: transparent;
+    pointer-events: none;
+    z-index: 2;
+}
+
+input[type='range'].route-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #0284c7;
+    /* sky-700 */
+    border: 2px solid white;
+    cursor: pointer;
+    pointer-events: all;
+    box-shadow: 0 0 6px rgba(14, 165, 233, 0.4);
+}
