@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 !.env.*.example
+production.env
 
 # dependencies
 node_modules/
