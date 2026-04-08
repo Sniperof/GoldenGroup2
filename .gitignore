@@ -37,3 +37,4 @@ build_utf8.txt
 server_run_err.txt
 
 packages/*/*.tsbuildinfo
+*.tsbuildinfo
