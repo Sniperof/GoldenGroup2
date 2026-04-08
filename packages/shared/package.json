@@ -1,11 +1,14 @@
 {
   "name": "@golden-crm/shared",
   "version": "0.0.1",
+  "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./types.js": "./types.ts",
+    "./types/auth.js": "./types/auth.ts",
+    "./contracts/roles.js": "./contracts/roles.ts"
   },
-  "main": "./index.ts",
   "dependencies": {
     "zod": "^4.3.6"
   }

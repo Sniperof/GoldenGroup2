@@ -45,6 +45,10 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
 // ── tRPC — type-safe contract layer (Roles PoC) ───────────────────────────
 app.use('/trpc', createExpressMiddleware({ router: appRouter, createContext }));
 
