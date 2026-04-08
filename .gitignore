@@ -39,3 +39,5 @@ server_run_err.txt
 
 packages/*/*.tsbuildinfo
 *.tsbuildinfo
+
+production.env
