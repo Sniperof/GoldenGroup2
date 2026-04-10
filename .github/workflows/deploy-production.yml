@@ -1,0 +1,41 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  deploy_production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate SSH secrets
+        shell: bash
+        run: |
+          test -n "${{ secrets.PROD_SSH_HOST }}" || { echo "Missing PROD_SSH_HOST"; exit 1; }
+          test -n "${{ secrets.PROD_SSH_USER }}" || { echo "Missing PROD_SSH_USER"; exit 1; }
+          test -n "${{ secrets.PROD_SSH_PORT }}" || { echo "Missing PROD_SSH_PORT"; exit 1; }
+          test -n "${{ secrets.PROD_SSH_KEY_B64 }}" || { echo "Missing PROD_SSH_KEY_B64"; exit 1; }
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "${{ secrets.PROD_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keygen -y -f ~/.ssh/id_rsa >/dev/null
+          ssh-keyscan -p "${{ secrets.PROD_SSH_PORT }}" "${{ secrets.PROD_SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Run production deploy script on server
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/id_rsa -p "${{ secrets.PROD_SSH_PORT }}" \
+            -o StrictHostKeyChecking=yes \
+            "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }}" \
+            'bash /opt/golden-crm/app/GoldenGroup2/scripts/deploy-production.sh'
