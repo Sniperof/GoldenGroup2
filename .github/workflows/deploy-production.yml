@@ -17,14 +17,14 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p "${{ secrets.PROD_SSH_PORT }}" "${{ secrets.PROD_SSH_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Run production deploy script on server
         shell: bash
         run: |
-          ssh -i ~/.ssh/id_rsa -p "${{ secrets.PROD_SSH_PORT }}" \
+          ssh -i ~/.ssh/id_rsa -p "${{ secrets.SSH_PORT }}" \
             -o StrictHostKeyChecking=yes \
-            "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }}" \
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
             'bash /opt/golden-crm/app/GoldenGroup2/scripts/deploy-production.sh'
