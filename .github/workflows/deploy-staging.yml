@@ -15,6 +15,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate SSH secrets
+        shell: bash
+        run: |
+          test -n "${{ secrets.STAGING_SSH_HOST }}" || { echo "Missing STAGING_SSH_HOST"; exit 1; }
+          test -n "${{ secrets.STAGING_SSH_USER }}" || { echo "Missing STAGING_SSH_USER"; exit 1; }
+          test -n "${{ secrets.STAGING_SSH_PORT }}" || { echo "Missing STAGING_SSH_PORT"; exit 1; }
+          test -n "${{ secrets.STAGING_SSH_KEY_B64 }}" || { echo "Missing STAGING_SSH_KEY_B64"; exit 1; }
+
       - name: Setup SSH key
         shell: bash
         run: |
@@ -23,12 +31,12 @@ jobs:
           printf '%s' "${{ secrets.STAGING_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keygen -y -f ~/.ssh/id_rsa >/dev/null
-          ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "${{ secrets.STAGING_SSH_PORT }}" "${{ secrets.STAGING_SSH_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Run staging deploy script on server
         shell: bash
         run: |
-          ssh -i ~/.ssh/id_rsa -p "${{ secrets.SSH_PORT }}" \
+          ssh -i ~/.ssh/id_rsa -p "${{ secrets.STAGING_SSH_PORT }}" \
             -o StrictHostKeyChecking=yes \
-            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
             'bash /opt/golden-crm/apps/staging/scripts/deploy-staging.sh'
