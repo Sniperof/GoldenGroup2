@@ -10,6 +10,7 @@
         "build": "pnpm --filter @golden-crm/web build",
         "preview": "pnpm --filter @golden-crm/web preview",
         "migrate": "pnpm --filter @golden-crm/api migrate",
+        "create-admin": "node ./node_modules/tsx/dist/cli.mjs ./scripts/create-admin.ts",
         "typecheck": "pnpm --filter @golden-crm/web exec tsc -p tsconfig.typecheck.json --noEmit",
         "typecheck:api": "pnpm --filter @golden-crm/api exec tsc --noEmit"
     },

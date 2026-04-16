@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, Save, Users, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import SmartTable from '../components/SmartTable';
@@ -174,6 +174,8 @@ function CreateEmployeeModal({
   );
 }
 
+const PAGE_LIMIT = 20;
+
 export default function Employees() {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -184,20 +186,36 @@ export default function Employees() {
   const [createError, setCreateError] = useState('');
   const { hasPermission } = usePermissions();
 
+  // ── Server pagination state ──
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [search, setSearch] = useState('');
+
   const canViewEmployees = hasPermission('employees.view_list');
   const canCreateEmployees = hasPermission('employees.create');
+
+  const fetchEmployees = useCallback(async (p: number, s: string) => {
+    setLoading(true);
+    try {
+      const result = await api.employees.listPaged({ page: p, limit: PAGE_LIMIT, search: s });
+      setEmployees(result.data);
+      setTotal(result.total);
+      setTotalPages(result.totalPages);
+    } catch (err) {
+      console.error('Failed to fetch employees:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!canViewEmployees) {
       setLoading(false);
       return;
     }
-
-    api.employees.list()
-      .then((data) => setEmployees(data))
-      .catch((err) => console.error('Failed to fetch employees:', err))
-      .finally(() => setLoading(false));
-  }, [canViewEmployees]);
+    fetchEmployees(page, search);
+  }, [canViewEmployees, page, search, fetchEmployees]);
 
   const columns: ColumnDef<Employee>[] = useMemo(() => [
     {
@@ -315,9 +333,10 @@ export default function Employees() {
         jobTitle: form.jobTitle.trim(),
       }) as Employee;
 
-      setEmployees((current) => [created, ...current]);
       setShowCreateModal(false);
       resetCreateForm();
+      fetchEmployees(1, search);
+      setPage(1);
       navigate(`/employees/${created.id}`);
     } catch (err: any) {
       setCreateError(err.message ?? 'تعذر إضافة الموظف.');
@@ -357,8 +376,6 @@ export default function Employees() {
         icon={Users}
         data={employees}
         columns={columns}
-        filters={filters}
-        searchKeys={['name', 'mobile', 'jobTitle', 'branch', 'residence', 'residenceShort']}
         searchPlaceholder="بحث بالاسم أو الرقم..."
         onRowClick={(employee) => navigate(`/employees/${employee.id}`)}
         headerActions={canCreateEmployees ? (
@@ -376,6 +393,14 @@ export default function Employees() {
         getId={(employee) => employee.id}
         emptyIcon={Users}
         emptyMessage="لا يوجد موظفون"
+        serverPagination={{
+          page,
+          limit: PAGE_LIMIT,
+          total,
+          totalPages,
+          onPageChange: (p) => setPage(p),
+          onSearch: (s) => { setSearch(s); setPage(1); },
+        }}
       />
 
       {showCreateModal && (

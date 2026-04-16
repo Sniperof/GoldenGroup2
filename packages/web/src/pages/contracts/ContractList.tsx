@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { FileText, Plus, Eye, Loader2 } from 'lucide-react';
 import SmartTable from '../../components/SmartTable';
-import type { ColumnDef, FilterDef } from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 import type { Contract } from '../../lib/types';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
@@ -22,6 +22,8 @@ const paymentLabels: Record<string, string> = { cash: 'نقدي', installment: '
 const formatDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('ar-SY', { month: 'short', day: 'numeric' });
 const formatPrice = (n: number) => n.toLocaleString('ar-SY') + ' ل.س';
 
+const PAGE_LIMIT = 20;
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
@@ -31,12 +33,31 @@ export default function ContractList() {
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        api.contracts.list()
-            .then(data => setContracts(data))
-            .catch(err => console.error('Failed to load contracts:', err))
-            .finally(() => setLoading(false));
+    // ── Server pagination state ──
+    const [page, setPage] = useState(1);
+    const [total, setTotal] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    const [search, setSearch] = useState('');
+
+    const fetchContracts = useCallback(async (p: number, s: string) => {
+        try {
+            const result = await api.contracts.listPaged({ page: p, limit: PAGE_LIMIT, search: s });
+            setContracts(result.data);
+            setTotal(result.total);
+            setTotalPages(result.totalPages);
+        } catch (err) {
+            console.error('Failed to load contracts:', err);
+        }
     }, []);
+
+    useEffect(() => {
+        fetchContracts(1, '').finally(() => setLoading(false));
+    }, [fetchContracts]);
+
+    useEffect(() => {
+        if (!loading) fetchContracts(page, search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, search]);
 
     const columns: ColumnDef<Contract>[] = [
         {
@@ -80,25 +101,6 @@ export default function ContractList() {
         },
     ];
 
-    const filters: FilterDef[] = [
-        {
-            key: 'status', label: 'جميع الحالات',
-            options: [
-                { value: 'draft', label: 'مسودة' },
-                { value: 'active', label: 'فعال' },
-                { value: 'completed', label: 'مكتمل' },
-                { value: 'cancelled', label: 'ملغي' },
-            ],
-        },
-        {
-            key: 'paymentType', label: 'نوع الدفع',
-            options: [
-                { value: 'cash', label: 'نقدي' },
-                { value: 'installment', label: 'أقساط' },
-            ],
-        },
-    ];
-
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -114,8 +116,6 @@ export default function ContractList() {
                 icon={FileText}
                 data={contracts}
                 columns={columns}
-                filters={filters}
-                searchKeys={['contractNumber', 'customerName', 'deviceModelName', 'serialNumber']}
                 searchPlaceholder="بحث عن عقد..."
                 getId={(c) => c.id}
                 headerActions={
@@ -137,6 +137,14 @@ export default function ContractList() {
                 )}
                 emptyIcon={FileText}
                 emptyMessage="لا توجد عقود"
+                serverPagination={{
+                    page,
+                    limit: PAGE_LIMIT,
+                    total,
+                    totalPages,
+                    onPageChange: (p) => setPage(p),
+                    onSearch: (s) => { setSearch(s); setPage(1); },
+                }}
             />
         </div>
     );

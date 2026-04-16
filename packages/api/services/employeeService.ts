@@ -49,8 +49,8 @@ function getEmployeeRoleOrError(jobTitle: string | null | undefined) {
   return { role, error: null };
 }
 
-export async function getEmployees() {
-  return listEmployees();
+export async function getEmployees(opts?: { page?: number; limit?: number; search?: string }) {
+  return listEmployees(opts);
 }
 
 export async function getEmployeeById(employeeId: number | string) {

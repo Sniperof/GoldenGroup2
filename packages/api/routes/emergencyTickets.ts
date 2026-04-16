@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
@@ -21,9 +22,21 @@ const SELECT_FIELDS = `
   created_at AS "createdAt"
 `;
 
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query(`SELECT ${SELECT_FIELDS} FROM emergency_tickets ORDER BY id DESC`);
-  res.json(rows);
+router.get('/', async (req, res) => {
+  if (hasPaginationParams(req.query)) {
+    const { page, limit, offset } = parsePagination(req.query);
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      pool.query(
+        `SELECT ${SELECT_FIELDS} FROM emergency_tickets ORDER BY id DESC LIMIT $1 OFFSET $2`,
+        [limit, offset],
+      ),
+      pool.query(`SELECT COUNT(*) FROM emergency_tickets`),
+    ]);
+    res.json(paginatedResponse(rows, parseInt(countRows[0].count), page, limit));
+  } else {
+    const { rows } = await pool.query(`SELECT ${SELECT_FIELDS} FROM emergency_tickets ORDER BY id DESC`);
+    res.json(rows);
+  }
 });
 
 router.post('/', async (req, res) => {

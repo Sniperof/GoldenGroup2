@@ -44,8 +44,10 @@ export async function listInterviews(filters: {
   interviewerName?: unknown;
   date?: unknown;
   jobVacancyId?: unknown;
+  page?: number;
+  limit?: number;
 }) {
-  const { applicationId, interviewerName, date, jobVacancyId } = filters;
+  const { applicationId, interviewerName, date, jobVacancyId, page, limit } = filters;
   const conditions: string[] = [];
   const params: any[] = [];
   let idx = 1;
@@ -68,16 +70,37 @@ export async function listInterviews(filters: {
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const BASE_FROM = `FROM interviews i
+    JOIN job_applications ja ON ja.id = i.application_id
+    JOIN applicants a ON a.id = ja.applicant_id
+    JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
+    ${where}`;
+
+  if (page !== undefined && limit !== undefined) {
+    const offset = (page - 1) * limit;
+    const [countRes, dataRes] = await Promise.all([
+      pool.query(`SELECT COUNT(*) ${BASE_FROM}`, params),
+      pool.query(
+        `SELECT ${INTERVIEW_COLS},
+          a.first_name AS "applicantFirstName",
+          a.last_name AS "applicantLastName",
+          jv.title AS "vacancyTitle"
+        ${BASE_FROM}
+        ORDER BY i.interview_date DESC, i.interview_time DESC
+        LIMIT $${idx} OFFSET $${idx + 1}`,
+        [...params, limit, offset],
+      ),
+    ]);
+    const total = parseInt(countRes.rows[0].count, 10);
+    return { data: dataRes.rows, total, page, limit, totalPages: Math.ceil(total / limit) || 1 };
+  }
+
   const { rows } = await pool.query(
     `SELECT ${INTERVIEW_COLS},
       a.first_name AS "applicantFirstName",
       a.last_name AS "applicantLastName",
       jv.title AS "vacancyTitle"
-    FROM interviews i
-    JOIN job_applications ja ON ja.id = i.application_id
-    JOIN applicants a ON a.id = ja.applicant_id
-    JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
-    ${where}
+    ${BASE_FROM}
     ORDER BY i.interview_date DESC, i.interview_time DESC`,
     params
   );

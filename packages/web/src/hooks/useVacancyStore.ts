@@ -1,3 +1,4 @@
+import { create } from 'zustand';
 import type { JobVacancy, VacancyStatus } from '../lib/types';
 import { authFetch } from '../lib/authFetch';
 import { createFilterStore } from '../lib/createFilterStore';
@@ -17,23 +18,42 @@ const defaultFilters: VacancyFilters = { status: '', branch: '', search: '' };
 
 const useVacancyFilters = createFilterStore(defaultFilters);
 
+// ── Pagination state ───────────────────────────────────────────────────────
+
+const useVacancyPagination = create<{
+  page: number; total: number; totalPages: number; limit: number;
+  setPage: (p: number) => void;
+  setLimit: (limit: number) => void;
+  setMeta: (meta: { total: number; totalPages: number }) => void;
+}>()((set) => ({
+  page: 1, total: 0, totalPages: 1, limit: 25,
+  setPage: (page) => set({ page }),
+  setLimit: (limit) => set({ limit, page: 1 }),
+  setMeta: ({ total, totalPages }) => set({ total, totalPages }),
+}));
+
 // ── Server state: list ─────────────────────────────────────────────────────
-// Fetcher closes over the filter store — reads current filters at call time.
 
 const useVacancyList = createFetchStore(async () => {
   const { status, branch, search } = useVacancyFilters.getState().filters;
+  const { page, limit } = useVacancyPagination.getState();
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   if (branch)  params.set('branch', branch);
   if (search)  params.set('search', search);
-  const qs = params.toString();
-  const res = await authFetch(`${API_BASE}${qs ? `?${qs}` : ''}`);
+  params.set('page', String(page));
+  params.set('limit', String(limit));
+  const res = await authFetch(`${API_BASE}?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to fetch vacancies');
-  return res.json() as Promise<JobVacancy[]>;
+  const result = await res.json();
+  if (result && result.data && result.total !== undefined) {
+    useVacancyPagination.getState().setMeta({ total: result.total, totalPages: result.totalPages });
+    return result.data as JobVacancy[];
+  }
+  return result as JobVacancy[];
 }, [] as JobVacancy[]);
 
 // ── Mutations ──────────────────────────────────────────────────────────────
-// Module-level functions — no loading state (callers own their UI feedback).
 
 async function createVacancy(data: Partial<JobVacancy>): Promise<JobVacancy> {
   const res = await authFetch(API_BASE, {
@@ -88,21 +108,41 @@ async function updateVacancyStatus(
   }));
 }
 
-// ── Public hook — identical API to the old single store ───────────────────
+// ── Public hook ────────────────────────────────────────────────────────────
 
 export function useVacancyStore() {
-  const { data: vacancies, loading, error, fetch: fetchVacancies } = useVacancyList();
-  const { filters, setFilter, resetFilters } = useVacancyFilters();
+  const { data: vacancies, loading, error, fetch: _fetch } = useVacancyList();
+  const { filters, setFilter: _setFilter, resetFilters: _resetFilters } = useVacancyFilters();
+  const { page, total, totalPages, limit } = useVacancyPagination();
+
+  function fetchVacancies() {
+    useVacancyList.getState().fetch();
+  }
+
+  function setFilter<K extends keyof VacancyFilters>(key: K, value: VacancyFilters[K]) {
+    useVacancyPagination.setState({ page: 1 });
+    _setFilter(key, value);
+  }
+
+  function resetFilters() {
+    useVacancyPagination.setState({ page: 1 });
+    _resetFilters();
+  }
+
+  function goToPage(p: number) {
+    useVacancyPagination.setState({ page: p });
+    useVacancyList.getState().fetch();
+  }
+
+  function setLimit(nextLimit: number) {
+    useVacancyPagination.getState().setLimit(nextLimit);
+    useVacancyList.getState().fetch();
+  }
+
   return {
-    vacancies,
-    loading,
-    error,
-    filters,
-    setFilter,
-    resetFilters,
-    fetchVacancies,
-    createVacancy,
-    updateVacancy,
-    updateVacancyStatus,
+    vacancies, loading, error,
+    filters, setFilter, resetFilters, fetchVacancies,
+    createVacancy, updateVacancy, updateVacancyStatus,
+    page, total, totalPages, limit, goToPage, setLimit,
   };
 }

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
+import PaginationBar from '../../components/PaginationBar';
 import { useBranchStore } from '../../hooks/useBranchStore';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
 import GeoSmartSearch, { GeoSelection, getLevelName } from '../../components/GeoSmartSearch';
@@ -53,7 +54,8 @@ export default function Vacancies() {
   const {
     vacancies, filters, loading,
     fetchVacancies, setFilter, resetFilters,
-    createVacancy, updateVacancy, updateVacancyStatus
+    createVacancy, updateVacancy, updateVacancyStatus,
+    page, total, totalPages, limit, goToPage, setLimit,
   } = useVacancyStore();
 
   const [showModal, setShowModal] = useState(false);
@@ -542,6 +544,27 @@ export default function Vacancies() {
             </table>
           </div>
         )}
+        <div className="flex items-center justify-between border-t border-slate-100 bg-white px-4 pt-3">
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            <span>لكل صفحة</span>
+            <select
+              value={limit}
+              onChange={(e) => setLimit(parseInt(e.target.value, 10))}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+            >
+              {[10, 25, 50, 100].map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <PaginationBar
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPageChange={goToPage}
+        />
       </div>
 
       {/* ── MODAL ── */}

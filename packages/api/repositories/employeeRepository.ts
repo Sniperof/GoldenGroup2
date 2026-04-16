@@ -1,4 +1,5 @@
 import pool from '../db.js';
+import { paginatedResponse, type PaginatedResult } from '../utils/paginate.js';
 
 const HIRED_APPLICATION_JOINS = `
   FROM employees e
@@ -85,11 +86,48 @@ const APP_COLS = `
   ja.decision
 `;
 
-export async function listEmployees() {
+export async function listEmployees(opts?: {
+  page?: number;
+  limit?: number;
+  search?: string;
+}): Promise<any[] | PaginatedResult<any>> {
+  const conditions: string[] = [];
+  const params: any[] = [];
+  let idx = 1;
+
+  if (opts?.search) {
+    conditions.push(`(e.name ILIKE $${idx} OR e.mobile ILIKE $${idx})`);
+    params.push(`%${opts.search}%`);
+    idx++;
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  if (opts?.page !== undefined || opts?.limit !== undefined) {
+    const page = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(200, Math.max(1, opts.limit ?? 20));
+    const offset = (page - 1) * limit;
+
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      pool.query(
+        `SELECT ${EMPLOYEE_SELECT_COLS}
+         ${HIRED_APPLICATION_JOINS}
+         ${where}
+         ORDER BY e.created_at DESC NULLS LAST, e.id DESC
+         LIMIT $${idx} OFFSET $${idx + 1}`,
+        [...params, limit, offset],
+      ),
+      pool.query(`SELECT COUNT(*) FROM employees e ${where}`, params),
+    ]);
+    return paginatedResponse(rows, parseInt(countRows[0].count), page, limit);
+  }
+
   const { rows } = await pool.query(
     `SELECT ${EMPLOYEE_SELECT_COLS}
      ${HIRED_APPLICATION_JOINS}
-     ORDER BY e.created_at DESC NULLS LAST, e.id DESC`
+     ${where}
+     ORDER BY e.created_at DESC NULLS LAST, e.id DESC`,
+    params,
   );
   return rows;
 }

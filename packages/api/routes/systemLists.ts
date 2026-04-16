@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
@@ -43,35 +44,39 @@ async function syncJobTitleRole(listId: number, displayName: string, isActive = 
 }
 
 // GET /api/system-lists
-// Get all lists, optionally filtered by category
+// Get all lists, optionally filtered by category. Supports ?page=&limit= pagination.
 router.get('/', async (req, res) => {
   try {
     const { category, activeOnly } = req.query;
-    
-    let query = `
-      SELECT id, category, value, is_active AS "isActive", display_order AS "displayOrder"
-      FROM system_lists
-    `;
     const params: any[] = [];
     const conditions: string[] = [];
-    
+
     if (category) {
       params.push(category);
       conditions.push(`category = $${params.length}`);
     }
-    
     if (activeOnly === 'true') {
       conditions.push(`is_active = TRUE`);
     }
-    
-    if (conditions.length > 0) {
-      query += ` WHERE ${conditions.join(' AND ')}`;
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const baseQuery = `
+      SELECT id, category, value, is_active AS "isActive", display_order AS "displayOrder"
+      FROM system_lists ${where}
+    `;
+    const order = ` ORDER BY category ASC, display_order ASC, id ASC`;
+
+    if (hasPaginationParams(req.query)) {
+      const { page, limit, offset } = parsePagination(req.query);
+      const [{ rows }, { rows: countRows }] = await Promise.all([
+        pool.query(`${baseQuery} ${order} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, limit, offset]),
+        pool.query(`SELECT COUNT(*) FROM system_lists ${where}`, params),
+      ]);
+      res.json(paginatedResponse(rows, parseInt(countRows[0].count), page, limit));
+    } else {
+      const { rows } = await pool.query(`${baseQuery} ${order}`, params);
+      res.json(rows);
     }
-    
-    query += ` ORDER BY category ASC, display_order ASC, id ASC`;
-    
-    const { rows } = await pool.query(query, params);
-    res.json(rows);
   } catch (err: any) {
     console.error('Error fetching system lists:', err);
     res.status(500).json({ error: err.message });

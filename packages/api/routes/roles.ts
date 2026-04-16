@@ -2,23 +2,32 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db.js';
 import { requirePermission, clearPermissionCache } from '../middleware/permission.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
+const ROLES_SELECT = `
+  SELECT r.*,
+    (SELECT COUNT(*) FROM hr_users WHERE role_id = r.id) AS user_count,
+    (SELECT COUNT(*) FROM role_permissions WHERE role_id = r.id) AS permission_count
+  FROM roles r
+`;
+const mapRole = (r: any) => ({ ...r, user_count: parseInt(r.user_count), permission_count: parseInt(r.permission_count) });
+
 // ── GET /roles — List all roles ─────────────────────────────────────────────
-router.get('/roles', requirePermission('admin.roles.view'), async (_req, res) => {
+router.get('/roles', requirePermission('admin.roles.view'), async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT r.*,
-        (SELECT COUNT(*) FROM hr_users WHERE role_id = r.id) AS user_count,
-        (SELECT COUNT(*) FROM role_permissions WHERE role_id = r.id) AS permission_count
-       FROM roles r ORDER BY r.id`
-    );
-    res.json(rows.map((r: any) => ({
-      ...r,
-      user_count: parseInt(r.user_count),
-      permission_count: parseInt(r.permission_count),
-    })));
+    if (hasPaginationParams(req.query)) {
+      const { page, limit, offset } = parsePagination(req.query);
+      const [{ rows }, { rows: countRows }] = await Promise.all([
+        pool.query(`${ROLES_SELECT} ORDER BY r.id LIMIT $1 OFFSET $2`, [limit, offset]),
+        pool.query(`SELECT COUNT(*) FROM roles`),
+      ]);
+      res.json(paginatedResponse(rows.map(mapRole), parseInt(countRows[0].count), page, limit));
+    } else {
+      const { rows } = await pool.query(`${ROLES_SELECT} ORDER BY r.id`);
+      res.json(rows.map(mapRole));
+    }
   } catch (err: any) {
     console.error('Error fetching roles:', err);
     res.status(500).json({ error: err.message });

@@ -44,6 +44,8 @@ export async function getInterviews(filters: {
   interviewerName?: unknown;
   date?: unknown;
   jobVacancyId?: unknown;
+  page?: number;
+  limit?: number;
 }) {
   return listInterviews(filters);
 }

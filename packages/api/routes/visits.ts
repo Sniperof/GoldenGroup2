@@ -1,15 +1,27 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query(`
-    SELECT id, date, customer_id AS "customerId", employee_id AS "employeeId",
-      employee_name AS "employeeName", outcome, notes
-    FROM visits ORDER BY date DESC
-  `);
-  res.json(rows);
+const VISITS_SELECT = `
+  SELECT id, date, customer_id AS "customerId", employee_id AS "employeeId",
+    employee_name AS "employeeName", outcome, notes
+  FROM visits
+`;
+
+router.get('/', async (req, res) => {
+  if (hasPaginationParams(req.query)) {
+    const { page, limit, offset } = parsePagination(req.query);
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      pool.query(`${VISITS_SELECT} ORDER BY date DESC LIMIT $1 OFFSET $2`, [limit, offset]),
+      pool.query(`SELECT COUNT(*) FROM visits`),
+    ]);
+    res.json(paginatedResponse(rows, parseInt(countRows[0].count), page, limit));
+  } else {
+    const { rows } = await pool.query(`${VISITS_SELECT} ORDER BY date DESC`);
+    res.json(rows);
+  }
 });
 
 router.post('/', async (req, res) => {

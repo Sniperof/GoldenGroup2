@@ -140,9 +140,22 @@ export async function getTrainingCourseDetail(courseId: string) {
   const course = await getTrainingCourseById(courseId);
   if (!course) throw createServiceError(404, { error: 'Ø§Ù„Ø¯ÙˆØ±Ø© Ø§Ù„ØªØ¯Ø±ÙŠØ¨ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©' });
   const vacancy = course.job_vacancy_id ? await getTrainingVacancySummary(course.job_vacancy_id) : null;
-  const trainees = await getTrainingCourseTraineesDetail(courseId);
-  const attendance = await getTrainingCourseAttendance(courseId);
-  return { ...mapCourse(course), vacancy, trainees, attendance };
+  const [{ rows: traineeCountRows }, { rows: attendanceDateRows }] = await Promise.all([
+    pool.query(`SELECT COUNT(*) FROM training_course_trainees WHERE training_course_id = $1`, [courseId]),
+    pool.query(
+      `SELECT DISTINCT attendance_date AS "attendanceDate"
+       FROM training_attendance
+       WHERE training_course_id = $1
+       ORDER BY "attendanceDate" ASC`,
+      [courseId]
+    ),
+  ]);
+  return {
+    ...mapCourse(course),
+    vacancy,
+    traineeCount: parseInt(traineeCountRows[0].count, 10),
+    attendanceDates: attendanceDateRows.map((row: any) => row.attendanceDate),
+  };
 }
 
 export async function startTrainingCourse(courseId: string, user: TrainingActor) {

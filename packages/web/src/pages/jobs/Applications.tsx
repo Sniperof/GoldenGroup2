@@ -7,6 +7,7 @@ import {
   ClipboardList, Search, Filter, ChevronDown, Eye, AlertTriangle, Calendar, Archive, Plus
 } from 'lucide-react';
 import PermissionGate from '../../components/PermissionGate';
+import PaginationBar from '../../components/PaginationBar';
 
 const STAGE_COLORS: Record<ApplicationStage, string> = {
   'Submitted': 'bg-blue-100 text-blue-700',
@@ -76,7 +77,8 @@ const ALL_STATUSES: ApplicationStatus[] = [
 export default function Applications() {
   const {
     applications, filters, loading,
-    fetchApplications, setFilter, resetFilters
+    fetchApplications, setFilter, resetFilters,
+    page, total, totalPages, limit, goToPage,
   } = useApplicationListStore();
   const navigate = useNavigate();
 
@@ -305,6 +307,13 @@ export default function Applications() {
             </table>
           </div>
         )}
+        <PaginationBar
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPageChange={goToPage}
+        />
       </div>
     </div>
   );

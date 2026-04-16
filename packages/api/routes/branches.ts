@@ -1,24 +1,35 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
+const BRANCH_SELECT = `
+  SELECT b.id, b.name,
+         b.location_geo_id AS "locationGeoId",
+         b.covered_geo_ids AS "coveredGeoIds",
+         COALESCE(b.contact_info, '[]'::jsonb) AS "contactInfo",
+         b.status,
+         b.created_at AS "createdAt",
+         g.name AS "locationGeoName"
+  FROM branches b
+  LEFT JOIN geo_units g ON g.id = b.location_geo_id
+`;
+
 // GET /api/branches
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const { rows } = await pool.query(`
-      SELECT b.id, b.name,
-             b.location_geo_id AS "locationGeoId",
-             b.covered_geo_ids AS "coveredGeoIds",
-             COALESCE(b.contact_info, '[]'::jsonb) AS "contactInfo",
-             b.status,
-             b.created_at      AS "createdAt",
-             g.name            AS "locationGeoName"
-      FROM branches b
-      LEFT JOIN geo_units g ON g.id = b.location_geo_id
-      ORDER BY b.created_at DESC
-    `);
-    res.json(rows);
+    if (hasPaginationParams(req.query)) {
+      const { page, limit, offset } = parsePagination(req.query);
+      const [{ rows }, { rows: countRows }] = await Promise.all([
+        pool.query(`${BRANCH_SELECT} ORDER BY b.created_at DESC LIMIT $1 OFFSET $2`, [limit, offset]),
+        pool.query(`SELECT COUNT(*) FROM branches`),
+      ]);
+      res.json(paginatedResponse(rows, parseInt(countRows[0].count), page, limit));
+    } else {
+      const { rows } = await pool.query(`${BRANCH_SELECT} ORDER BY b.created_at DESC`);
+      res.json(rows);
+    }
   } catch (err: any) {
     console.error('Error fetching branches:', err);
     res.status(500).json({ error: err.message });

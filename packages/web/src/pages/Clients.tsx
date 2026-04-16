@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2 } from 'lucide-react';
 import { api } from '../lib/api';
@@ -11,12 +11,19 @@ import QualificationModal from '../components/candidates/QualificationModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 
+const CLIENT_PAGE_LIMIT = 25;
+
 export default function Clients() {
     const [clients, setClients] = useState<Client[]>([]);
     const [visits, setVisits] = useState<Visit[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
+
+    // ─── Server pagination state ───
+    const [page, setPage] = useState(1);
+    const [clientTotal, setClientTotal] = useState(0);
+    const [clientTotalPages, setClientTotalPages] = useState(1);
 
     const [activeTab, setActiveTab] = useState<'clients' | 'candidates'>('clients');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -34,22 +41,43 @@ export default function Clients() {
     const [filterArea, setFilterArea] = useState('all');
     const [filterMediator, setFilterMediator] = useState('all');
 
-    const fetchClients = useCallback(async () => {
-        const data = await api.clients.list();
-        setClients(data);
+    // Debounce ref for server search
+    const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [serverSearch, setServerSearch] = useState('');
+
+    const handleSearchChange = useCallback((value: string) => {
+        setSearchTerm(value);
+        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = setTimeout(() => {
+            setServerSearch(value);
+            setPage(1);
+        }, 400);
+    }, []);
+
+    const fetchClients = useCallback(async (p: number, s: string) => {
+        try {
+            const result = await api.clients.listPaged({ page: p, limit: CLIENT_PAGE_LIMIT, search: s });
+            setClients(result.data);
+            setClientTotal(result.total);
+            setClientTotalPages(result.totalPages);
+        } catch (err) {
+            console.error('Failed to fetch clients:', err);
+        }
     }, []);
 
     useEffect(() => {
         const fetchAll = async () => {
             try {
                 setLoading(true);
-                const [clientsData, visitsData, contractsData, geoUnitsData] = await Promise.all([
-                    api.clients.list(),
+                const [clientsResult, visitsData, contractsData, geoUnitsData] = await Promise.all([
+                    api.clients.listPaged({ page: 1, limit: CLIENT_PAGE_LIMIT }),
                     api.visits.list(),
                     api.contracts.list(),
                     api.geoUnits.list(),
                 ]);
-                setClients(clientsData);
+                setClients(clientsResult.data);
+                setClientTotal(clientsResult.total);
+                setClientTotalPages(clientsResult.totalPages);
                 setVisits(visitsData);
                 setContracts(contractsData);
                 setGeoUnits(geoUnitsData);
@@ -61,6 +89,14 @@ export default function Clients() {
         };
         fetchAll();
     }, []);
+
+    // Re-fetch when page or server search changes
+    useEffect(() => {
+        if (!loading) {
+            fetchClients(page, serverSearch);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, serverSearch]);
 
     const getLifecycleStage = useCallback((client: Client) => {
         if (contracts.some(c => c.customerId === client.id)) return 'OP';
@@ -115,13 +151,15 @@ export default function Clients() {
         return { total, leadsCount, fopsCount, opsCount };
     }, [mainList]);
 
+    const refreshClients = useCallback(() => fetchClients(page, serverSearch), [fetchClients, page, serverSearch]);
+
     const convertToLead = async (id: number) => {
         if (!confirm('هل أنت متأكد من تحويل هذا المرشح إلى عميل محتمل؟')) return;
         const client = clients.find(c => c.id === id);
         if (!client) return;
         try {
             await api.clients.update(id, { ...client, isCandidate: false });
-            await fetchClients();
+            await refreshClients();
         } catch (err) {
             console.error('Failed to convert candidate:', err);
         }
@@ -131,7 +169,7 @@ export default function Clients() {
         if (!confirm('حذف هذا العميل؟')) return;
         try {
             await api.clients.delete(id);
-            await fetchClients();
+            await refreshClients();
         } catch (err) {
             console.error('Failed to delete client:', err);
         }
@@ -141,7 +179,7 @@ export default function Clients() {
         const ids = items.map(i => i.id);
         try {
             await api.clients.bulkDelete(ids);
-            await fetchClients();
+            await refreshClients();
         } catch (err) {
             console.error('Failed to bulk delete:', err);
         }
@@ -159,7 +197,7 @@ export default function Clients() {
                     isCandidate: activeTab === 'candidates',
                 });
             }
-            await fetchClients();
+            await refreshClients();
         } catch (err) {
             console.error('Failed to save client:', err);
         }
@@ -312,7 +350,7 @@ export default function Clients() {
                             type="text"
                             placeholder="بحث ذكي (الاسم، الهاتف، المعرف، الوسيط)..."
                             value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onChange={(e) => handleSearchChange(e.target.value)}
                             className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm focus:border-sky-500 focus:outline-none transition-all focus:bg-white"
                         />
                     </div>
@@ -350,7 +388,7 @@ export default function Clients() {
                         </select>
 
                         <button
-                            onClick={() => { setSearchTerm(''); setFilterClass('all'); setFilterMediator('all'); setFilterArea('all'); }}
+                            onClick={() => { handleSearchChange(''); setFilterClass('all'); setFilterMediator('all'); setFilterArea('all'); }}
                             className="text-xs font-bold text-slate-400 hover:text-sky-600 px-3 transition-colors"
                         >
                             تفريغ الفلاتر
@@ -381,6 +419,13 @@ export default function Clients() {
                     )}
                     emptyIcon={Users}
                     emptyMessage="لا يوجد سجلات زبائن حالياً"
+                    serverPagination={{
+                        page,
+                        limit: CLIENT_PAGE_LIMIT,
+                        total: clientTotal,
+                        totalPages: clientTotalPages,
+                        onPageChange: (p) => setPage(p),
+                    }}
                 />
             </div >
 

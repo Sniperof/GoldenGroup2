@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
@@ -8,9 +9,20 @@ const selectFields = `
   base_price AS "basePrice", supported_visit_types AS "supportedVisitTypes"
 `;
 
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query(`SELECT ${selectFields} FROM device_models ORDER BY id`);
-  res.json(rows.map(r => ({ ...r, basePrice: Number(r.basePrice) })));
+const mapModel = (r: any) => ({ ...r, basePrice: Number(r.basePrice) });
+
+router.get('/', async (req, res) => {
+  if (hasPaginationParams(req.query)) {
+    const { page, limit, offset } = parsePagination(req.query);
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      pool.query(`SELECT ${selectFields} FROM device_models ORDER BY id LIMIT $1 OFFSET $2`, [limit, offset]),
+      pool.query(`SELECT COUNT(*) FROM device_models`),
+    ]);
+    res.json(paginatedResponse(rows.map(mapModel), parseInt(countRows[0].count), page, limit));
+  } else {
+    const { rows } = await pool.query(`SELECT ${selectFields} FROM device_models ORDER BY id`);
+    res.json(rows.map(mapModel));
+  }
 });
 
 router.post('/', async (req, res) => {

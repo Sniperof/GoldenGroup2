@@ -11,9 +11,18 @@ import {
 
 const router = Router();
 
-router.get('/', requirePermission('employees.view_list'), async (_req, res) => {
-  const rows = await getEmployees();
-  res.json(rows);
+router.get('/', requirePermission('employees.view_list'), async (req, res) => {
+  const { page, limit, search } = req.query;
+  const opts =
+    page !== undefined || limit !== undefined
+      ? {
+          page: page ? parseInt(page as string) : undefined,
+          limit: limit ? parseInt(limit as string) : undefined,
+          search: search as string | undefined,
+        }
+      : undefined;
+  const result = await getEmployees(opts);
+  res.json(result);
 });
 
 router.get('/:id', requirePermission('employees.view_list'), async (req, res) => {

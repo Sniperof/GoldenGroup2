@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
@@ -22,21 +23,41 @@ const dueSelect = `
   status, escalated
 `;
 
-router.get('/', async (_req, res) => {
-  const { rows: contracts } = await pool.query(`SELECT ${contractSelect} FROM contracts c ORDER BY c.id`);
-  const { rows: dues } = await pool.query(`SELECT ${dueSelect} FROM dues ORDER BY contract_id, id`);
-  const result = contracts.map(c => ({
+function buildContractResult(contracts: any[], dues: any[]) {
+  return contracts.map(c => ({
     ...c,
     basePrice: Number(c.basePrice),
     finalPrice: Number(c.finalPrice),
     downPayment: Number(c.downPayment),
-    dues: dues.filter(d => d.contractId === c.id).map(d => ({
-      ...d,
-      originalAmount: Number(d.originalAmount),
-      remainingBalance: Number(d.remainingBalance),
-    }))
+    dues: dues
+      .filter(d => d.contractId === c.id)
+      .map(d => ({
+        ...d,
+        originalAmount: Number(d.originalAmount),
+        remainingBalance: Number(d.remainingBalance),
+      })),
   }));
-  res.json(result);
+}
+
+router.get('/', async (req, res) => {
+  if (hasPaginationParams(req.query)) {
+    const { page, limit, offset } = parsePagination(req.query);
+    const [{ rows: contracts }, { rows: countRows }] = await Promise.all([
+      pool.query(`SELECT ${contractSelect} FROM contracts c ORDER BY c.id LIMIT $1 OFFSET $2`, [limit, offset]),
+      pool.query(`SELECT COUNT(*) FROM contracts`),
+    ]);
+    const contractIds = contracts.map(c => c.id);
+    const { rows: dues } = contractIds.length
+      ? await pool.query(`SELECT ${dueSelect} FROM dues WHERE contract_id = ANY($1) ORDER BY contract_id, id`, [contractIds])
+      : { rows: [] };
+    res.json(paginatedResponse(buildContractResult(contracts, dues), parseInt(countRows[0].count), page, limit));
+  } else {
+    const [{ rows: contracts }, { rows: dues }] = await Promise.all([
+      pool.query(`SELECT ${contractSelect} FROM contracts c ORDER BY c.id`),
+      pool.query(`SELECT ${dueSelect} FROM dues ORDER BY contract_id, id`),
+    ]);
+    res.json(buildContractResult(contracts, dues));
+  }
 });
 
 router.post('/', async (req, res) => {

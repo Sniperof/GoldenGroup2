@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -29,6 +29,19 @@ export interface BulkActionDef<T> {
     variant?: 'danger' | 'primary';
 }
 
+/** Pass this prop to enable server-side pagination mode.
+ *  When set, SmartTable renders `data` as-is (no client filtering/pagination).
+ *  Search input calls `onSearch` (debounced 400ms). Pagination controls call `onPageChange`.
+ */
+export interface ServerPaginationProps {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    onPageChange: (page: number) => void;
+    onSearch?: (value: string) => void;
+}
+
 export interface SmartTableProps<T> {
     title: string;
     icon: LucideIcon;
@@ -45,6 +58,8 @@ export interface SmartTableProps<T> {
     emptyMessage?: string;
     getId: (item: T) => string | number;
     hideFilterBar?: boolean;
+    /** Enable server-side pagination. When provided, client-side filtering and pagination are disabled. */
+    serverPagination?: ServerPaginationProps;
 }
 
 /* ------------------------------------------------------------------ */
@@ -94,7 +109,10 @@ export default function SmartTable<T>({
     getId,
     rowClassName,
     hideFilterBar = false,
+    serverPagination,
 }: SmartTableProps<T> & { rowClassName?: (item: T) => string }) {
+
+    const isServerMode = !!serverPagination;
 
     /* ---------- state ---------- */
     const [search, setSearch] = useState('');
@@ -107,9 +125,22 @@ export default function SmartTable<T>({
     const [currentPage, setCurrentPage] = useState(1);
     const ITEMS_PER_PAGE = 10;
 
+    /* ---------- server-mode: debounced search ---------- */
+    const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const handleSearchChange = useCallback((value: string) => {
+        setSearch(value);
+        if (isServerMode && serverPagination?.onSearch) {
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+            searchDebounceRef.current = setTimeout(() => {
+                serverPagination.onSearch!(value);
+            }, 400);
+        }
+    }, [isServerMode, serverPagination]);
 
-    /* ---------- filtering ---------- */
+    /* ---------- filtering (client mode only) ---------- */
     const filtered = useMemo(() => {
+        if (isServerMode) return data; // server already filtered
+
         let result = [...data];
 
         // dropdown filters
@@ -129,7 +160,7 @@ export default function SmartTable<T>({
         }
 
         return result;
-    }, [data, filters, filterValues, search, searchKeys]);
+    }, [data, filters, filterValues, search, searchKeys, isServerMode]);
 
     /* ---------- sorting ---------- */
     const sorted = useMemo(() => {
@@ -151,18 +182,33 @@ export default function SmartTable<T>({
     }, [filtered, sortKey, sortDir, columns]);
 
     /* ---------- pagination ---------- */
-    const totalPages = Math.ceil(sorted.length / ITEMS_PER_PAGE);
+    // Server mode: use server values. Client mode: slice locally.
+    const totalPages = isServerMode
+        ? serverPagination!.totalPages
+        : Math.ceil(sorted.length / ITEMS_PER_PAGE);
+    const activePage = isServerMode ? serverPagination!.page : currentPage;
+    const totalRecords = isServerMode ? serverPagination!.total : sorted.length;
+
     const paginatedData = useMemo(() => {
+        if (isServerMode) return sorted; // data already represents the current page
         const start = (currentPage - 1) * ITEMS_PER_PAGE;
         return sorted.slice(start, start + ITEMS_PER_PAGE);
-    }, [sorted, currentPage, ITEMS_PER_PAGE]);
+    }, [sorted, currentPage, ITEMS_PER_PAGE, isServerMode]);
 
-    // Reset page if data changes dramatically
+    const handlePageChange = useCallback((page: number) => {
+        if (isServerMode) {
+            serverPagination!.onPageChange(page);
+        } else {
+            setCurrentPage(page);
+        }
+    }, [isServerMode, serverPagination]);
+
+    // Client mode: reset page if data changes
     useEffect(() => {
-        if (currentPage > 1 && totalPages > 0 && currentPage > totalPages) {
+        if (!isServerMode && currentPage > 1 && totalPages > 0 && currentPage > totalPages) {
             setCurrentPage(totalPages);
         }
-    }, [totalPages, currentPage]);
+    }, [totalPages, currentPage, isServerMode]);
 
     /* ---------- selection ---------- */
     const allSelected = sorted.length > 0 && sorted.every(item => selected.has(getId(item)));
@@ -201,11 +247,12 @@ export default function SmartTable<T>({
         setSortKey(null);
         setSortDir(null);
         setSelected(new Set());
-        setCurrentPage(1);
-    }, [filters]);
+        if (!isServerMode) setCurrentPage(1);
+        if (isServerMode && serverPagination?.onSearch) serverPagination.onSearch('');
+    }, [filters, isServerMode, serverPagination]);
 
     const selectedItems = sorted.filter(item => selected.has(getId(item)));
-    const hasActiveFilters = search.trim() !== '' || Object.values(filterValues).some(v => v !== 'all');
+    const hasActiveFilters = search.trim() !== '' || (!isServerMode && Object.values(filterValues).some(v => v !== 'all'));
 
     /* ---------------------------------------------------------------- */
     /*  Render                                                           */
@@ -220,10 +267,10 @@ export default function SmartTable<T>({
                     </div>
                     <div>
                         <h1 className="text-xl font-bold text-slate-900 leading-tight">{title}</h1>
-                        <p className="text-slate-500 text-xs mt-0.5">{sorted.length} سجل</p>
+                        <p className="text-slate-500 text-xs mt-0.5">{totalRecords} سجل</p>
                     </div>
                     <span className="px-3 py-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-600 text-sm font-bold mr-2">
-                        {data.length}
+                        {totalRecords}
                     </span>
                 </div>
 
@@ -258,13 +305,13 @@ export default function SmartTable<T>({
                             type="text"
                             placeholder={searchPlaceholder}
                             value={search}
-                            onChange={e => setSearch(e.target.value)}
+                            onChange={e => handleSearchChange(e.target.value)}
                             className="w-full bg-white border border-gray-200 rounded-lg pr-10 pl-4 py-2 text-sm text-slate-900 placeholder:text-gray-400 focus:border-sky-500 focus:outline-none transition-colors"
                         />
                     </div>
 
-                    {/* Dropdowns */}
-                    {filters.map(f => (
+                    {/* Dropdowns — hidden in server mode (filtering happens server-side) */}
+                    {!isServerMode && filters.map(f => (
                         <select
                             key={f.key}
                             value={filterValues[f.key]}
@@ -403,20 +450,32 @@ export default function SmartTable<T>({
                 </div>
 
                 {/* ==================== PAGINATION FOOTER ==================== */}
-                {sorted.length > 0 && (
+                {totalRecords > 0 && (
                     <div className="sticky bottom-0 bg-white z-20 border-t border-gray-100 p-3 flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div className="text-xs font-bold text-slate-500">
-                            عرض <span className="text-slate-800">{Math.min(sorted.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)}</span>
-                            <span> - </span>
-                            <span className="text-slate-800">{Math.min(sorted.length, currentPage * ITEMS_PER_PAGE)}</span>
-                            <span> من أصل </span>
-                            <span className="text-slate-800">{sorted.length}</span> سجل
+                            {isServerMode ? (
+                                <>
+                                    عرض <span className="text-slate-800">{(activePage - 1) * serverPagination!.limit + 1}</span>
+                                    <span> - </span>
+                                    <span className="text-slate-800">{Math.min(totalRecords, activePage * serverPagination!.limit)}</span>
+                                    <span> من أصل </span>
+                                    <span className="text-slate-800">{totalRecords}</span> سجل
+                                </>
+                            ) : (
+                                <>
+                                    عرض <span className="text-slate-800">{Math.min(sorted.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)}</span>
+                                    <span> - </span>
+                                    <span className="text-slate-800">{Math.min(sorted.length, currentPage * ITEMS_PER_PAGE)}</span>
+                                    <span> من أصل </span>
+                                    <span className="text-slate-800">{sorted.length}</span> سجل
+                                </>
+                            )}
                         </div>
 
                         <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-gray-200">
                             <button
-                                disabled={currentPage === 1}
-                                onClick={() => setCurrentPage(prev => prev - 1)}
+                                disabled={activePage === 1}
+                                onClick={() => handlePageChange(activePage - 1)}
                                 className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white text-slate-600"
                             >
                                 السابق
@@ -424,13 +483,13 @@ export default function SmartTable<T>({
 
                             <div className="flex items-center gap-1 px-2">
                                 {Array.from({ length: totalPages }, (_, i) => i + 1)
-                                    .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                                    .filter(p => p === 1 || p === totalPages || Math.abs(p - activePage) <= 1)
                                     .map((p, i, arr) => (
                                         <div key={p} className="flex items-center gap-1">
                                             {i > 0 && arr[i - 1] !== p - 1 && <span className="text-slate-400 text-xs">...</span>}
                                             <button
-                                                onClick={() => setCurrentPage(p)}
-                                                className={`w-7 h-7 flex items-center justify-center text-xs font-black rounded-lg transition-all ${currentPage === p ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}
+                                                onClick={() => handlePageChange(p)}
+                                                className={`w-7 h-7 flex items-center justify-center text-xs font-black rounded-lg transition-all ${activePage === p ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}
                                             >
                                                 {p}
                                             </button>
@@ -439,8 +498,8 @@ export default function SmartTable<T>({
                             </div>
 
                             <button
-                                disabled={currentPage === totalPages || totalPages === 0}
-                                onClick={() => setCurrentPage(prev => prev + 1)}
+                                disabled={activePage === totalPages || totalPages === 0}
+                                onClick={() => handlePageChange(activePage + 1)}
                                 className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white text-slate-600"
                             >
                                 التالي

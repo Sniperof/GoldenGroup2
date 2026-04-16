@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
+import PaginationBar from '../../components/PaginationBar';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { useBranchStore } from '../../hooks/useBranchStore';
 import type { BranchContact, BranchContactType } from '../../lib/types';
@@ -21,6 +22,14 @@ interface VacancyDetailData extends JobVacancy {
   applicationsCount: number;
   hiredCount: number;
   remainingSlots: number;
+}
+
+interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -94,6 +103,10 @@ export default function VacancyDetail() {
   const [detail, setDetail] = useState<VacancyDetailData | null>(null);
   const [applications, setApplications] = useState<JobApplicationListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [applicationsPage, setApplicationsPage] = useState(1);
+  const [applicationsLimit, setApplicationsLimit] = useState(10);
+  const [applicationsTotal, setApplicationsTotal] = useState(0);
+  const [applicationsTotalPages, setApplicationsTotalPages] = useState(1);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
 
@@ -111,14 +124,19 @@ export default function VacancyDetail() {
     try {
       const [vacRes, appRes] = await Promise.all([
         authFetch(`/api/admin/vacancies/${id}`),
-        authFetch(`/api/admin/applications?vacancyId=${id}&isArchived=false`),
+        authFetch(`/api/admin/applications?vacancyId=${id}&isArchived=false&page=${applicationsPage}&limit=${applicationsLimit}`),
       ]);
       if (vacRes.ok) setDetail(await vacRes.json());
-      if (appRes.ok) setApplications(await appRes.json());
+      if (appRes.ok) {
+        const result = await appRes.json() as PaginatedResponse<JobApplicationListItem>;
+        setApplications(result.data || []);
+        setApplicationsTotal(result.total || 0);
+        setApplicationsTotalPages(result.totalPages || 1);
+      }
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchDetail(); fetchLists(); fetchBranches(); }, [id]);
+  useEffect(() => { fetchDetail(); fetchLists(); fetchBranches(); }, [id, applicationsPage, applicationsLimit]);
 
   const handleStatusChange = async (newStatus: 'Open' | 'Closed' | 'Archived') => {
     setActionLoading(true); setActionError('');
@@ -453,6 +471,25 @@ export default function VacancyDetail() {
             <p className="text-sm">لا يوجد مرشحون لهذا الشاغر</p>
           </div>
         ) : (
+          <>
+            <div className="flex items-center justify-between px-5 pt-4">
+              <span className="text-xs text-slate-500">عدد النتائج: {applicationsTotal}</span>
+              <label className="flex items-center gap-2 text-xs text-slate-500">
+                <span>لكل صفحة</span>
+                <select
+                  value={applicationsLimit}
+                  onChange={(e) => {
+                    setApplicationsLimit(parseInt(e.target.value, 10));
+                    setApplicationsPage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+                >
+                  {[5, 10, 25, 50].map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -559,6 +596,14 @@ export default function VacancyDetail() {
               </tbody>
             </table>
           </div>
+          <PaginationBar
+            page={applicationsPage}
+            totalPages={applicationsTotalPages}
+            total={applicationsTotal}
+            limit={applicationsLimit}
+            onPageChange={setApplicationsPage}
+          />
+          </>
         )}
       </div>
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { JobApplicationDetail, AuditLog, ApplicationStage } from '../../lib/types';
+import type { JobApplicationDetail, AuditLog, ApplicationStage, Interview, ApplicationTrainingEnrollment } from '../../lib/types';
 import { authFetch } from '../../lib/authFetch';
 import { useInterviewStore } from '../../hooks/useInterviewStore';
 import {
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
+import PaginationBar from '../../components/PaginationBar';
 import { calculateJobMatchScore } from '../../lib/jobMatch';
 import { getUnifiedApplicationState } from '../../lib/applicationState';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -63,6 +64,14 @@ interface WorkflowAction {
   icon: ActionIcon;
   variant: 'primary' | 'success' | 'danger' | 'warning';
   requiresReason?: boolean;
+}
+
+interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 /** Operational (automated) workflow actions — move the process forward */
@@ -128,7 +137,21 @@ export default function ApplicationDetail() {
   const actorRole = authUser?.role || 'HR_MANAGER';
   const { scheduleInterview: storeScheduleInterview, fetchInterviews } = useInterviewStore();
   const [detail, setDetail] = useState<JobApplicationDetail | null>(null);
+  const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [interviewsPage, setInterviewsPage] = useState(1);
+  const [interviewsLimit, setInterviewsLimit] = useState(10);
+  const [interviewsTotal, setInterviewsTotal] = useState(0);
+  const [interviewsTotalPages, setInterviewsTotalPages] = useState(1);
+  const [trainings, setTrainings] = useState<ApplicationTrainingEnrollment[]>([]);
+  const [trainingsPage, setTrainingsPage] = useState(1);
+  const [trainingsLimit, setTrainingsLimit] = useState(10);
+  const [trainingsTotal, setTrainingsTotal] = useState(0);
+  const [trainingsTotalPages, setTrainingsTotalPages] = useState(1);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditLimit, setAuditLimit] = useState(10);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'details' | 'interviews' | 'training' | 'audit'>('details');
   const [actionLoading, setActionLoading] = useState(false);
@@ -162,19 +185,54 @@ export default function ApplicationDetail() {
   const [employeeLoading, setEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState('');
 
-  const fetchDetail = () => {
+  const fetchDetail = async () => {
     setLoading(true);
-    Promise.all([
-      authFetch(`/api/admin/applications/${id}`).then(r => r.json()),
-      authFetch(`/api/admin/applications/${id}/audit-logs`).then(r => r.json()),
-    ]).then(([app, logs]) => {
+    try {
+      const res = await authFetch(`/api/admin/applications/${id}`);
+      const app = await res.json();
       setDetail(app && !app.error ? app : null);
-      setAuditLogs(Array.isArray(logs) ? logs : []);
+    } finally {
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }
   };
 
-  useEffect(() => { fetchDetail(); }, [id]);
+  const fetchApplicationInterviews = async () => {
+    const res = await authFetch(`/api/admin/applications/${id}/interviews?page=${interviewsPage}&limit=${interviewsLimit}`);
+    const result = await res.json() as PaginatedResponse<Interview>;
+    if (!res.ok) return;
+    setInterviews(result.data || []);
+    setInterviewsTotal(result.total || 0);
+    setInterviewsTotalPages(result.totalPages || 1);
+  };
+
+  const fetchApplicationTrainings = async () => {
+    const res = await authFetch(`/api/admin/applications/${id}/trainings?page=${trainingsPage}&limit=${trainingsLimit}`);
+    const result = await res.json() as PaginatedResponse<ApplicationTrainingEnrollment>;
+    if (!res.ok) return;
+    setTrainings(result.data || []);
+    setTrainingsTotal(result.total || 0);
+    setTrainingsTotalPages(result.totalPages || 1);
+  };
+
+  const fetchApplicationAuditLogs = async () => {
+    const res = await authFetch(`/api/admin/applications/${id}/audit-logs?page=${auditPage}&limit=${auditLimit}`);
+    const result = await res.json() as PaginatedResponse<AuditLog>;
+    if (!res.ok) return;
+    setAuditLogs(result.data || []);
+    setAuditTotal(result.total || 0);
+    setAuditTotalPages(result.totalPages || 1);
+  };
+
+  useEffect(() => {
+    setInterviewsPage(1);
+    setTrainingsPage(1);
+    setAuditPage(1);
+    fetchDetail();
+  }, [id]);
+
+  useEffect(() => { fetchApplicationInterviews(); }, [id, interviewsPage, interviewsLimit]);
+  useEffect(() => { fetchApplicationTrainings(); }, [id, trainingsPage, trainingsLimit]);
+  useEffect(() => { fetchApplicationAuditLogs(); }, [id, auditPage, auditLimit]);
 
   const handleStageAction = async (newStage: string, newStatus: string, reason?: string) => {
     setActionLoading(true);
@@ -458,7 +516,7 @@ export default function ApplicationDetail() {
     applicationStatus: detail.applicationStatus,
     stageStatus: detail.stageStatus,
     decision: detail.decision,
-    hasScheduledInterview: detail.interviews?.some(i => i.interviewStatus === 'Interview Scheduled'),
+    hasScheduledInterview: Boolean(detail.scheduledInterview),
   });
 
   // Compute match score once at render time (used in profile card + review modal)
@@ -537,20 +595,20 @@ export default function ApplicationDetail() {
           onClick={() => setActiveTab('interviews')}
           className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'interviews' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
         >
-          <span className="flex items-center gap-2"><Users className="w-4 h-4" /> المقابلات ({detail.interviews?.length || 0})</span>
+          <span className="flex items-center gap-2"><Users className="w-4 h-4" /> المقابلات ({detail.interviewsCount || 0})</span>
         </button>
         <button
           onClick={() => setActiveTab('training')}
           className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'training' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
         >
-          <span className="flex items-center gap-2"><BookOpen className="w-4 h-4" /> التدريب ({detail.trainings?.length || 0})</span>
+          <span className="flex items-center gap-2"><BookOpen className="w-4 h-4" /> التدريب ({detail.trainingsCount || 0})</span>
         </button>
         <PermissionGate permission="jobs.applications.view_audit_logs">
           <button
             onClick={() => setActiveTab('audit')}
             className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'audit' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            <span className="flex items-center gap-2"><Clock className="w-4 h-4" /> سجل التدقيق ({auditLogs.length})</span>
+            <span className="flex items-center gap-2"><Clock className="w-4 h-4" /> سجل التدقيق ({auditTotal})</span>
           </button>
         </PermissionGate>
       </div>
@@ -1046,7 +1104,7 @@ export default function ApplicationDetail() {
 
             {/* ── Interview Scheduled: guide HR to the interview module ── */}
             {!isTerminal && !isAssistantWorkflowLocked && detail.currentStage === 'Interview' && detail.applicationStatus === 'Interview Scheduled' && (() => {
-              const scheduledInterview = detail.interviews?.find(i => i.interviewStatus === 'Interview Scheduled');
+              const scheduledInterview = detail.scheduledInterview;
               return (
                 <PermissionGate permission="jobs.interviews.schedule">
                   <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-3">
@@ -1085,7 +1143,7 @@ export default function ApplicationDetail() {
 
             {/* ── Training stage: guide HR to the training module ── */}
             {!isTerminal && !isAssistantWorkflowLocked && detail.currentStage === 'Training' && (() => {
-              const enrollment = detail.trainings?.[detail.trainings.length - 1]; // latest enrollment
+              const enrollment = detail.latestTraining;
               const statusMap: Record<string, { text: string; sub: string }> = {
                 'Training Scheduled': { text: 'الدورة التدريبية مجدولة', sub: 'يتم تحديث حالة الطلب تلقائياً عند تسجيل نتيجة التدريب من خلال وحدة الدورات التدريبية.' },
                 'Training Started':   { text: 'التدريب جارٍ حالياً',      sub: 'يتم تحديث حالة الطلب تلقائياً عند تسجيل نتيجة التدريب من خلال وحدة الدورات التدريبية.' },
@@ -1271,10 +1329,25 @@ export default function ApplicationDetail() {
       ) : activeTab === 'interviews' ? (
         /* Interviews Tab */
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
               <Users className="w-4 h-4 text-sky-500" /> المقابلات
             </h3>
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              <span>لكل صفحة</span>
+              <select
+                value={interviewsLimit}
+                onChange={(e) => {
+                  setInterviewsLimit(parseInt(e.target.value, 10));
+                  setInterviewsPage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+              >
+                {[5, 10, 25, 50].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
             <PermissionGate permission="jobs.interviews.schedule">
               <button
                 onClick={() => setShowScheduleInterviewModal(true)}
@@ -1284,11 +1357,12 @@ export default function ApplicationDetail() {
               </button>
             </PermissionGate>
           </div>
-          {!detail.interviews || detail.interviews.length === 0 ? (
+          {interviews.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">لا توجد مقابلات مسجلة</p>
           ) : (
+            <>
             <div className="space-y-3">
-              {detail.interviews.map((interview) => (
+              {interviews.map((interview) => (
                 <div key={interview.id} className="border border-slate-100 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold text-slate-700">{interview.interviewerName}</span>
@@ -1325,15 +1399,38 @@ export default function ApplicationDetail() {
                 </div>
               ))}
             </div>
+            <PaginationBar
+              page={interviewsPage}
+              totalPages={interviewsTotalPages}
+              total={interviewsTotal}
+              limit={interviewsLimit}
+              onPageChange={setInterviewsPage}
+            />
+            </>
           )}
         </div>
       ) : activeTab === 'training' ? (
         /* Training Tab */
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-sky-500" /> سجل التدريب
             </h3>
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              <span>لكل صفحة</span>
+              <select
+                value={trainingsLimit}
+                onChange={(e) => {
+                  setTrainingsLimit(parseInt(e.target.value, 10));
+                  setTrainingsPage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+              >
+                {[5, 10, 25, 50].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
             <PermissionGate permission="jobs.training.create">
               <button
                 onClick={() => { setTrainingForm(f => ({ ...f, branch: detail.vacancy?.branch || '' })); setShowCreateTrainingModal(true); }}
@@ -1343,11 +1440,12 @@ export default function ApplicationDetail() {
               </button>
             </PermissionGate>
           </div>
-          {!detail.trainings || detail.trainings.length === 0 ? (
+          {trainings.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">لم يُسجَّل في أي دورة تدريبية بعد</p>
           ) : (
+            <>
             <div className="space-y-4">
-              {detail.trainings.map((t) => {
+              {trainings.map((t) => {
                 const resultColors: Record<string, string> = {
                   Passed: 'bg-emerald-100 text-emerald-700',
                   Retraining: 'bg-amber-100 text-amber-700',
@@ -1419,17 +1517,43 @@ export default function ApplicationDetail() {
                 );
               })}
             </div>
+            <PaginationBar
+              page={trainingsPage}
+              totalPages={trainingsTotalPages}
+              total={trainingsTotal}
+              limit={trainingsLimit}
+              onPageChange={setTrainingsPage}
+            />
+            </>
           )}
         </div>
       ) : (
         /* Audit Log Tab */
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+          <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
+            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
             <Clock className="w-4 h-4 text-sky-500" /> سجل التدقيق
-          </h3>
+            </h3>
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              <span>لكل صفحة</span>
+              <select
+                value={auditLimit}
+                onChange={(e) => {
+                  setAuditLimit(parseInt(e.target.value, 10));
+                  setAuditPage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+              >
+                {[5, 10, 25, 50].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           {auditLogs.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">لا توجد سجلات</p>
           ) : (
+            <>
             <div className="space-y-3">
               {auditLogs.map((log) => (
                 <div key={log.id} className="border border-slate-100 rounded-xl p-4 hover:bg-slate-50/50 transition-colors">
@@ -1491,6 +1615,14 @@ export default function ApplicationDetail() {
                 </div>
               ))}
             </div>
+            <PaginationBar
+              page={auditPage}
+              totalPages={auditTotalPages}
+              total={auditTotal}
+              limit={auditLimit}
+              onPageChange={setAuditPage}
+            />
+            </>
           )}
         </div>
       )}

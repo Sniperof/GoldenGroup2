@@ -1,5 +1,7 @@
 import { Router } from 'express';
+import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
+import { paginatedResponse, parsePagination } from '../utils/paginate.js';
 import {
   addTrainingCourseTrainees,
   completeTrainingCourse,
@@ -54,6 +56,108 @@ router.get('/:id', requirePermission('jobs.training.view_detail'), async (req, r
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
     console.error('Error fetching training course detail:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:id/trainees', requirePermission('jobs.training.view_detail'), async (req, res) => {
+  try {
+    const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const resultState = Array.isArray(req.query.resultState) ? req.query.resultState[0] : req.query.resultState;
+    const { page, limit, offset } = parsePagination(req.query, 10);
+
+    const conditions = ['tct.training_course_id = $1'];
+    const params: Array<string | number> = [courseId];
+
+    if (resultState === 'recorded') conditions.push('tct.result IS NOT NULL');
+    if (resultState === 'pending') conditions.push('tct.result IS NULL');
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    const [listRes, countRes] = await Promise.all([
+      pool.query(
+        `SELECT tct.id, tct.training_course_id AS "trainingCourseId",
+          tct.application_id AS "applicationId",
+          a.first_name AS "firstName", a.last_name AS "lastName",
+          ja.application_status AS "applicationStatus",
+          tct.result, tct.result_recorded_at AS "resultRecordedAt", tct.added_at AS "addedAt"
+         FROM training_course_trainees tct
+         JOIN job_applications ja ON ja.id = tct.application_id
+         JOIN applicants a ON a.id = ja.applicant_id
+         ${where}
+         ORDER BY tct.added_at ASC
+         LIMIT $2 OFFSET $3`,
+        [...params, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*)
+         FROM training_course_trainees tct
+         ${where}`,
+        params
+      ),
+    ]);
+
+    res.json(paginatedResponse(listRes.rows, parseInt(countRes.rows[0].count, 10), page, limit));
+  } catch (err: any) {
+    console.error('Error fetching training course trainees:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:id/attendance', requirePermission('jobs.training.view_detail'), async (req, res) => {
+  try {
+    const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { page, limit, offset } = parsePagination(req.query, 10);
+
+    const [traineeRes, countRes, datesRes] = await Promise.all([
+      pool.query(
+        `SELECT tct.id, tct.training_course_id AS "trainingCourseId",
+          tct.application_id AS "applicationId",
+          a.first_name AS "firstName", a.last_name AS "lastName",
+          ja.application_status AS "applicationStatus",
+          tct.result, tct.result_recorded_at AS "resultRecordedAt", tct.added_at AS "addedAt"
+         FROM training_course_trainees tct
+         JOIN job_applications ja ON ja.id = tct.application_id
+         JOIN applicants a ON a.id = ja.applicant_id
+         WHERE tct.training_course_id = $1
+         ORDER BY tct.added_at ASC
+         LIMIT $2 OFFSET $3`,
+        [courseId, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FROM training_course_trainees WHERE training_course_id = $1`,
+        [courseId]
+      ),
+      pool.query(
+        `SELECT DISTINCT attendance_date AS "attendanceDate"
+         FROM training_attendance
+         WHERE training_course_id = $1
+         ORDER BY "attendanceDate" ASC`,
+        [courseId]
+      ),
+    ]);
+
+    const applicationIds = traineeRes.rows.map((row) => Number(row.applicationId));
+    const attendanceRes = applicationIds.length > 0
+      ? await pool.query(
+          `SELECT application_id AS "applicationId",
+            attendance_date AS "attendanceDate",
+            status
+           FROM training_attendance
+           WHERE training_course_id = $1
+             AND application_id = ANY($2::int[])
+           ORDER BY attendance_date ASC, application_id ASC`,
+          [courseId, applicationIds]
+        )
+      : { rows: [] };
+
+    res.json({
+      ...paginatedResponse(traineeRes.rows, parseInt(countRes.rows[0].count, 10), page, limit),
+      attendanceDates: datesRes.rows.map((row) => row.attendanceDate),
+      attendance: attendanceRes.rows,
+    });
+  } catch (err: any) {
+    console.error('Error fetching training course attendance:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -1,18 +1,36 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
-  const { rows: routes } = await pool.query('SELECT * FROM routes ORDER BY id');
+async function buildRoutesWithPoints(routeRows: any[]) {
+  if (routeRows.length === 0) return [];
+  const ids = routeRows.map(r => r.id);
   const { rows: points } = await pool.query(
-    'SELECT route_id AS "routeId", geo_unit_id AS "geoUnitId", level, point_order AS "order" FROM route_points ORDER BY route_id, point_order'
+    'SELECT route_id AS "routeId", geo_unit_id AS "geoUnitId", level, point_order AS "order" FROM route_points WHERE route_id = ANY($1) ORDER BY route_id, point_order',
+    [ids],
   );
-  const result = routes.map(r => ({
+  return routeRows.map(r => ({
     ...r,
-    points: points.filter(p => p.routeId === r.id).map(({ routeId, ...rest }) => rest)
+    points: points.filter(p => p.routeId === r.id).map(({ routeId, ...rest }) => rest),
   }));
-  res.json(result);
+}
+
+router.get('/', async (req, res) => {
+  if (hasPaginationParams(req.query)) {
+    const { page, limit, offset } = parsePagination(req.query);
+    const [{ rows: routeRows }, { rows: countRows }] = await Promise.all([
+      pool.query('SELECT * FROM routes ORDER BY id LIMIT $1 OFFSET $2', [limit, offset]),
+      pool.query('SELECT COUNT(*) FROM routes'),
+    ]);
+    const data = await buildRoutesWithPoints(routeRows);
+    res.json(paginatedResponse(data, parseInt(countRows[0].count), page, limit));
+  } else {
+    const { rows: routeRows } = await pool.query('SELECT * FROM routes ORDER BY id');
+    const result = await buildRoutesWithPoints(routeRows);
+    res.json(result);
+  }
 });
 
 router.post('/', async (req, res) => {

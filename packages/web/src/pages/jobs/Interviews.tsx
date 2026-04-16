@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
+import PaginationBar from '../../components/PaginationBar';
 
 const STATUS_LABELS: Record<string, string> = {
   'Interview Scheduled': 'مجدولة',
@@ -45,7 +46,7 @@ const emptyForm: ScheduleForm = {
 
 export default function Interviews() {
   const [searchParams] = useSearchParams();
-  const { interviews, filters, loading, fetchInterviews, setFilter, resetFilters, scheduleInterview, recordResult } = useInterviewStore();
+  const { interviews, filters, loading, fetchInterviews, setFilter, resetFilters, scheduleInterview, recordResult, page, total, totalPages, limit, goToPage } = useInterviewStore();
   const { vacancies, fetchVacancies } = useVacancyStore();
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [form, setForm] = useState<ScheduleForm>({ ...emptyForm });
@@ -297,6 +298,13 @@ export default function Interviews() {
             </table>
           </div>
         )}
+        <PaginationBar
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPageChange={goToPage}
+        />
       </div>
 
       {/* Schedule Modal */}

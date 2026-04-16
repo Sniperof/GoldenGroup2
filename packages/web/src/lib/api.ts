@@ -30,6 +30,30 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+/** Response envelope returned by all paginated list endpoints. */
+export interface PaginatedResult<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface PageParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
+function buildPageQuery(params: PageParams): string {
+  const q = new URLSearchParams();
+  if (params.page !== undefined) q.set('page', String(params.page));
+  if (params.limit !== undefined) q.set('limit', String(params.limit));
+  if (params.search?.trim()) q.set('search', params.search.trim());
+  const qs = q.toString();
+  return qs ? `?${qs}` : '';
+}
+
 export const api = {
   dashboard: {
     get: () => request<any>('/dashboard'),
@@ -47,6 +71,7 @@ export const api = {
   },
   employees: {
     list: () => request<any[]>('/employees'),
+    listPaged: (params: PageParams) => request<PaginatedResult<any>>(`/employees${buildPageQuery(params)}`),
     get: (id: number) => request<any>(`/employees/${id}`),
     create: (data: any) => request<any>('/employees', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -55,6 +80,7 @@ export const api = {
   },
   clients: {
     list: () => request<any[]>('/clients'),
+    listPaged: (params: PageParams) => request<PaginatedResult<any>>(`/clients${buildPageQuery(params)}`),
     get: (id: number) => request<any>(`/clients/${id}`),
     create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -63,6 +89,7 @@ export const api = {
   },
   candidates: {
     list: () => request<any[]>('/candidates'),
+    listPaged: (params: PageParams) => request<PaginatedResult<any>>(`/candidates${buildPageQuery(params)}`),
     create: (data: any) => request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/candidates/${id}`, { method: 'DELETE' }),
@@ -86,6 +113,7 @@ export const api = {
   },
   contracts: {
     list: () => request<any[]>('/contracts'),
+    listPaged: (params: PageParams) => request<PaginatedResult<any>>(`/contracts${buildPageQuery(params)}`),
     create: (data: any) => request<any>('/contracts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/contracts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/contracts/${id}`, { method: 'DELETE' }),

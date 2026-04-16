@@ -1,16 +1,30 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query(`
-    SELECT id, name, code, base_price AS "basePrice",
-      maintenance_type AS "maintenanceType",
-      compatible_device_ids AS "compatibleDeviceIds"
-    FROM spare_parts ORDER BY id
-  `);
-  res.json(rows.map(r => ({ ...r, basePrice: Number(r.basePrice) })));
+const SPARE_PARTS_SELECT = `
+  SELECT id, name, code, base_price AS "basePrice",
+    maintenance_type AS "maintenanceType",
+    compatible_device_ids AS "compatibleDeviceIds"
+  FROM spare_parts
+`;
+
+const mapPart = (r: any) => ({ ...r, basePrice: Number(r.basePrice) });
+
+router.get('/', async (req, res) => {
+  if (hasPaginationParams(req.query)) {
+    const { page, limit, offset } = parsePagination(req.query);
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      pool.query(`${SPARE_PARTS_SELECT} ORDER BY id LIMIT $1 OFFSET $2`, [limit, offset]),
+      pool.query(`SELECT COUNT(*) FROM spare_parts`),
+    ]);
+    res.json(paginatedResponse(rows.map(mapPart), parseInt(countRows[0].count), page, limit));
+  } else {
+    const { rows } = await pool.query(`${SPARE_PARTS_SELECT} ORDER BY id`);
+    res.json(rows.map(mapPart));
+  }
 });
 
 router.post('/', async (req, res) => {

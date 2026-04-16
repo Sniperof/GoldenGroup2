@@ -23,11 +23,22 @@ router.get('/eligible/:jobVacancyId', requirePermission('jobs.interviews.view_el
   }
 });
 
-// GET /api/admin/interviews?applicationId=&interviewerName=&date=&jobVacancyId=
+// GET /api/admin/interviews?applicationId=&interviewerName=&date=&jobVacancyId=&page=&limit=
 router.get('/', requirePermission('jobs.interviews.view_list'), async (req, res) => {
   try {
-    const rows = await getInterviews(req.query);
-    res.json(rows);
+    const q = req.query as Record<string, any>;
+    const filters: Record<string, any> = {
+      applicationId: q.applicationId,
+      interviewerName: q.interviewerName,
+      date: q.date,
+      jobVacancyId: q.jobVacancyId,
+    };
+    if (q.page !== undefined || q.limit !== undefined) {
+      filters.page = Math.max(1, parseInt(q.page as string) || 1);
+      filters.limit = Math.min(200, Math.max(1, parseInt(q.limit as string) || 25));
+    }
+    const result = await getInterviews(filters);
+    res.json(result);
   } catch (err: any) {
     console.error('Error fetching interviews:', err);
     res.status(500).json({ error: err.message });

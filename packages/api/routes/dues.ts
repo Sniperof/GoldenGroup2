@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
@@ -10,9 +11,20 @@ const selectFields = `
   status, escalated
 `;
 
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query(`SELECT ${selectFields} FROM dues ORDER BY id`);
-  res.json(rows.map(d => ({ ...d, originalAmount: Number(d.originalAmount), remainingBalance: Number(d.remainingBalance) })));
+const mapDue = (d: any) => ({ ...d, originalAmount: Number(d.originalAmount), remainingBalance: Number(d.remainingBalance) });
+
+router.get('/', async (req, res) => {
+  if (hasPaginationParams(req.query)) {
+    const { page, limit, offset } = parsePagination(req.query);
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      pool.query(`SELECT ${selectFields} FROM dues ORDER BY id LIMIT $1 OFFSET $2`, [limit, offset]),
+      pool.query(`SELECT COUNT(*) FROM dues`),
+    ]);
+    res.json(paginatedResponse(rows.map(mapDue), parseInt(countRows[0].count), page, limit));
+  } else {
+    const { rows } = await pool.query(`SELECT ${selectFields} FROM dues ORDER BY id`);
+    res.json(rows.map(mapDue));
+  }
 });
 
 router.put('/:id', async (req, res) => {

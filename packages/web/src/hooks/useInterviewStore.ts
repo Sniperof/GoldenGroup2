@@ -1,9 +1,11 @@
+import { create } from 'zustand';
 import type { Interview } from '../lib/types';
 import { authFetch } from '../lib/authFetch';
 import { createFilterStore } from '../lib/createFilterStore';
 import { createFetchStore } from '../lib/createFetchStore';
 
 const API_BASE = '/api/admin/interviews';
+const PAGE_LIMIT = 25;
 
 // ── UI state: filters ──────────────────────────────────────────────────────
 
@@ -20,6 +22,18 @@ const defaultFilters: InterviewFilters = {
 
 const useInterviewFilters = createFilterStore(defaultFilters);
 
+// ── Pagination state ───────────────────────────────────────────────────────
+
+const useInterviewPagination = create<{
+  page: number; total: number; totalPages: number;
+  setPage: (p: number) => void;
+  setMeta: (meta: { total: number; totalPages: number }) => void;
+}>()((set) => ({
+  page: 1, total: 0, totalPages: 1,
+  setPage: (page) => set({ page }),
+  setMeta: ({ total, totalPages }) => set({ total, totalPages }),
+}));
+
 // ── Server state: list ─────────────────────────────────────────────────────
 
 type EnrichedInterview = Interview & {
@@ -30,15 +44,22 @@ type EnrichedInterview = Interview & {
 
 const useInterviewList = createFetchStore(async () => {
   const f = useInterviewFilters.getState().filters;
+  const { page } = useInterviewPagination.getState();
   const params = new URLSearchParams();
   if (f.applicationId)   params.set('applicationId', f.applicationId);
   if (f.jobVacancyId)    params.set('jobVacancyId', f.jobVacancyId);
   if (f.interviewerName) params.set('interviewerName', f.interviewerName);
   if (f.date)            params.set('date', f.date);
-  const qs = params.toString();
-  const res = await authFetch(`${API_BASE}${qs ? `?${qs}` : ''}`);
+  params.set('page', String(page));
+  params.set('limit', String(PAGE_LIMIT));
+  const res = await authFetch(`${API_BASE}?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to fetch interviews');
-  return res.json() as Promise<EnrichedInterview[]>;
+  const result = await res.json();
+  if (result && result.data && result.total !== undefined) {
+    useInterviewPagination.getState().setMeta({ total: result.total, totalPages: result.totalPages });
+    return result.data as EnrichedInterview[];
+  }
+  return result as EnrichedInterview[];
 }, [] as EnrichedInterview[]);
 
 // ── Mutations ──────────────────────────────────────────────────────────────
@@ -79,20 +100,36 @@ async function recordResult(
   return updated;
 }
 
-// ── Public hook — identical API to the old single store ───────────────────
+// ── Public hook ────────────────────────────────────────────────────────────
 
 export function useInterviewStore() {
-  const { data: interviews, loading, error, fetch: fetchInterviews } = useInterviewList();
-  const { filters, setFilter, resetFilters } = useInterviewFilters();
+  const { data: interviews, loading, error, fetch: _fetch } = useInterviewList();
+  const { filters, setFilter: _setFilter, resetFilters: _resetFilters } = useInterviewFilters();
+  const { page, total, totalPages } = useInterviewPagination();
+
+  function fetchInterviews() {
+    useInterviewList.getState().fetch();
+  }
+
+  function setFilter<K extends keyof InterviewFilters>(key: K, value: InterviewFilters[K]) {
+    useInterviewPagination.setState({ page: 1 });
+    _setFilter(key, value);
+  }
+
+  function resetFilters() {
+    useInterviewPagination.setState({ page: 1 });
+    _resetFilters();
+  }
+
+  function goToPage(p: number) {
+    useInterviewPagination.setState({ page: p });
+    useInterviewList.getState().fetch();
+  }
+
   return {
-    interviews,
-    loading,
-    error,
-    filters,
-    setFilter,
-    resetFilters,
-    fetchInterviews,
-    scheduleInterview,
-    recordResult,
+    interviews, loading, error,
+    filters, setFilter, resetFilters, fetchInterviews,
+    scheduleInterview, recordResult,
+    page, total, totalPages, limit: PAGE_LIMIT, goToPage,
   };
 }

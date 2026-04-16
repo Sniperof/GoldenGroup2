@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTrainingStore } from '../../hooks/useTrainingStore';
 import type { TrainingCourseTrainee } from '../../lib/types';
+import { authFetch } from '../../lib/authFetch';
 import {
   GraduationCap, ArrowRight, Calendar, User, Monitor, Building2,
   CheckCircle, XCircle, Loader2, AlertTriangle, Play, Award,
   UserPlus, ChevronDown,
 } from 'lucide-react';
 import PermissionGate from '../../components/PermissionGate';
+import PaginationBar from '../../components/PaginationBar';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,19 @@ const RESULT_COLORS: Record<string, string> = {
   Retreated: 'bg-slate-100 text-slate-600',
 };
 
+interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+interface AttendancePageResponse extends PaginatedResponse<TrainingCourseTrainee> {
+  attendanceDates: string[];
+  attendance: { applicationId: number; attendanceDate: string; status: 'Present' | 'Absent' }[];
+}
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function TrainingCourseDetail() {
@@ -67,10 +82,52 @@ export default function TrainingCourseDetail() {
   const [pendingResults, setPendingResults] = useState<Record<number, string>>({});
   const [savingResult, setSavingResult] = useState<Record<number, boolean>>({});
   const [resultErrors, setResultErrors] = useState<Record<number, string>>({});
+  const [trainees, setTrainees] = useState<TrainingCourseTrainee[]>([]);
+  const [traineesPage, setTraineesPage] = useState(1);
+  const [traineesLimit, setTraineesLimit] = useState(10);
+  const [traineesTotal, setTraineesTotal] = useState(0);
+  const [traineesTotalPages, setTraineesTotalPages] = useState(1);
+  const [attendanceTrainees, setAttendanceTrainees] = useState<TrainingCourseTrainee[]>([]);
+  const [attendanceRows, setAttendanceRows] = useState<Array<{ applicationId: number; attendanceDate: string; status: 'Present' | 'Absent' }>>([]);
+  const [attendanceDates, setAttendanceDates] = useState<string[]>([]);
+  const [attendancePage, setAttendancePage] = useState(1);
+  const [attendanceLimit, setAttendanceLimit] = useState(10);
+  const [attendanceTotal, setAttendanceTotal] = useState(0);
+  const [attendanceTotalPages, setAttendanceTotalPages] = useState(1);
 
   useEffect(() => {
     if (id) fetchCourseDetail(Number(id));
   }, [id]);
+
+  const fetchTraineesPage = async () => {
+    if (!id) return;
+    const res = await authFetch(`/api/admin/training-courses/${id}/trainees?page=${traineesPage}&limit=${traineesLimit}`);
+    const result = await res.json() as PaginatedResponse<TrainingCourseTrainee>;
+    if (!res.ok) return;
+    setTrainees(result.data || []);
+    setTraineesTotal(result.total || 0);
+    setTraineesTotalPages(result.totalPages || 1);
+  };
+
+  const fetchAttendancePage = async () => {
+    if (!id) return;
+    const res = await authFetch(`/api/admin/training-courses/${id}/attendance?page=${attendancePage}&limit=${attendanceLimit}`);
+    const result = await res.json() as AttendancePageResponse;
+    if (!res.ok) return;
+    setAttendanceTrainees(result.data || []);
+    setAttendanceRows(result.attendance || []);
+    setAttendanceDates(result.attendanceDates || []);
+    setAttendanceTotal(result.total || 0);
+    setAttendanceTotalPages(result.totalPages || 1);
+  };
+
+  useEffect(() => {
+    setTraineesPage(1);
+    setAttendancePage(1);
+  }, [id]);
+
+  useEffect(() => { fetchTraineesPage(); }, [id, traineesPage, traineesLimit]);
+  useEffect(() => { fetchAttendancePage(); }, [id, attendancePage, attendanceLimit]);
 
   if (detailLoading) return (
     <div className="h-full flex items-center justify-center" dir="rtl">
@@ -89,18 +146,18 @@ export default function TrainingCourseDetail() {
   );
 
   const course = selectedCourse;
-  const dates = generateDates(course.attendance || []);
+  const dates = attendanceDates.length > 0 ? attendanceDates : generateDates(attendanceRows);
 
   // Build attendance lookup: { applicationId_date: status }
   const attMap: Record<string, 'Present' | 'Absent'> = {};
-  for (const a of course.attendance) {
+  for (const a of attendanceRows) {
     attMap[`${a.applicationId}_${a.attendanceDate}`] = a.status;
   }
 
   // Init pending attendance from existing when date changes
   function initPendingForDate(date: string) {
     const init: Record<number, 'Present' | 'Absent'> = {};
-    for (const t of course.trainees) {
+    for (const t of attendanceTrainees) {
       init[t.applicationId] = attMap[`${t.applicationId}_${date}`] || 'Present';
     }
     setPendingAtt(init);
@@ -112,28 +169,41 @@ export default function TrainingCourseDetail() {
     initPendingForDate(date);
   }
 
+  useEffect(() => {
+    if (attendanceTrainees.length > 0) initPendingForDate(attDate);
+  }, [attendanceRows, attendanceTrainees, attDate]);
+
   async function saveAttendance() {
     setSavingAtt(true); setAttError('');
     try {
-      const attendance = course.trainees.map(t => ({
+      const attendance = attendanceTrainees.map(t => ({
         application_id: t.applicationId,
         status: pendingAtt[t.applicationId] ?? 'Present',
       }));
       await recordAttendance(course.id, attDate, attendance);
+      await fetchAttendancePage();
     } catch (err: any) { setAttError(err.message); }
     finally { setSavingAtt(false); }
   }
 
   async function handleStart() {
     setActionLoading(true); setActionError('');
-    try { await startCourse(course.id); }
+    try {
+      await startCourse(course.id);
+      await fetchTraineesPage();
+      await fetchAttendancePage();
+    }
     catch (err: any) { setActionError(err.message); }
     finally { setActionLoading(false); }
   }
 
   async function handleComplete() {
     setActionLoading(true); setActionError('');
-    try { await completeCourse(course.id); }
+    try {
+      await completeCourse(course.id);
+      await fetchTraineesPage();
+      await fetchAttendancePage();
+    }
     catch (err: any) { setActionError(err.message); }
     finally { setActionLoading(false); }
   }
@@ -145,6 +215,8 @@ export default function TrainingCourseDetail() {
     setResultErrors(e => ({ ...e, [trainee.applicationId]: '' }));
     try {
       await recordTraineeResult(course.id, trainee.applicationId, result);
+      await fetchTraineesPage();
+      await fetchAttendancePage();
       setPendingResults(p => { const n = { ...p }; delete n[trainee.applicationId]; return n; });
     } catch (err: any) {
       setResultErrors(e => ({ ...e, [trainee.applicationId]: err.message }));
@@ -249,14 +321,32 @@ export default function TrainingCourseDetail() {
       </div>
 
       {/* Attendance Grid */}
-      {(isStarted || isCompleted) && course.trainees.length > 0 && (
+      {(isStarted || isCompleted) && course.traineeCount > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-          <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <Calendar className="w-5 h-5 text-sky-500" />
             سجل الحضور
-          </h2>
+            </h2>
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              <span>لكل صفحة</span>
+              <select
+                value={attendanceLimit}
+                onChange={(e) => {
+                  setAttendanceLimit(parseInt(e.target.value, 10));
+                  setAttendancePage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+              >
+                {[5, 10, 25, 50].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           {dates.length > 0 ? (
+            <>
             <div className="overflow-x-auto">
             <table className="text-xs min-w-full">
               <thead>
@@ -270,7 +360,7 @@ export default function TrainingCourseDetail() {
                 </tr>
               </thead>
               <tbody>
-                {course.trainees.map(t => (
+                {attendanceTrainees.map(t => (
                   <tr key={t.applicationId} className="border-t border-slate-100">
                     <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">
                       {t.firstName} {t.lastName}
@@ -295,6 +385,14 @@ export default function TrainingCourseDetail() {
               </tbody>
             </table>
           </div>
+          <PaginationBar
+            page={attendancePage}
+            totalPages={attendanceTotalPages}
+            total={attendanceTotal}
+            limit={attendanceLimit}
+            onPageChange={setAttendancePage}
+          />
+          </>
           ) : (
             <div className="text-center text-slate-500 py-6 text-sm bg-slate-50 rounded-xl">
               لم يتم تسجيل أي حضور حتى الآن. الرجاء تحديد يوم لإضافته.
@@ -324,7 +422,7 @@ export default function TrainingCourseDetail() {
               </div>
 
               <div className="space-y-2">
-                {course.trainees.map(t => {
+                {attendanceTrainees.map(t => {
                   const current = pendingAtt[t.applicationId] ?? attMap[`${t.applicationId}_${attDate}`] ?? 'Present';
                   return (
                     <div key={t.applicationId} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2">
@@ -368,15 +466,32 @@ export default function TrainingCourseDetail() {
       )}
 
       {/* Results Section */}
-      {isCompleted && course.trainees.length > 0 && (
+      {isCompleted && course.traineeCount > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-          <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <Award className="w-5 h-5 text-sky-500" />
             النتائج
-          </h2>
+            </h2>
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              <span>لكل صفحة</span>
+              <select
+                value={traineesLimit}
+                onChange={(e) => {
+                  setTraineesLimit(parseInt(e.target.value, 10));
+                  setTraineesPage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+              >
+                {[5, 10, 25, 50].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           <div className="space-y-3">
-            {course.trainees.map(t => (
+            {trainees.map(t => (
               <div key={t.applicationId} className="flex items-center gap-4 bg-slate-50 rounded-xl px-4 py-3 flex-wrap">
                 <div className="flex-1 min-w-[150px]">
                   <p className="text-sm font-medium text-slate-800">{t.firstName} {t.lastName}</p>
@@ -421,18 +536,42 @@ export default function TrainingCourseDetail() {
               </div>
             ))}
           </div>
+          <PaginationBar
+            page={traineesPage}
+            totalPages={traineesTotalPages}
+            total={traineesTotal}
+            limit={traineesLimit}
+            onPageChange={setTraineesPage}
+          />
         </div>
       )}
 
       {/* Trainees list (for Scheduled courses) */}
-      {isScheduled && course.trainees.length > 0 && (
+      {isScheduled && course.traineeCount > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-          <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-sky-500" />
-            المتدربون المسجلون ({course.trainees.length})
-          </h2>
+          <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-sky-500" />
+              المتدربون المسجلون ({traineesTotal})
+            </h2>
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              <span>لكل صفحة</span>
+              <select
+                value={traineesLimit}
+                onChange={(e) => {
+                  setTraineesLimit(parseInt(e.target.value, 10));
+                  setTraineesPage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+              >
+                {[5, 10, 25, 50].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="divide-y divide-slate-100">
-            {course.trainees.map(t => (
+            {trainees.map(t => (
               <div key={t.applicationId} className="flex items-center justify-between py-2.5">
                 <div>
                   <p className="text-sm font-medium text-slate-800">{t.firstName} {t.lastName}</p>
@@ -444,6 +583,13 @@ export default function TrainingCourseDetail() {
               </div>
             ))}
           </div>
+          <PaginationBar
+            page={traineesPage}
+            totalPages={traineesTotalPages}
+            total={traineesTotal}
+            limit={traineesLimit}
+            onPageChange={setTraineesPage}
+          />
         </div>
       )}
     </div>

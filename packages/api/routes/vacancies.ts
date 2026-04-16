@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { insertAuditLog } from '../utils/auditLog.js';
 import { requirePermission } from '../middleware/permission.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
@@ -39,11 +40,24 @@ router.get('/', requirePermission('jobs.vacancies.view_list'), async (req, res) 
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const { rows } = await pool.query(
-      `SELECT ${VACANCY_COLS} FROM job_vacancies ${where} ORDER BY created_at DESC`,
-      params
-    );
-    res.json(rows);
+
+    if (hasPaginationParams(req.query)) {
+      const { page, limit, offset } = parsePagination(req.query);
+      const [{ rows }, { rows: countRows }] = await Promise.all([
+        pool.query(
+          `SELECT ${VACANCY_COLS} FROM job_vacancies ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+          [...params, limit, offset],
+        ),
+        pool.query(`SELECT COUNT(*) FROM job_vacancies ${where}`, params),
+      ]);
+      res.json(paginatedResponse(rows, parseInt(countRows[0].count), page, limit));
+    } else {
+      const { rows } = await pool.query(
+        `SELECT ${VACANCY_COLS} FROM job_vacancies ${where} ORDER BY created_at DESC`,
+        params,
+      );
+      res.json(rows);
+    }
   } catch (err: any) {
     console.error('Error fetching vacancies:', err);
     res.status(500).json({ error: err.message });

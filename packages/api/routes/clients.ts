@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 
 const router = Router();
 
@@ -76,9 +77,34 @@ const CLIENT_MUTATION_RETURNING = `
 
 const toJson = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fallback);
 
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query(`${CLIENT_SELECT} ORDER BY id`);
-  res.json(rows);
+router.get('/', async (req, res) => {
+  const { search } = req.query;
+  const conditions: string[] = [];
+  const params: any[] = [];
+  let idx = 1;
+
+  if (search) {
+    conditions.push(`(name ILIKE $${idx} OR mobile ILIKE $${idx})`);
+    params.push(`%${search}%`);
+    idx++;
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  if (hasPaginationParams(req.query)) {
+    const { page, limit, offset } = parsePagination(req.query);
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      pool.query(
+        `${CLIENT_SELECT} ${where} ORDER BY id LIMIT $${idx} OFFSET $${idx + 1}`,
+        [...params, limit, offset],
+      ),
+      pool.query(`SELECT COUNT(*) FROM clients ${where}`, params),
+    ]);
+    res.json(paginatedResponse(rows, parseInt(countRows[0].count), page, limit));
+  } else {
+    const { rows } = await pool.query(`${CLIENT_SELECT} ${where} ORDER BY id`, params);
+    res.json(rows);
+  }
 });
 
 router.get('/:id', async (req, res) => {

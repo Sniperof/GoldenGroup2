@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { insertAuditLog } from '../utils/auditLog.js';
+import { parsePagination, hasPaginationParams, paginatedResponse } from '../utils/paginate.js';
 import {
   validateStageTransition, isTerminalStatus, isTrainingManagedStage,
   validateDecision, getDecisionEffect, deriveApplicationStatus, isTerminalDecision,
@@ -94,8 +95,9 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const { rows } = await pool.query(
-      `SELECT ${APP_COLS},
+
+    const SELECT_QUERY = `
+      SELECT ${APP_COLS},
         a.first_name AS "applicantFirstName",
         a.last_name AS "applicantLastName",
         a.mobile_number AS "applicantMobile",
@@ -121,19 +123,32 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
         jv.required_skills AS "vacancyRequiredSkills",
         jv.driving_license_required AS "vacancyDrivingLicenseRequired",
         EXISTS (
-          SELECT 1
-          FROM interviews i
-          WHERE i.application_id = ja.id
-            AND i.interview_status = 'Interview Scheduled'
+          SELECT 1 FROM interviews i
+          WHERE i.application_id = ja.id AND i.interview_status = 'Interview Scheduled'
         ) AS "hasScheduledInterview"
       FROM job_applications ja
       JOIN applicants a ON a.id = ja.applicant_id
       JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
       ${where}
-      ORDER BY ja.created_at DESC`,
-      params
-    );
-    res.json(rows);
+    `;
+
+    if (hasPaginationParams(req.query)) {
+      const { page, limit, offset } = parsePagination(req.query);
+      const [{ rows }, { rows: countRows }] = await Promise.all([
+        pool.query(
+          `${SELECT_QUERY} ORDER BY ja.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+          [...params, limit, offset],
+        ),
+        pool.query(
+          `SELECT COUNT(*) FROM job_applications ja JOIN applicants a ON a.id = ja.applicant_id JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id ${where}`,
+          params,
+        ),
+      ]);
+      res.json(paginatedResponse(rows, parseInt(countRows[0].count), page, limit));
+    } else {
+      const { rows } = await pool.query(`${SELECT_QUERY} ORDER BY ja.created_at DESC`, params);
+      res.json(rows);
+    }
   } catch (err: any) {
     console.error('Error fetching applications:', err);
     res.status(500).json({ error: err.message });
@@ -364,52 +379,89 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
       if (refRows.length > 0) referrer = refRows[0];
     }
 
-    // Fetch interviews
-    const { rows: interviewRows } = await pool.query(
-      `SELECT id, application_id AS "applicationId",
-        interview_type AS "interviewType",
-        interview_number AS "interviewNumber",
-        interviewer_name AS "interviewerName",
-        interview_date AS "interviewDate",
-        interview_time AS "interviewTime",
-        interview_status AS "interviewStatus",
-        internal_notes AS "internalNotes",
-        created_at AS "createdAt"
-      FROM interviews WHERE application_id = $1
-      ORDER BY created_at ASC`,
-      [req.params.id]
-    );
-
-    // Fetch training enrollments with course info
-    const { rows: trainingRows } = await pool.query(
-      `SELECT
-        tct.id,
-        tct.training_course_id AS "trainingCourseId",
-        tct.result,
-        tct.result_recorded_at AS "resultRecordedAt",
-        tct.added_at AS "addedAt",
-        tc.training_name AS "trainingName",
-        tc.trainer,
-        tc.branch,
-        tc.device_name AS "deviceName",
-        tc.start_date AS "startDate",
-        tc.end_date AS "endDate",
-        tc.training_status AS "trainingStatus",
-        tc.notes
-      FROM training_course_trainees tct
-      JOIN training_courses tc ON tc.id = tct.training_course_id
-      WHERE tct.application_id = $1
-      ORDER BY tct.added_at ASC`,
-      [req.params.id]
-    );
+    const [
+      { rows: interviewCountRows },
+      { rows: latestInterviewRows },
+      { rows: scheduledInterviewRows },
+      { rows: trainingCountRows },
+      { rows: latestTrainingRows },
+    ] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*) FROM interviews WHERE application_id = $1`,
+        [req.params.id]
+      ),
+      pool.query(
+        `SELECT id, application_id AS "applicationId",
+          interview_type AS "interviewType",
+          interview_number AS "interviewNumber",
+          interviewer_name AS "interviewerName",
+          interview_date AS "interviewDate",
+          interview_time AS "interviewTime",
+          interview_status AS "interviewStatus",
+          internal_notes AS "internalNotes",
+          created_at AS "createdAt"
+        FROM interviews
+        WHERE application_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1`,
+        [req.params.id]
+      ),
+      pool.query(
+        `SELECT id, application_id AS "applicationId",
+          interview_type AS "interviewType",
+          interview_number AS "interviewNumber",
+          interviewer_name AS "interviewerName",
+          interview_date AS "interviewDate",
+          interview_time AS "interviewTime",
+          interview_status AS "interviewStatus",
+          internal_notes AS "internalNotes",
+          created_at AS "createdAt"
+        FROM interviews
+        WHERE application_id = $1 AND interview_status = 'Interview Scheduled'
+        ORDER BY created_at DESC
+        LIMIT 1`,
+        [req.params.id]
+      ),
+      pool.query(
+        `SELECT COUNT(*)
+         FROM training_course_trainees
+         WHERE application_id = $1`,
+        [req.params.id]
+      ),
+      pool.query(
+        `SELECT
+          tct.id,
+          tct.training_course_id AS "trainingCourseId",
+          tct.result,
+          tct.result_recorded_at AS "resultRecordedAt",
+          tct.added_at AS "addedAt",
+          tc.training_name AS "trainingName",
+          tc.trainer,
+          tc.branch,
+          tc.device_name AS "deviceName",
+          tc.start_date AS "startDate",
+          tc.end_date AS "endDate",
+          tc.training_status AS "trainingStatus",
+          tc.notes
+        FROM training_course_trainees tct
+        JOIN training_courses tc ON tc.id = tct.training_course_id
+        WHERE tct.application_id = $1
+        ORDER BY tct.added_at DESC
+        LIMIT 1`,
+        [req.params.id]
+      ),
+    ]);
 
     res.json({
       ...app,
       applicant: applicantRows[0] || null,
       vacancy: vacancyRows[0] || null,
       referrer,
-      interviews: interviewRows,
-      trainings: trainingRows,
+      interviewsCount: parseInt(interviewCountRows[0].count, 10),
+      trainingsCount: parseInt(trainingCountRows[0].count, 10),
+      latestInterview: latestInterviewRows[0] || null,
+      scheduledInterview: scheduledInterviewRows[0] || null,
+      latestTraining: latestTrainingRows[0] || null,
     });
   } catch (err: any) {
     console.error('Error fetching application detail:', err);
@@ -1014,25 +1066,109 @@ router.patch('/:id/archive', requirePermission('jobs.applications.archive'), asy
   }
 });
 
+router.get('/:id/interviews', requirePermission('jobs.interviews.view_list'), async (req, res) => {
+  try {
+    const { page, limit, offset } = parsePagination(req.query, 10);
+
+    const [listRes, countRes] = await Promise.all([
+      pool.query(
+        `SELECT id, application_id AS "applicationId",
+          interview_type AS "interviewType",
+          interview_number AS "interviewNumber",
+          interviewer_name AS "interviewerName",
+          interview_date AS "interviewDate",
+          interview_time AS "interviewTime",
+          interview_status AS "interviewStatus",
+          internal_notes AS "internalNotes",
+          created_at AS "createdAt"
+        FROM interviews
+        WHERE application_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2 OFFSET $3`,
+        [req.params.id, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FROM interviews WHERE application_id = $1`,
+        [req.params.id]
+      ),
+    ]);
+
+    res.json(paginatedResponse(listRes.rows, parseInt(countRes.rows[0].count, 10), page, limit));
+  } catch (err: any) {
+    console.error('Error fetching application interviews:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:id/trainings', requirePermission('jobs.training.view_list'), async (req, res) => {
+  try {
+    const { page, limit, offset } = parsePagination(req.query, 10);
+
+    const [listRes, countRes] = await Promise.all([
+      pool.query(
+        `SELECT
+          tct.id,
+          tct.training_course_id AS "trainingCourseId",
+          tct.result,
+          tct.result_recorded_at AS "resultRecordedAt",
+          tct.added_at AS "addedAt",
+          tc.training_name AS "trainingName",
+          tc.trainer,
+          tc.branch,
+          tc.device_name AS "deviceName",
+          tc.start_date AS "startDate",
+          tc.end_date AS "endDate",
+          tc.training_status AS "trainingStatus",
+          tc.notes
+        FROM training_course_trainees tct
+        JOIN training_courses tc ON tc.id = tct.training_course_id
+        WHERE tct.application_id = $1
+        ORDER BY tct.added_at DESC
+        LIMIT $2 OFFSET $3`,
+        [req.params.id, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*)
+         FROM training_course_trainees
+         WHERE application_id = $1`,
+        [req.params.id]
+      ),
+    ]);
+
+    res.json(paginatedResponse(listRes.rows, parseInt(countRes.rows[0].count, 10), page, limit));
+  } catch (err: any) {
+    console.error('Error fetching application trainings:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/admin/applications/:id/audit-logs
 router.get('/:id/audit-logs', requirePermission('jobs.applications.view_audit_logs'), async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT id, entity_type AS "entityType", entity_id AS "entityId",
-        application_id AS "applicationId",
-        action_type AS "actionType",
-        performed_by_role AS "performedByRole",
-        performed_by_user_id AS "performedByUserId",
-        old_value AS "oldValue",
-        new_value AS "newValue",
-        internal_reason AS "internalReason",
-        timestamp
-      FROM audit_logs
-      WHERE application_id = $1
-      ORDER BY timestamp DESC`,
-      [req.params.id]
-    );
-    res.json(rows);
+    const { page, limit, offset } = parsePagination(req.query, 10);
+    const [listRes, countRes] = await Promise.all([
+      pool.query(
+        `SELECT id, entity_type AS "entityType", entity_id AS "entityId",
+          application_id AS "applicationId",
+          action_type AS "actionType",
+          performed_by_role AS "performedByRole",
+          performed_by_user_id AS "performedByUserId",
+          old_value AS "oldValue",
+          new_value AS "newValue",
+          internal_reason AS "internalReason",
+          timestamp
+        FROM audit_logs
+        WHERE application_id = $1
+        ORDER BY timestamp DESC
+        LIMIT $2 OFFSET $3`,
+        [req.params.id, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FROM audit_logs WHERE application_id = $1`,
+        [req.params.id]
+      ),
+    ]);
+    res.json(paginatedResponse(listRes.rows, parseInt(countRes.rows[0].count, 10), page, limit));
   } catch (err: any) {
     console.error('Error fetching audit logs:', err);
     res.status(500).json({ error: err.message });

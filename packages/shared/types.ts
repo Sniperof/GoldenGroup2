@@ -610,8 +610,10 @@ export interface TrainingAttendance {
 
 export interface TrainingCourseDetail extends TrainingCourse {
   vacancy: { id: number; title: string; branch: string } | null;
-  trainees: TrainingCourseTrainee[];
-  attendance: { applicationId: number; attendanceDate: string; status: 'Present' | 'Absent' }[];
+  traineeCount: number;
+  attendanceDates: string[];
+  trainees?: TrainingCourseTrainee[];
+  attendance?: { applicationId: number; attendanceDate: string; status: 'Present' | 'Absent' }[];
 }
 
 export interface CreateTrainingCourseRequest {
@@ -684,6 +686,133 @@ export interface JobApplicationDetail extends JobApplication {
   applicant: Applicant;
   vacancy: JobVacancy;
   referrer: JobReferrer | null;
-  interviews: Interview[];
-  trainings: ApplicationTrainingEnrollment[];
+  interviewsCount: number;
+  trainingsCount: number;
+  latestInterview: Interview | null;
+  scheduledInterview: Interview | null;
+  latestTraining: ApplicationTrainingEnrollment | null;
+  interviews?: Interview[];
+  trainings?: ApplicationTrainingEnrollment[];
+}
+
+// ─────────────────────────────────────────
+// Dashboard
+// ─────────────────────────────────────────
+
+// Added — inferred from packages/api/routes/dashboard.ts
+export interface DashboardRecentClient {
+  id: number;
+  name: string;
+  mobile: string;
+  createdAt: string;
+}
+
+// Added — inferred from packages/web/src/pages/Dashboard.tsx + packages/api/routes/dashboard.ts
+export interface DashboardStats {
+  totalClients: number;
+  activeEmployees: number;
+  totalRoutes: number;
+  coveredNeighborhoods: number;
+  recentClients: DashboardRecentClient[];
+}
+
+// ─────────────────────────────────────────
+// Interviews — enriched / eligibility shapes
+// ─────────────────────────────────────────
+
+// Added — inferred from packages/web/src/pages/jobs/Interviews.tsx + packages/api/repositories/interviewRepository.ts
+export interface EligibleInterviewApplication {
+  id: number;
+  applicantFirstName: string;
+  applicantLastName: string;
+  currentStage: ApplicationStage;
+  applicationStatus: ApplicationStatus;
+}
+
+// Added — inferred from packages/api/services/interviewService.ts (getInterviewById return shape)
+export interface InterviewApplicantSnapshot {
+  firstName: string;
+  lastName: string;
+  dob: string;
+  governorate: string;
+  cityOrArea: string;
+  academicQualification: string;
+  previousEmployment: string;
+  drivingLicense: string | boolean | null;
+  expectedSalary: number | null;
+  foreignLanguages: string | null;
+  computerSkills: string | null;
+  yearsOfExperience: number | null;
+}
+
+// Added — inferred from packages/api/services/interviewService.ts (getInterviewById return shape)
+export interface InterviewDetail extends Interview {
+  applicant: InterviewApplicantSnapshot;
+  vacancy: { id: number; title: string; branch: string };
+}
+
+// ─────────────────────────────────────────
+// Employee — mutation request bodies
+// ─────────────────────────────────────────
+
+// Added — inferred from packages/api/services/employeeService.ts (createEmployeeRecord)
+export interface CreateEmployeeBody {
+  name: string;
+  mobile: string;
+  branch?: string | null;
+  residence?: string | null;
+  status?: 'active' | 'leave' | 'inactive';
+  avatar?: string | null;
+  jobTitle?: string | null;
+}
+
+// Added — inferred from packages/api/services/employeeService.ts (updateEmployeeRecord)
+export type UpdateEmployeeBody = Partial<CreateEmployeeBody>;
+
+// Added — inferred from packages/api/services/employeeService.ts (saveEmployeeSystemAccount)
+export interface UpsertSystemAccountBody {
+  username?: string;
+  password?: string;
+  roleId: number;
+  isActive?: boolean;
+}
+
+// ─────────────────────────────────────────
+// Interview — mutation request bodies
+// ─────────────────────────────────────────
+
+// Added — inferred from packages/api/services/interviewService.ts (scheduleInterviewForApplication)
+export interface ScheduleInterviewBody {
+  applicationId: number;
+  interviewType: 'HR Interview' | 'Technical Interview';
+  interviewNumber: 'First Interview' | 'Second Interview';
+  interviewerName: string;
+  interviewDate: string;
+  interviewTime: string;
+  internalNotes?: string | null;
+}
+
+// Added — inferred from packages/api/services/interviewService.ts (updateScheduledInterview)
+export interface UpdateInterviewBody {
+  interviewDate?: string | null;
+  interviewTime?: string | null;
+  interviewerName?: string | null;
+  interviewType?: 'HR Interview' | 'Technical Interview' | null;
+  interviewNumber?: 'First Interview' | 'Second Interview' | null;
+  internalNotes?: string;
+}
+
+// Added — inferred from packages/api/services/interviewService.ts (recordInterviewOutcome)
+export interface RecordInterviewOutcomeBody {
+  interviewStatus: 'Interview Completed' | 'Interview Failed';
+  internalNotes?: string;
+}
+
+// ─────────────────────────────────────────
+// Training Course — mutation request bodies
+// ─────────────────────────────────────────
+
+// Added — inferred from packages/api/services/trainingCourseService.ts (addTrainingCourseTrainees)
+export interface AddTraineesBody {
+  application_ids: number[];
 }
