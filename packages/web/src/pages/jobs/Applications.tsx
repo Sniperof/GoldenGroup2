@@ -7,6 +7,8 @@ import {
   ClipboardList, Search, Filter, ChevronDown, Eye, AlertTriangle, Calendar, Archive, Plus
 } from 'lucide-react';
 import PermissionGate from '../../components/PermissionGate';
+import SmartTable from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 
 const STAGE_COLORS: Record<ApplicationStage, string> = {
   'Submitted': 'bg-blue-100 text-blue-700',
@@ -95,8 +97,97 @@ export default function Applications() {
     return `border-b border-slate-100 hover:bg-sky-50/40 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/30' : ''}`;
   };
 
+  const appColumns: ColumnDef<any>[] = [
+    {
+      key: 'id', label: '#', sortable: true,
+      render: (a) => <span className="text-xs font-mono text-slate-400">#{a.id}</span>,
+      getValue: (a) => a.id,
+    },
+    {
+      key: 'createdAt', label: 'تاريخ التقديم', sortable: true,
+      render: (a) => (
+        <span className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
+          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {new Date(a.createdAt).toLocaleDateString('ar-IQ')}
+        </span>
+      ),
+      getValue: (a) => a.createdAt,
+    },
+    {
+      key: 'applicantFirstName', label: 'الاسم الكامل', sortable: true,
+      render: (a) => <span className="font-medium text-slate-800">{a.applicantFirstName} {a.applicantLastName}</span>,
+    },
+    {
+      key: 'vacancyTitle', label: 'الوظيفة', sortable: true,
+      render: (a) => <span className="text-slate-600">{a.vacancyTitle}</span>,
+    },
+    {
+      key: 'vacancyBranch', label: 'الفرع', sortable: true,
+      render: (a) => <span className="text-slate-600">{a.vacancyBranch || '—'}</span>,
+    },
+    {
+      key: 'currentStage', label: 'المرحلة', sortable: true,
+      render: (a) => (
+        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${STAGE_COLORS[a.currentStage as ApplicationStage]}`}>
+          {STAGE_LABELS[a.currentStage as ApplicationStage]}
+        </span>
+      ),
+      getValue: (a) => a.currentStage,
+    },
+    {
+      key: 'applicationStatus', label: 'الحالة التشغيلية', sortable: true,
+      render: (a) => {
+        const unifiedState = getUnifiedApplicationState({
+          currentStage: a.currentStage,
+          applicationStatus: a.applicationStatus,
+          stageStatus: a.stageStatus,
+          decision: a.decision,
+          hasScheduledInterview: a.hasScheduledInterview,
+        });
+        return (
+          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${getUnifiedApplicationStateClasses(unifiedState.tone)}`}>
+            {unifiedState.label}
+          </span>
+        );
+      },
+      getValue: (a) => a.applicationStatus,
+    },
+    {
+      key: 'duplicateFlag', label: 'تكرار',
+      render: (a) => a.duplicateFlag ? (
+        <span className="inline-flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-600 rounded-full text-xs font-bold">
+          <AlertTriangle className="w-3 h-3" /> تكرار
+        </span>
+      ) : null,
+    },
+    {
+      key: 'isArchived', label: 'أرشيف',
+      render: (a) => a.isArchived ? (
+        <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-500 rounded-full text-xs font-bold">
+          <Archive className="w-3 h-3" /> مؤرشف
+        </span>
+      ) : null,
+    },
+    {
+      key: 'view', label: 'عرض',
+      render: (a) => (
+        <button className={`p-1.5 rounded-lg transition-colors ${
+          a.applicationStatus === 'Final Hired'
+            ? 'text-emerald-500 hover:text-emerald-700 hover:bg-emerald-100/70'
+            : ['Rejected', 'Interview Failed', 'Final Rejected'].includes(a.applicationStatus)
+            ? 'text-rose-400 hover:text-rose-600 hover:bg-rose-100/70'
+            : a.applicationStatus === 'Retreated'
+            ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/80'
+            : 'text-slate-400 hover:text-sky-600 hover:bg-sky-50'
+        }`}>
+          <Eye className="w-4 h-4" />
+        </button>
+      ),
+    },
+  ];
+
   return (
-    <div className="h-full overflow-y-auto p-6" dir="rtl">
+    <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -201,111 +292,31 @@ export default function Applications() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400">
-            <div className="animate-spin w-8 h-8 border-3 border-sky-500 border-t-transparent rounded-full mx-auto mb-3" />
-            جاري التحميل...
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <div className="animate-spin w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full" />
+            <span className="text-sm">جاري التحميل...</span>
           </div>
-        ) : applications.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p>لا توجد طلبات توظيف</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">#</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">تاريخ التقديم</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الاسم الكامل</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الوظيفة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الفرع</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">المرحلة</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">الحالة التشغيلية</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">تكرار</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">أرشيف</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">عرض</th>
-                </tr>
-              </thead>
-              <tbody>
-                {applications.map((app, idx) => (
-                  <tr
-                    key={app.id}
-                    className={getRowClassName(app.applicationStatus, idx)}
-                    onClick={() => navigate(`/jobs/applications/${app.id}`)}
-                  >
-                    <td className="px-4 py-3 text-slate-500 font-mono text-xs">{app.id}</td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        {new Date(app.createdAt).toLocaleDateString('ar-IQ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-medium text-slate-800">
-                      {app.applicantFirstName} {app.applicantLastName}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{app.vacancyTitle}</td>
-                    <td className="px-4 py-3 text-slate-600">{app.vacancyBranch || '—'}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${STAGE_COLORS[app.currentStage]}`}>
-                        {STAGE_LABELS[app.currentStage]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {(() => {
-                        const unifiedState = getUnifiedApplicationState({
-                          currentStage: app.currentStage,
-                          applicationStatus: app.applicationStatus,
-                          stageStatus: app.stageStatus,
-                          decision: app.decision,
-                          hasScheduledInterview: app.hasScheduledInterview,
-                        });
-
-                        return (
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${getUnifiedApplicationStateClasses(unifiedState.tone)}`}>
-                            {unifiedState.label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {app.duplicateFlag && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-600 rounded-full text-xs font-bold">
-                          <AlertTriangle className="w-3 h-3" />
-                          تكرار
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {app.isArchived && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-500 rounded-full text-xs font-bold">
-                          <Archive className="w-3 h-3" />
-                          مؤرشف
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button className={`p-1.5 rounded-lg transition-colors ${
-                        app.applicationStatus === 'Final Hired'
-                          ? 'text-emerald-500 hover:text-emerald-700 hover:bg-emerald-100/70'
-                          : ['Rejected', 'Interview Failed', 'Final Rejected'].includes(app.applicationStatus)
-                          ? 'text-rose-400 hover:text-rose-600 hover:bg-rose-100/70'
-                          : app.applicationStatus === 'Retreated'
-                          ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/80'
-                          : 'text-slate-400 hover:text-sky-600 hover:bg-sky-50'
-                      }`}>
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <SmartTable<any>
+          title="طلبات التوظيف"
+          icon={ClipboardList}
+          hideFilterBar={true}
+          data={applications}
+          columns={appColumns}
+          getId={(a) => a.id}
+          onRowClick={(a) => navigate(`/jobs/applications/${a.id}`)}
+          tableMinWidth={1000}
+          emptyIcon={ClipboardList}
+          emptyMessage="لا توجد طلبات توظيف"
+          rowClassName={(a) => {
+            const style = FINAL_ROW_STYLES[a.applicationStatus];
+            return style ? style.replace('hover:bg-emerald-50', '').replace('hover:bg-rose-50', '').replace('hover:bg-slate-50', '') : '';
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -5,10 +5,12 @@ import type { CreateTrainingCourseRequest, DeviceModel } from '../../lib/types';
 import { authFetch } from '../../lib/authFetch';
 import { api } from '../../lib/api';
 import {
-  GraduationCap, Plus, Search, Filter, ChevronDown, ChevronLeft, ChevronRight,
+  GraduationCap, Plus, Search, Filter, ChevronDown,
   Calendar, User, Monitor, Building2, Users, CheckCircle, X, Loader2,
 } from 'lucide-react';
 import PermissionGate from '../../components/PermissionGate';
+import SmartTable from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 
 const STATUS_COLORS: Record<string, string> = {
   'Training Scheduled': 'bg-blue-100 text-blue-700',
@@ -42,8 +44,8 @@ interface EligibleTrainee {
 export default function TrainingCourses() {
   const navigate = useNavigate();
   const {
-    courses, totalCount, currentPage, perPage, filters, loading,
-    fetchCourses, setFilter, resetFilters, setPage, createCourse,
+    courses, filters, loading,
+    fetchCourses, setFilter, resetFilters, createCourse,
     fetchEligibleTrainees,
   } = useTrainingStore();
 
@@ -56,12 +58,10 @@ export default function TrainingCourses() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  const totalPages = Math.ceil(totalCount / perPage);
-
   useEffect(() => { fetchCourses(); }, [
     filters.branch, filters.start_date, filters.end_date, filters.trainer,
     filters.device_name, filters.training_status, filters.job_vacancy_id,
-    filters.search, currentPage,
+    filters.search,
   ]);
 
   useEffect(() => {
@@ -138,8 +138,87 @@ export default function TrainingCourses() {
 
   const hasFilters = Object.values(filters).some(v => v !== '');
 
+  const trainingColumns: ColumnDef<any>[] = [
+    {
+      key: 'id', label: '#', sortable: true,
+      render: (c) => <span className="text-xs font-mono text-slate-400">#{c.id}</span>,
+      getValue: (c) => c.id,
+    },
+    {
+      key: 'trainingName', label: 'اسم الدورة', sortable: true,
+      render: (c) => <span className="font-medium text-slate-800">{c.trainingName}</span>,
+    },
+    {
+      key: 'deviceName', label: 'الجهاز', sortable: true,
+      render: (c) => (
+        <span className="flex items-center gap-1.5 text-slate-600">
+          <Monitor className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {c.deviceName || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'trainer', label: 'المدرب', sortable: true,
+      render: (c) => (
+        <span className="flex items-center gap-1.5 text-slate-700 font-medium">
+          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {c.trainer}
+        </span>
+      ),
+    },
+    {
+      key: 'startDate', label: 'البداية', sortable: true,
+      render: (c) => (
+        <span className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
+          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {c.startDate ? new Date(c.startDate).toLocaleDateString('ar-IQ') : '—'}
+        </span>
+      ),
+      getValue: (c) => c.startDate || '',
+    },
+    {
+      key: 'endDate', label: 'النهاية', sortable: true,
+      render: (c) => (
+        <span className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
+          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {c.endDate ? new Date(c.endDate).toLocaleDateString('ar-IQ') : '—'}
+        </span>
+      ),
+      getValue: (c) => c.endDate || '',
+    },
+    {
+      key: 'registeredTraineesCount', label: 'المتدربون', sortable: true,
+      render: (c) => (
+        <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
+          <Users className="w-3.5 h-3.5 text-slate-400" />
+          {c.registeredTraineesCount}
+        </span>
+      ),
+      getValue: (c) => c.registeredTraineesCount,
+    },
+    {
+      key: 'graduatedTraineesCount', label: 'الناجحون', sortable: true,
+      render: (c) => (
+        <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+          <CheckCircle className="w-3.5 h-3.5" />
+          {c.graduatedTraineesCount}
+        </span>
+      ),
+      getValue: (c) => c.graduatedTraineesCount,
+    },
+    {
+      key: 'trainingStatus', label: 'الحالة', sortable: true,
+      render: (c) => (
+        <span className={`px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap ${STATUS_COLORS[c.trainingStatus] || 'bg-slate-100 text-slate-600'}`}>
+          {STATUS_LABELS[c.trainingStatus] || c.trainingStatus}
+        </span>
+      ),
+      getValue: (c) => c.trainingStatus,
+    },
+  ];
+
   return (
-    <div className="h-full overflow-y-auto p-6" dir="rtl">
+    <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
@@ -201,84 +280,27 @@ export default function TrainingCourses() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-sky-500" />
-            جاري التحميل...
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
+            <span className="text-sm">جاري التحميل...</span>
           </div>
-        ) : courses.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <GraduationCap className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p>لا توجد دورات تدريبية</p>
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    {['#', 'اسم الدورة', 'الجهاز', 'المدرب', 'البداية', 'النهاية', 'المتدربون', 'الناجحون', 'الحالة'].map(h => (
-                      <th key={h} className="px-4 py-3 text-right font-semibold text-slate-600 whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {courses.map((course, idx) => (
-                    <tr
-                      key={course.id}
-                      onClick={() => navigate(`/jobs/training-courses/${course.id}`)}
-                      className={`border-b border-slate-100 hover:bg-sky-50/40 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/30' : ''}`}
-                    >
-                      <td className="px-4 py-3 text-slate-500 font-mono text-xs">{course.id}</td>
-                      <td className="px-4 py-3 font-medium text-slate-800">{course.trainingName}</td>
-                      <td className="px-4 py-3 text-slate-600">{course.deviceName || '—'}</td>
-                      <td className="px-4 py-3 text-slate-600">{course.trainer}</td>
-                      <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
-                        {course.startDate ? new Date(course.startDate).toLocaleDateString('ar-IQ') : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
-                        {course.endDate ? new Date(course.endDate).toLocaleDateString('ar-IQ') : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
-                          <Users className="w-3.5 h-3.5 text-slate-400" />
-                          {course.registeredTraineesCount}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          {course.graduatedTraineesCount}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap ${STATUS_COLORS[course.trainingStatus] || 'bg-slate-100 text-slate-600'}`}>
-                          {STATUS_LABELS[course.trainingStatus] || course.trainingStatus}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {totalPages > 1 && (
-              <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-600">
-                <span>إجمالي {totalCount} دورة</span>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setPage(currentPage - 1)} disabled={currentPage <= 1} className="p-1 rounded hover:bg-slate-100 disabled:opacity-40">
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                  <span>صفحة {currentPage} من {totalPages}</span>
-                  <button onClick={() => setPage(currentPage + 1)} disabled={currentPage >= totalPages} className="p-1 rounded hover:bg-slate-100 disabled:opacity-40">
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+        </div>
+      ) : (
+        <SmartTable<any>
+          title="الدورات التدريبية"
+          icon={GraduationCap}
+          hideFilterBar={true}
+          data={courses}
+          columns={trainingColumns}
+          getId={(c) => c.id}
+          tableMinWidth={920}
+          emptyIcon={GraduationCap}
+          emptyMessage="لا توجد دورات تدريبية"
+          onRowClick={(c) => navigate(`/jobs/training-courses/${c.id}`)}
+        />
+      )}
 
       {/* Create Course Modal */}
       {showModal && (

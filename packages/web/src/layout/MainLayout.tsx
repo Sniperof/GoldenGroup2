@@ -582,7 +582,7 @@ export default function MainLayout() {
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-hidden bg-slate-50 mt-16 lg:mt-0">
+            <main className="flex-1 overflow-y-auto custom-scroll bg-slate-50 mt-16 lg:mt-0">
                 <Outlet />
             </main>
 

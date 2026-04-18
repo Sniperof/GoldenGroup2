@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
+import SmartTable from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 
 const STATUS_LABELS: Record<string, string> = {
   'Interview Scheduled': 'مجدولة',
@@ -147,8 +149,70 @@ export default function Interviews() {
     }
   };
 
+  const interviewColumns: ColumnDef<any>[] = [
+    {
+      key: 'id', label: '#', sortable: true,
+      render: (iv) => <span className="text-xs font-mono text-slate-400">#{iv.id}</span>,
+      getValue: (iv) => iv.id,
+    },
+    {
+      key: 'applicantFirstName', label: 'المتقدم', sortable: true,
+      render: (iv) => (
+        <div>
+          <p className="font-medium text-slate-800">{iv.applicantFirstName} {iv.applicantLastName}</p>
+          <p className="text-xs text-slate-400 mt-0.5">طلب #{iv.applicationId}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'vacancyTitle', label: 'الوظيفة', sortable: true,
+      render: (iv) => <span className="text-slate-600">{iv.vacancyTitle || '—'}</span>,
+    },
+    {
+      key: 'interviewerName', label: 'المقابِل', sortable: true,
+      render: (iv) => <span className="font-medium text-slate-700">{iv.interviewerName}</span>,
+    },
+    {
+      key: 'interviewType', label: 'النوع / الرقم',
+      render: (iv) => (
+        <div className="text-xs text-slate-500">
+          <div className="font-medium">{iv.interviewType === 'HR Interview' ? 'مقابلة HR' : 'مقابلة تقنية'}</div>
+          <div className="text-slate-400">{iv.interviewNumber === 'First Interview' ? 'الأولى' : 'الثانية'}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'interviewDate', label: 'التاريخ', sortable: true,
+      render: (iv) => (
+        <span className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
+          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {iv.interviewDate ? new Date(iv.interviewDate).toLocaleDateString('ar-IQ') : '—'}
+        </span>
+      ),
+      getValue: (iv) => iv.interviewDate || '',
+    },
+    {
+      key: 'interviewTime', label: 'الوقت',
+      render: (iv) => (
+        <span className="flex items-center gap-1 text-xs text-slate-600">
+          <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {iv.interviewTime || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'interviewStatus', label: 'الحالة', sortable: true,
+      render: (iv) => (
+        <span className={`px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap ${STATUS_COLORS[iv.interviewStatus] || 'bg-slate-100 text-slate-600'}`}>
+          {STATUS_LABELS[iv.interviewStatus] || iv.interviewStatus}
+        </span>
+      ),
+      getValue: (iv) => iv.interviewStatus,
+    },
+  ];
+
   return (
-    <div className="h-full overflow-y-auto p-6" dir="rtl">
+    <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -216,88 +280,47 @@ export default function Interviews() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400">
-            <div className="animate-spin w-8 h-8 border-3 border-sky-500 border-t-transparent rounded-full mx-auto mb-3" />
-            جاري التحميل...
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <div className="animate-spin w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full" />
+            <span className="text-sm">جاري التحميل...</span>
           </div>
-        ) : interviews.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p>لا توجد مقابلات</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">#</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">المتقدم</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الوظيفة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">المقابِل</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">النوع / الرقم</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">التاريخ</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الوقت</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">الحالة</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">إجراء</th>
-                </tr>
-              </thead>
-              <tbody>
-                {interviews.map((iv, idx) => {
-                  const isHighlighted = highlightedInterviewId === iv.id;
-                  return (
-                  <tr
-                    key={iv.id}
-                    className={`border-b border-slate-100 transition-colors ${isHighlighted ? 'bg-sky-50 ring-1 ring-inset ring-sky-200' : idx % 2 === 1 ? 'bg-slate-50/30 hover:bg-sky-50/40' : 'hover:bg-sky-50/40'}`}
-                  >
-                    <td className="px-4 py-3 text-slate-500 font-mono text-xs">{iv.id}</td>
-                    <td className="px-4 py-3 font-medium text-slate-800">
-                      {iv.applicantFirstName} {iv.applicantLastName}
-                      <div className="text-xs text-slate-400">طلب #{iv.applicationId}</div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{iv.vacancyTitle || '—'}</td>
-                    <td className="px-4 py-3 text-slate-700">{iv.interviewerName}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">
-                      <div>{iv.interviewType === 'HR Interview' ? 'مقابلة HR' : 'مقابلة تقنية'}</div>
-                      <div className="text-slate-400">{iv.interviewNumber === 'First Interview' ? 'الأولى' : 'الثانية'}</div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        {iv.interviewDate ? new Date(iv.interviewDate).toLocaleDateString('ar-IQ') : '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5 text-slate-400" />
-                        {iv.interviewTime || '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${STATUS_COLORS[iv.interviewStatus] || 'bg-slate-100 text-slate-600'}`}>
-                        {STATUS_LABELS[iv.interviewStatus] || iv.interviewStatus}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
-                      {iv.interviewStatus === 'Interview Scheduled' && (
-                        <PermissionGate permission="jobs.interviews.record_result">
-                          <button
-                            onClick={() => { setResultModal({ id: iv.id }); setResultNotes(''); setResultStatus('Interview Completed'); }}
-                            className="text-xs px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg font-medium transition-colors"
-                          >
-                            تسجيل النتيجة
-                          </button>
-                        </PermissionGate>
-                      )}
-                    </td>
-                  </tr>
-                )})}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <SmartTable<any>
+          title="إدارة المقابلات"
+          icon={Users}
+          hideFilterBar={true}
+          data={interviews}
+          columns={interviewColumns}
+          getId={(iv) => iv.id}
+          tableMinWidth={900}
+          emptyIcon={Users}
+          emptyMessage="لا توجد مقابلات"
+          rowClassName={(iv) =>
+            highlightedInterviewId === iv.id
+              ? 'bg-sky-50 ring-1 ring-inset ring-sky-200 hover:bg-sky-100'
+              : ''
+          }
+          actions={(iv) =>
+            iv.interviewStatus === 'Interview Scheduled' ? (
+              <PermissionGate permission="jobs.interviews.record_result">
+                <button
+                  onClick={() => {
+                    setResultModal({ id: iv.id });
+                    setResultNotes('');
+                    setResultStatus('Interview Completed');
+                  }}
+                  className="text-xs px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
+                >
+                  تسجيل النتيجة
+                </button>
+              </PermissionGate>
+            ) : null
+          }
+        />
+      )}
 
       {/* Schedule Modal */}
       <AnimatePresence>

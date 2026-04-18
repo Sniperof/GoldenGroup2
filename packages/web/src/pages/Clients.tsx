@@ -254,7 +254,7 @@ export default function Clients() {
     }
 
     return (
-        <div className="flex flex-col h-full p-8 space-y-6 overflow-hidden">
+        <div className="p-8 space-y-6">
             {/* 1. Page Title */}
             <div className="flex items-center justify-between">
                 <div>
@@ -360,29 +360,28 @@ export default function Clients() {
             </div >
 
             {/* 4. Main Data Table */}
-            < div className="flex-1 min-h-0 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col" >
-                <SmartTable<Client & { lifecycleStage: string }>
-                    title="جدول بيانات الزبائن"
-                    icon={Users}
-                    hideFilterBar={true}
-                    data={mainList}
-                    columns={clientColumns}
-                    getId={(c) => c.id}
-                    onRowClick={(c) => navigate(`/clients/${c.id}`)}
-                    bulkActions={[
-                        { label: 'حذف', icon: Trash2, variant: 'danger', onClick: (items) => { if (confirm(`حذف ${items.length} عملاء؟`)) bulkDelete(items); } },
-                    ]}
-                    actions={(c) => (
-                        <div className="flex items-center gap-1">
-                            <button onClick={(e) => { e.stopPropagation(); openEditModal(c as any); }} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-400 hover:text-sky-500 transition-all border border-transparent hover:border-gray-100" title="تعديل بيانات الزبون">
-                                <Pencil className="w-4 h-4" />
-                            </button>
-                        </div>
-                    )}
-                    emptyIcon={Users}
-                    emptyMessage="لا يوجد سجلات زبائن حالياً"
-                />
-            </div >
+            <SmartTable<Client & { lifecycleStage: string }>
+                title="جدول بيانات الزبائن"
+                icon={Users}
+                hideFilterBar={true}
+                data={mainList}
+                columns={clientColumns}
+                tableMinWidth={980}
+                getId={(c) => c.id}
+                onRowClick={(c) => navigate(`/clients/${c.id}`)}
+                bulkActions={[
+                    { label: 'حذف', icon: Trash2, variant: 'danger', onClick: (items) => { if (confirm(`حذف ${items.length} عملاء؟`)) bulkDelete(items); } },
+                ]}
+                actions={(c) => (
+                    <div className="flex items-center gap-1">
+                        <button onClick={(e) => { e.stopPropagation(); openEditModal(c as any); }} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-400 hover:text-sky-500 transition-all border border-transparent hover:border-gray-100" title="تعديل بيانات الزبون">
+                            <Pencil className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
+                emptyIcon={Users}
+                emptyMessage="لا يوجد سجلات زبائن حالياً"
+            />
 
             <ClientModal
                 isOpen={isModalOpen || isAddCandidateModalOpen}

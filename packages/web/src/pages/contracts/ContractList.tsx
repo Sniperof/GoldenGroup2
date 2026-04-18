@@ -108,7 +108,7 @@ export default function ContractList() {
     }
 
     return (
-        <div className="p-8 h-full flex flex-col overflow-hidden">
+        <div className="p-8">
             <SmartTable<Contract>
                 title="إدارة العقود"
                 icon={FileText}

@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
+import SmartTable from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 import { useBranchStore } from '../../hooks/useBranchStore';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
 import GeoSmartSearch, { GeoSelection, getLevelName } from '../../components/GeoSmartSearch';
@@ -432,8 +434,48 @@ export default function Vacancies() {
     </motion.div>
   );
 
+  const vacancyColumns: ColumnDef<JobVacancy>[] = [
+    {
+      key: 'id', label: '#', sortable: true,
+      render: (v) => <span className="text-xs font-mono text-slate-400">#{v.id}</span>,
+      getValue: (v) => v.id,
+    },
+    {
+      key: 'title', label: 'عنوان الوظيفة', sortable: true,
+      render: (v) => <span className="font-semibold text-slate-800">{v.title}</span>,
+    },
+    {
+      key: 'branch', label: 'الفرع', sortable: true,
+      render: (v) => <span className="flex items-center gap-1.5 text-slate-600"><MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />{v.branch}</span>,
+    },
+    {
+      key: 'startDate', label: 'الفترة', sortable: true,
+      render: (v) => (
+        <span className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
+          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {v.startDate ? new Date(v.startDate).toLocaleDateString('ar-IQ') : '—'} ← {v.endDate ? new Date(v.endDate).toLocaleDateString('ar-IQ') : '—'}
+        </span>
+      ),
+      getValue: (v) => v.startDate || '',
+    },
+    {
+      key: 'requiredCertificate', label: 'الشهادة', sortable: true,
+      render: (v) => <span className="flex items-center gap-1.5 text-slate-600"><GraduationCap className="w-3.5 h-3.5 text-slate-400 shrink-0" />{v.requiredCertificate || '—'}</span>,
+    },
+    {
+      key: 'vacancyCount', label: 'الشواغر', sortable: true,
+      render: (v) => <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold"><Users className="w-3 h-3" />{v.vacancyCount}</span>,
+      getValue: (v) => v.vacancyCount,
+    },
+    {
+      key: 'status', label: 'الحالة', sortable: true,
+      render: (v) => <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${STATUS_COLORS[v.status]}`}>{STATUS_LABELS[v.status]}</span>,
+      getValue: (v) => v.status,
+    },
+  ];
+
   return (
-    <div className="h-full overflow-y-auto p-6" dir="rtl">
+    <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -478,71 +520,63 @@ export default function Vacancies() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400">
-            <div className="animate-spin w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full mx-auto mb-3" />
-            جاري التحميل...
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <div className="animate-spin w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full" />
+            <span className="text-sm">جاري التحميل...</span>
           </div>
-        ) : vacancies.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <Briefcase className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p>لا توجد شواغر وظيفية</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">#</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">عنوان الوظيفة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الفرع</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الفترة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الشهادة</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">الشواغر</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">الحالة</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {vacancies.map((v, idx) => (
-                  <tr key={v.id} className={`border-b border-slate-100 hover:bg-sky-50/40 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/30' : ''}`} onClick={() => navigate(`/jobs/vacancies/${v.id}`)}>
-                    <td className="px-4 py-3 text-slate-500 font-mono text-xs">{v.id}</td>
-                    <td className="px-4 py-3 font-medium text-slate-800">{v.title}</td>
-                    <td className="px-4 py-3 text-slate-600"><span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-slate-400" />{v.branch}</span></td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        {v.startDate ? new Date(v.startDate).toLocaleDateString('ar-IQ') : '—'} → {v.endDate ? new Date(v.endDate).toLocaleDateString('ar-IQ') : '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600"><span className="flex items-center gap-1"><GraduationCap className="w-3.5 h-3.5 text-slate-400" />{v.requiredCertificate || '—'}</span></td>
-                    <td className="px-4 py-3 text-center"><span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold"><Users className="w-3 h-3" />{v.vacancyCount}</span></td>
-                    <td className="px-4 py-3 text-center"><span className={`px-3 py-1 rounded-full text-xs font-bold ${STATUS_COLORS[v.status]}`}>{STATUS_LABELS[v.status]}</span></td>
-                    <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
-                      <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => navigate(`/jobs/vacancies/${v.id}`)} className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="عرض"><Eye className="w-4 h-4" /></button>
-                        <PermissionGate permission="jobs.vacancies.edit">
-                          {v.status !== 'Archived' && <button onClick={() => openEdit(v)} className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="تعديل"><Edit className="w-4 h-4" /></button>}
-                        </PermissionGate>
-                        <PermissionGate permission="jobs.vacancies.change_status">
-                          {v.status === 'Open' && <button onClick={() => handleStatusChange(v.id, 'Closed')} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="إغلاق"><XCircle className="w-4 h-4" /></button>}
-                          {v.status === 'Closed' && (
-                            <>
-                              <button onClick={() => handleStatusChange(v.id, 'Open')} className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors" title="إعادة فتح"><RotateCcw className="w-4 h-4" /></button>
-                              <button onClick={() => handleStatusChange(v.id, 'Archived')} className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="أرشفة"><Archive className="w-4 h-4" /></button>
-                            </>
-                          )}
-                        </PermissionGate>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <SmartTable<JobVacancy>
+          title="الشواغر الوظيفية"
+          icon={Briefcase}
+          hideFilterBar={true}
+          data={vacancies}
+          columns={vacancyColumns}
+          getId={(v) => v.id}
+          onRowClick={(v) => navigate(`/jobs/vacancies/${v.id}`)}
+          tableMinWidth={880}
+          emptyIcon={Briefcase}
+          emptyMessage="لا توجد شواغر وظيفية"
+          actions={(v) => (
+            <div className="flex items-center gap-1">
+              <button onClick={(e) => { e.stopPropagation(); navigate(`/jobs/vacancies/${v.id}`); }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="عرض">
+                <Eye className="w-4 h-4" />
+              </button>
+              <PermissionGate permission="jobs.vacancies.edit">
+                {v.status !== 'Archived' && (
+                  <button onClick={(e) => { e.stopPropagation(); openEdit(v); }}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="تعديل">
+                    <Edit className="w-4 h-4" />
+                  </button>
+                )}
+              </PermissionGate>
+              <PermissionGate permission="jobs.vacancies.change_status">
+                {v.status === 'Open' && (
+                  <button onClick={(e) => { e.stopPropagation(); handleStatusChange(v.id, 'Closed'); }}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="إغلاق">
+                    <XCircle className="w-4 h-4" />
+                  </button>
+                )}
+                {v.status === 'Closed' && (
+                  <>
+                    <button onClick={(e) => { e.stopPropagation(); handleStatusChange(v.id, 'Open'); }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors" title="إعادة فتح">
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleStatusChange(v.id, 'Archived'); }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="أرشفة">
+                      <Archive className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </PermissionGate>
+            </div>
+          )}
+        />
+      )}
 
       {/* ── MODAL ── */}
       <AnimatePresence>

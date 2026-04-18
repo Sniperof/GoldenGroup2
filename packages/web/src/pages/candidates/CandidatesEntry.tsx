@@ -139,7 +139,7 @@ export default function CandidatesEntry() {
     };
 
     return (
-        <div className="flex flex-col h-full p-8 space-y-6 overflow-hidden" dir="rtl">
+        <div className="p-8 space-y-6" dir="rtl">
             {/* Error Message Modal */}
             {errorModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">

@@ -190,7 +190,7 @@ export default function Branches() {
   ];
 
   return (
-    <div className="flex flex-col h-full p-8 space-y-6 overflow-hidden" dir="rtl">
+    <div className="p-8 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -206,8 +206,7 @@ export default function Branches() {
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-        <SmartTable<Branch>
+      <SmartTable<Branch>
           title="سجل الفروع"
           icon={Building2}
           data={branches}
@@ -224,7 +223,6 @@ export default function Branches() {
             </div>
           )}
         />
-      </div>
 
       {/* ── Modal ── */}
       {isModalOpen && (
