@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/router.js';
 import { createContext } from './trpc/init.js';
-import { NODE_ENV, PORT } from './config/env.js';
+import { NODE_ENV, PORT, CORS_ORIGINS } from './config/env.js';
 import { UPLOADS_DIR } from './storage/uploader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,7 +42,9 @@ import uploadRouter from './routes/upload.js';
 import rolesRouter from './routes/roles.js';
 
 const app = express();
-app.use(cors());
+// Restrict origins when CORS_ORIGINS is set in the environment.
+// Falls back to open cors() if unset, preserving current dev behaviour.
+app.use(cors(CORS_ORIGINS.length ? { origin: CORS_ORIGINS } : undefined));
 app.use(express.json({ limit: '10mb' }));
 
 app.get('/api/health', (_req, res) => {

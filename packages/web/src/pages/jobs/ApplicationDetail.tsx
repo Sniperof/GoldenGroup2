@@ -1711,7 +1711,7 @@ export default function ApplicationDetail() {
                         </div>
                         <div className="bg-indigo-50/30 border border-indigo-100 rounded-2xl p-5 flex flex-col">
                           <h4 className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                            <FileText className="w-4 h-4" /> ملاحظات المراجعة البشرية
+                            <FileText className="w-4 h-4" /> ملاحظات عامة
                           </h4>
                           <textarea
                             placeholder="سجل ملاحظاتك هنا أثناء المراجعة للمرجعية المستقبلية..."

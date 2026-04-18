@@ -1,11 +1,9 @@
 import multer from 'multer';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { UPLOADS_DIR } from '../config/env.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-export const UPLOADS_DIR = path.resolve(__dirname, '..', '..', '..', 'uploads');
+export { UPLOADS_DIR };
 
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });

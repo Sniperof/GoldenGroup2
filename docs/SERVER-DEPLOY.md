@@ -1,5 +1,8 @@
 # Golden CRM — Server Deployment Guide
 
+> First-time deployment only. For ongoing backup, HTTPS, log rotation, and
+> post-deploy hardening, see [OPERATIONS.md](./OPERATIONS.md).
+
 ## Stack
 
 | Layer | Technology |
