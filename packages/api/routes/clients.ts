@@ -19,6 +19,8 @@ const CLIENT_SELECT = `
     detailed_address AS "detailedAddress",
     gps_coordinates AS "gpsCoordinates",
     occupation,
+    spouse_occupation AS "spouseOccupation",
+    data_quality AS "dataQuality",
     water_source AS "waterSource",
     notes,
     rating,
@@ -55,6 +57,8 @@ const CLIENT_MUTATION_RETURNING = `
     detailed_address AS "detailedAddress",
     gps_coordinates AS "gpsCoordinates",
     occupation,
+    spouse_occupation AS "spouseOccupation",
+    data_quality AS "dataQuality",
     water_source AS "waterSource",
     notes,
     rating,
@@ -96,7 +100,7 @@ router.post('/', async (req, res) => {
     `INSERT INTO clients (
       first_name, father_name, last_name, nickname,
       name, mobile, contacts, governorate, district, neighborhood,
-      detailed_address, gps_coordinates, occupation, water_source, notes, rating,
+      detailed_address, gps_coordinates, occupation, spouse_occupation, data_quality, water_source, notes, rating,
       source_channel, referrer_type, referrer_id, referrer_name, referrers, referral_entity_id,
       referral_date, referral_reason, referral_sheet_id, referral_address_text,
       is_candidate, target_client, candidate_status
@@ -104,10 +108,10 @@ router.post('/', async (req, res) => {
     VALUES (
       $1,$2,$3,$4,
       $5,$6,$7,$8,$9,$10,
-      $11,$12,$13,$14,$15,$16,
-      $17,$18,$19,$20,$21,$22,
-      $23,$24,$25,$26,
-      $27,$28,$29
+      $11,$12,$13,$14,$15,$16,$17,$18,
+      $19,$20,$21,$22,$23,$24,
+      $25,$26,$27,$28,
+      $29,$30,$31
     )
     ${CLIENT_MUTATION_RETURNING}`,
     [
@@ -124,6 +128,8 @@ router.post('/', async (req, res) => {
       c.detailedAddress || null,
       c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
       c.occupation || null,
+      c.spouseOccupation || null,
+      c.dataQuality || null,
       c.waterSource || null,
       c.notes || null,
       c.rating || null,
@@ -151,11 +157,11 @@ router.put('/:id', async (req, res) => {
     `UPDATE clients SET
       first_name=$1, father_name=$2, last_name=$3, nickname=$4,
       name=$5, mobile=$6, contacts=$7, governorate=$8, district=$9, neighborhood=$10,
-      detailed_address=$11, gps_coordinates=$12, occupation=$13, water_source=$14, notes=$15, rating=$16,
-      source_channel=$17, referrer_type=$18, referrer_id=$19, referrer_name=$20, referrers=$21, referral_entity_id=$22,
-      referral_date=$23, referral_reason=$24, referral_sheet_id=$25, referral_address_text=$26,
-      is_candidate=$27, target_client=$28, candidate_status=$29
-    WHERE id=$30
+      detailed_address=$11, gps_coordinates=$12, occupation=$13, spouse_occupation=$14, data_quality=$15, water_source=$16, notes=$17, rating=$18,
+      source_channel=$19, referrer_type=$20, referrer_id=$21, referrer_name=$22, referrers=$23, referral_entity_id=$24,
+      referral_date=$25, referral_reason=$26, referral_sheet_id=$27, referral_address_text=$28,
+      is_candidate=$29, target_client=$30, candidate_status=$31
+    WHERE id=$32
     ${CLIENT_MUTATION_RETURNING}`,
     [
       c.firstName || null,
@@ -171,6 +177,8 @@ router.put('/:id', async (req, res) => {
       c.detailedAddress || null,
       c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
       c.occupation || null,
+      c.spouseOccupation || null,
+      c.dataQuality || null,
       c.waterSource || null,
       c.notes || null,
       c.rating || null,

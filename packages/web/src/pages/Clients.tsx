@@ -368,6 +368,8 @@ export default function Clients() {
                 columns={clientColumns}
                 tableMinWidth={980}
                 getId={(c) => c.id}
+                defaultSortKey="id"
+                defaultSortDir="desc"
                 onRowClick={(c) => navigate(`/clients/${c.id}`)}
                 bulkActions={[
                     { label: 'حذف', icon: Trash2, variant: 'danger', onClick: (items) => { if (confirm(`حذف ${items.length} عملاء؟`)) bulkDelete(items); } },

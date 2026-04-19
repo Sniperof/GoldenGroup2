@@ -47,6 +47,8 @@ export interface SmartTableProps<T> {
     getId: (item: T) => string | number;
     hideFilterBar?: boolean;
     tableMinWidth?: number;
+    defaultSortKey?: string;
+    defaultSortDir?: 'asc' | 'desc';
 }
 
 /* ------------------------------------------------------------------ */
@@ -104,6 +106,8 @@ export default function SmartTable<T>({
     rowClassName,
     hideFilterBar = false,
     tableMinWidth = 860,
+    defaultSortKey,
+    defaultSortDir,
 }: SmartTableProps<T> & { rowClassName?: (item: T) => string }) {
 
     /* ---------- state ---------- */
@@ -111,8 +115,8 @@ export default function SmartTable<T>({
     const [filterValues, setFilterValues] = useState<Record<string, string>>(() =>
         Object.fromEntries(filters.map(f => [f.key, 'all']))
     );
-    const [sortKey, setSortKey] = useState<string | null>(null);
-    const [sortDir, setSortDir] = useState<SortDir>(null);
+    const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null);
+    const [sortDir, setSortDir] = useState<SortDir>(defaultSortDir ?? null);
     const [selected, setSelected] = useState<Set<string | number>>(new Set());
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -207,11 +211,11 @@ export default function SmartTable<T>({
     const resetFilters = useCallback(() => {
         setSearch('');
         setFilterValues(Object.fromEntries(filters.map(f => [f.key, 'all'])));
-        setSortKey(null);
-        setSortDir(null);
+        setSortKey(defaultSortKey ?? null);
+        setSortDir(defaultSortDir ?? null);
         setSelected(new Set());
         setCurrentPage(1);
-    }, [filters]);
+    }, [filters, defaultSortKey, defaultSortDir]);
 
     const selectedItems = sorted.filter(item => selected.has(getId(item)));
     const hasActiveFilters = search.trim() !== '' || Object.values(filterValues).some(v => v !== 'all');

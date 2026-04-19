@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Search, CheckCircle2, AlertCircle, Clock, Link2, ArrowRight, User } from 'lucide-react';
 import { Candidate, Client } from '../../lib/types';
 import { performSmartSearch, SearchResult, ConfidenceScore } from '../../lib/searchUtils';
@@ -29,6 +29,15 @@ export default function ManualSearchModal({
         name: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
         mobile: candidate.mobile || ''
     });
+
+    // Check if the entered mobile already exists in ANY client's contacts (primary or secondary)
+    const mobileExistsInClients = useMemo(() => {
+        const num = inputs.mobile.trim();
+        if (!num || num.length < 6) return false;
+        return clients.some(c =>
+            (c.contacts || []).some(con => con.number === num) || c.mobile === num
+        );
+    }, [inputs.mobile, clients]);
 
     useEffect(() => {
         if (isOpen) {
@@ -197,15 +206,25 @@ export default function ManualSearchModal({
 
                 {/* Footer */}
                 <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between shrink-0">
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-xl transition-colors"
-                    >
-                        إغلاق
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={onClose}
+                            className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-xl transition-colors"
+                        >
+                            إغلاق
+                        </button>
+                        {mobileExistsInClients && inputs.mobile.length >= 6 && (
+                            <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                الرقم موجود مسبقاً — أدخل رقماً فريداً للمتابعة
+                            </div>
+                        )}
+                    </div>
                     <button
                         onClick={onNoMatch}
-                        className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white bg-slate-600 hover:bg-slate-700 shadow-md rounded-xl transition-colors"
+                        disabled={mobileExistsInClients && inputs.mobile.length >= 6}
+                        title={mobileExistsInClients ? 'الرقم المدخل موجود مسبقاً في قاعدة البيانات' : ''}
+                        className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none bg-slate-600 hover:bg-slate-700 disabled:bg-slate-400 disabled:hover:bg-slate-400"
                     >
                         لا يوجد تطابق - متابعة
                         <ArrowRight className="w-4 h-4 ml-1" />

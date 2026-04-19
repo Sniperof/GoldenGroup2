@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { X, Calendar, User, FileText, CheckCircle, Clock, Search, AlertCircle, Phone, MapPin, Share2, ShieldCheck } from 'lucide-react';
 import QualificationModal from './QualificationModal';
-import { Candidate } from '../../lib/types';
+import ClientModal from '../ClientModal';
+import { Candidate, Client, GeoUnit } from '../../lib/types';
+import { api } from '../../lib/api';
 
 interface Props {
     isOpen: boolean;
@@ -21,6 +23,18 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
 
     const [isQualifyModalOpen, setIsQualifyModalOpen] = useState(false);
     const [activeCandidateForQualify, setActiveCandidateForQualify] = useState<Candidate | null>(null);
+    const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+    const [clientInitialData, setClientInitialData] = useState<Client | null>(null);
+    const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        let active = true;
+        api.geoUnits.list()
+            .then(units => { if (active) setGeoUnits(units); })
+            .catch(() => {});
+        return () => { active = false; };
+    }, [isOpen]);
 
     const handleOpenQualify = (candidate: Candidate) => {
         setActiveCandidateForQualify(candidate);
@@ -28,9 +42,43 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     };
 
     const handleQualificationConfirmed = (candidate: Candidate) => {
-        qualifyCandidate(candidate.id);
+        // Pre-fill the ClientModal with candidate data — same as CandidatesEntry page
+        const prefilledClient: Partial<Client> = {
+            firstName: candidate.firstName || '',
+            lastName: candidate.lastName || '',
+            nickname: candidate.nickname || '',
+            name: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.nickname || '',
+            mobile: candidate.mobile,
+            contacts: candidate.contacts || [],
+            neighborhood: candidate.geoUnitId?.toString() || '',
+            detailedAddress: candidate.addressText || '',
+            occupation: candidate.occupation || '',
+            sourceChannel: candidate.referralOriginChannel,
+            referrerType: candidate.referralType,
+            referrerName: candidate.referralNameSnapshot,
+            referralEntityId: candidate.referralEntityId,
+            referralDate: candidate.referralDate,
+            referralReason: candidate.referralReason,
+            referralSheetId: candidate.referralSheetId,
+            referralAddressText: candidate.addressText,
+            isCandidate: false,
+            candidateStatus: 'Lead',
+        };
+        setClientInitialData(prefilledClient as Client);
         setIsQualifyModalOpen(false);
-        setActiveCandidateForQualify(null);
+        setIsClientModalOpen(true);
+    };
+
+    const handleSaveClient = (clientData: Client) => {
+        if (!activeCandidateForQualify) return;
+        try {
+            qualifyCandidate(activeCandidateForQualify.id, clientData);
+            setIsClientModalOpen(false);
+            setClientInitialData(null);
+            setActiveCandidateForQualify(null);
+        } catch (err: any) {
+            console.error('Failed to qualify candidate:', err);
+        }
     };
 
     if (!isOpen || !sheetId) return null;
@@ -162,6 +210,14 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                     setIsQualifyModalOpen(false);
                     setActiveCandidateForQualify(null);
                 }}
+            />
+
+            <ClientModal
+                isOpen={isClientModalOpen}
+                onClose={() => setIsClientModalOpen(false)}
+                onSave={handleSaveClient}
+                initialData={clientInitialData}
+                geoUnits={geoUnits}
             />
         </div>
     );

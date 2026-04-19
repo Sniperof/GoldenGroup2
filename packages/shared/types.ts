@@ -170,6 +170,8 @@ export interface Client {
     detailedAddress?: string;
     gpsCoordinates?: { lat: number; lng: number };
     occupation?: string;
+    spouseOccupation?: string;
+    dataQuality?: 'correct' | 'incorrect' | 'needs_edit';
     waterSource?: string;
     notes?: string;
     rating?: ClientRating;

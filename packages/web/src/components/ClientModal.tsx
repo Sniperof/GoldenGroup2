@@ -87,6 +87,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [clientSuggestions, setClientSuggestions] = useState<Client[]>([]);
     const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
     const [occupation, setOccupation] = useState('');
+    const [spouseOccupation, setSpouseOccupation] = useState('');
+    const [dataQuality, setDataQuality] = useState<string>('');
     const [notes, setNotes] = useState('');
     const [rating, setRating] = useState<ClientRating>('Undefined');
     const clientSearchRef = useRef<HTMLDivElement>(null);
@@ -222,6 +224,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setClientSearch(initialData.referrerType === 'Client' ? (initialData.referrerName || '') : '');
                 setSelectedClientId(initialData.referrerType === 'Client' ? (initialData.referralEntityId || null) : null);
                 setOccupation(initialData.occupation || '');
+                setSpouseOccupation(initialData.spouseOccupation || '');
+                setDataQuality(initialData.dataQuality || '');
                 setNotes(initialData.notes || '');
                 setRating(initialData.rating || 'Undefined');
             } else {
@@ -233,6 +237,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setOriginChannel('App');
                 setReferralNameSnapshot('');
                 setOccupation('');
+                setSpouseOccupation('');
+                setDataQuality('');
                 setNotes('');
                 setRating('Undefined');
                 setEmployeeIdInput('');
@@ -343,6 +349,29 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         return [...clientRefs, ...unconvertedCandRefs].sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime());
     }, [initialData, allClients, candidates]);
 
+    // -- Duplicate detection: map number → {id, name, isPrimary} of the OTHER client --
+    const duplicateMap = useMemo(() => {
+        const map = new Map<string, { id: number; name: string; contactPrimary: boolean }>();
+        for (const client of allClients) {
+            if (initialData?.id && client.id === initialData.id) continue; // skip self
+            for (const contact of (client.contacts || [])) {
+                if (contact.number && contact.number.length >= 6 && !map.has(contact.number)) {
+                    map.set(contact.number, {
+                        id: client.id,
+                        name: client.name,
+                        contactPrimary: contact.isPrimary,
+                    });
+                }
+            }
+        }
+        return map;
+    }, [allClients, initialData?.id]);
+
+    const primaryContact = contacts.find(c => c.isPrimary);
+    const primaryDup = primaryContact?.number && primaryContact.number.length >= 6
+        ? duplicateMap.get(primaryContact.number)
+        : undefined;
+
     // -- Save --
     const handleSave = () => {
         if (!firstName.trim() && !nickname.trim()) {
@@ -351,11 +380,15 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         }
 
         const fullName = [firstName.trim(), fatherName.trim(), lastName.trim(), nickname.trim() ? '(' + nickname.trim() + ')' : ''].filter(Boolean).join(' ').trim();
-        const primaryContact = contacts.find(c => c.isPrimary);
         const primaryNumber = primaryContact?.number || contacts[0]?.number || '';
 
         if (!primaryNumber) {
             alert('يرجى ملء رقم هاتف رئيسي واحد على الأقل');
+            return;
+        }
+
+        if (primaryDup) {
+            alert(`الرقم الأساسي (${primaryNumber}) مكرر عند الزبون: ${primaryDup.name} (كرقم ${primaryDup.contactPrimary ? 'أساسي' : 'ثانوي'}). يجب اختيار رقم أساسي فريد.`);
             return;
         }
 
@@ -374,6 +407,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             referrerName: referralNameSnapshot,
             referralEntityId: selectedClientId || employeeFound?.id || undefined,
             occupation: occupation.trim() || undefined,
+            spouseOccupation: spouseOccupation.trim() || undefined,
+            dataQuality: (dataQuality as any) || undefined,
             notes: notes.trim() || undefined,
             ...(isEditMode ? { rating } : {}),
         } as Client);
@@ -450,16 +485,35 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             {/* ============ CONTACT TAB ============ */}
                             {activeTab === 'contact' && (
                                 <div className="space-y-3">
+                                    {/* Primary duplicate warning banner */}
+                                    {primaryDup && (
+                                        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2 text-xs text-red-700">
+                                            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                                            <div>
+                                                <span className="font-bold">الرقم الأساسي مكرر!</span> موجود عند الزبون:{' '}
+                                                <strong>{primaryDup.name}</strong> كرقم{' '}
+                                                {primaryDup.contactPrimary ? 'أساسي' : 'ثانوي'}.
+                                                يجب تغيير الرقم الأساسي لحفظ البيانات.
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <AnimatePresence initial={false}>
-                                        {contacts.map((c) => (
+                                        {contacts.map((c) => {
+                                            const dup = c.number && c.number.length >= 6
+                                                ? duplicateMap.get(c.number)
+                                                : undefined;
+                                            const isDupPrimary = Boolean(dup) && !c.isPrimary;
+
+                                            return (
                                             <motion.div
                                                 key={c.id}
                                                 initial={{ opacity: 0, height: 0 }}
                                                 animate={{ opacity: 1, height: 'auto' }}
                                                 exit={{ opacity: 0, height: 0 }}
-                                                className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-2.5"
+                                                className={`bg-gray-50 rounded-xl p-3 border space-y-2.5 ${c.isPrimary && dup ? 'border-red-300 bg-red-50/40' : dup ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100'}`}
                                             >
-                                                {/* Row 1: Type + Number + Area Code */}
+                                                {/* Row 1: Type + Number + Duplicate badge + Remove */}
                                                 <div className="flex items-center gap-2">
                                                     <select
                                                         value={c.type}
@@ -496,18 +550,33 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         onChange={e => {
                                                             let v = e.target.value.replace(/\D/g, '');
                                                             if (c.type === 'mobile') v = v.slice(0, 10);
+                                                            else if (c.type === 'landline') v = v.slice(0, 7);
                                                             updateContact(c.id, 'number', v);
                                                         }}
-                                                        placeholder={c.type === 'mobile' ? '9XXXXXXXXX' : 'الرقم...'}
+                                                        placeholder={c.type === 'mobile' ? '9XXXXXXXXX' : c.type === 'landline' ? 'XXXXXXX' : 'الرقم...'}
                                                         dir="ltr"
-                                                        maxLength={c.type === 'mobile' ? 10 : 15}
-                                                        className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none"
+                                                        maxLength={c.type === 'mobile' ? 10 : c.type === 'landline' ? 7 : 15}
+                                                        className={`flex-1 bg-white border rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-gray-300 focus:outline-none ${
+                                                            dup ? 'border-amber-300 focus:border-amber-400' : 'border-gray-200 focus:border-sky-500'
+                                                        }`}
                                                     />
 
                                                     <button type="button" onClick={() => removeContact(c.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all border border-transparent hover:border-red-100 shrink-0">
                                                         <Trash2 className="w-3.5 h-3.5" />
                                                     </button>
                                                 </div>
+
+                                                {/* Duplicate badge */}
+                                                {dup && (
+                                                    <div className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg border w-fit ${
+                                                        c.isPrimary
+                                                            ? 'bg-red-100 text-red-700 border-red-200'
+                                                            : 'bg-amber-100 text-amber-700 border-amber-200'
+                                                    }`}>
+                                                        <AlertCircle className="w-3 h-3 shrink-0" />
+                                                        مكرر عند: {dup.name} (#{dup.id}) — رقم {dup.contactPrimary ? 'أساسي' : 'ثانوي'}
+                                                    </div>
+                                                )}
 
                                                 {/* Row 2: Label + Status + WhatsApp + Primary */}
                                                 <div className="flex items-center gap-2">
@@ -543,20 +612,32 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
                                                     <button
                                                         type="button"
-                                                        onClick={() => setPrimary(c.id)}
-                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${c.isPrimary
-                                                            ? 'bg-sky-50 border-sky-200'
-                                                            : 'bg-white border-gray-200 hover:border-gray-300'
-                                                            }`}
-                                                        title="تعيين كرقم أساسي"
+                                                        onClick={() => {
+                                                            if (isDupPrimary) return; // can't set duplicate as primary
+                                                            setPrimary(c.id);
+                                                        }}
+                                                        disabled={isDupPrimary}
+                                                        title={isDupPrimary ? 'لا يمكن تعيين رقم مكرر كرقم أساسي' : 'تعيين كرقم أساسي'}
+                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${
+                                                            c.isPrimary
+                                                                ? dup ? 'bg-red-50 border-red-300' : 'bg-sky-50 border-sky-200'
+                                                                : isDupPrimary
+                                                                    ? 'bg-gray-50 border-gray-200 opacity-40 cursor-not-allowed'
+                                                                    : 'bg-white border-gray-200 hover:border-gray-300'
+                                                        }`}
                                                     >
-                                                        <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center ${c.isPrimary ? 'border-sky-500' : 'border-gray-300'}`}>
-                                                            {c.isPrimary && <div className="w-1.5 h-1.5 rounded-full bg-sky-500" />}
+                                                        <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center ${
+                                                            c.isPrimary
+                                                                ? dup ? 'border-red-500' : 'border-sky-500'
+                                                                : 'border-gray-300'
+                                                        }`}>
+                                                            {c.isPrimary && <div className={`w-1.5 h-1.5 rounded-full ${dup ? 'bg-red-500' : 'bg-sky-500'}`} />}
                                                         </div>
                                                     </button>
                                                 </div>
                                             </motion.div>
-                                        ))}
+                                            );
+                                        })}
                                     </AnimatePresence>
 
                                     <button type="button" onClick={addContact} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-slate-500 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50 transition-all text-sm font-medium">
@@ -735,17 +816,46 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         </div>
                                         )}
                                         <div className="space-y-1">
-                                            <label className="text-xs font-semibold text-slate-500">المهنة</label>
+                                            <label className="text-xs font-semibold text-slate-500">صحة البيانات</label>
                                             <select
-                                                value={occupation}
-                                                onChange={e => setOccupation(e.target.value)}
+                                                value={dataQuality}
+                                                onChange={e => setDataQuality(e.target.value)}
                                                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
                                             >
-                                                <option value="">اختر المهنة</option>
-                                                {occupationOptions.map((option) => (
-                                                    <option key={option} value={option}>{option}</option>
-                                                ))}
+                                                <option value="">غير محدد</option>
+                                                <option value="correct">✅ صحيحة</option>
+                                                <option value="incorrect">❌ خاطئة</option>
+                                                <option value="needs_edit">✏️ للتعديل</option>
                                             </select>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-semibold text-slate-500">مهنة الزبون</label>
+                                                <select
+                                                    value={occupation}
+                                                    onChange={e => setOccupation(e.target.value)}
+                                                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
+                                                >
+                                                    <option value="">اختر المهنة</option>
+                                                    {occupationOptions.map((option) => (
+                                                        <option key={option} value={option}>{option}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-semibold text-slate-500">مهنة الزوج / الزوجة</label>
+                                                <select
+                                                    value={spouseOccupation}
+                                                    onChange={e => setSpouseOccupation(e.target.value)}
+                                                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
+                                                >
+                                                    <option value="">اختر المهنة</option>
+                                                    {occupationOptions.map((option) => (
+                                                        <option key={option} value={option}>{option}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-semibold text-slate-500">ملاحظات إضافية (محرر نصي)</label>
@@ -772,15 +882,28 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         </div >
 
                         {/* Footer */}
-                        < div className="bg-gray-50 p-4 border-t border-gray-200 flex justify-end gap-3 shrink-0" >
-                            <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 font-medium transition-all">
-                                إلغاء
-                            </button>
-                            <button onClick={handleSave} className="px-5 py-2 rounded-lg text-white bg-sky-600 hover:bg-sky-500 shadow-lg shadow-sky-500/20 font-bold transition-all flex items-center gap-2">
-                                <Save className="w-4 h-4" />
-                                <span>{isEditMode ? 'حفظ التعديلات' : 'إضافة'}</span>
-                            </button>
-                        </div >
+                        <div className="bg-gray-50 p-4 border-t border-gray-200 flex items-center justify-between gap-3 shrink-0">
+                            {primaryDup ? (
+                                <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                    الرقم الأساسي مكرر — لا يمكن الحفظ
+                                </div>
+                            ) : <div />}
+                            <div className="flex gap-3">
+                                <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 font-medium transition-all">
+                                    إلغاء
+                                </button>
+                                <button
+                                    onClick={handleSave}
+                                    disabled={Boolean(primaryDup)}
+                                    title={primaryDup ? `الرقم الأساسي مكرر عند: ${primaryDup.name}` : undefined}
+                                    className="px-5 py-2 rounded-lg text-white bg-sky-600 hover:bg-sky-500 shadow-lg shadow-sky-500/20 font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+                                >
+                                    <Save className="w-4 h-4" />
+                                    <span>{isEditMode ? 'حفظ التعديلات' : 'إضافة'}</span>
+                                </button>
+                            </div>
+                        </div>
                     </motion.div >
                 </>
             )}
