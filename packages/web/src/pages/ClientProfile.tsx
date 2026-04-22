@@ -9,6 +9,7 @@ import {
 import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import type { Client, GeoUnit } from '../lib/types';
+import ClientAvatar from '../components/ClientAvatar';
 
 const referrerTypesAr: Record<string, string> = {
     'Personal': 'شخصي',
@@ -68,14 +69,6 @@ export default function ClientProfile() {
             active = false;
         };
     }, [id]);
-
-    // Format Data Helper
-    const getInitials = (name: string) => {
-        if (!name) return 'Z';
-        const parts = name.split(' ');
-        if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`;
-        return name[0];
-    };
 
     const getFullLocationStr = (neighborhoodId?: string) => {
         if (!neighborhoodId) return 'غير محدد';
@@ -143,8 +136,13 @@ export default function ClientProfile() {
                     <div className="p-8 flex-1 space-y-8">
                         {/* Avatar & Name */}
                         <div className="flex flex-col items-center text-center">
-                            <div className="w-24 h-24 rounded-full bg-sky-100 border-4 border-white shadow-xl flex items-center justify-center mb-4 relative">
-                                <span className="text-3xl font-black text-sky-600 tracking-tighter">{getInitials(client.name)}</span>
+                            <div className="relative mb-4">
+                                <ClientAvatar
+                                    gender={client.gender}
+                                    dataQuality={client.dataQuality}
+                                    size="lg"
+                                    className="border-4 border-white shadow-xl"
+                                />
                                 <div className={`absolute -bottom-1 -right-4 px-3 py-1 rounded-full text-[10px] font-black shadow-md border-2 border-white ${classification.color} whitespace-nowrap`}>
                                     {classification.text}
                                 </div>

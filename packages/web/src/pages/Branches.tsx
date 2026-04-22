@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useBranchStore } from '../hooks/useBranchStore';
 import { api } from '../lib/api';
 import type { Branch, BranchContact, BranchContactType, BranchDepartment, GeoUnit } from '../lib/types';
@@ -8,7 +9,7 @@ import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } fr
 import {
   MapPin, Building2, Plus, Edit, Trash2, X, Network,
   Mail, Phone, Smartphone, Globe, Users, Briefcase,
-  CircleUser, BadgeDollarSign, ChevronDown,
+  CircleUser, BadgeDollarSign, ChevronDown, Layers,
 } from 'lucide-react';
 
 // ─── Contact metadata ────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ function newContact(): BranchContact {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function Branches() {
+  const navigate = useNavigate();
   const { branches, loading, fetchBranches, createBranch, updateBranch, deleteBranch } = useBranchStore();
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
 
@@ -214,6 +216,13 @@ export default function Branches() {
           getId={(b) => b.id}
           actions={(b) => (
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => navigate(`/branches/${b.id}`)}
+                className="p-1.5 rounded-md hover:bg-emerald-50 text-slate-400 hover:text-emerald-600"
+                title="الأقسام"
+              >
+                <Layers className="w-4 h-4" />
+              </button>
               <button onClick={() => openForm(b)} className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500" title="تعديل">
                 <Edit className="w-4 h-4" />
               </button>

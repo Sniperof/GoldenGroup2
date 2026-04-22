@@ -29,6 +29,10 @@ function toRole(r: Record<string, unknown>): z.infer<typeof RoleSchema> {
     userCount: Number(r.user_count ?? 0),
     permissionCount: Number(r.permission_count ?? 0),
     createdAt: r.created_at as string,
+    // Multi-branch fields (migration 013+)
+    branchId: (r.branch_id as number) ?? null,
+    isTemplate: (r.is_template as boolean) ?? false,
+    templateId: (r.template_id as number) ?? null,
   };
 }
 
@@ -63,13 +67,51 @@ export const rolesRouter = router({
   // ── Roles ────────────────────────────────────────────────────────────────
 
   list: withPermission('admin.roles.view')
-    .query(async () => {
-      const { rows } = await pool.query(
-        `SELECT r.*,
-          (SELECT COUNT(*) FROM hr_users WHERE role_id = r.id) AS user_count,
-          (SELECT COUNT(*) FROM role_permissions WHERE role_id = r.id) AS permission_count
-         FROM roles r ORDER BY r.id`
-      );
+    .query(async ({ ctx }) => {
+      const user = ctx.user!;
+      const isSuperAdmin = user.isSuperAdmin === true;
+
+      let rows: Record<string, unknown>[];
+
+      if (isSuperAdmin) {
+        // Super admin: honour X-Branch-Id to scope, otherwise show everything
+        const { xBranchId } = ctx;
+        if (xBranchId != null) {
+          // Show branch clones for the selected branch + all templates
+          const result = await pool.query(
+            `SELECT r.*,
+              (SELECT COUNT(*) FROM hr_users WHERE role_id = r.id) AS user_count,
+              (SELECT COUNT(*) FROM role_permissions WHERE role_id = r.id) AS permission_count
+             FROM roles r
+             WHERE r.is_template = TRUE OR r.branch_id = $1
+             ORDER BY r.is_template DESC, r.id`,
+            [xBranchId]
+          );
+          rows = result.rows;
+        } else {
+          // No branch filter — show everything (templates + all clones)
+          const result = await pool.query(
+            `SELECT r.*,
+              (SELECT COUNT(*) FROM hr_users WHERE role_id = r.id) AS user_count,
+              (SELECT COUNT(*) FROM role_permissions WHERE role_id = r.id) AS permission_count
+             FROM roles r ORDER BY r.is_template DESC, r.id`
+          );
+          rows = result.rows;
+        }
+      } else {
+        // Branch admin: show only their branch's clones (no templates)
+        const result = await pool.query(
+          `SELECT r.*,
+            (SELECT COUNT(*) FROM hr_users WHERE role_id = r.id) AS user_count,
+            (SELECT COUNT(*) FROM role_permissions WHERE role_id = r.id) AS permission_count
+           FROM roles r
+           WHERE r.is_template = FALSE AND r.branch_id = $1
+           ORDER BY r.id`,
+          [user.branchId]
+        );
+        rows = result.rows;
+      }
+
       return rows.map(toRole);
     }),
 

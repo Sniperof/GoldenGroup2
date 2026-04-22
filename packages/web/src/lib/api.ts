@@ -5,6 +5,26 @@ function getToken(): string | null {
   return localStorage.getItem('hr_token');
 }
 
+/**
+ * For super admin only: the currently-selected branch context (if any).
+ * Read from localStorage to avoid a circular import with the Zustand store.
+ * Non-super users never have this set, and the server ignores the header for them.
+ */
+function getBranchContextHeader(): string | null {
+  try {
+    const rawUser = localStorage.getItem('hr_user');
+    if (!rawUser) return null;
+    const user = JSON.parse(rawUser);
+    if (user?.isSuperAdmin !== true) return null;
+    const raw = localStorage.getItem('hr_branch_context');
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? String(n) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -12,6 +32,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...(options?.headers as Record<string, string>),
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  const branchCtx = getBranchContextHeader();
+  if (branchCtx) headers['X-Branch-Id'] = branchCtx;
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
@@ -41,6 +63,7 @@ export const api = {
   },
   branches: {
     list: () => request<any[]>('/branches'),
+    get: (id: number) => request<any>(`/branches/${id}`),
     create: (data: any) => request<any>('/branches', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/branches/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/branches/${id}`, { method: 'DELETE' }),
@@ -50,6 +73,11 @@ export const api = {
     get: (id: number) => request<any>(`/employees/${id}`),
     create: (data: any) => request<any>('/employees', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    managerCandidates: (branchId: number, departmentId?: number) => {
+      const query = new URLSearchParams({ branchId: String(branchId) });
+      if (departmentId != null) query.set('departmentId', String(departmentId));
+      return request<any[]>(`/employees/manager-candidates?${query.toString()}`);
+    },
     upsertSystemAccount: (id: number, data: any) => request<any>(`/employees/${id}/system-account`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/employees/${id}`, { method: 'DELETE' }),
   },
@@ -148,5 +176,15 @@ export const api = {
     create: (data: any) => request<any>('/system-lists', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/system-lists/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/system-lists/${id}`, { method: 'DELETE' }),
+  },
+  departments: {
+    list: (branchId?: number) => {
+      const qs = branchId != null ? `?branchId=${branchId}` : '';
+      return request<any[]>(`/departments${qs}`);
+    },
+    get: (id: number) => request<any>(`/departments/${id}`),
+    create: (data: any) => request<any>('/departments', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) => request<any>(`/departments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: number) => request<any>(`/departments/${id}`, { method: 'DELETE' }),
   },
 };

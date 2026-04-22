@@ -1,75 +1,52 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
+import { requireSuperAdmin } from '../middleware/permission.js';
 
 const router = Router();
 
-async function syncJobTitleRole(listId: number, displayName: string, isActive = true) {
-  const roleName = `job_title_${listId}`;
+// GET is open to any authenticated user (dropdowns need it in every UI).
+// Writes are HQ-only: system_lists are global reference data.
 
-  const { rows: existingRoles } = await pool.query(
-    `SELECT id FROM roles WHERE name = $1`,
-    [roleName]
-  );
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-  if (existingRoles.length > 0) {
-    await pool.query(
-      `UPDATE roles
-       SET display_name = $1,
-           description = $2,
-           is_active = $3,
-           updated_at = NOW()
-       WHERE name = $4`,
-      [
-        displayName,
-        'دور إداري مرتبط بعنوان وظيفي من القوائم النظامية',
-        isActive,
-        roleName,
-      ]
-    );
-    return;
-  }
+/** Build the full SELECT clause with linked role display name */
+const SELECT_COLS = `
+  sl.id,
+  sl.category,
+  sl.value,
+  sl.is_active       AS "isActive",
+  sl.display_order   AS "displayOrder",
+  sl.linked_role_id  AS "linkedRoleId",
+  r.display_name     AS "linkedRoleName",
+  sl.metadata
+FROM system_lists sl
+LEFT JOIN roles r ON r.id = sl.linked_role_id
+`;
 
-  await pool.query(
-    `INSERT INTO roles (name, display_name, description, is_active, is_system)
-     VALUES ($1, $2, $3, $4, FALSE)
-     ON CONFLICT (name) DO NOTHING`,
-    [
-      roleName,
-      displayName,
-      'دور إداري مرتبط بعنوان وظيفي من القوائم النظامية',
-      isActive,
-    ]
-  );
-}
+// ─── Routes ──────────────────────────────────────────────────────────────────
 
 // GET /api/system-lists
-// Get all lists, optionally filtered by category
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     const { category, activeOnly } = req.query;
-    
-    let query = `
-      SELECT id, category, value, is_active AS "isActive", display_order AS "displayOrder"
-      FROM system_lists
-    `;
+
+    let query = `SELECT ${SELECT_COLS}`;
     const params: any[] = [];
     const conditions: string[] = [];
-    
+
     if (category) {
       params.push(category);
-      conditions.push(`category = $${params.length}`);
+      conditions.push(`sl.category = $${params.length}`);
     }
-    
     if (activeOnly === 'true') {
-      conditions.push(`is_active = TRUE`);
+      conditions.push(`sl.is_active = TRUE`);
     }
-    
     if (conditions.length > 0) {
       query += ` WHERE ${conditions.join(' AND ')}`;
     }
-    
-    query += ` ORDER BY category ASC, display_order ASC, id ASC`;
-    
+    query += ` ORDER BY sl.category ASC, sl.display_order ASC, sl.id ASC`;
+
     const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (err: any) {
@@ -79,27 +56,31 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/system-lists
-// Create a new list item
-router.post('/', async (req, res) => {
+router.post('/', requireSuperAdmin, async (req, res) => {
   try {
-    const { category, value, isActive, displayOrder } = req.body;
-    
+    const { category, value, isActive, displayOrder, linkedRoleId, metadata } = req.body;
+
     if (!category || !value) {
-      return res.status(400).json({ error: 'Category and matching value are required' });
+      return res.status(400).json({ error: 'Category and value are required' });
     }
-    
+
+    const roleId = linkedRoleId != null ? linkedRoleId : null;
+    const metaJson = metadata != null ? JSON.stringify(metadata) : '{}';
+
     const { rows } = await pool.query(
-      `INSERT INTO system_lists (category, value, is_active, display_order)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, category, value, is_active AS "isActive", display_order AS "displayOrder"`,
-      [category, value, isActive !== undefined ? isActive : true, displayOrder || 0]
+      `INSERT INTO system_lists (category, value, is_active, display_order, linked_role_id, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [category, value, isActive !== undefined ? isActive : true, displayOrder || 0, roleId, metaJson]
     );
 
-    if (category === 'job_title') {
-      await syncJobTitleRole(rows[0].id, rows[0].value, rows[0].isActive);
-    }
+    // Fetch with joined role name
+    const { rows: full } = await pool.query(
+      `SELECT ${SELECT_COLS} WHERE sl.id = $1`,
+      [rows[0].id]
+    );
 
-    res.status(201).json(rows[0]);
+    res.status(201).json(full[0]);
   } catch (err: any) {
     console.error('Error creating system list item:', err);
     res.status(500).json({ error: err.message });
@@ -107,45 +88,52 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/system-lists/:id
-// Update an existing list item
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireSuperAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { category, value, isActive, displayOrder } = req.body;
-    const { rows: currentRows } = await pool.query(
-      `SELECT id, category, value, is_active AS "isActive", display_order AS "displayOrder"
-       FROM system_lists
-       WHERE id = $1`,
+    const { category, value, isActive, displayOrder, linkedRoleId, metadata } = req.body;
+
+    const { rowCount } = await pool.query(
+      `SELECT id FROM system_lists WHERE id = $1`,
+      [id]
+    );
+    if (!rowCount) {
+      return res.status(404).json({ error: 'System list item not found' });
+    }
+
+    // linkedRoleId === null means "clear the link"; undefined means "don't touch"
+    const extraClauses: string[] = [];
+    const baseParams: any[] = [category, value, isActive, displayOrder, id];
+    let pIdx = 6;
+
+    if (linkedRoleId !== undefined) {
+      extraClauses.push(`, linked_role_id = $${pIdx++}`);
+      baseParams.push(linkedRoleId ?? null);
+    }
+    if (metadata !== undefined) {
+      extraClauses.push(`, metadata = $${pIdx++}`);
+      baseParams.push(JSON.stringify(metadata));
+    }
+
+    await pool.query(
+      `UPDATE system_lists SET
+         category      = COALESCE($1, category),
+         value         = COALESCE($2, value),
+         is_active     = COALESCE($3, is_active),
+         display_order = COALESCE($4, display_order),
+         updated_at    = NOW()
+         ${extraClauses.join('')}
+       WHERE id = $5`,
+      baseParams
+    );
+
+    // Fetch with joined role name
+    const { rows: full } = await pool.query(
+      `SELECT ${SELECT_COLS} WHERE sl.id = $1`,
       [id]
     );
 
-    if (currentRows.length === 0) {
-      return res.status(404).json({ error: 'System list item not found' });
-    }
-    
-    const { rows } = await pool.query(
-      `UPDATE system_lists SET 
-        category = COALESCE($1, category),
-        value = COALESCE($2, value),
-        is_active = COALESCE($3, is_active),
-        display_order = COALESCE($4, display_order),
-        updated_at = NOW()
-       WHERE id = $5
-       RETURNING id, category, value, is_active AS "isActive", display_order AS "displayOrder"`,
-      [category, value, isActive, displayOrder, id]
-    );
-    
-    const updated = rows[0];
-
-    if ((updated.category || currentRows[0].category) === 'job_title') {
-      await syncJobTitleRole(
-        updated.id,
-        updated.value,
-        updated.isActive
-      );
-    }
-    
-    res.json(updated);
+    res.json(full[0]);
   } catch (err: any) {
     console.error('Error updating system list item:', err);
     res.status(500).json({ error: err.message });
@@ -153,17 +141,16 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/system-lists/:id
-// Delete a list item (Hard delete)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireSuperAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { rowCount } = await pool.query('DELETE FROM system_lists WHERE id = $1', [id]);
-    
+
     if (rowCount === 0) {
       return res.status(404).json({ error: 'System list item not found' });
     }
-    
-    res.json({ success: true, message: 'Item deleted successfully' });
+
+    res.json({ success: true });
   } catch (err: any) {
     console.error('Error deleting system list item:', err);
     res.status(500).json({ error: err.message });

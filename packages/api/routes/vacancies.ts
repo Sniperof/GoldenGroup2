@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { insertAuditLog } from '../utils/auditLog.js';
-import { requirePermission } from '../middleware/permission.js';
+import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
 
 const router = Router();
 
 const VACANCY_COLS = `
   id, title, branch,
+  branch_id AS "branchId",
   governorate, city_or_area AS "cityOrArea", sub_area AS "subArea",
   neighborhood, detailed_address AS "detailedAddress",
   work_type AS "workType", required_gender AS "requiredGender",
@@ -22,13 +23,40 @@ const VACANCY_COLS = `
   status, created_at AS "createdAt", updated_at AS "updatedAt"
 `;
 
+async function assertVacancyBranchAccess(req: any, res: any, vacancyId: string | number): Promise<{ ok: boolean; branchId?: number }> {
+  const scope = req.scope!;
+  const { rows } = await pool.query('SELECT branch_id FROM job_vacancies WHERE id = $1', [vacancyId]);
+  if (!rows[0]) {
+    res.status(404).json({ error: 'الشاغر غير موجود' });
+    return { ok: false };
+  }
+  if (!scope.isSuperAdmin && rows[0].branch_id !== scope.branchId) {
+    res.status(403).json({ error: 'غير مسموح' });
+    return { ok: false };
+  }
+  return { ok: true, branchId: rows[0].branch_id };
+}
+
 // GET /api/admin/vacancies
 router.get('/', requirePermission('jobs.vacancies.view_list'), async (req, res) => {
   try {
+    const scope = req.scope!;
     const { status, branch, search } = req.query;
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
+
+    // Branch scoping
+    if (!scope.isSuperAdmin) {
+      conditions.push(`branch_id = $${idx++}`);
+      params.push(scope.branchId);
+    } else {
+      const hb = Number(req.header('x-branch-id'));
+      if (Number.isFinite(hb) && hb > 0) {
+        conditions.push(`branch_id = $${idx++}`);
+        params.push(hb);
+      }
+    }
 
     if (status) { conditions.push(`status = $${idx++}`); params.push(status); }
     if (branch) { conditions.push(`branch = $${idx++}`); params.push(branch); }
@@ -53,84 +81,13 @@ router.get('/', requirePermission('jobs.vacancies.view_list'), async (req, res) 
 // GET /api/admin/vacancies/:id
 router.get('/:id', requirePermission('jobs.vacancies.view_detail'), async (req, res) => {
   try {
+    const vacancyId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const check = await assertVacancyBranchAccess(req, res, vacancyId!);
+    if (!check.ok) return;
+
     const { rows } = await pool.query(
       `SELECT ${VACANCY_COLS} FROM job_vacancies WHERE id = $1`,
-      [req.params.id]
-    );
-    if (rows.length === 0) return res.status(404).json({ error: 'الشاغر غير موجود' });
-    res.json(rows[0]);
-  } catch (err: any) {
-    console.error('Error fetching vacancy:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/admin/vacancies
-router.post('/', requirePermission('jobs.vacancies.create'), async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const v = req.body;
-
-    if (!v.title?.trim()) return res.status(400).json({ error: 'عنوان الوظيفة مطلوب' });
-    if (!v.branch?.trim()) return res.status(400).json({ error: 'الفرع مطلوب' });
-    if (!v.vacancyCount || v.vacancyCount <= 0) return res.status(400).json({ error: 'عدد الشواغر يجب أن يكون أكبر من 0' });
-    if (!v.startDate) return res.status(400).json({ error: 'تاريخ البداية مطلوب' });
-    if (!v.endDate) return res.status(400).json({ error: 'تاريخ النهاية مطلوب' });
-    if (new Date(v.startDate) > new Date(v.endDate)) return res.status(400).json({ error: 'تاريخ البداية يجب أن يكون قبل تاريخ النهاية' });
-
-    await client.query('BEGIN');
-
-    const { rows } = await client.query(
-      `INSERT INTO job_vacancies (
-        title, branch, governorate, city_or_area, sub_area, neighborhood, detailed_address,
-        work_type, required_gender, required_age_min, required_age_max, contact_methods,
-        required_certificate, required_major, required_experience_years,
-        required_skills, responsibilities, driving_license_required,
-        vacancy_count, start_date, end_date, status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,'Open')
-      RETURNING ${VACANCY_COLS}`,
-      [
-        v.title, v.branch,
-        v.governorate || null, v.cityOrArea || null, v.subArea || null,
-        v.neighborhood || null, v.detailedAddress || null,
-        v.workType || null, v.requiredGender || null,
-        v.requiredAgeMin || null, v.requiredAgeMax || null,
-        JSON.stringify(v.contactMethods || []),
-        v.requiredCertificate || null, v.requiredMajor || null,
-        v.requiredExperienceYears || null,
-        v.requiredSkills || null, v.responsibilities || null,
-        v.drivingLicenseRequired || false,
-        v.vacancyCount,
-        v.startDate, v.endDate,
-      ]
-    );
-
-    await insertAuditLog(client, {
-      entityType: 'job_vacancy',
-      entityId: rows[0].id,
-      actionType: 'Job Vacancy Created',
-      performedByRole: req.user!.role,
-      performedByUserId: req.user!.id,
-      newValue: JSON.stringify({ title: v.title, branch: v.branch }),
-    });
-
-    await client.query('COMMIT');
-    res.json(rows[0]);
-  } catch (err: any) {
-    await client.query('ROLLBACK');
-    console.error('Error creating vacancy:', err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
-  }
-});
-
-// GET /api/admin/vacancies/:id
-router.get('/:id', requirePermission('jobs.vacancies.view_detail'), async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT ${VACANCY_COLS} FROM job_vacancies WHERE id = $1`,
-      [req.params.id]
+      [vacancyId]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'الشاغر غير موجود' });
 
@@ -156,12 +113,78 @@ router.get('/:id', requirePermission('jobs.vacancies.view_detail'), async (req, 
   }
 });
 
+// POST /api/admin/vacancies
+router.post('/', requirePermission('jobs.vacancies.create'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const v = req.body;
+
+    if (!v.title?.trim()) return res.status(400).json({ error: 'عنوان الوظيفة مطلوب' });
+    if (!v.vacancyCount || v.vacancyCount <= 0) return res.status(400).json({ error: 'عدد الشواغر يجب أن يكون أكبر من 0' });
+    if (!v.startDate) return res.status(400).json({ error: 'تاريخ البداية مطلوب' });
+    if (!v.endDate) return res.status(400).json({ error: 'تاريخ النهاية مطلوب' });
+    if (new Date(v.startDate) > new Date(v.endDate)) return res.status(400).json({ error: 'تاريخ البداية يجب أن يكون قبل تاريخ النهاية' });
+
+    const targetBranchId = resolveTargetBranchId(req, res, v.branchId);
+    if (targetBranchId == null) return;
+
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `INSERT INTO job_vacancies (
+        title, branch, branch_id,
+        governorate, city_or_area, sub_area, neighborhood, detailed_address,
+        work_type, required_gender, required_age_min, required_age_max, contact_methods,
+        required_certificate, required_major, required_experience_years,
+        required_skills, responsibilities, driving_license_required,
+        vacancy_count, start_date, end_date, status
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'Open')
+      RETURNING ${VACANCY_COLS}`,
+      [
+        v.title, v.branch || null, targetBranchId,
+        v.governorate || null, v.cityOrArea || null, v.subArea || null,
+        v.neighborhood || null, v.detailedAddress || null,
+        v.workType || null, v.requiredGender || null,
+        v.requiredAgeMin || null, v.requiredAgeMax || null,
+        JSON.stringify(v.contactMethods || []),
+        v.requiredCertificate || null, v.requiredMajor || null,
+        v.requiredExperienceYears || null,
+        v.requiredSkills || null, v.responsibilities || null,
+        v.drivingLicenseRequired || false,
+        v.vacancyCount,
+        v.startDate, v.endDate,
+      ]
+    );
+
+    await insertAuditLog(client, {
+      entityType: 'job_vacancy',
+      entityId: rows[0].id,
+      actionType: 'Job Vacancy Created',
+      performedByRole: req.user!.role,
+      performedByUserId: req.user!.id,
+      newValue: JSON.stringify({ title: v.title, branchId: targetBranchId }),
+    });
+
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('Error creating vacancy:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // PUT /api/admin/vacancies/:id — 3-tier edit
 router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) => {
   const client = await pool.connect();
   try {
     const v = req.body;
-    const vacancyId = req.params.id;
+    const vacancyId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    const check = await assertVacancyBranchAccess(req, res, vacancyId!);
+    if (!check.ok) { client.release(); return; }
 
     // Determine edit tier
     const { rows: appCountRows } = await client.query(
@@ -181,7 +204,6 @@ router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) =>
       // Tier 1: full edit
       editTier = 1;
       if (!v.title?.trim()) return res.status(400).json({ error: 'عنوان الوظيفة مطلوب' });
-      if (!v.branch?.trim()) return res.status(400).json({ error: 'الفرع مطلوب' });
       if (!v.vacancyCount || v.vacancyCount <= 0) return res.status(400).json({ error: 'عدد الشواغر يجب أن يكون أكبر من 0' });
       if (!v.startDate || !v.endDate) return res.status(400).json({ error: 'تواريخ البداية والنهاية مطلوبة' });
       if (new Date(v.startDate) > new Date(v.endDate)) return res.status(400).json({ error: 'تاريخ البداية يجب أن يكون قبل تاريخ النهاية' });
@@ -199,7 +221,7 @@ router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) =>
         WHERE id=$22
         RETURNING ${VACANCY_COLS}`,
         [
-          v.title, v.branch,
+          v.title, v.branch || null,
           v.governorate || null, v.cityOrArea || null, v.subArea || null,
           v.neighborhood || null, v.detailedAddress || null,
           v.workType || null, v.requiredGender || null,
@@ -215,7 +237,7 @@ router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) =>
       );
       rows = result.rows;
     } else if (pastSubmitted === 0) {
-      // Tier 2: restricted — end_date, responsibilities, required_skills, contact_methods
+      // Tier 2: restricted
       editTier = 2;
       await client.query('BEGIN');
       const result = await client.query(
@@ -231,7 +253,7 @@ router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) =>
       );
       rows = result.rows;
     } else {
-      // Tier 3: minimal — only end_date
+      // Tier 3: minimal
       editTier = 3;
       await client.query('BEGIN');
       const result = await client.query(
@@ -277,19 +299,21 @@ router.patch('/:id/status', requirePermission('jobs.vacancies.change_status'), a
       return res.status(400).json({ error: 'الحالة يجب أن تكون Open أو Closed أو Archived' });
     }
 
+    const vacancyId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const check = await assertVacancyBranchAccess(req, res, vacancyId!);
+    if (!check.ok) { client.release(); return; }
+
     await client.query('BEGIN');
 
-    // Get current status for validation
     const { rows: current } = await client.query(
       'SELECT status FROM job_vacancies WHERE id = $1',
-      [req.params.id]
+      [vacancyId]
     );
     if (current.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'الشاغر غير موجود' });
     }
 
-    // Validate transitions: Open↔Closed, Closed→Archived (cannot unarchive)
     const from = current[0].status;
     if (from === 'Archived') {
       await client.query('ROLLBACK');

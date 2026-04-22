@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { JobApplicationDetail, AuditLog, ApplicationStage } from '../../lib/types';
+import type { JobApplicationDetail, AuditLog, ApplicationStage, ContactEntry } from '../../lib/types';
 import { authFetch } from '../../lib/authFetch';
 import { useInterviewStore } from '../../hooks/useInterviewStore';
+import EmployeeFormModal, { type EmployeeFormInitialValues } from '../../components/employees/EmployeeFormModal';
 import {
   ArrowRight, User, Briefcase, MapPin, Phone, Mail, Calendar, Users, GraduationCap,
   FileText, Clock, CheckCircle, XCircle, UserPlus, AlertTriangle, Award,
@@ -121,6 +122,92 @@ function getDecisionActions(stage: ApplicationStage, status: string): WorkflowAc
   }
 }
 
+function buildApplicationContacts(detail: JobApplicationDetail): ContactEntry[] {
+  const contacts: ContactEntry[] = [];
+  const primary = String(detail.applicant?.mobileNumber ?? '').replace(/\D/g, '');
+  const secondary = String(detail.applicant?.secondaryMobile ?? '').replace(/\D/g, '');
+
+  if (primary) {
+    contacts.push({
+      id: 'application-primary',
+      type: 'mobile',
+      number: primary,
+      label: 'أساسي',
+      hasWhatsApp: Boolean(detail.applicant?.hasWhatsappPrimary),
+      isPrimary: false,
+      status: 'active',
+    });
+  }
+
+  if (secondary) {
+    contacts.push({
+      id: 'application-secondary',
+      type: 'mobile',
+      number: secondary,
+      label: 'بديل',
+      hasWhatsApp: Boolean(detail.applicant?.hasWhatsappSecondary),
+      isPrimary: false,
+      status: 'active',
+    });
+  }
+
+  return contacts;
+}
+
+function normalizeDrivingLicense(value: unknown): '' | 'yes' | 'no' {
+  if (value == null || value === '') return '';
+  if (value === true) return 'yes';
+  if (value === false) return 'no';
+  const raw = String(value).trim().toLowerCase();
+  if (['yes', 'true', '1', 'نعم'].includes(raw)) return 'yes';
+  if (['no', 'false', '0', 'لا'].includes(raw)) return 'no';
+  return '';
+}
+
+function buildApplicationAddressHint(detail: JobApplicationDetail) {
+  return [
+    detail.applicant?.governorate,
+    detail.applicant?.cityOrArea,
+    detail.applicant?.subArea,
+    detail.applicant?.neighborhood,
+    detail.applicant?.detailedAddress,
+  ].filter(Boolean).join(' - ');
+}
+
+function buildEmployeeInitialValuesFromApplication(detail: JobApplicationDetail): EmployeeFormInitialValues {
+  return {
+    firstName: detail.applicant?.firstName ?? '',
+    lastName: detail.applicant?.lastName ?? '',
+    birthDate: detail.applicant?.dob ?? '',
+    gender: detail.applicant?.gender === 'male' || detail.applicant?.gender === 'female'
+      ? detail.applicant.gender
+      : detail.applicant?.gender === 'ذكر'
+        ? 'male'
+        : detail.applicant?.gender === 'أنثى'
+          ? 'female'
+          : '',
+    maritalStatus: detail.applicant?.maritalStatus ?? '',
+    detailedAddress: detail.applicant?.detailedAddress ?? '',
+    contacts: buildApplicationContacts(detail),
+    academicQualification: detail.applicant?.academicQualification ?? '',
+    specialization: detail.applicant?.specialization ?? '',
+    yearsOfExperience: detail.applicant?.yearsOfExperience != null ? String(detail.applicant.yearsOfExperience) : '',
+    drivingLicense: normalizeDrivingLicense(detail.applicant?.drivingLicense),
+    jobSkills: detail.applicant?.computerSkills ?? '',
+    foreignLanguages: typeof detail.applicant?.foreignLanguages === 'string'
+      ? detail.applicant.foreignLanguages.split(',').map((item) => item.trim()).filter(Boolean)
+      : [],
+    branchId: detail.branchId ?? null,
+    workType: detail.vacancy?.workType ?? '',
+    previousEmployment: detail.applicant?.previousEmployment ?? '',
+    jobTitle: detail.vacancy?.title ?? '',
+    referrerType: detail.referrer?.type ?? (detail.submissionType === 'Refer a Candidate' ? 'Unknown' : ''),
+    sourceChannel: detail.applicationSource ?? '',
+    referrerName: detail.referrer?.fullName ?? '',
+    referralNotes: detail.referrer?.referrerNotes ?? '',
+  };
+}
+
 export default function ApplicationDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -159,6 +246,7 @@ export default function ApplicationDetail() {
   });
   const [trainingFormError, setTrainingFormError] = useState('');
   const [trainingSubmitting, setTrainingSubmitting] = useState(false);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [employeeLoading, setEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState('');
 
@@ -404,18 +492,30 @@ export default function ApplicationDetail() {
     }
   };
 
-  const handleCreateEmployeeRecord = async () => {
+  const employeeInitialValues = useMemo(
+    () => (detail ? buildEmployeeInitialValuesFromApplication(detail) : undefined),
+    [detail],
+  );
+
+  const applicationAddressHint = useMemo(
+    () => (detail ? buildApplicationAddressHint(detail) : ''),
+    [detail],
+  );
+
+  const handleCreateEmployeeRecord = async (payload: Record<string, unknown>) => {
     setEmployeeLoading(true);
     setEmployeeError('');
     try {
       const res = await authFetch(`/api/admin/applications/${id}/employee`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error);
       }
+      setShowEmployeeModal(false);
       fetchDetail();
     } catch (err: any) {
       setEmployeeError(err.message);
@@ -977,15 +1077,18 @@ export default function ApplicationDetail() {
                       <div className="rounded-xl border border-emerald-200 bg-white/70 px-3 py-3 text-sm text-emerald-800 flex items-center justify-between gap-3">
                         <span>تم إنشاء سجل الموظف وربطه بهذا الطلب برقم #{detail.hiredEmployeeId}.</span>
                         <button
-                          onClick={() => navigate('/employees')}
+                          onClick={() => navigate(`/employees/${detail.hiredEmployeeId}`)}
                           className="shrink-0 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
                         >
-                          فتح السجلات
+                          فتح ملف الموظف
                         </button>
                       </div>
                     ) : (
                       <button
-                        onClick={handleCreateEmployeeRecord}
+                        onClick={() => {
+                          setEmployeeError('');
+                          setShowEmployeeModal(true);
+                        }}
                         disabled={employeeLoading}
                         className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all disabled:opacity-50"
                       >
@@ -1749,6 +1852,25 @@ export default function ApplicationDetail() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <EmployeeFormModal
+        isOpen={showEmployeeModal}
+        title="استكمال بيانات الموظف المقبول"
+        description="تمت تعبئة الحقول المتاحة من طلب التوظيف تلقائيًا. أكمل البيانات الناقصة قبل إنشاء سجل الموظف النهائي وربطه بهذا الطلب."
+        submitLabel="إنشاء سجل الموظف"
+        submitting={employeeLoading}
+        error={employeeError}
+        initialValues={employeeInitialValues}
+        fixedBranchId={detail?.branchId ?? null}
+        fixedBranchName={detail?.vacancy?.branch ?? ''}
+        branchLocked
+        addressHint={applicationAddressHint}
+        onClose={() => {
+          if (employeeLoading) return;
+          setShowEmployeeModal(false);
+        }}
+        onSubmit={handleCreateEmployeeRecord}
+      />
 
       {/* ── Schedule Interview Modal ── */}
       <AnimatePresence>

@@ -10,6 +10,8 @@ export interface LoginResult {
     name: string;
     role: string;
     roleId: number | null;
+    isSuperAdmin: boolean;
+    branchId: number | null;
   };
   permissions: string[];
 }
@@ -35,15 +37,27 @@ export async function loginUser(username: string, password: string): Promise<Log
     permissions = await getRolePermissions(user.role_id);
   }
 
-  const token = jwt.sign(
-    { id: user.id, name: user.name, role: user.role, roleId: user.role_id },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+  const tokenPayload = {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    roleId: user.role_id,
+    isSuperAdmin: user.is_super_admin === true,
+    branchId: user.branch_id,
+  };
+
+  const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
 
   return {
     token,
-    user: { id: user.id, name: user.name, role: user.role, roleId: user.role_id },
+    user: {
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      roleId: user.role_id,
+      isSuperAdmin: user.is_super_admin === true,
+      branchId: user.branch_id,
+    },
     permissions,
   };
 }

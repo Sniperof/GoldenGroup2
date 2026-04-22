@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
+import { resolveTargetBranchId } from '../middleware/permission.js';
 
 const router = Router();
+router.use(requireAuth);
 
 const contractSelect = `
   c.id, c.contract_number AS "contractNumber", c.customer_id AS "customerId",
@@ -12,7 +15,8 @@ const contractSelect = `
   c.final_price AS "finalPrice", c.payment_type AS "paymentType",
   c.down_payment AS "downPayment", c.installments_count AS "installmentsCount",
   c.delivery_date AS "deliveryDate", c.installation_date AS "installationDate",
-  c.status, c.created_at AS "createdAt"
+  c.status, c.created_at AS "createdAt",
+  c.branch_id AS "branchId"
 `;
 
 const dueSelect = `
@@ -22,9 +26,25 @@ const dueSelect = `
   status, escalated
 `;
 
-router.get('/', async (_req, res) => {
-  const { rows: contracts } = await pool.query(`SELECT ${contractSelect} FROM contracts c ORDER BY c.id`);
-  const { rows: dues } = await pool.query(`SELECT ${dueSelect} FROM dues ORDER BY contract_id, id`);
+router.get('/', async (req, res) => {
+  const scope = req.scope!;
+  let where = '';
+  const params: any[] = [];
+  if (!scope.isSuperAdmin) {
+    where = 'WHERE c.branch_id = $1';
+    params.push(scope.branchId);
+  } else {
+    const hb = Number(req.header('x-branch-id'));
+    if (Number.isFinite(hb) && hb > 0) {
+      where = 'WHERE c.branch_id = $1';
+      params.push(hb);
+    }
+  }
+  const { rows: contracts } = await pool.query(`SELECT ${contractSelect} FROM contracts c ${where} ORDER BY c.id`, params);
+  const ids = contracts.map(c => c.id);
+  const { rows: dues } = ids.length
+    ? await pool.query(`SELECT ${dueSelect} FROM dues WHERE contract_id = ANY($1) ORDER BY contract_id, id`, [ids])
+    : { rows: [] as any[] };
   const result = contracts.map(c => ({
     ...c,
     basePrice: Number(c.basePrice),
@@ -41,6 +61,9 @@ router.get('/', async (_req, res) => {
 
 router.post('/', async (req, res) => {
   const c = req.body;
+  const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
+  if (targetBranchId == null) return;
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -48,14 +71,14 @@ router.post('/', async (req, res) => {
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
         source_visit, device_model_id, device_model_name, serial_number, maintenance_plan,
         base_price, final_price, payment_type, down_payment, installments_count,
-        delivery_date, installation_date, status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        delivery_date, installation_date, status, branch_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       RETURNING ${contractSelect.replace(/c\./g, '')}`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
        c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate, c.installationDate,
-       c.status || 'draft']
+       c.status || 'draft', targetBranchId]
     );
     const contract = rows[0];
 
@@ -85,6 +108,12 @@ router.post('/', async (req, res) => {
 });
 
 router.put('/:id', async (req, res) => {
+  const scope = req.scope!;
+  const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [req.params.id]);
+  if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
+  if (!scope.isSuperAdmin && existing[0].branch_id !== scope.branchId) {
+    return res.status(403).json({ message: 'غير مسموح' });
+  }
   const c = req.body;
   const { rows } = await pool.query(
     `UPDATE contracts SET contract_number=$1, customer_id=$2, customer_name=$3,
@@ -103,6 +132,12 @@ router.put('/:id', async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
+  const scope = req.scope!;
+  const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [req.params.id]);
+  if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
+  if (!scope.isSuperAdmin && existing[0].branch_id !== scope.branchId) {
+    return res.status(403).json({ message: 'غير مسموح' });
+  }
   await pool.query('DELETE FROM contracts WHERE id = $1', [req.params.id]);
   res.json({ success: true });
 });

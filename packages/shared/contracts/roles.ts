@@ -19,6 +19,10 @@ export const RoleSchema = z.object({
   userCount: z.number(),
   permissionCount: z.number(),
   createdAt: z.string(),
+  // Multi-branch fields (migration 013+)
+  branchId: z.number().nullable().optional(),
+  isTemplate: z.boolean().optional(),
+  templateId: z.number().nullable().optional(),
 });
 
 export const PermissionSchema = z.object({

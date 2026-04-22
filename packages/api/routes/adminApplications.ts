@@ -8,13 +8,17 @@ import {
 } from '../domain/stageEngine.js';
 import { checkVacancyCapacity, checkDuplicate } from '../utils/applicationHelpers.js';
 import { sanitizeText } from '../utils/sanitize.js';
-import { requirePermission } from '../middleware/permission.js';
+import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
 import { requireRole } from '../middleware/auth.js';
 import {
   deriveEmployeeRoleFromVacancyTitle,
   getApplicationProcessingBlockReason,
   getEmployeeAvatar,
 } from '../utils/recruitmentPolicy.js';
+import {
+  insertPreparedEmployeeProfile,
+  prepareEmployeeWriteInput,
+} from '../services/employeeService.js';
 
 const router = Router();
 
@@ -53,6 +57,18 @@ function deriveStageStatusFromLegacy(stage: string, legacyStatus: string): strin
   return map[stage]?.[legacyStatus] ?? 'Pending';
 }
 
+async function assertAppBranchAccess(req: any, res: any, appId: string | number): Promise<boolean> {
+  const scope = req.scope!;
+  if (scope.isSuperAdmin) return true;
+  const { rows } = await pool.query('SELECT branch_id FROM job_applications WHERE id = $1', [appId]);
+  if (!rows[0]) { res.status(404).json({ error: 'الطلب غير موجود' }); return false; }
+  if (rows[0].branch_id !== scope.branchId) {
+    res.status(403).json({ error: 'غير مسموح' });
+    return false;
+  }
+  return true;
+}
+
 function deriveDecisionFromLegacy(legacyStatus: string): string | null {
   const decisionStatuses: Record<string, string> = {
     Qualified: 'Qualified', Rejected: 'Rejected', 'Interview Failed': 'Failed',
@@ -65,10 +81,23 @@ function deriveDecisionFromLegacy(legacyStatus: string): string | null {
 // GET /api/admin/applications
 router.get('/', requirePermission('jobs.applications.view_list'), async (req, res) => {
   try {
+    const scope = req.scope!;
     const { vacancyId, branch, gender, stage, status, search, applicationSource, isArchived } = req.query;
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
+
+    // Branch scoping
+    if (!scope.isSuperAdmin) {
+      conditions.push(`ja.branch_id = $${idx++}`);
+      params.push(scope.branchId);
+    } else {
+      const hb = Number(req.header('x-branch-id'));
+      if (Number.isFinite(hb) && hb > 0) {
+        conditions.push(`ja.branch_id = $${idx++}`);
+        params.push(hb);
+      }
+    }
 
     if (vacancyId) { conditions.push(`ja.job_vacancy_id = $${idx++}`); params.push(vacancyId); }
     if (branch) { conditions.push(`jv.branch = $${idx++}`); params.push(branch); }
@@ -172,10 +201,13 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
 
     await client.query('BEGIN');
 
+    // Resolve branch_id: derived from vacancy if linked, otherwise from user/body
+    let applicationBranchId: number | null = null;
+
     // Vacancy: if linked, must be Open and within date range
     if (body.jobVacancyId) {
       const { rows: vacRows } = await client.query(
-        `SELECT id, status FROM job_vacancies
+        `SELECT id, status, branch_id FROM job_vacancies
          WHERE id = $1 AND status = 'Open' AND CURRENT_DATE BETWEEN start_date AND end_date`,
         [body.jobVacancyId]
       );
@@ -183,6 +215,18 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'الشاغر غير موجود أو غير مفتوح للتقديم أو خارج الفترة المحددة' });
       }
+      applicationBranchId = vacRows[0].branch_id;
+      // Branch-admin can only apply to their own branch's vacancies
+      const scope = req.scope!;
+      if (!scope.isSuperAdmin && applicationBranchId !== scope.branchId) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'غير مسموح: الشاغر يخص فرعاً آخر' });
+      }
+    } else {
+      // No vacancy: resolve from scope/body
+      const resolved = resolveTargetBranchId(req, res, body.branchId);
+      if (resolved == null) { await client.query('ROLLBACK'); return; }
+      applicationBranchId = resolved;
     }
 
     // Duplicate check
@@ -253,8 +297,8 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
         job_vacancy_id, applicant_id, referrer_id, submission_type,
         application_source, entered_by_user_id, entered_by_name,
         current_stage, application_status, duplicate_flag,
-        stage_status, decision
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted','New',$8,'Pending',NULL)
+        stage_status, decision, branch_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted','New',$8,'Pending',NULL,$9)
       RETURNING id, job_vacancy_id AS "jobVacancyId", applicant_id AS "applicantId",
         referrer_id AS "referrerId", submission_type AS "submissionType",
         application_source AS "applicationSource",
@@ -266,7 +310,7 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
         body.jobVacancyId || null, applicantId, referrerId,
         submissionType, applicationSource,
         enteredByUserId, body.enteredByName || null,
-        duplicateFlag,
+        duplicateFlag, applicationBranchId,
       ]
     );
 
@@ -298,12 +342,16 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
 // GET /api/admin/applications/:id
 router.get('/:id', requirePermission('jobs.applications.view_detail'), async (req, res) => {
   try {
+    const scope = req.scope!;
     const { rows: appRows } = await pool.query(
-      `SELECT ${APP_COLS} FROM job_applications ja WHERE ja.id = $1`,
+      `SELECT ${APP_COLS}, ja.branch_id AS "branchId" FROM job_applications ja WHERE ja.id = $1`,
       [req.params.id]
     );
     if (appRows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     const app = appRows[0];
+    if (!scope.isSuperAdmin && app.branchId !== scope.branchId) {
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
 
     // Fetch applicant
     const { rows: applicantRows } = await pool.query(
@@ -423,6 +471,7 @@ router.patch('/:id/stage', requirePermission('jobs.applications.change_stage'), 
   try {
     const { stage, status, internalNotes } = req.body;
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     const { rows: currentRows } = await client.query(
       `SELECT ja.current_stage, ja.application_status,
@@ -532,6 +581,7 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
   const client = await pool.connect();
   try {
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     await client.query('BEGIN');
 
@@ -638,6 +688,202 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
   const client = await pool.connect();
   try {
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
+
+    await client.query('BEGIN');
+
+    const { rows: appRows } = await client.query(
+      `SELECT ja.id, ja.current_stage, ja.application_status, ja.is_escalated,
+        ja.hired_employee_id AS "hiredEmployeeId",
+        ja.submission_type AS "submissionType",
+        ja.application_source AS "applicationSource",
+        a.first_name AS "firstName",
+        a.last_name AS "lastName",
+        a.mobile_number AS "mobileNumber",
+        a.secondary_mobile AS "secondaryMobile",
+        a.has_whatsapp_primary AS "hasWhatsappPrimary",
+        a.has_whatsapp_secondary AS "hasWhatsappSecondary",
+        a.dob AS "birthDate",
+        a.gender,
+        a.marital_status AS "maritalStatus",
+        a.email,
+        a.governorate AS "governorate",
+        a.city_or_area AS "cityOrArea",
+        a.sub_area AS "subArea",
+        a.neighborhood AS "neighborhood",
+        a.detailed_address AS "detailedAddress",
+        a.photo_url AS "photoUrl",
+        a.academic_qualification AS "academicQualification",
+        a.specialization,
+        a.years_of_experience AS "yearsOfExperience",
+        a.driving_license AS "drivingLicense",
+        a.computer_skills AS "computerSkills",
+        a.foreign_languages AS "foreignLanguages",
+        a.previous_employment AS "previousEmployment",
+        jv.title AS "vacancyTitle",
+        jv.branch AS "vacancyBranch",
+        jv.branch_id AS "vacancyBranchId",
+        jv.work_type AS "vacancyWorkType",
+        ja.branch_id AS "applicationBranchId",
+        r.type AS "referrerType",
+        r.full_name AS "referrerName",
+        r.referrer_notes AS "referralNotes"
+       FROM job_applications ja
+       JOIN applicants a ON a.id = ja.applicant_id
+       LEFT JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
+       LEFT JOIN referrers r ON r.id = ja.referrer_id
+       WHERE ja.id = $1
+       FOR UPDATE OF ja`,
+      [appId]
+    );
+
+    if (appRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Ø§Ù„Ø·Ù„Ø¨ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
+    }
+
+    const app = appRows[0];
+    const blockReason = getApplicationProcessingBlockReason(req.user?.role, {
+      currentStage: app.current_stage,
+      isEscalated: app.is_escalated,
+    });
+    if (blockReason) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: blockReason });
+    }
+
+    if (app.current_stage !== 'Final Decision' || app.application_status !== 'Final Hired') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥Ù†Ø´Ø§Ø¡ Ø³Ø¬Ù„ Ù…ÙˆØ¸Ù Ø¥Ù„Ø§ Ø¨Ø¹Ø¯ Ø§Ø¹ØªÙ…Ø§Ø¯ Ø§Ù„Ù‚Ø±Ø§Ø± Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠ ÙƒÙ…Ù‚Ø¨ÙˆÙ„.',
+      });
+    }
+
+    if (app.hiredEmployeeId) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø³Ø¬Ù„ Ø§Ù„Ù…ÙˆØ¸Ù Ù„Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨ Ù…Ø³Ø¨Ù‚Ù‹Ø§.' });
+    }
+
+    const employeeBranchId = app.vacancyBranchId ?? app.applicationBranchId ?? null;
+    if (!employeeBranchId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'ØªØ¹Ø°Ø± ØªØ­Ø¯ÙŠØ¯ ÙØ±Ø¹ Ø§Ù„Ù…ÙˆØ¸Ù Ù…Ù† Ø§Ù„Ø·Ù„Ø¨' });
+    }
+
+    const fallbackContacts = [
+      app.mobileNumber ? {
+        id: 'application-contact-1',
+        type: 'mobile',
+        number: app.mobileNumber,
+        label: 'Ø£Ø³Ø§Ø³ÙŠ',
+        hasWhatsApp: Boolean(app.hasWhatsappPrimary),
+        status: 'active',
+      } : null,
+      app.secondaryMobile ? {
+        id: 'application-contact-2',
+        type: 'mobile',
+        number: app.secondaryMobile,
+        label: 'Ø¨Ø¯ÙŠÙ„',
+        hasWhatsApp: Boolean(app.hasWhatsappSecondary),
+        status: 'active',
+      } : null,
+    ].filter(Boolean);
+
+    const mergedBody = {
+      ...req.body,
+      firstName: req.body?.firstName ?? app.firstName ?? '',
+      lastName: req.body?.lastName ?? app.lastName ?? '',
+      mobile: req.body?.mobile ?? app.mobileNumber ?? '',
+      contacts: Array.isArray(req.body?.contacts) && req.body.contacts.length > 0 ? req.body.contacts : fallbackContacts,
+      birthDate: req.body?.birthDate ?? app.birthDate ?? '',
+      gender: req.body?.gender ?? app.gender ?? '',
+      maritalStatus: req.body?.maritalStatus ?? app.maritalStatus ?? '',
+      detailedAddress: req.body?.detailedAddress ?? app.detailedAddress ?? '',
+      avatar: req.body?.avatar ?? app.photoUrl ?? null,
+      jobTitle: req.body?.jobTitle ?? app.vacancyTitle ?? '',
+      academicQualification: req.body?.academicQualification ?? app.academicQualification ?? '',
+      specialization: req.body?.specialization ?? app.specialization ?? '',
+      yearsOfExperience: req.body?.yearsOfExperience ?? app.yearsOfExperience ?? '',
+      drivingLicense: req.body?.drivingLicense ?? app.drivingLicense ?? null,
+      jobSkills: req.body?.jobSkills ?? app.computerSkills ?? '',
+      foreignLanguages: req.body?.foreignLanguages ?? app.foreignLanguages ?? [],
+      workType: req.body?.workType ?? app.vacancyWorkType ?? '',
+      previousEmployment: req.body?.previousEmployment ?? app.previousEmployment ?? '',
+      status: req.body?.status ?? 'active',
+      referrerType: req.body?.referrerType
+        ?? app.referrerType
+        ?? (app.submissionType === 'Refer a Candidate' ? 'Unknown' : null),
+      sourceChannel: req.body?.sourceChannel ?? app.applicationSource ?? null,
+      referrerName: req.body?.referrerName ?? app.referrerName ?? null,
+      referralNotes: req.body?.referralNotes ?? app.referralNotes ?? null,
+    };
+
+    const prepared = await prepareEmployeeWriteInput(mergedBody, employeeBranchId);
+    const employeeId = await insertPreparedEmployeeProfile(client, prepared);
+
+    const { rows: employeeRows } = await client.query(
+      `SELECT
+        id,
+        employee_number AS "employeeNumber",
+        name,
+        role,
+        mobile,
+        branch,
+        branch_id AS "branchId",
+        residence,
+        status,
+        avatar,
+        job_title AS "jobTitle",
+        created_at AS "createdAt"
+       FROM employees
+       WHERE id = $1`,
+      [employeeId]
+    );
+
+    const employee = employeeRows[0];
+
+    await client.query(
+      `UPDATE job_applications
+       SET hired_employee_id = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [employee.id, appId]
+    );
+
+    await insertAuditLog(client, {
+      entityType: 'job_application',
+      entityId: parseInt(appId),
+      applicationId: parseInt(appId),
+      actionType: 'Employee Record Created',
+      performedByRole: req.user!.role,
+      performedByUserId: req.user!.id,
+      newValue: JSON.stringify({
+        employeeId: employee.id,
+        employeeNumber: employee.employeeNumber ?? null,
+        employeeName: employee.name,
+        role: employee.role,
+        jobTitle: employee.jobTitle,
+      }),
+    });
+
+    await client.query('COMMIT');
+    res.status(201).json(employee);
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    if (err?.status) {
+      return res.status(err.status).json(err.payload ?? { error: err.message });
+    }
+    console.error('Error creating employee from application:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/:id/employee-legacy-disabled', requirePermission('employees.create'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     await client.query('BEGIN');
 
@@ -653,7 +899,9 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
        a.detailed_address AS "detailedAddress",
        a.photo_url AS "photoUrl",
        jv.title AS "vacancyTitle",
-       jv.branch AS "vacancyBranch"
+       jv.branch AS "vacancyBranch",
+       jv.branch_id AS "vacancyBranchId",
+       ja.branch_id AS "applicationBranchId"
        FROM job_applications ja
        JOIN applicants a ON a.id = ja.applicant_id
        LEFT JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
@@ -689,13 +937,10 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
       return res.status(409).json({ error: 'تم إنشاء سجل الموظف لهذا الطلب مسبقًا.' });
     }
 
+    // Derive the legacy operational role — may be null for job titles outside
+    // supervisor / technician / telemarketer; that is acceptable since the DB
+    // CHECK constraint has been dropped and role is now nullable.
     const role = deriveEmployeeRoleFromVacancyTitle(app.vacancyTitle);
-    if (!role) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'عنوان الوظيفة لا يطابق الأدوار المدعومة لإنشاء موظف تلقائيًا: مشرفة، فني، تيلماركتر.',
-      });
-    }
 
     const fullName = `${app.firstName ?? ''} ${app.lastName ?? ''}`.trim();
     const avatar = getEmployeeAvatar(fullName, app.photoUrl);
@@ -707,12 +952,18 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
       app.detailedAddress,
     ].filter(Boolean).join(' - ') || null;
 
+    const employeeBranchId = app.vacancyBranchId ?? app.applicationBranchId ?? null;
+    if (!employeeBranchId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'تعذر تحديد فرع الموظف من الطلب' });
+    }
+
     const { rows: employeeRows } = await client.query(
-      `INSERT INTO employees (name, role, mobile, branch, residence, status, avatar, job_title)
-       VALUES ($1, $2, $3, $4, $5, 'active', $6, $7)
+      `INSERT INTO employees (name, role, mobile, branch, residence, status, avatar, job_title, branch_id)
+       VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8)
        RETURNING id, name, role, mobile, branch, residence, status, avatar,
          job_title AS "jobTitle", created_at AS "createdAt"`,
-      [fullName, role, app.mobileNumber, app.vacancyBranch ?? null, residence, avatar, app.vacancyTitle ?? null]
+      [fullName, role, app.mobileNumber, app.vacancyBranch ?? null, residence, avatar, app.vacancyTitle ?? null, employeeBranchId]
     );
 
     const employee = employeeRows[0];
@@ -757,6 +1008,7 @@ router.patch('/:id/decision', requirePermission('jobs.applications.record_decisi
     const appId = req.params.id as string;
 
     if (!decision) return res.status(400).json({ error: 'القرار مطلوب' });
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     const { rows: currentRows } = await client.query(
       `SELECT ja.current_stage, ja.application_status,
@@ -855,6 +1107,7 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
   const client = await pool.connect();
   try {
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     await client.query('BEGIN');
 
@@ -937,12 +1190,14 @@ router.patch('/:id/resolve-escalation', requireRole('HR_MANAGER'), async (req, r
 // PATCH /api/admin/applications/:id/notes
 router.patch('/:id/notes', requirePermission('jobs.applications.edit_notes'), async (req, res) => {
   try {
+    const appId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!(await assertAppBranchAccess(req, res, appId!))) return;
     const { notes } = req.body;
     const { rows } = await pool.query(
       `UPDATE job_applications SET internal_notes = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING id, internal_notes AS "internalNotes"`,
-      [notes ? sanitizeText(notes) : null, req.params.id]
+      [notes ? sanitizeText(notes) : null, appId]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     res.json(rows[0]);
@@ -957,6 +1212,7 @@ router.patch('/:id/archive', requirePermission('jobs.applications.archive'), asy
   const client = await pool.connect();
   try {
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     const ARCHIVABLE_STATUSES = ['Final Hired', 'Final Rejected', 'Retreated'];
 

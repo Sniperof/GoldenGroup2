@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Save, PlusCircle, Building2, User, PhoneCall, Handshake, Search, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Save, PlusCircle, Building2, User, Handshake, Search, CheckCircle, AlertCircle } from 'lucide-react';
 import { ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import { api } from '../../lib/api';
-import type { GeoUnit } from '../../lib/types';
 
 interface Props {
     isOpen: boolean;
@@ -28,7 +26,6 @@ const channels: { value: ReferralOriginChannel; label: string }[] = [
 export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreated }: Props) {
     const addReferralSheet = useCandidateStore(state => state.addReferralSheet); // Updated hook
 
-    const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
@@ -36,14 +33,12 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         let active = true;
 
         Promise.all([
-            api.geoUnits.list(),
             api.clients.list(),
             api.visits.list(),
             api.contracts.list(),
         ])
-            .then(([units, clients, visitsData, contractsData]) => {
+            .then(([clients, visitsData, contractsData]) => {
                 if (!active) return;
-                setGeoUnits(units);
                 setAllClients(clients);
                 setVisits(visitsData);
                 setContracts(contractsData);
@@ -51,7 +46,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             .catch((error) => {
                 console.error(error);
                 if (!active) return;
-                setGeoUnits([]);
                 setAllClients([]);
                 setVisits([]);
                 setContracts([]);
@@ -65,7 +59,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const [referralType, setReferralType] = useState<ReferralType>('Personal');
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
     const [nameSnapshot, setNameSnapshot] = useState('إبراهيم (مشرف)');
-    const [addressSelection, setAddressSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
     const [referralDate, setReferralDate] = useState(new Date().toISOString().split('T')[0]);
     const [notes, setNotes] = useState('');
     const [error, setError] = useState('');
@@ -174,16 +167,12 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             entityId = selectedClientId;
         }
 
-        const unitId = addressSelection.neighborhoodId || addressSelection.subId || addressSelection.regionId || addressSelection.govId;
-        const matchingUnit = geoUnits.find(u => u.id === Number(unitId));
-        const addressText = matchingUnit ? matchingUnit.name : 'غير محدد';
-
         try {
             const newId = await addReferralSheet({
                 referralType,
                 referralOriginChannel: originChannel,
                 referralNameSnapshot: nameSnapshot,
-                referralAddressText: addressText,
+                referralAddressText: '',
                 referralEntityId: entityId,
                 referralDate: new Date(referralDate).toISOString(),
                 referralNotes: notes,
@@ -228,8 +217,8 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             <PlusCircle className="w-5 h-5 text-amber-600" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-800">إضافة ورقة ترشيح جديدة </h2>
-                            <p className="text-sm text-slate-500">تسجيل قائمة أسماء جديدة تحت وسيط محدد</p>
+                            <h2 className="text-xl font-bold text-slate-800">إضافة لائحة أسماء جديدة </h2>
+                            <p className="text-sm text-slate-500">تسجيل لائحة أسماء جديدة تحت وسيط محدد</p>
                         </div>
                     </div>
                     <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors">
@@ -357,16 +346,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             value={referralDate}
                             onChange={(e) => setReferralDate(e.target.value)}
                             className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm"
-                        />
-                    </div>
-
-                    <div>
-                        <GeoSmartSearch
-                            label="النطاق الجغرافي / منطقة العمل"
-                            geoUnits={geoUnits}
-                            value={addressSelection}
-                            onChange={setAddressSelection}
-                            placeholder="ابحث عن المنطقة المستهدفة..."
                         />
                     </div>
 

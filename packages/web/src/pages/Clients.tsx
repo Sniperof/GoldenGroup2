@@ -4,6 +4,7 @@ import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Ligh
 import { api } from '../lib/api';
 import type { Client, GeoUnit, Visit, Contract } from '../lib/types';
 import ClientModal from '../components/ClientModal';
+import ClientAvatar from '../components/ClientAvatar';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
 import ManualSearchModal from '../components/candidates/ManualSearchModal';
@@ -23,6 +24,7 @@ export default function Clients() {
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [isPreAddModalOpen, setIsPreAddModalOpen] = useState(false);
     const [activeCandidateForSearch, setActiveCandidateForSearch] = useState<any>(null);
+    const [verifiedPhone, setVerifiedPhone] = useState('');
     const [isAddCandidateModalOpen, setIsAddCandidateModalOpen] = useState(false);
     const qualifyCandidate = useCandidateStore((state: any) => state.qualifyCandidate);
 
@@ -185,9 +187,7 @@ export default function Clients() {
             key: 'name', label: 'الاسم الكامل', sortable: true,
             render: (c) => (
                 <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-sky-50 flex items-center justify-center text-sky-600 font-bold text-xs border border-sky-100">
-                        {c.firstName?.[0] || 'Z'}{c.lastName?.[0] || ''}
-                    </div>
+                    <ClientAvatar gender={c.gender} dataQuality={c.dataQuality} size="sm" />
                     <div>
                         <span className="block text-slate-800 font-semibold text-sm">{c.firstName} {c.fatherName} {c.lastName}</span>
                         {c.nickname && <span className="block text-[10px] text-slate-400">({c.nickname})</span>}
@@ -390,10 +390,12 @@ export default function Clients() {
                 onClose={() => {
                     setIsModalOpen(false);
                     setIsAddCandidateModalOpen(false);
+                    setVerifiedPhone('');
                 }}
                 onSave={handleSaveClient}
                 initialData={editingClient}
                 geoUnits={geoUnits}
+                lockedPhone={isAddCandidateModalOpen ? verifiedPhone : undefined}
             />
 
             <ManualSearchModal
@@ -410,7 +412,8 @@ export default function Clients() {
                         navigate(`/candidates`);
                     }
                 }}
-                onNoMatch={() => {
+                onNoMatch={(mobile) => {
+                    setVerifiedPhone(mobile);
                     setIsPreAddModalOpen(false);
                     setIsAddCandidateModalOpen(true);
                 }}

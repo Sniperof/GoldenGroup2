@@ -35,7 +35,7 @@ export default function CandidatesEntry() {
                 <div className="flex items-center gap-4">
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                         <UserPlus className="w-6 h-6 text-sky-600" />
-                        إدارة أوراق الترشيح (Referral Sheets)
+                        إدارة لوائح الأسماء (Name Lists)
                     </h1>
                     <span className="px-3 py-1 bg-sky-100 text-sky-700 rounded-full text-sm font-bold border border-sky-200">
                         {filteredCandidates.length} اسم

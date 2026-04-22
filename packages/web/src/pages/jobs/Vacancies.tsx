@@ -14,6 +14,8 @@ import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
 import { useBranchStore } from '../../hooks/useBranchStore';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
+import { useAuthStore } from '../../hooks/useAuthStore';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { GeoSelection, getLevelName } from '../../components/GeoSmartSearch';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
@@ -67,6 +69,18 @@ export default function Vacancies() {
   const [saving, setSaving] = useState(false);
   const { branches, fetchBranches } = useBranchStore();
   const { fetchLists, getValuesByCategory } = useSystemListsStore();
+  const { user } = useAuthStore();
+  const { branchId: contextBranchId } = useBranchContextStore();
+
+  const isSuperAdmin = user?.isSuperAdmin === true;
+  // Effective branchId driving the branch field:
+  // - Super Admin + context selected → that context
+  // - Branch Admin → their own branchId
+  // - Super Admin + "كل الفروع" → null (free choice)
+  const effectiveBranchId: number | null = isSuperAdmin
+    ? contextBranchId
+    : (user?.branchId ?? null);
+  const branchFieldLocked = effectiveBranchId != null;
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
   const [branchContacts, setBranchContacts] = useState<BranchContact[]>([]);
   const [geoSelection, setGeoSelection] = useState<GeoSelection>({
@@ -114,9 +128,41 @@ export default function Vacancies() {
     setEditingVacancy(null);
     setEditTier(1);
     setWizardStep(1);
-    setFormData({ ...emptyVacancy });
-    setBranchContacts([]);
-    setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+
+    // Pre-fill branch when a context branch is active
+    if (effectiveBranchId != null) {
+      const contextBranch = branches.find(b => b.id === effectiveBranchId);
+      const contextBranchName = contextBranch?.name ?? '';
+      setFormData({ ...emptyVacancy, branch: contextBranchName, branchId: effectiveBranchId } as any);
+      if (contextBranch) {
+        setBranchContacts(contextBranch.contactInfo || []);
+        // Auto-fill geo from branch's locationGeoId if available
+        if (contextBranch.locationGeoId) {
+          const chain: Record<number, number> = {};
+          let cur = geoUnits.find(g => g.id === contextBranch.locationGeoId) as (typeof geoUnits[0]) | undefined;
+          while (cur) {
+            chain[cur.level] = cur.id;
+            cur = cur.parentId ? geoUnits.find(g => g.id === cur!.parentId) : undefined;
+          }
+          setGeoSelection({
+            govId: chain[1]?.toString() || '',
+            regionId: chain[2]?.toString() || '',
+            subId: chain[3]?.toString() || '',
+            neighborhoodId: chain[4]?.toString() || '',
+          });
+        } else {
+          setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+        }
+      } else {
+        setBranchContacts([]);
+        setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+      }
+    } else {
+      setFormData({ ...emptyVacancy });
+      setBranchContacts([]);
+      setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+    }
+
     setFormError('');
     setShowModal(true);
   };
@@ -149,6 +195,7 @@ export default function Vacancies() {
 
     const finalData = {
       ...formData,
+      branchId: effectiveBranchId ?? (formData as any).branchId ?? null,
       governorate: getLevelName(geoUnits, geoSelection.govId) || formData.governorate,
       cityOrArea: getLevelName(geoUnits, geoSelection.regionId) || formData.cityOrArea,
       subArea: getLevelName(geoUnits, geoSelection.subId) || formData.subArea,
@@ -210,8 +257,16 @@ export default function Vacancies() {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">الفرع <span className="text-red-400">*</span></label>
-            <select value={formData.branch || ''} onChange={e => handleBranchChange(e.target.value)} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))}>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+              الفرع <span className="text-red-400">*</span>
+              {branchFieldLocked && <Lock className="inline w-3 h-3 mr-1 text-slate-400" />}
+            </label>
+            <select
+              value={formData.branch || ''}
+              onChange={e => handleBranchChange(e.target.value)}
+              disabled={isFieldLocked('full') || branchFieldLocked}
+              className={inputCls(isFieldLocked('full') || branchFieldLocked)}
+            >
               <option value="">اختر الفرع</option>
               {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
             </select>

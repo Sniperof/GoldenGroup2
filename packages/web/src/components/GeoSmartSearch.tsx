@@ -128,8 +128,9 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
         const q = search.trim().toLowerCase();
         const results: GeoSuggestion[] = [];
 
-        // Search all units
+        // Search only level 3 (ناحية) and level 4 (حي) — محافظة and منطقة are not selectable standalone
         geoUnits.forEach(u => {
+            if (u.level < 3) return;
             const name = u.name.toLowerCase();
             if (!name.includes(q)) return;
             const path = buildPath(u, unitsMap);
@@ -216,7 +217,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                             disabled={disabled}
                             onChange={e => { setSearch(e.target.value); setIsOpen(true); }}
                             onFocus={() => setIsOpen(true)}
-                            placeholder={placeholder || 'ابحث عن محافظة، منطقة، حي...'}
+                            placeholder={placeholder || 'ابحث عن ناحية أو حي...'}
                             className={`w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm placeholder:text-gray-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/10 focus:outline-none transition-all ${disabled ? 'cursor-not-allowed bg-gray-50' : ''}`}
                         />
                     </div>

@@ -28,6 +28,7 @@ import TeamTasksDetail from './pages/planning/TeamTasksDetail';
 import MarketingOperations from './pages/tasks/MarketingOperations';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
+import BranchDetail from './pages/admin/BranchDetail';
 import Vacancies from './pages/jobs/Vacancies';
 import VacancyDetail from './pages/jobs/VacancyDetail';
 import PublicJobs from './pages/jobs/PublicJobs';
@@ -82,6 +83,7 @@ export default function App() {
                         <Route path="/settings" element={<SystemSettings />} />
                         <Route path="/system-lists" element={<SystemLists />} />
                         <Route path="/branches" element={<Branches />} />
+                        <Route path="/branches/:id" element={<BranchDetail />} />
 
                         {/* Job Applications Epic */}
                         <Route path="/jobs/vacancies" element={<Vacancies />} />

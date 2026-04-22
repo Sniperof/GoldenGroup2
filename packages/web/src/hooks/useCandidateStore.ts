@@ -42,7 +42,7 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
         );
 
         if (existingSheet) {
-            throw new Error('يوجد ورقة ترشيح مطابقة لنفس الوسيط والتاريخ والمشرفة!');
+            throw new Error('يوجد لائحة أسماء مطابقة لنفس الوسيط والتاريخ والمشرفة!');
         }
 
         const newSheet = await api.referralSheets.create({

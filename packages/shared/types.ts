@@ -83,15 +83,53 @@ export type EmployeeRole = 'supervisor' | 'technician' | 'telemarketer';
 
 export interface Employee {
     id: number;
+    employeeNumber?: number | null;
     name: string;
-    role: EmployeeRole;
+    firstName?: string | null;
+    fatherName?: string | null;
+    lastName?: string | null;
+    role: EmployeeRole | null;
     mobile: string;
+    contacts?: ContactEntry[];
+    birthDate?: string | null;
+    gender?: 'male' | 'female' | null;
+    maritalStatus?: string | null;
+    militaryService?: string | null;
+    branchId?: number | null;
     branch?: string | null;
+    departmentId?: number | null;
+    departmentName?: string | null;
     residence?: string | null;
     residenceShort?: string | null;
+    residenceGovernorateId?: number | null;
+    residenceGovernorate?: string | null;
+    residenceRegionId?: number | null;
+    residenceRegion?: string | null;
+    residenceSubAreaId?: number | null;
+    residenceSubArea?: string | null;
+    residenceNeighborhoodId?: number | null;
+    residenceNeighborhood?: string | null;
+    detailedAddress?: string | null;
     status: 'active' | 'leave' | 'inactive';
     avatar?: string;
     jobTitle?: string | null;
+    academicQualification?: string | null;
+    specialization?: string | null;
+    yearsOfExperience?: number | null;
+    drivingLicense?: boolean | null;
+    jobSkills?: string | null;
+    foreignLanguages?: string[];
+    hireDate?: string | null;
+    startWorkDate?: string | null;
+    contractType?: string | null;
+    workType?: string | null;
+    previousEmployment?: string | null;
+    directManagerId?: number | null;
+    directManagerName?: string | null;
+    referrerType?: ReferralType | string | null;
+    sourceChannel?: ReferralOriginChannel | string | null;
+    referrerName?: string | null;
+    referralNotes?: string | null;
     createdAt?: string;
 }
 
@@ -106,6 +144,16 @@ export interface EmployeeSystemAccount {
 export interface EmployeeDetail extends Employee {
     systemAccount: EmployeeSystemAccount | null;
     hiringApplication: JobApplicationDetail | null;
+}
+
+export interface EmployeeManagerCandidate {
+  id: number;
+  name: string;
+  jobTitle: string | null;
+  departmentId: number | null;
+  departmentName: string | null;
+  roleDisplayName: string | null;
+  isRecommendedManager: boolean;
 }
 
 export type BranchContactType = 'email' | 'phone' | 'mobile' | 'website';
@@ -169,6 +217,9 @@ export interface Client {
     neighborhood: string;
     detailedAddress?: string;
     gpsCoordinates?: { lat: number; lng: number };
+    gender?: 'male' | 'female';
+    nationalId?: string;
+    birthDate?: string;
     occupation?: string;
     spouseOccupation?: string;
     dataQuality?: 'correct' | 'incorrect' | 'needs_edit';
@@ -179,6 +230,7 @@ export interface Client {
     referrerType?: string;
     referrerId?: number;
     referrerName?: string;
+    referralNotes?: string;
     referralEntityId?: number | null;
     referralDate?: string;
     referralReason?: string;
@@ -418,6 +470,26 @@ export interface SystemList {
     value: string;
     isActive: boolean;
     displayOrder: number;
+    linkedRoleId?: number | null;
+    linkedRoleName?: string | null;
+    /** Arbitrary metadata stored as JSONB. For department_type: { canSelectDevice: boolean } */
+    metadata?: Record<string, unknown>;
+}
+
+export interface Department {
+    id: number;
+    name: string;
+    branchId: number;
+    departmentTypeId: number | null;
+    departmentTypeName: string | null;
+    /** Parsed metadata from the department_type system list item */
+    departmentTypeMetadata: Record<string, unknown> | null;
+    /** Array of device_model IDs associated with this department */
+    deviceModelIds: number[];
+    notes: string | null;
+    createdAt: string;
+    updatedAt: string;
+    employeeCount: number;
 }
 
 // ─────────────────────────────────────────
@@ -481,6 +553,8 @@ export interface Applicant {
   email: string | null;
   mobileNumber: string;
   secondaryMobile: string | null;
+  hasWhatsappPrimary?: boolean;
+  hasWhatsappSecondary?: boolean;
   governorate: string;
   cityOrArea: string;
   subArea: string;
@@ -521,6 +595,7 @@ export interface JobApplication {
   jobVacancyId: number;
   applicantId: number;
   referrerId: number | null;
+  branchId?: number | null;
   submissionType: SubmissionType;
   applicationSource: ApplicationSource;
   enteredByUserId: number | null;

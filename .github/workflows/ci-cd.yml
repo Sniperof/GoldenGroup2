@@ -53,3 +53,15 @@ jobs:
           port: ${{ secrets.PROD_SSH_PORT }}
           script: |
             bash /opt/golden-crm/app/GoldenGroup2/scripts/deploy-production.sh
+
+      - name: Run Migrations via SSH
+        uses: appleboy/ssh-action@v1.2.1
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          port: ${{ secrets.PROD_SSH_PORT }}
+          script: |
+            cd /opt/golden-crm/app/GoldenGroup2
+            set -a && source /etc/golden-crm/production.env && set +a
+            pnpm --filter @golden-crm/api migrate

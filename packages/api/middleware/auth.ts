@@ -13,6 +13,15 @@ declare global {
   }
 }
 
+function attachScope(req: Request) {
+  if (!req.user) return;
+  (req as any).scope = {
+    userId: req.user.id,
+    isSuperAdmin: req.user.isSuperAdmin === true,
+    branchId: req.user.branchId ?? null,
+  };
+}
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
@@ -22,6 +31,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const payload = jwt.verify(token, JWT_SECRET) as AuthUser;
     req.user = payload;
+    attachScope(req);
     next();
   } catch {
     return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
@@ -40,11 +50,12 @@ export function requireRole(...roles: string[]) {
       try {
         const payload = jwt.verify(token, JWT_SECRET) as AuthUser;
         req.user = payload;
+        attachScope(req);
       } catch {
         return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
       }
     }
-    if (!roles.includes(req.user.role)) {
+    if (req.user.isSuperAdmin !== true && !roles.includes(req.user.role)) {
       return res.status(403).json({ error: 'غير مسموح: صلاحياتك لا تسمح بهذا الإجراء' });
     }
     next();

@@ -151,7 +151,7 @@ export default function PublicJobs() {
   };
   const setR = (key: keyof ReferrerForm, val: any) => {
     setReferrer(p => ({ ...p, [key]: val }));
-    if (fieldErrors[`referrer_\${key}`]) setFieldErrors(p => { const n = { ...p }; delete n[`referrer_\${key}`]; return n; });
+    if (fieldErrors[`referrer_${key}`]) setFieldErrors(p => { const n = { ...p }; delete n[`referrer_${key}`]; return n; });
   };
 
   const handleNameInput = (val: string, key: 'firstName' | 'lastName') => {
@@ -469,8 +469,8 @@ export default function PublicJobs() {
 
               {submitResult && (
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-                  className={`bg-red-50 border-l-4 border-red-500 rounded-2xl p-4 mb-8 flex items-center gap-4 text-sm shadow-sm \${submitResult.type === 'duplicate' ? 'text-amber-700 border-amber-500 bg-amber-50' : 'text-red-700 shadow-red-100'}`}>
-                  <div className={`p-2 rounded-xl \${submitResult.type === 'duplicate' ? 'bg-amber-100' : 'bg-red-100'}`}><AlertTriangle className="w-5 h-5" /></div>
+                  className={`bg-red-50 border-l-4 border-red-500 rounded-2xl p-4 mb-8 flex items-center gap-4 text-sm shadow-sm ${submitResult.type === 'duplicate' ? 'text-amber-700 border-amber-500 bg-amber-50' : 'text-red-700 shadow-red-100'}`}>
+                  <div className={`p-2 rounded-xl ${submitResult.type === 'duplicate' ? 'bg-amber-100' : 'bg-red-100'}`}><AlertTriangle className="w-5 h-5" /></div>
                   <div className="flex-1 font-bold">{submitResult.message}</div>
                 </motion.div>
               )}
@@ -598,7 +598,7 @@ export default function PublicJobs() {
                   <div className="flex flex-wrap gap-2 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
                     {langOpts.map(lang => (
                       <button key={lang} type="button" onClick={() => toggleLanguage(lang)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-colors \${applicant.foreignLanguages.includes(lang) ? 'bg-sky-500 text-white border-sky-500' : 'bg-white text-slate-500 border-slate-300'}`}>
+                        className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-colors ${applicant.foreignLanguages.includes(lang) ? 'bg-sky-500 text-white border-sky-500' : 'bg-white text-slate-500 border-slate-300'}`}>
                         {lang}
                       </button>
                     ))}
@@ -609,7 +609,7 @@ export default function PublicJobs() {
               <FormSection num={5} title="المرفقات" subtitle="ملفات الوثائق الثبوتية وصورة المتقدم" icon={Paperclip} delay={0.5}>
                  <div className="lg:col-span-1">
                    <Field label="صورة شخصية (PNG/JPG)" required error={fieldErrors.photoFile}>
-                     <div className={`mt-1 border-2 border-dashed rounded-2xl p-6 text-center \${applicant.photoFile ? 'border-emerald-400 bg-emerald-50' : fieldErrors.photoFile ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white hover:bg-slate-50'}`}>
+                     <div className={`mt-1 border-2 border-dashed rounded-2xl p-6 text-center ${applicant.photoFile ? 'border-emerald-400 bg-emerald-50' : fieldErrors.photoFile ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white hover:bg-slate-50'}`}>
                        <input type="file" id="photo-upload" accept=".png,.jpg,.jpeg" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if(f) setA('photoFile', f); }} />
                        <label htmlFor="photo-upload" className="cursor-pointer flex flex-col items-center gap-2">
                          {applicant.photoFile ? <><CheckCircle className="w-8 h-8 text-emerald-500" /><span className="text-sm font-bold truncate">{applicant.photoFile.name}</span></> : <><UploadCloud className="w-8 h-8 text-sky-400" /><span className="text-sm font-bold text-slate-600">انقر لاختيار صورة</span></>}
@@ -619,7 +619,7 @@ export default function PublicJobs() {
                  </div>
                  <div className="md:col-span-1 lg:col-span-2">
                    <Field label="السيرة الذاتية CV (اختياري)">
-                     <div className={`mt-1 border-2 border-dashed rounded-2xl p-6 text-center \${applicant.cvFile ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 bg-white hover:bg-slate-50'}`}>
+                     <div className={`mt-1 border-2 border-dashed rounded-2xl p-6 text-center ${applicant.cvFile ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 bg-white hover:bg-slate-50'}`}>
                        <input type="file" id="cv-upload" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if(f) { if (f.size > 4 * 1024 * 1024) alert('حد أقصى 4MB'); else setA('cvFile', f); } }} />
                        <label htmlFor="cv-upload" className="cursor-pointer flex flex-col items-center gap-2">
                          {applicant.cvFile ? <><File className="w-8 h-8 text-emerald-500" /><span className="text-sm font-bold truncate">{applicant.cvFile.name}</span></> : <><UploadCloud className="w-8 h-8 text-slate-400" /><span className="text-sm font-bold text-slate-600">السيرة الذاتية (PDF/DOC)</span></>}
@@ -654,7 +654,7 @@ export default function PublicJobs() {
                           <Field label="اسم الوسيط" required error={fieldErrors.referrer_fullName}><input value={referrer.fullName} onChange={e => handleReferrerNameInput(e.target.value, 'fullName')} className={inputCls(!!fieldErrors.referrer_fullName)} /></Field>
                           <Field label="الكنية" required error={fieldErrors.referrer_lastName}><input value={referrer.lastName} onChange={e => handleReferrerNameInput(e.target.value, 'lastName')} className={inputCls(!!fieldErrors.referrer_lastName)} /></Field>
                           <Field label="رقم موبايل الوسيط" required error={fieldErrors.referrer_mobileNumber}><input value={referrer.mobileNumber} onChange={e => setR('mobileNumber', e.target.value)} maxLength={10} className={inputCls(!!fieldErrors.referrer_mobileNumber) + " text-left"} dir="ltr" /></Field>
-                          <div className={`md:col-span-2 lg:col-span-3 bg-slate-50 border \${fieldErrors.referrer_geoSelection ? 'border-red-400' : 'border-slate-200'} rounded-2xl p-4`}>
+                          <div className={`md:col-span-2 lg:col-span-3 bg-slate-50 border ${fieldErrors.referrer_geoSelection ? 'border-red-400' : 'border-slate-200'} rounded-2xl p-4`}>
                             <GeoSmartSearch label="موقع الوسيط" required geoUnits={geoUnits} value={referrer.geoSelection} onChange={v => { setR('geoSelection', v); delete fieldErrors.referrer_geoSelection; }} />
                           </div>
                           <Field label="العنوان التفصيلي" required error={fieldErrors.referrer_detailedAddress}><input value={referrer.detailedAddress} onChange={e => setR('detailedAddress', e.target.value)} className={inputCls(!!fieldErrors.referrer_detailedAddress)} /></Field>

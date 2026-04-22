@@ -40,6 +40,7 @@ import authRouter from './routes/auth.js';
 import systemListsRouter from './routes/systemLists.js';
 import uploadRouter from './routes/upload.js';
 import rolesRouter from './routes/roles.js';
+import departmentsRouter from './routes/departments.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -82,6 +83,7 @@ app.use('/api/admin/interviews', interviewsRouter);
 app.use('/api/admin/training-courses', trainingCoursesRouter);
 app.use('/api/public/areas', publicAreasRouter);
 app.use('/api/system-lists', systemListsRouter);
+app.use('/api/departments', departmentsRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/admin', rolesRouter);
 

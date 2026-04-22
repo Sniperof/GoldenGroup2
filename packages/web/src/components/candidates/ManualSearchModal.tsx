@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Search, CheckCircle2, AlertCircle, Clock, Link2, ArrowRight, User } from 'lucide-react';
+import { X, Search, CheckCircle2, AlertCircle, Clock, Link2, ArrowLeft, User, Lock, Pencil } from 'lucide-react';
 import { Candidate, Client } from '../../lib/types';
 import { performSmartSearch, SearchResult, ConfidenceScore } from '../../lib/searchUtils';
 
@@ -10,7 +10,7 @@ interface ManualSearchModalProps {
     clients: Client[];
     candidates: any[];
     onLink: (entity: Client | Candidate, type: 'Client' | 'Candidate') => void;
-    onNoMatch: () => void;
+    onNoMatch: (verifiedMobile: string) => void;
 }
 
 export default function ManualSearchModal({
@@ -33,7 +33,7 @@ export default function ManualSearchModal({
     // Check if the entered mobile already exists in ANY client's contacts (primary or secondary)
     const mobileExistsInClients = useMemo(() => {
         const num = inputs.mobile.trim();
-        if (!num || num.length < 6) return false;
+        if (num.length !== 10) return false;
         return clients.some(c =>
             (c.contacts || []).some(con => con.number === num) || c.mobile === num
         );
@@ -51,6 +51,16 @@ export default function ManualSearchModal({
             setIsSearching(false);
         }
     }, [isOpen, inputs, clients, candidates]);
+
+    // Phone is "verified" when: exactly 10 digits, unique, and search returned zero results
+    const phoneVerified = !isSearching
+        && inputs.mobile.trim().length === 10
+        && !mobileExistsInClients
+        && results.length === 0;
+
+    const handleUnlockMobile = () => {
+        setInputs(prev => ({ ...prev, mobile: '' }));
+    };
 
     const getConfidenceUI = (confidence: ConfidenceScore) => {
         switch (confidence) {
@@ -122,15 +132,57 @@ export default function ManualSearchModal({
                                 />
                             </div>
                             <div>
-                                <label className="block text-[11px] font-bold text-slate-500 mb-1.5">رقم الموبايل</label>
-                                <input
-                                    type="text"
-                                    value={inputs.mobile}
-                                    onChange={e => setInputs(prev => ({ ...prev, mobile: e.target.value }))}
-                                    placeholder="ابحث بالرقم..."
-                                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all text-right"
-                                    dir="ltr"
-                                />
+                                <label className="block text-[11px] font-bold text-slate-500 mb-1.5">
+                                    رقم الموبايل
+                                    {phoneVerified && (
+                                        <span className="mr-1.5 text-emerald-600 font-black inline-flex items-center gap-0.5">
+                                            <Lock className="w-2.5 h-2.5" /> تم التحقق
+                                        </span>
+                                    )}
+                                    {mobileExistsInClients && (
+                                        <span className="mr-1.5 text-red-500 font-black">• مكرر</span>
+                                    )}
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        value={inputs.mobile}
+                                        onChange={e => {
+                                            if (phoneVerified) return;
+                                            const v = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                            setInputs(prev => ({ ...prev, mobile: v }));
+                                        }}
+                                        readOnly={phoneVerified}
+                                        placeholder="0912345678"
+                                        maxLength={10}
+                                        dir="ltr"
+                                        className={`w-full border rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-4 transition-all text-right ${
+                                            phoneVerified
+                                                ? 'bg-emerald-50 border-emerald-300 text-emerald-800 cursor-default focus:ring-0 pr-10'
+                                                : mobileExistsInClients
+                                                ? 'bg-red-50 border-red-300 focus:border-red-400 focus:ring-red-500/5'
+                                                : inputs.mobile.length === 10
+                                                ? 'bg-white border-indigo-300 focus:border-indigo-500 focus:ring-indigo-500/5'
+                                                : 'bg-white border-slate-200 focus:border-indigo-500 focus:ring-indigo-500/5'
+                                        }`}
+                                    />
+                                    {phoneVerified && (
+                                        <button
+                                            type="button"
+                                            onClick={handleUnlockMobile}
+                                            title="تعديل الرقم وإعادة البحث"
+                                            className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-lg bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all shadow-sm"
+                                        >
+                                            <Pencil className="w-3 h-3" />
+                                        </button>
+                                    )}
+                                </div>
+                                {!phoneVerified && inputs.mobile.length > 0 && inputs.mobile.length < 10 && (
+                                    <p className="text-[10px] text-amber-500 mt-1 font-medium">{10 - inputs.mobile.length} خانة متبقية</p>
+                                )}
+                                {!phoneVerified && inputs.mobile.length === 0 && (
+                                    <p className="text-[10px] text-slate-400 mt-1 font-medium">10 أرقام بالضبط • مطلوب للمتابعة</p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -213,22 +265,38 @@ export default function ManualSearchModal({
                         >
                             إغلاق
                         </button>
-                        {mobileExistsInClients && inputs.mobile.length >= 6 && (
+
+                        {/* Hint messages */}
+                        {!phoneVerified && inputs.mobile.length === 0 && (
+                            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                أدخل رقم الموبايل للتحقق والمتابعة
+                            </div>
+                        )}
+                        {!phoneVerified && inputs.mobile.length === 10 && mobileExistsInClients && (
                             <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
                                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                                 الرقم موجود مسبقاً — أدخل رقماً فريداً للمتابعة
                             </div>
                         )}
+                        {!phoneVerified && inputs.mobile.length === 10 && !mobileExistsInClients && results.length > 0 && (
+                            <div className="flex items-center gap-1.5 text-xs text-amber-600 font-medium">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                توجد نتائج مطابقة — راجع النتائج أو عدّل الرقم
+                            </div>
+                        )}
                     </div>
-                    <button
-                        onClick={onNoMatch}
-                        disabled={mobileExistsInClients && inputs.mobile.length >= 6}
-                        title={mobileExistsInClients ? 'الرقم المدخل موجود مسبقاً في قاعدة البيانات' : ''}
-                        className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none bg-slate-600 hover:bg-slate-700 disabled:bg-slate-400 disabled:hover:bg-slate-400"
-                    >
-                        لا يوجد تطابق - متابعة
-                        <ArrowRight className="w-4 h-4 ml-1" />
-                    </button>
+
+                    {/* Continue button — only when phone is verified and no results */}
+                    {phoneVerified && (
+                        <button
+                            onClick={() => onNoMatch(inputs.mobile.trim())}
+                            className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-all duration-200 bg-slate-600 hover:bg-slate-700 hover:shadow-lg hover:gap-3"
+                        >
+                            لا يوجد تطابق - متابعة
+                            <ArrowLeft className="w-5 h-5 shrink-0" />
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

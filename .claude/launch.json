@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "API Server",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@golden-crm/api", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "Web (Vite)",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@golden-crm/web", "dev"],
+      "port": 5000
+    }
+  ]
+}

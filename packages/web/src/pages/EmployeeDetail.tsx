@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowRight,
@@ -20,9 +20,13 @@ import { api } from '../lib/api';
 import type { EmployeeDetail as EmployeeDetailType } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
 import { useRoleStore } from '../hooks/useRoleStore';
+import { useAuthStore } from '../hooks/useAuthStore';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import EmployeeFormModal, { type EmployeeFormInitialValues } from '../components/employees/EmployeeFormModal';
+import { useSystemListsStore } from '../hooks/useSystemLists';
 import { getUnifiedApplicationState, getUnifiedApplicationStateClasses } from '../lib/applicationState';
 
-const ROLE_LABELS: Record<EmployeeDetailType['role'], string> = {
+const ROLE_LABELS: Record<string, string> = {
   supervisor: 'مشرفة',
   technician: 'فني',
   telemarketer: 'تيلماركتر',
@@ -73,6 +77,77 @@ const TRAINING_RESULT_LABELS: Record<string, string> = {
   Retreated: 'منسحب',
 };
 
+type AccountForm = {
+  username: string;
+  password: string;
+  roleId: string;
+  isActive: boolean;
+};
+
+function formatDate(value?: string | null) {
+  return value ? new Date(value).toLocaleDateString('ar-IQ') : '—';
+}
+
+function formatGender(value?: string | null) {
+  if (value === 'male') return 'ذكر';
+  if (value === 'female') return 'أنثى';
+  return value || '—';
+}
+
+function formatDrivingLicense(value?: boolean | null) {
+  if (value === true) return 'نعم';
+  if (value === false) return 'لا';
+  return '—';
+}
+
+function buildEmployeeInitialValues(detail: EmployeeDetailType): EmployeeFormInitialValues {
+  return {
+    employeeNumber: detail.employeeNumber ?? null,
+    firstName: detail.firstName ?? '',
+    fatherName: detail.fatherName ?? '',
+    lastName: detail.lastName ?? '',
+    birthDate: detail.birthDate ?? '',
+    gender: detail.gender ?? '',
+    maritalStatus: detail.maritalStatus ?? '',
+    militaryService: detail.militaryService ?? '',
+    residenceGovernorateId: detail.residenceGovernorateId ?? null,
+    residenceRegionId: detail.residenceRegionId ?? null,
+    residenceSubAreaId: detail.residenceSubAreaId ?? null,
+    residenceNeighborhoodId: detail.residenceNeighborhoodId ?? null,
+    detailedAddress: detail.detailedAddress ?? '',
+    contacts: detail.contacts ?? [],
+    academicQualification: detail.academicQualification ?? '',
+    specialization: detail.specialization ?? '',
+    yearsOfExperience: detail.yearsOfExperience != null ? String(detail.yearsOfExperience) : '',
+    drivingLicense: detail.drivingLicense === true ? 'yes' : detail.drivingLicense === false ? 'no' : '',
+    jobSkills: detail.jobSkills ?? '',
+    foreignLanguages: detail.foreignLanguages ?? [],
+    status: detail.status,
+    hireDate: detail.hireDate ?? '',
+    startWorkDate: detail.startWorkDate ?? '',
+    branchId: detail.branchId ?? null,
+    departmentId: detail.departmentId ?? null,
+    contractType: detail.contractType ?? '',
+    workType: detail.workType ?? '',
+    previousEmployment: detail.previousEmployment ?? '',
+    directManagerId: detail.directManagerId ?? null,
+    jobTitle: detail.jobTitle ?? '',
+    referrerType: detail.referrerType ? String(detail.referrerType) : '',
+    sourceChannel: detail.sourceChannel ? String(detail.sourceChannel) : '',
+    referrerName: detail.referrerName ?? '',
+    referralNotes: detail.referralNotes ?? '',
+  };
+}
+
+function DetailField({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="text-xs text-slate-400">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-slate-800">{value || '—'}</div>
+    </div>
+  );
+}
+
 type ProfileForm = {
   name: string;
   mobile: string;
@@ -82,27 +157,25 @@ type ProfileForm = {
   status: EmployeeDetailType['status'];
 };
 
-type AccountForm = {
-  username: string;
-  password: string;
-  roleId: string;
-  isActive: boolean;
-};
-
 export default function EmployeeDetail() {
   const navigate = useNavigate();
   const { id } = useParams();
   const employeeId = Number(id);
   const { roles, fetchRoles } = useRoleStore();
+  const { lists, fetchLists } = useSystemListsStore();
+  const { user } = useAuthStore();
+  const { branchId: contextBranchId } = useBranchContextStore();
   const { hasPermission } = usePermissions();
   const canEditEmployee = hasPermission('employees.edit');
   const canManageSystemAccess = hasPermission('admin.roles.manage');
+  const isSuperAdmin = user?.isSuperAdmin === true;
 
   const [detail, setDetail] = useState<EmployeeDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [profileMessage, setProfileMessage] = useState('');
   const [accountMessage, setAccountMessage] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm>({
@@ -171,23 +244,45 @@ export default function EmployeeDetail() {
     fetchRoles();
   }, [canManageSystemAccess, fetchRoles]);
 
-  async function handleSaveProfile() {
+  useEffect(() => {
+    fetchLists({ category: 'job_title', activeOnly: true });
+  }, [fetchLists]);
+
+  const jobTitleOptions = lists
+    .filter((item) => item.category === 'job_title' && item.isActive)
+    .sort((a, b) => a.displayOrder - b.displayOrder)
+    .map((item) => ({ value: item.value, label: item.value, linkedRoleName: item.linkedRoleName }));
+
+  const employeeInitialValues = useMemo(
+    () => (detail ? buildEmployeeInitialValues(detail) : undefined),
+    [detail],
+  );
+
+  const fixedBranchId = !isSuperAdmin
+    ? (user?.branchId ?? detail?.branchId ?? null)
+    : (contextBranchId ?? null);
+
+  const fixedBranchName = detail?.branch ?? (fixedBranchId != null ? `#${fixedBranchId}` : null);
+
+  async function handleSaveProfile(payload?: Record<string, unknown>) {
     if (!detail) return;
 
     setSavingProfile(true);
     setProfileMessage('');
     setError('');
     try {
-      const updated = await api.employees.update(detail.id, profileForm) as EmployeeDetailType;
-      setDetail((current) => current ? { ...current, ...updated } : updated);
+      await api.employees.update(detail.id, payload ?? profileForm);
+      const refreshed = await api.employees.get(detail.id) as EmployeeDetailType;
+      setDetail(refreshed);
       setProfileForm({
-        name: updated.name,
-        mobile: updated.mobile,
-        branch: updated.branch ?? '',
-        residence: updated.residence ?? '',
-        jobTitle: updated.jobTitle ?? '',
-        status: updated.status,
+        name: refreshed.name,
+        mobile: refreshed.mobile,
+        branch: refreshed.branch ?? '',
+        residence: refreshed.residence ?? '',
+        jobTitle: refreshed.jobTitle ?? '',
+        status: refreshed.status,
       });
+      setShowEditModal(false);
       setProfileMessage('تم حفظ بيانات الموظف');
     } catch (err: any) {
       setError(err.message ?? 'تعذر حفظ بيانات الموظف');
@@ -257,11 +352,15 @@ export default function EmployeeDetail() {
     );
   }
 
-  const roleLabel = ROLE_LABELS[detail.role];
+  const roleLabel = detail.role ? ROLE_LABELS[detail.role] : null;
   const statusMeta = STATUS_META[detail.status];
-  const activeRoles = roles.filter((role) => role.isActive || role.id === detail.systemAccount?.roleId);
+  // Exclude template roles — only per-branch clones are assignable.
+  // Always include the currently-assigned role even if inactive (so the UI shows it correctly).
+  const activeRoles = roles.filter(
+    (role) => !role.isTemplate && (role.isActive || role.id === detail.systemAccount?.roleId)
+  );
   const isLinkedToHiringApplication = Boolean(detail.hiringApplication);
-  const lockedFromHiringSource = !canEditEmployee || isLinkedToHiringApplication;
+  const lockedFromHiringSource = !canEditEmployee;
   const hiringState = detail.hiringApplication
     ? getUnifiedApplicationState({
         currentStage: detail.hiringApplication.currentStage,
@@ -349,7 +448,7 @@ export default function EmployeeDetail() {
             <div className="p-6 space-y-5">
               {isLinkedToHiringApplication && (
                 <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                  الفرع ومكان الإقامة والمسمى الوظيفي لهذا الموظف مرتبطة بملف التوظيف، لذلك يتم عرضها من طلب التوظيف نفسه.
+                  هذا السجل مرتبط بطلب توظيف. يمكنك الآن استكمال جميع البيانات الناقصة من زر "فتح النموذج الكامل" مع الحفاظ على الربط مع ملف التوظيف.
                 </div>
               )}
 
@@ -392,12 +491,38 @@ export default function EmployeeDetail() {
                 </label>
                 <label className="block">
                   <span className="block text-xs font-semibold text-slate-500 mb-2">المسمى الوظيفي</span>
-                  <input
-                    value={profileForm.jobTitle}
-                    onChange={(e) => setProfileForm((current) => ({ ...current, jobTitle: e.target.value }))}
-                    disabled={lockedFromHiringSource}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400 disabled:bg-slate-50 disabled:text-slate-400"
-                  />
+                  {lockedFromHiringSource ? (
+                    <input
+                      value={profileForm.jobTitle}
+                      readOnly
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400"
+                    />
+                  ) : (
+                    <select
+                      value={profileForm.jobTitle}
+                      onChange={(e) => setProfileForm((current) => ({ ...current, jobTitle: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                    >
+                      <option value="">— اختر المسمى الوظيفي —</option>
+                      {/* Include current value even if not in the active list (e.g. came from hiring) */}
+                      {profileForm.jobTitle && !jobTitleOptions.find(o => o.value === profileForm.jobTitle) && (
+                        <option value={profileForm.jobTitle}>{profileForm.jobTitle}</option>
+                      )}
+                      {jobTitleOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  )}
+                  {/* Show linked role badge */}
+                  {(() => {
+                    const jt = jobTitleOptions.find(o => o.value === profileForm.jobTitle);
+                    return jt?.linkedRoleName ? (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-3 py-1 rounded-lg w-fit">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        الدور: {jt.linkedRoleName}
+                      </div>
+                    ) : null;
+                  })()}
                 </label>
                 <label className="block">
                   <span className="block text-xs font-semibold text-slate-500 mb-2">الحالة</span>
@@ -418,12 +543,15 @@ export default function EmployeeDetail() {
                 <div className="flex items-center justify-between pt-2">
                   <span className="text-sm text-emerald-600 font-medium">{profileMessage}</span>
                   <button
-                    onClick={handleSaveProfile}
-                    disabled={savingProfile}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                    onClick={() => {
+                      setProfileMessage('');
+                      setError('');
+                      setShowEditModal(true);
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-sm font-semibold transition-colors"
                   >
-                    {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    حفظ بيانات الموظف
+                    <Save className="w-4 h-4" />
+                    فتح النموذج الكامل
                   </button>
                 </div>
               ) : (
@@ -739,6 +867,24 @@ export default function EmployeeDetail() {
           </div>
         </section>
       </div>
+
+      <EmployeeFormModal
+        isOpen={showEditModal}
+        title="تعديل بيانات الموظف"
+        description="يمكنك استكمال أو تعديل جميع بيانات الموظف من نفس النموذج الموحد المستخدم في الإضافة المباشرة والتحويل من طلبات التوظيف."
+        submitLabel="حفظ بيانات الموظف"
+        submitting={savingProfile}
+        error={error}
+        initialValues={employeeInitialValues}
+        fixedBranchId={fixedBranchId}
+        fixedBranchName={fixedBranchName}
+        branchLocked={!isSuperAdmin || contextBranchId != null}
+        onClose={() => {
+          if (savingProfile) return;
+          setShowEditModal(false);
+        }}
+        onSubmit={handleSaveProfile}
+      />
     </div>
   );
 }

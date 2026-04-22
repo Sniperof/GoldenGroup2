@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, Users, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock } from 'lucide-react';
 import type { Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel, ClientRating } from '../lib/types';
 import { useRef } from 'react';
 import ReactQuill from 'react-quill';
@@ -17,16 +17,20 @@ interface ClientModalProps {
     onSave: (client: Client) => void;
     initialData: Client | null;
     geoUnits: GeoUnit[];
+    lockedPhone?: string;
+    /** When true, all pre-filled fields from the candidate are locked — only empty fields can be filled */
+    fromCandidate?: boolean;
 }
 
-type Tab = 'identity' | 'contact' | 'location' | 'referral' | 'network' | 'additional';
+type Tab = 'identity' | 'contact' | 'location' | 'referral' | 'contract' | 'additional';
 
 const tabsDef: { id: Tab; label: string; icon: any }[] = [
-    { id: 'identity', label: 'الهوية', icon: User },
-    { id: 'contact', label: 'التواصل', icon: Phone },
-    { id: 'location', label: 'العنوان', icon: MapPin },
-    { id: 'referral', label: 'الوسيط', icon: Share2 },
-    { id: 'additional', label: 'معلومات إضافية', icon: Plus },
+    { id: 'identity',    label: 'الهوية',         icon: User          },
+    { id: 'contact',     label: 'التواصل',         icon: Phone         },
+    { id: 'contract',    label: 'بيانات العقد',    icon: ClipboardList },
+    { id: 'location',    label: 'العنوان',         icon: MapPin        },
+    { id: 'referral',    label: 'الوسيط',          icon: Share2        },
+    { id: 'additional',  label: 'معلومات إضافية',  icon: Plus          },
 ];
 
 const contactTypeConfig: Record<ContactType, { label: string; emoji: string }> = {
@@ -49,7 +53,7 @@ const emptyContact = (isPrimary = false): ContactEntry => ({
     hasWhatsApp: false, isPrimary, status: 'active',
 });
 
-export default function ClientModal({ isOpen, onClose, onSave, initialData, geoUnits }: ClientModalProps) {
+export default function ClientModal({ isOpen, onClose, onSave, initialData, geoUnits, lockedPhone, fromCandidate }: ClientModalProps) {
     const isEditMode = Boolean(initialData?.id);
     const [activeTab, setActiveTab] = useState<Tab>('identity');
     const [formData, setFormData] = useState<Partial<Client>>({});
@@ -86,6 +90,10 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [clientSearch, setClientSearch] = useState('');
     const [clientSuggestions, setClientSuggestions] = useState<Client[]>([]);
     const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+    const [gender, setGender] = useState<'male' | 'female' | ''>('');
+    const [nationalId, setNationalId] = useState('');
+    const [birthDate, setBirthDate] = useState('');
+    const [referralNotes, setReferralNotes] = useState('');
     const [occupation, setOccupation] = useState('');
     const [spouseOccupation, setSpouseOccupation] = useState('');
     const [dataQuality, setDataQuality] = useState<string>('');
@@ -223,6 +231,10 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setReferralNameSnapshot(initialData.referrerName || '');
                 setClientSearch(initialData.referrerType === 'Client' ? (initialData.referrerName || '') : '');
                 setSelectedClientId(initialData.referrerType === 'Client' ? (initialData.referralEntityId || null) : null);
+                setGender((initialData.gender as any) || '');
+                setNationalId(initialData.nationalId || '');
+                setBirthDate(initialData.birthDate ? initialData.birthDate.slice(0, 10) : '');
+                setReferralNotes(initialData.referralNotes || '');
                 setOccupation(initialData.occupation || '');
                 setSpouseOccupation(initialData.spouseOccupation || '');
                 setDataQuality(initialData.dataQuality || '');
@@ -231,11 +243,17 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             } else {
                 setFormData({ sourceChannel: 'App', referrerType: 'Other', governorate: '1' });
                 setFirstName(''); setNickname(''); setLastName(''); setFatherName('');
-                setContacts([emptyContact(true)]);
+                setContacts(lockedPhone
+                    ? [{ ...emptyContact(true), number: lockedPhone, type: 'mobile' }]
+                    : [emptyContact(true)]);
                 setMapPosition(null);
                 setReferralType('Personal');
                 setOriginChannel('App');
                 setReferralNameSnapshot('');
+                setGender('');
+                setNationalId('');
+                setBirthDate('');
+                setReferralNotes('');
                 setOccupation('');
                 setSpouseOccupation('');
                 setDataQuality('');
@@ -246,14 +264,17 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setSelectedClientId(null);
             }
             setActiveTab('identity');
+            // Reconstruct geoSelection: stored neighborhood may be level 3 (ناحية) or level 4 (حي)
+            const storedNeighId = initialData?.neighborhood?.toString() || '';
+            const storedUnit = storedNeighId ? geoUnits.find(u => u.id.toString() === storedNeighId) : null;
             setGeoSelection({
                 govId: initialData?.governorate?.toString() || '',
                 regionId: '',
-                subId: '',
-                neighborhoodId: initialData?.neighborhood?.toString() || '',
+                subId: storedUnit?.level === 3 ? storedNeighId : '',
+                neighborhoodId: storedUnit?.level === 4 ? storedNeighId : '',
             });
         }
-    }, [isOpen, initialData]);
+    }, [isOpen, initialData, geoUnits]);
 
     const updateForm = useCallback((key: string, value: any) => {
         setFormData(prev => ({ ...prev, [key]: value }));
@@ -282,7 +303,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const handleGeoChange = useCallback((sel: GeoSelection) => {
         setGeoSelection(sel);
         updateForm('governorate', sel.govId);
-        updateForm('neighborhood', sel.neighborhoodId);
+        // Store the deepest selected level: حي (level 4) if available, otherwise ناحية (level 3)
+        updateForm('neighborhood', sel.neighborhoodId || sel.subId || '');
     }, [updateForm]);
 
     const handleLocationSelect = useCallback((lat: number, lng: number) => {
@@ -372,10 +394,33 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         ? duplicateMap.get(primaryContact.number)
         : undefined;
 
+    // -- fromCandidate locking helpers --
+    // effectiveLockedPhone: either explicit lockedPhone prop OR the candidate's mobile when fromCandidate
+    const effectiveLockedPhone = useMemo(() => {
+        if (lockedPhone) return lockedPhone;
+        if (!fromCandidate || !initialData) return '';
+        return initialData.contacts?.find(c => c.isPrimary)?.number
+            || initialData.contacts?.[0]?.number
+            || initialData.mobile
+            || '';
+    }, [lockedPhone, fromCandidate, initialData]);
+
+    // fl = "field locked": returns true when fromCandidate and the value is non-empty (came from candidate)
+    const fl = (val: string | undefined | null): boolean =>
+        Boolean(fromCandidate && val !== '' && val !== null && val !== undefined);
+
+    // Locked field style (amber = from candidate, distinct from emerald = verified phone)
+    const lockedCls = 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed focus:ring-0';
+
     // -- Save --
     const handleSave = () => {
-        if (!firstName.trim() && !nickname.trim()) {
-            alert('يرجى ملء الاسم الأول أو اللقب على الأقل');
+        if (!firstName.trim()) {
+            alert('الاسم الأول إلزامي');
+            return;
+        }
+
+        if (!lastName.trim()) {
+            alert('الكنية (العائلة) إلزامية');
             return;
         }
 
@@ -389,6 +434,23 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
         if (primaryDup) {
             alert(`الرقم الأساسي (${primaryNumber}) مكرر عند الزبون: ${primaryDup.name} (كرقم ${primaryDup.contactPrimary ? 'أساسي' : 'ثانوي'}). يجب اختيار رقم أساسي فريد.`);
+            return;
+        }
+
+        // Geo validation: skip when fromCandidate (geo is locked from candidate data)
+        if (!fromCandidate && !geoSelection.subId) {
+            alert('يجب اختيار ناحية على الأقل في العنوان — لا يمكن الاكتفاء بمحافظة أو منطقة');
+            return;
+        }
+
+        // Referral validation: skip when fromCandidate (all referral data locked from candidate)
+        if (!fromCandidate && referralType === 'Employee' && !employeeFound) {
+            alert('يجب تحديد الموظف الوسيط');
+            return;
+        }
+
+        if (!fromCandidate && referralType === 'Client' && !selectedClientId) {
+            alert('يجب تحديد الزبون الوسيط');
             return;
         }
 
@@ -406,6 +468,10 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             sourceChannel: originChannel,
             referrerName: referralNameSnapshot,
             referralEntityId: selectedClientId || employeeFound?.id || undefined,
+            gender: (gender as any) || undefined,
+            nationalId: nationalId.trim() || undefined,
+            birthDate: birthDate || undefined,
+            referralNotes: referralNotes.trim() || undefined,
             occupation: occupation.trim() || undefined,
             spouseOccupation: spouseOccupation.trim() || undefined,
             dataQuality: (dataQuality as any) || undefined,
@@ -425,60 +491,96 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.95 }}
-                        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[680px] max-h-[90vh] bg-white rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col"
+                        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[860px] max-h-[96vh] bg-white rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col"
                         style={{ direction: 'rtl' }}
                     >
                         {/* Header */}
-                        <div className="bg-white border-b border-gray-100 p-5 flex items-center justify-between shrink-0">
-                            <h2 className="text-xl font-bold text-slate-800">
+                        <div className="bg-white border-b border-gray-100 px-4 sm:px-5 py-4 flex items-center justify-between shrink-0">
+                            <h2 className="text-lg sm:text-xl font-bold text-slate-800">
                                 {isEditMode ? 'تعديل بيانات الزبون' : 'إضافة زبون جديد'}
                             </h2>
-                            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
-                                <X className="w-6 h-6" />
+                            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
 
+                        {/* From-candidate banner */}
+                        {fromCandidate && (
+                            <div className="bg-amber-50 border-b border-amber-100 px-5 py-2.5 flex items-center gap-2 text-xs font-semibold text-amber-700 shrink-0">
+                                <Lock className="w-3.5 h-3.5 shrink-0" />
+                                البيانات المنقولة من الاسم المقترح محمية ومقيّدة — استكمل المعلومات الناقصة فقط
+                            </div>
+                        )}
+
                         {/* Tabs */}
-                        <div className="bg-gray-50 px-5 pt-4 border-b border-gray-200 flex gap-2 overflow-x-auto shrink-0">
+                        <div className="bg-gray-50 px-2 sm:px-4 pt-3 border-b border-gray-200 flex gap-1 overflow-x-auto shrink-0 scrollbar-none">
                             {tabsDef.map(tab => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
-                                    className={`flex items-center gap-2 px-4 py-3 text-sm font-bold rounded-t-lg transition-all relative top-[1px] ${activeTab === tab.id
+                                    className={`flex items-center gap-1.5 px-2.5 sm:px-4 py-2.5 text-xs sm:text-sm font-bold rounded-t-lg transition-all relative top-[1px] whitespace-nowrap shrink-0 ${activeTab === tab.id
                                         ? 'bg-white text-sky-600 border border-gray-200 border-b-white z-10 shadow-sm'
                                         : 'text-slate-500 hover:text-slate-700 hover:bg-gray-100'
                                         }`}
                                 >
-                                    <tab.icon className="w-4 h-4" />
+                                    <tab.icon className="w-4 h-4 shrink-0" />
                                     <span>{tab.label}</span>
                                 </button>
                             ))}
                         </div>
 
                         {/* Content */}
-                        <div className="p-6 flex-1 overflow-y-auto custom-scroll bg-white">
+                        <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scroll bg-white">
 
                             {/* ============ IDENTITY TAB ============ */}
                             {activeTab === 'identity' && (
                                 <div className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="space-y-1">
-                                            <label className="text-xs font-semibold text-slate-500">الاسم الأول <span className="text-red-500">*</span></label>
-                                            <input value={firstName} onChange={e => setFirstName(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" placeholder="مثال: أحمد" />
+                                            <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                                                الاسم الأول <span className="text-red-500">*</span>
+                                                {fl(firstName) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                            </label>
+                                            <input
+                                                value={firstName}
+                                                onChange={e => !fl(firstName) && setFirstName(e.target.value)}
+                                                readOnly={fl(firstName)}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${fl(firstName) ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                                placeholder="مثال: أحمد"
+                                            />
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">اسم الأب</label>
                                             <input value={fatherName} onChange={e => setFatherName(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" placeholder="مثال: خالد" />
                                         </div>
                                         <div className="space-y-1">
-                                            <label className="text-xs font-semibold text-slate-500">الكنية (العائلة)</label>
-                                            <input value={lastName} onChange={e => setLastName(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" placeholder="مثال: زيتون" />
+                                            <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                                                الكنية (العائلة) <span className="text-red-500">*</span>
+                                                {fl(lastName) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                            </label>
+                                            <input
+                                                value={lastName}
+                                                onChange={e => !fl(lastName) && setLastName(e.target.value)}
+                                                readOnly={fl(lastName)}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${fl(lastName) ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                                placeholder="مثال: زيتون"
+                                            />
                                         </div>
                                         <div className="space-y-1">
-                                            <label className="text-xs font-semibold text-slate-500">اللقب</label>
-                                            <input value={nickname} onChange={e => setNickname(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" placeholder="مثال: أبو أيوب" />
+                                            <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                                                اللقب
+                                                {fl(nickname) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                            </label>
+                                            <input
+                                                value={nickname}
+                                                onChange={e => !fl(nickname) && setNickname(e.target.value)}
+                                                readOnly={fl(nickname)}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${fl(nickname) ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                                placeholder="مثال: أبو أيوب"
+                                            />
                                         </div>
                                     </div>
+
                                 </div>
                             )}
 
@@ -504,6 +606,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 ? duplicateMap.get(c.number)
                                                 : undefined;
                                             const isDupPrimary = Boolean(dup) && !c.isPrimary;
+                                            // Locked = verified phone (smart search) OR candidate phone
+                                            const isLocked = Boolean(effectiveLockedPhone && c.number === effectiveLockedPhone && c.isPrimary);
+                                            const lockSource = lockedPhone ? 'smart' : 'candidate'; // to differentiate badge text
 
                                             return (
                                             <motion.div
@@ -511,14 +616,41 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 initial={{ opacity: 0, height: 0 }}
                                                 animate={{ opacity: 1, height: 'auto' }}
                                                 exit={{ opacity: 0, height: 0 }}
-                                                className={`bg-gray-50 rounded-xl p-3 border space-y-2.5 ${c.isPrimary && dup ? 'border-red-300 bg-red-50/40' : dup ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100'}`}
+                                                className={`rounded-xl p-3 border space-y-2.5 ${
+                                                    isLocked
+                                                        ? lockSource === 'smart' ? 'bg-emerald-50/40 border-emerald-200' : 'bg-amber-50/40 border-amber-200'
+                                                        : c.isPrimary && dup
+                                                        ? 'bg-red-50/40 border-red-300'
+                                                        : dup
+                                                        ? 'bg-amber-50/30 border-amber-200'
+                                                        : 'bg-gray-50 border-gray-100'
+                                                }`}
                                             >
+                                                {/* Locked badge */}
+                                                {isLocked && (
+                                                    <div className={`flex items-center gap-1.5 text-[10px] font-bold rounded-lg px-2.5 py-1 w-fit border ${
+                                                        lockSource === 'smart'
+                                                            ? 'text-emerald-700 bg-emerald-100 border-emerald-200'
+                                                            : 'text-amber-700 bg-amber-100 border-amber-200'
+                                                    }`}>
+                                                        <Lock className="w-3 h-3 shrink-0" />
+                                                        {lockSource === 'smart'
+                                                            ? 'رقم محقق من التحقق الذكي — لا يمكن تعديله'
+                                                            : 'رقم منقول من الاسم المقترح — لا يمكن تعديله'}
+                                                    </div>
+                                                )}
+
                                                 {/* Row 1: Type + Number + Duplicate badge + Remove */}
                                                 <div className="flex items-center gap-2">
                                                     <select
                                                         value={c.type}
-                                                        onChange={e => updateContact(c.id, 'type', e.target.value as ContactType)}
-                                                        className="bg-white border border-gray-200 rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[100px]"
+                                                        onChange={e => !isLocked && updateContact(c.id, 'type', e.target.value as ContactType)}
+                                                        disabled={isLocked}
+                                                        className={`border rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[100px] ${
+                                                            isLocked
+                                                                ? lockSource === 'smart' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed' : 'bg-amber-50/40 border-amber-200 text-amber-700 cursor-not-allowed'
+                                                                : 'bg-white border-gray-200'
+                                                        }`}
                                                     >
                                                         {Object.entries(contactTypeConfig).map(([key, cfg]) => (
                                                             <option key={key} value={key}>{cfg.emoji} {cfg.label}</option>
@@ -529,7 +661,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         <span className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">+963</span>
                                                     )}
 
-                                                    {c.type === 'landline' && (
+                                                    {c.type === 'landline' && !isLocked && (
                                                         <input
                                                             type="text"
                                                             value={c.areaCode || ''}
@@ -547,7 +679,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     <input
                                                         type="text"
                                                         value={c.number}
+                                                        readOnly={isLocked}
                                                         onChange={e => {
+                                                            if (isLocked) return;
                                                             let v = e.target.value.replace(/\D/g, '');
                                                             if (c.type === 'mobile') v = v.slice(0, 10);
                                                             else if (c.type === 'landline') v = v.slice(0, 7);
@@ -556,12 +690,28 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         placeholder={c.type === 'mobile' ? '9XXXXXXXXX' : c.type === 'landline' ? 'XXXXXXX' : 'الرقم...'}
                                                         dir="ltr"
                                                         maxLength={c.type === 'mobile' ? 10 : c.type === 'landline' ? 7 : 15}
-                                                        className={`flex-1 bg-white border rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-gray-300 focus:outline-none ${
-                                                            dup ? 'border-amber-300 focus:border-amber-400' : 'border-gray-200 focus:border-sky-500'
+                                                        className={`flex-1 border rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-gray-300 focus:outline-none ${
+                                                            isLocked
+                                                                ? lockSource === 'smart'
+                                                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 cursor-default focus:ring-0'
+                                                                    : 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed focus:ring-0'
+                                                                : dup
+                                                                ? 'bg-white border-amber-300 focus:border-amber-400'
+                                                                : 'bg-white border-gray-200 focus:border-sky-500'
                                                         }`}
                                                     />
 
-                                                    <button type="button" onClick={() => removeContact(c.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all border border-transparent hover:border-red-100 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => !isLocked && removeContact(c.id)}
+                                                        disabled={isLocked}
+                                                        title={isLocked ? 'لا يمكن حذف الرقم المحقق' : 'حذف الرقم'}
+                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${
+                                                            isLocked
+                                                                ? 'text-gray-200 border-transparent cursor-not-allowed'
+                                                                : 'text-gray-300 hover:text-red-500 hover:bg-red-50 border-transparent hover:border-red-100'
+                                                        }`}
+                                                    >
                                                         <Trash2 className="w-3.5 h-3.5" />
                                                     </button>
                                                 </div>
@@ -613,11 +763,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     <button
                                                         type="button"
                                                         onClick={() => {
-                                                            if (isDupPrimary) return; // can't set duplicate as primary
+                                                            if (isDupPrimary || isLocked || Boolean(effectiveLockedPhone && !isLocked)) return;
                                                             setPrimary(c.id);
                                                         }}
-                                                        disabled={isDupPrimary}
-                                                        title={isDupPrimary ? 'لا يمكن تعيين رقم مكرر كرقم أساسي' : 'تعيين كرقم أساسي'}
+                                                        disabled={isDupPrimary || Boolean(effectiveLockedPhone && !isLocked)}
+                                                        title={
+                                                            isLocked ? 'الرقم الأساسي محقق ومحمي' :
+                                                            effectiveLockedPhone && !isLocked ? 'لا يمكن تغيير الرقم الأساسي المحمي' :
+                                                            isDupPrimary ? 'لا يمكن تعيين رقم مكرر كرقم أساسي' :
+                                                            'تعيين كرقم أساسي'
+                                                        }
                                                         className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${
                                                             c.isPrimary
                                                                 ? dup ? 'bg-red-50 border-red-300' : 'bg-sky-50 border-sky-200'
@@ -656,11 +811,32 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         onChange={handleGeoChange}
                                         label="العنوان"
                                         required
-                                        placeholder="ابحث عن محافظة، منطقة، حي..."
+                                        placeholder="ابحث عن ناحية أو حي..."
+                                        disabled={fl(initialData?.neighborhood)}
                                     />
+                                    {fl(initialData?.neighborhood) && (
+                                        <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1.5 -mt-2">
+                                            <Lock className="w-3.5 h-3.5 shrink-0" />
+                                            العنوان منقول من الاسم المقترح — لا يمكن تعديله
+                                        </p>
+                                    )}
+                                    {!fl(initialData?.neighborhood) && !geoSelection.subId && (
+                                        <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1.5 -mt-2">
+                                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                            يجب اختيار ناحية على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
+                                        </p>
+                                    )}
                                     <div className="space-y-1">
-                                        <label className="text-xs font-semibold text-slate-500">أقرب نقطة دالة / تفاصيل العنوان</label>
-                                        <textarea value={formData.detailedAddress || ''} onChange={e => updateForm('detailedAddress', e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-sky-500 focus:outline-none min-h-[60px] resize-none" />
+                                        <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                                            أقرب نقطة دالة / تفاصيل العنوان
+                                            {fl(formData.detailedAddress) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                        </label>
+                                        <textarea
+                                            value={formData.detailedAddress || ''}
+                                            onChange={e => !fl(formData.detailedAddress) && updateForm('detailedAddress', e.target.value)}
+                                            readOnly={fl(formData.detailedAddress)}
+                                            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none min-h-[60px] resize-none ${fl(formData.detailedAddress) ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                        />
                                     </div>
 
                                     {/* Map */}
@@ -686,117 +862,239 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             {
                                 activeTab === 'referral' && (
                                     <div className="space-y-4">
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div>
-                                                <label className="block text-xs font-semibold text-slate-500 mb-1.5">نوع الوسيط *</label>
+                                                <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+                                                    نوع الوسيط *
+                                                    {fromCandidate && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                                </label>
                                                 <select
                                                     value={referralType}
-                                                    onChange={(e) => setReferralType(e.target.value as ReferralType)}
-                                                    className="w-full p-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:border-sky-500 focus:outline-none"
+                                                    onChange={(e) => !fromCandidate && setReferralType(e.target.value as ReferralType)}
+                                                    disabled={fromCandidate}
+                                                    className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${fromCandidate ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'border-gray-200 bg-gray-50 focus:border-sky-500'}`}
                                                 >
                                                     <option value="Personal">شخصي (أنا)</option>
-                                                    <option value="Employee"> موظف</option>
-                                                    <option value="Client">زبون حالي </option>
+                                                    <option value="Employee">موظف</option>
+                                                    <option value="Client">زبون حالي</option>
                                                     <option value="Unknown">مجهول</option>
                                                 </select>
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-semibold text-slate-500 mb-1.5">طريقة التواصل *</label>
+                                                <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+                                                    طريقة التواصل *
+                                                    {fromCandidate && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                                </label>
                                                 <select
                                                     value={originChannel}
-                                                    onChange={(e) => setOriginChannel(e.target.value as ReferralOriginChannel)}
-                                                    disabled={referralType === 'Personal' || referralType === 'Unknown'}
-                                                    className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none disabled:bg-gray-100 disabled:text-gray-400"
+                                                    onChange={(e) => !fromCandidate && setOriginChannel(e.target.value as ReferralOriginChannel)}
+                                                    disabled={fromCandidate || referralType === 'Personal' || referralType === 'Unknown'}
+                                                    className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${fromCandidate ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'border-gray-200 bg-white focus:border-sky-500 disabled:bg-gray-100 disabled:text-gray-400'}`}
                                                 >
                                                     <option value="Acquaintance">معرفة شخصية</option>
                                                     <option value="PhoneCall">مكالمة هاتفية</option>
                                                     <option value="SocialMedia">سوشال ميديا</option>
+                                                    <option value="App">سوشال ميديا</option>
+                                                    <option value="Campaign">حملة إعلانية</option>
                                                 </select>
                                             </div>
                                         </div>
 
-                                        {referralType === 'Employee' && (
+                                        {/* Referrer name — locked display when fromCandidate */}
+                                        {fromCandidate ? (
                                             <div>
-                                                <label className="block text-xs font-semibold text-slate-600 mb-1.5">الرقم الوظيفي *</label>
-                                                <div className="flex items-center gap-3">
-                                                    <input
-                                                        type="text"
-                                                        value={employeeIdInput}
-                                                        onChange={(e) => setEmployeeIdInput(e.target.value)}
-                                                        onBlur={handleEmployeeBlur}
-                                                        placeholder="أدخل رقم الموظف..."
-                                                        className="w-1/2 p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
-                                                    />
-                                                    {employeeFound && (
-                                                        <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 flex-1 text-sm">
-                                                            <CheckCircle className="w-5 h-5" />
-                                                            {employeeFound.name}
-                                                        </div>
-                                                    )}
-                                                    {employeeSearchError && (
-                                                        <div className="flex items-center gap-2 text-red-600 font-bold bg-red-50 px-3 py-2 rounded-lg border border-red-100 flex-1 text-sm">
-                                                            <AlertCircle className="w-5 h-5" />
-                                                            {employeeSearchError}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {referralType === 'Client' && (
-                                            <div ref={clientSearchRef} className="relative">
-                                                <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الزبون *</label>
-                                                <input
-                                                    type="text"
-                                                    value={clientSearch}
-                                                    onChange={(e) => handleClientSearch(e.target.value)}
-                                                    onFocus={() => handleClientSearch(clientSearch)}
-                                                    placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-                                                    className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
-                                                />
-                                                {clientSuggestions.length > 0 && (
-                                                    <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-10 overflow-hidden">
-                                                        {clientSuggestions.map(client => (
-                                                            <button
-                                                                key={client.id}
-                                                                onClick={() => handleSelectClient(client)}
-                                                                className="w-full text-right px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors flex items-center justify-between"
-                                                            >
-                                                                <div className="flex flex-col items-start gap-1">
-                                                                    <span className="font-bold text-slate-700 text-sm">{client.name}</span>
-                                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
-                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                                        : getClientLifecycleStage(client) === 'FOP'
-                                                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                            : 'bg-slate-50 text-slate-600 border-slate-200'
-                                                                        }`}>
-                                                                        {getClientLifecycleStage(client) === 'OP' ? 'زبون OP' : getClientLifecycleStage(client) === 'FOP' ? 'زبون محتمل FOP' : 'اسم مرشح'}
-                                                                    </span>
-                                                                </div>
-                                                                <span className="text-xs text-slate-400 font-mono" dir="ltr">
-                                                                    {client.contacts.find(con => con.isPrimary)?.number || client.contacts[0]?.number || '--'}
-                                                                </span>
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {(referralType === 'Personal' || referralType === 'Unknown') && (
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الوسيط *</label>
+                                                <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+                                                    اسم الوسيط *
+                                                    <Lock className="w-2.5 h-2.5 text-amber-500" />
+                                                </label>
                                                 <input
                                                     type="text"
                                                     value={referralNameSnapshot}
-                                                    disabled
-                                                    className="w-full p-2.5 rounded-xl border border-gray-200 bg-slate-50 text-slate-500 font-bold cursor-not-allowed text-sm focus:border-sky-500 focus:outline-none"
+                                                    readOnly
+                                                    className={`w-full p-2.5 rounded-xl border text-sm font-bold ${lockedCls}`}
                                                 />
                                             </div>
+                                        ) : (
+                                            <>
+                                                {referralType === 'Employee' && (
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">الرقم الوظيفي *</label>
+                                                        <div className="flex items-center gap-3">
+                                                            <input
+                                                                type="text"
+                                                                value={employeeIdInput}
+                                                                onChange={(e) => setEmployeeIdInput(e.target.value)}
+                                                                onBlur={handleEmployeeBlur}
+                                                                placeholder="أدخل رقم الموظف..."
+                                                                className="w-1/2 p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+                                                            />
+                                                            {employeeFound && (
+                                                                <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 flex-1 text-sm">
+                                                                    <CheckCircle className="w-5 h-5" />
+                                                                    {employeeFound.name}
+                                                                </div>
+                                                            )}
+                                                            {employeeSearchError && (
+                                                                <div className="flex items-center gap-2 text-red-600 font-bold bg-red-50 px-3 py-2 rounded-lg border border-red-100 flex-1 text-sm">
+                                                                    <AlertCircle className="w-5 h-5" />
+                                                                    {employeeSearchError}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {referralType === 'Client' && (
+                                                    <div ref={clientSearchRef} className="relative">
+                                                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الزبون *</label>
+                                                        <input
+                                                            type="text"
+                                                            value={clientSearch}
+                                                            onChange={(e) => handleClientSearch(e.target.value)}
+                                                            onFocus={() => handleClientSearch(clientSearch)}
+                                                            placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
+                                                            className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+                                                        />
+                                                        {clientSuggestions.length > 0 && (
+                                                            <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-10 overflow-hidden">
+                                                                {clientSuggestions.map(client => (
+                                                                    <button
+                                                                        key={client.id}
+                                                                        onClick={() => handleSelectClient(client)}
+                                                                        className="w-full text-right px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors flex items-center justify-between"
+                                                                    >
+                                                                        <div className="flex flex-col items-start gap-1">
+                                                                            <span className="font-bold text-slate-700 text-sm">{client.name}</span>
+                                                                            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
+                                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                                : getClientLifecycleStage(client) === 'FOP'
+                                                                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                                    : 'bg-slate-50 text-slate-600 border-slate-200'
+                                                                                }`}>
+                                                                                {getClientLifecycleStage(client) === 'OP' ? 'زبون OP' : getClientLifecycleStage(client) === 'FOP' ? 'زبون محتمل FOP' : 'اسم مرشح'}
+                                                                            </span>
+                                                                        </div>
+                                                                        <span className="text-xs text-slate-400 font-mono" dir="ltr">
+                                                                            {client.contacts.find(con => con.isPrimary)?.number || client.contacts[0]?.number || '--'}
+                                                                        </span>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {(referralType === 'Personal' || referralType === 'Unknown') && (
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الوسيط *</label>
+                                                        <input
+                                                            type="text"
+                                                            value={referralNameSnapshot}
+                                                            disabled
+                                                            className="w-full p-2.5 rounded-xl border border-gray-200 bg-slate-50 text-slate-500 font-bold cursor-not-allowed text-sm focus:border-sky-500 focus:outline-none"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </>
                                         )}
+
+                                        {/* ملاحظات الوسيط — always editable */}
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">ملاحظات الوسيط</label>
+                                            <textarea
+                                                value={referralNotes}
+                                                onChange={e => setReferralNotes(e.target.value)}
+                                                placeholder="أي ملاحظات تخص الوسيط أو طريقة التواصل..."
+                                                rows={3}
+                                                className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none resize-none"
+                                            />
+                                        </div>
                                     </div>
                                 )
                             }
+
+                            {/* ============ CONTRACT TAB ============ */}
+                            {activeTab === 'contract' && (
+                                <div className="space-y-5">
+                                    {/* Gender */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-semibold text-slate-500">الجنس</label>
+                                        <div className="flex gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => setGender(gender === 'male' ? '' : 'male')}
+                                                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-bold transition-all ${gender === 'male' ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-slate-500 hover:border-sky-200 hover:text-sky-600'}`}
+                                            >
+                                                <svg width="18" height="18" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                                                    <circle cx="32" cy="20" r="12" fill="currentColor" opacity="0.9" />
+                                                    <path d="M14 56c0-9.941 8.059-18 18-18s18 8.059 18 18H14z" fill="currentColor" opacity="0.75" />
+                                                </svg>
+                                                ذكر
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setGender(gender === 'female' ? '' : 'female')}
+                                                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-bold transition-all ${gender === 'female' ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-slate-500 hover:border-rose-200 hover:text-rose-600'}`}
+                                            >
+                                                <svg width="18" height="18" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                                                    <ellipse cx="32" cy="21" rx="16" ry="14" fill="currentColor" opacity="0.5" />
+                                                    <ellipse cx="32" cy="22" rx="10" ry="11" fill="white" opacity="0.85" />
+                                                    <path d="M16 28 Q16 40 32 40 Q48 40 48 28 Q44 36 32 36 Q20 36 16 28z" fill="currentColor" opacity="0.5" />
+                                                    <path d="M12 56c0-11 9-20 20-20s20 9 20 20H12z" fill="currentColor" opacity="0.7" />
+                                                </svg>
+                                                أنثى
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {/* National ID */}
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-500">رقم الهوية الوطنية</label>
+                                            <input
+                                                type="text"
+                                                value={nationalId}
+                                                onChange={e => {
+                                                    const v = e.target.value.replace(/\D/g, '').slice(0, 12);
+                                                    setNationalId(v);
+                                                }}
+                                                placeholder="000000000000"
+                                                dir="ltr"
+                                                maxLength={12}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none transition-colors ${
+                                                    nationalId.length > 0 && nationalId.length < 12
+                                                        ? 'border-amber-300 focus:border-amber-400 bg-amber-50/30'
+                                                        : nationalId.length === 12
+                                                        ? 'border-emerald-300 focus:border-emerald-400 bg-emerald-50/20'
+                                                        : 'border-gray-200 focus:border-sky-500'
+                                                }`}
+                                            />
+                                            {nationalId.length > 0 && nationalId.length < 12 && (
+                                                <p className="text-[10px] text-amber-600 font-medium">
+                                                    {12 - nationalId.length} خانة متبقية
+                                                </p>
+                                            )}
+                                            {nationalId.length === 12 && (
+                                                <p className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                                                    <CheckCircle className="w-3 h-3" /> مكتمل
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        {/* Birth Date */}
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-500">تاريخ الميلاد</label>
+                                            <input
+                                                type="date"
+                                                value={birthDate}
+                                                onChange={e => setBirthDate(e.target.value)}
+                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* ============ ADDITIONAL TAB ============ */}
                             {
                                 activeTab === 'additional' && (
@@ -829,13 +1127,17 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             </select>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div className="space-y-1">
-                                                <label className="text-xs font-semibold text-slate-500">مهنة الزبون</label>
+                                                <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                                                    مهنة الزبون
+                                                    {fl(occupation) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                                </label>
                                                 <select
                                                     value={occupation}
-                                                    onChange={e => setOccupation(e.target.value)}
-                                                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
+                                                    onChange={e => !fl(occupation) && setOccupation(e.target.value)}
+                                                    disabled={fl(occupation)}
+                                                    className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${fl(occupation) ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'bg-white border-gray-200 focus:border-sky-500'}`}
                                                 >
                                                     <option value="">اختر المهنة</option>
                                                     {occupationOptions.map((option) => (
@@ -882,7 +1184,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         </div >
 
                         {/* Footer */}
-                        <div className="bg-gray-50 p-4 border-t border-gray-200 flex items-center justify-between gap-3 shrink-0">
+                        <div className="bg-gray-50 px-4 sm:px-5 py-3 sm:py-4 border-t border-gray-200 flex items-center justify-between gap-3 shrink-0">
                             {primaryDup ? (
                                 <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
                                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />

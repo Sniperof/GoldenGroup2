@@ -9,16 +9,21 @@ import type { AuthUser } from '@golden-crm/shared';
 
 export type Context = {
   user: AuthUser | null;
+  /** X-Branch-Id header — used by super admins to scope queries to a branch. */
+  xBranchId: number | null;
 };
 
 export async function createContext({ req }: CreateExpressContextOptions): Promise<Context> {
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return { user: null };
+  const hb = Number(req.headers['x-branch-id']);
+  const xBranchId = Number.isFinite(hb) && hb > 0 ? hb : null;
+
+  if (!authHeader?.startsWith('Bearer ')) return { user: null, xBranchId };
   try {
     const user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
-    return { user };
+    return { user, xBranchId };
   } catch {
-    return { user: null };
+    return { user: null, xBranchId };
   }
 }
 
@@ -42,11 +47,14 @@ const authedProcedure = t.procedure.use(isAuthed);
 
 /**
  * Returns a procedure that requires the caller to hold at least one of the
- * given permission keys.  Reuses the same DB-backed cache as the existing
- * Express `requirePermission` middleware.
+ * given permission keys.  Super admins bypass permission checks entirely,
+ * matching the behaviour of the Express `requirePermission` middleware.
  */
 export function withPermission(...keys: string[]) {
   return authedProcedure.use(async ({ ctx, next }) => {
+    // Super admins bypass all permission gates
+    if (ctx.user.isSuperAdmin) return next({ ctx });
+
     const perms = await loadPermissions(ctx.user.id);
     if (!keys.some(k => perms.has(k))) {
       throw new TRPCError({

@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import FloatingActionButton from '../components/FloatingActionButton';
 import NewEmergencyTicketModal from '../components/NewEmergencyTicketModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
+import BranchSwitcher from '../components/BranchSwitcher';
 import {
     LayoutDashboard, Route, Users, BookUser, Globe,
     ClipboardList, UsersRound, MapPinned, ChevronDown, Gem, Eye,
@@ -60,7 +61,8 @@ export default function MainLayout() {
     const { hasPermission } = usePermissions();
 
     // Privileged users bypass explicit UI permission checks
-    const isPrivilegedUser = authUser?.role === 'HR_MANAGER' || authUser?.role === 'ADMIN';
+    const isSuperAdmin = authUser?.isSuperAdmin === true;
+    const isPrivilegedUser = isSuperAdmin || authUser?.role === 'HR_MANAGER' || authUser?.role === 'ADMIN';
     const can = (perm: string) => isPrivilegedUser || hasPermission(perm);
 
     const jobsViewPermMap: Record<string, string> = {
@@ -170,6 +172,9 @@ export default function MainLayout() {
                         <CloseIcon className="w-6 h-6" />
                     </button>
                 </div>
+
+                {/* Branch Switcher (super admin only) */}
+                {!isCollapsed && <BranchSwitcher />}
 
                 {/* Navigation */}
                 <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1 mt-16 lg:mt-0">
@@ -456,7 +461,7 @@ export default function MainLayout() {
                                     exit={{ height: 0, opacity: 0 }}
                                     className="overflow-hidden"
                                 >
-                                    {geoChildren.map(child => (
+                                    {geoChildren.filter(c => c.path !== '/geo' || isSuperAdmin).map(child => (
                                         <NavLink
                                             key={child.path}
                                             to={child.path}
@@ -478,8 +483,8 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 8. Branches */}
-                    {can('branches.view') && (
+                    {/* 8. Branches (HQ only) */}
+                    {isSuperAdmin && can('branches.view') && (
                     <NavLink
                         to="/branches"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -495,8 +500,8 @@ export default function MainLayout() {
                     </NavLink>
                     )}
 
-                    {/* 9. System Lists */}
-                    {can('admin.system_lists.view') && (
+                    {/* 9. System Lists (HQ only) */}
+                    {isSuperAdmin && can('admin.system_lists.view') && (
                         <NavLink
                             to="/system-lists"
                             onClick={() => setIsMobileMenuOpen(false)}

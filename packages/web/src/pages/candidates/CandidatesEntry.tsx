@@ -161,7 +161,7 @@ export default function CandidatesEntry() {
                     </div>
                     <div className="flex gap-2">
                         <button onClick={() => setIsCreateSheetOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-bold shadow-sm transition-all text-sm">
-                            <FilePlus2 className="w-4 h-4" /> ورقة جديدة
+                            <FilePlus2 className="w-4 h-4" /> لائحة جديدة
                         </button>
                         <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all">
                             <UserPlus className="w-4 h-4" /> إضافة اسم
@@ -181,7 +181,7 @@ export default function CandidatesEntry() {
                         onClick={() => setActiveTab('sheets')}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'sheets' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
-                        <LayoutGrid className="w-4 h-4" /> أوراق الترشيح ({referralSheets.length})
+                        <LayoutGrid className="w-4 h-4" /> لوائح الأسماء ({referralSheets.length})
                     </button>
                 </div>
             </div>
@@ -259,10 +259,10 @@ export default function CandidatesEntry() {
                                                 <td className="px-5 py-2 text-xs">
                                                     {c.referralSheetId ? (
                                                         <button onClick={() => setSheetDetailsId(c.referralSheetId!)} className="text-sky-600 hover:underline font-medium">
-                                                            ورقة ترشيح #{c.referralSheetId}
+                                                            لائحة أسماء #{c.referralSheetId}
                                                         </button>
                                                     ) : (
-                                                        <span className="text-slate-600">ترشيح مباشر</span>
+                                                        <span className="text-slate-600">اقتراح مباشر</span>
                                                     )}
                                                 </td>
                                                 <td className="px-5 py-2 text-xs text-slate-600 max-w-[150px] truncate" title={getNeighborhoodHierarchy(c.geoUnitId?.toString())}>
@@ -435,6 +435,7 @@ export default function CandidatesEntry() {
                 onSave={handleSaveClient}
                 initialData={clientInitialData}
                 geoUnits={geoUnits}
+                fromCandidate={true}
             />
         </div>
     );

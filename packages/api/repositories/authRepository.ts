@@ -8,11 +8,14 @@ export interface LoginUserRecord {
   role: string;
   role_id: number | null;
   is_active: boolean;
+  is_super_admin: boolean;
+  branch_id: number | null;
 }
 
 export async function findUserForLogin(username: string): Promise<LoginUserRecord | null> {
   const { rows } = await pool.query(
-    `SELECT id, name, username, password_hash, role, role_id, is_active
+    `SELECT id, name, username, password_hash, role, role_id, is_active,
+            is_super_admin, branch_id
      FROM hr_users WHERE username = $1`,
     [username.trim()]
   );

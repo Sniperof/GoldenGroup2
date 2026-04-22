@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
+import { useRoleStore } from '../../hooks/useRoleStore';
 import type { SystemList } from '../../lib/types';
 import {
   Settings2, Plus, Edit, Trash2, Save, X, ListPlus,
   ToggleLeft, ToggleRight, Search, ChevronLeft, GraduationCap,
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
-  Info, AlertTriangle, MapPin, UserCheck, BookOpen
+  Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu,
 } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
@@ -41,9 +42,10 @@ const CATEGORIES: CategoryMeta[] = [
   {
     id: 'job_title',
     label: 'عناوين الوظائف',
-    description: 'قائمة بالمسميات الوظيفية المتاحة عند إنشاء شاغر وظيفي. كل قيمة تُصبح خياراً في حقل "عنوان الوظيفة".',
+    description: 'قائمة المسميات الوظيفية المعتمدة. كل مسمى يرتبط بدور من الأدوار والصلاحيات — وعند إضافة موظف يُختار المسمى من هذه القائمة فيُسند الدور تلقائياً.',
     impact: 'high',
     usedIn: [
+      { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
       { label: 'إنشاء شاغر وظيفي', route: 'الوظائف ← الشواغر ← إنشاء', icon: <Briefcase className="w-3 h-3" /> },
       { label: 'تعديل الشاغر', route: 'الوظائف ← تفاصيل الشاغر ← تعديل', icon: <Briefcase className="w-3 h-3" /> },
     ],
@@ -116,6 +118,45 @@ const CATEGORIES: CategoryMeta[] = [
       { label: 'إدخال طلب يدوي', route: 'الوظائف ← الطلبات ← إدخال يدوي', icon: <FileText className="w-3 h-3" /> },
     ],
   },
+  {
+    id: 'department_type',
+    label: 'أنواع الأقسام',
+    description: 'أنواع الأقسام التنظيمية داخل الفرع (مبيعات، تسويق، صيانة...). يمكن تفعيل خيار "تخصيص أجهزة" لكل نوع بحيث يظهر حقل الأجهزة عند إنشاء قسم من هذا النوع.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إدارة أقسام الفرع', route: 'الفروع ← تفاصيل الفرع ← الأقسام', icon: <Layers className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'military_service',
+    label: 'الخدمة العسكرية',
+    description: 'القيم المعتمدة لحالة الخدمة العسكرية في ملف الموظف، وتُستخدم عند الإضافة المباشرة وعند تحويل المقبولين من طلبات التوظيف إلى سجلات موظفين.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
+      { label: 'قبول نهائي ثم إنشاء موظف', route: 'الوظائف ← تفاصيل الطلب ← إنشاء سجل موظف', icon: <Briefcase className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'contract_type',
+    label: 'أنواع العقود',
+    description: 'نوع العقد المعتمد للموظف مثل دائم أو مؤقت أو تجربة. هذه القائمة أصبحت جزءاً إلزامياً من النموذج الموحد للموظفين.',
+    impact: 'high',
+    usedIn: [
+      { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
+      { label: 'تعديل ملف موظف', route: 'الموظفون ← تفاصيل الموظف ← النموذج الكامل', icon: <Briefcase className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'foreign_language',
+    label: 'اللغات الأجنبية',
+    description: 'قائمة اللغات الأجنبية متعددة الاختيار المستخدمة في ملف الموظف، ويمكن الاستفادة منها أيضاً في نماذج التقديم والتأهيل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
+      { label: 'إدخال طلب يدوي', route: 'الوظائف ← الطلبات ← إدخال يدوي', icon: <FileText className="w-3 h-3" /> },
+    ],
+  },
 ];
 
 const MAJOR_PREFIX = 'major:';
@@ -129,6 +170,7 @@ const IMPACT_CONFIG = {
 export default function SystemLists() {
   const { user } = useAuthStore();
   const { lists, loading, fetchLists, createList, updateList, deleteList } = useSystemListsStore();
+  const { roles, fetchRoles } = useRoleStore();
 
   const allDbCategories = useMemo(() => {
     const cats = new Set(lists.map(l => l.category));
@@ -155,13 +197,15 @@ export default function SystemLists() {
   const [editingItem, setEditingItem] = useState<SystemList | null>(null);
   const [formValue, setFormValue] = useState('');
   const [formOrder, setFormOrder] = useState(0);
+  const [formLinkedRoleId, setFormLinkedRoleId] = useState<number | null>(null);
+  const [formCanSelectDevice, setFormCanSelectDevice] = useState(false);
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isNewCatOpen, setIsNewCatOpen] = useState(false);
   const [newCatId, setNewCatId] = useState('');
   const [newCatLabel, setNewCatLabel] = useState('');
   const [activeCertificate, setActiveCertificate] = useState<string | null>(null);
 
-  useEffect(() => { fetchLists(); }, []);
+  useEffect(() => { fetchLists(); fetchRoles(); }, []);
   useEffect(() => { setSearch(''); setActiveCertificate(null); }, [activeCategory]);
 
   if (!user || !['HR_MANAGER', 'ADMIN'].includes(user.role)) return <Navigate to="/" replace />;
@@ -184,9 +228,17 @@ export default function SystemLists() {
 
   const openForm = (item?: SystemList) => {
     if (item) {
-      setEditingItem(item); setFormValue(item.value); setFormOrder(item.displayOrder);
+      setEditingItem(item);
+      setFormValue(item.value);
+      setFormOrder(item.displayOrder);
+      setFormLinkedRoleId(item.linkedRoleId ?? null);
+      setFormCanSelectDevice(!!(item.metadata as any)?.canSelectDevice);
     } else {
-      setEditingItem(null); setFormValue(''); setFormOrder(filteredItems.length + 1);
+      setEditingItem(null);
+      setFormValue('');
+      setFormOrder(filteredItems.length + 1);
+      setFormLinkedRoleId(null);
+      setFormCanSelectDevice(false);
     }
     setIsItemModalOpen(true);
   };
@@ -196,10 +248,27 @@ export default function SystemLists() {
     try {
       const saveCategory = (isCertificateView && activeCertificate)
         ? `${MAJOR_PREFIX}${activeCertificate}` : activeCategory;
+      const isJobTitle = saveCategory === 'job_title';
+      const isDeptType = saveCategory === 'department_type';
+
+      const extraFields: Record<string, unknown> = {};
+      if (isJobTitle) extraFields.linkedRoleId = formLinkedRoleId;
+      if (isDeptType) extraFields.metadata = { canSelectDevice: formCanSelectDevice };
+
       if (editingItem) {
-        await updateList(editingItem.id, { value: formValue, displayOrder: formOrder });
+        await updateList(editingItem.id, {
+          value: formValue,
+          displayOrder: formOrder,
+          ...extraFields,
+        });
       } else {
-        await createList({ category: saveCategory, value: formValue, displayOrder: formOrder, isActive: true });
+        await createList({
+          category: saveCategory,
+          value: formValue,
+          displayOrder: formOrder,
+          isActive: true,
+          ...extraFields,
+        });
       }
       setIsItemModalOpen(false);
     } catch (err: any) { alert(err.message || 'حدث خطأ أثناء الحفظ'); }
@@ -440,16 +509,45 @@ export default function SystemLists() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {filteredItems.map(item => (
                     <div key={item.id} className={`flex items-center justify-between p-4 rounded-xl border transition-all ${item.isActive ? 'bg-white border-slate-200 hover:border-sky-300' : 'bg-slate-50 border-slate-200 opacity-70'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold font-mono">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold font-mono shrink-0">
                           {item.displayOrder}
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <span className={`font-semibold ${item.isActive ? 'text-slate-800' : 'text-slate-500 line-through'}`}>{item.value}</span>
                           {!item.isActive && <span className="text-xs text-red-500 mr-2 bg-red-50 px-2 py-0.5 rounded-full">معطل</span>}
+                          {activeCategory === 'job_title' && (
+                            <div className="mt-1">
+                              {item.linkedRoleName ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+                                  <ShieldCheck className="w-3 h-3" />
+                                  {item.linkedRoleName}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                                  لم يُربط بدور بعد
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {activeCategory === 'department_type' && (
+                            <div className="mt-1">
+                              {(item.metadata as any)?.canSelectDevice ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  <Cpu className="w-3 h-3" />
+                                  تخصيص جهاز مفعّل
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-50 text-slate-400 border border-slate-200">
+                                  <Cpu className="w-3 h-3" />
+                                  بدون أجهزة
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button onClick={() => toggleActive(item)} className={`p-2 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'}`} title={item.isActive ? 'تعطيل' : 'تفعيل'}>
                           {item.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
                         </button>
@@ -503,6 +601,59 @@ export default function SystemLists() {
                   className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none" />
                 <p className="text-xs text-slate-400">الأرقام الأصغر تظهر أولاً في القائمة</p>
               </div>
+
+              {/* Role selector — only for job_title category */}
+              {activeCategory === 'job_title' && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-violet-500" />
+                    الدور المرتبط
+                  </label>
+                  <select
+                    value={formLinkedRoleId ?? ''}
+                    onChange={e => setFormLinkedRoleId(e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-200 outline-none"
+                  >
+                    <option value="">— بدون ربط بدور —</option>
+                    {roles.filter(r => r.isActive).map(r => (
+                      <option key={r.id} value={r.id}>{r.displayName}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-400">
+                    اختر الدور الذي يُسند تلقائياً للموظف عند اختيار هذا المسمى الوظيفي
+                  </p>
+                </div>
+              )}
+
+              {/* canSelectDevice toggle — only for department_type category */}
+              {activeCategory === 'department_type' && (
+                <div className="border border-indigo-100 bg-indigo-50/50 rounded-xl p-4 space-y-2">
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Cpu className="w-4 h-4 text-indigo-500" />
+                    سماحية تخصيص جهاز
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setFormCanSelectDevice(v => !v)}
+                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
+                      formCanSelectDevice
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'
+                    }`}
+                  >
+                    {formCanSelectDevice
+                      ? <ToggleRight className="w-5 h-5 flex-shrink-0" />
+                      : <ToggleLeft className="w-5 h-5 flex-shrink-0" />}
+                    {formCanSelectDevice
+                      ? 'مفعّل — سيظهر حقل الأجهزة عند إنشاء قسم من هذا النوع'
+                      : 'معطّل — لا يمكن تخصيص أجهزة لهذا النوع'}
+                  </button>
+                  <p className="text-xs text-slate-400">
+                    عند التفعيل، يظهر لمنشئ القسم حقل لاختيار أجهزة من كتالوج الأجهزة.
+                  </p>
+                </div>
+              )}
+
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
                 <button type="button" onClick={() => setIsItemModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl">إلغاء</button>
                 <button type="submit" className="bg-sky-500 hover:bg-sky-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm">
