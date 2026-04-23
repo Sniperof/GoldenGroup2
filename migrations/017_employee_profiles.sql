@@ -38,6 +38,21 @@ ALTER TABLE employees
   ADD COLUMN IF NOT EXISTS referrer_name VARCHAR(255),
   ADD COLUMN IF NOT EXISTS referral_notes TEXT;
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'employees'
+      AND column_name = 'employee_number'
+      AND data_type <> 'bigint'
+  ) THEN
+    ALTER TABLE employees
+      ALTER COLUMN employee_number TYPE BIGINT
+      USING NULLIF(regexp_replace(employee_number::text, '[^0-9]', '', 'g'), '')::BIGINT;
+  END IF;
+END $$;
+
 ALTER TABLE employees
   ALTER COLUMN employee_number SET DEFAULT nextval('employee_number_seq');
 
@@ -47,7 +62,7 @@ WHERE employee_number IS NULL;
 
 SELECT setval(
   'employee_number_seq',
-  COALESCE((SELECT MAX(employee_number) FROM employees), 0),
+  COALESCE((SELECT MAX(employee_number)::BIGINT FROM employees), 0::BIGINT),
   true
 );
 

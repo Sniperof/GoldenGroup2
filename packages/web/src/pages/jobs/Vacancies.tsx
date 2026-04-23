@@ -18,7 +18,7 @@ import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { GeoSelection, getLevelName } from '../../components/GeoSmartSearch';
 import { api } from '../../lib/api';
-import type { GeoUnit } from '../../lib/types';
+import type { Department, GeoUnit } from '../../lib/types';
 
 const STATUS_COLORS: Record<VacancyStatus, string> = {
   Open: 'bg-emerald-100 text-emerald-700',
@@ -43,7 +43,7 @@ const CONTACT_COLORS: Record<BranchContactType, string> = {
 };
 
 const emptyVacancy: Partial<JobVacancy> = {
-  title: '', branch: '', governorate: null, cityOrArea: null, subArea: null,
+  title: '', branch: '', branchId: null, departmentId: null, departmentName: null, governorate: null, cityOrArea: null, subArea: null,
   neighborhood: null, detailedAddress: null, workType: null, requiredGender: null,
   requiredAgeMin: null, requiredAgeMax: null, contactMethods: [],
   requiredCertificate: null, requiredMajor: null,
@@ -82,6 +82,7 @@ export default function Vacancies() {
     : (user?.branchId ?? null);
   const branchFieldLocked = effectiveBranchId != null;
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [branchContacts, setBranchContacts] = useState<BranchContact[]>([]);
   const [geoSelection, setGeoSelection] = useState<GeoSelection>({
     govId: '', regionId: '', subId: '', neighborhoodId: ''
@@ -94,12 +95,44 @@ export default function Vacancies() {
     api.geoUnits.list().then(setGeoUnits).catch(console.error);
   }, [filters.status, filters.branch, filters.search]);
 
+  const selectedBranchId =
+    effectiveBranchId ??
+    formData.branchId ??
+    branches.find((branch) => branch.name === formData.branch)?.id ??
+    null;
+
+  useEffect(() => {
+    if (selectedBranchId == null) {
+      setDepartments([]);
+      return;
+    }
+
+    api.departments.list(selectedBranchId)
+      .then((rows) => setDepartments(Array.isArray(rows) ? rows : []))
+      .catch((err) => {
+        console.error(err);
+        setDepartments([]);
+      });
+  }, [selectedBranchId]);
+
+  useEffect(() => {
+    if (formData.departmentId == null) return;
+    if (departments.some((department) => department.id === formData.departmentId)) return;
+    setFormData((prev) => ({ ...prev, departmentId: null, departmentName: null }));
+  }, [departments, formData.departmentId]);
+
   const setField = (key: string, value: any) => setFormData(prev => ({ ...prev, [key]: value }));
 
   const handleBranchChange = (branchName: string) => {
-    setField('branch', branchName);
-    setField('contactMethods', []);
     const branch = branches.find(b => b.name === branchName);
+    setFormData(prev => ({
+      ...prev,
+      branch: branchName,
+      branchId: branch?.id ?? null,
+      departmentId: null,
+      departmentName: null,
+      contactMethods: [],
+    }));
     if (branch) {
       setBranchContacts(branch.contactInfo || []);
       if (branch.locationGeoId) {
@@ -120,6 +153,7 @@ export default function Vacancies() {
         }
       }
     } else {
+      setDepartments([]);
       setBranchContacts([]);
     }
   };
@@ -172,7 +206,7 @@ export default function Vacancies() {
     setEditTier(1);
     setWizardStep(1);
     setFormData({ ...v });
-    const branch = branches.find(b => b.name === v.branch);
+    const branch = branches.find(b => b.id === v.branchId) ?? branches.find(b => b.name === v.branch);
     setBranchContacts(branch?.contactInfo || []);
     setGeoSelection({
       govId: geoUnits.find(u => u.name === v.governorate && u.level === 1)?.id.toString() || '',
@@ -188,6 +222,7 @@ export default function Vacancies() {
     setFormError('');
     if (!formData.title?.trim()) { setFormError('عنوان الوظيفة مطلوب'); return; }
     if (!formData.branch?.trim()) { setFormError('الفرع مطلوب'); return; }
+    if (!formData.departmentId) { setFormError('القسم مطلوب'); return; }
     if (!formData.vacancyCount || formData.vacancyCount <= 0) { setFormError('عدد الشواغر يجب أن يكون أكبر من 0'); return; }
     if (!formData.startDate) { setFormError('تاريخ البداية مطلوب'); return; }
     if (!formData.endDate) { setFormError('تاريخ النهاية مطلوب'); return; }
@@ -195,7 +230,8 @@ export default function Vacancies() {
 
     const finalData = {
       ...formData,
-      branchId: effectiveBranchId ?? (formData as any).branchId ?? null,
+      branchId: selectedBranchId,
+      departmentName: departments.find((department) => department.id === formData.departmentId)?.name ?? formData.departmentName ?? null,
       governorate: getLevelName(geoUnits, geoSelection.govId) || formData.governorate,
       cityOrArea: getLevelName(geoUnits, geoSelection.regionId) || formData.cityOrArea,
       subArea: getLevelName(geoUnits, geoSelection.subId) || formData.subArea,
@@ -255,7 +291,7 @@ export default function Vacancies() {
             {getValuesByCategory('job_title').map(v => <option key={v} value={v}>{v}</option>)}
           </select>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">
               الفرع <span className="text-red-400">*</span>
@@ -269,6 +305,26 @@ export default function Vacancies() {
             >
               <option value="">اختر الفرع</option>
               {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">القسم <span className="text-red-400">*</span></label>
+            <select
+              value={formData.departmentId ?? ''}
+              onChange={e => {
+                const departmentId = Number(e.target.value) || null;
+                const department = departments.find((item) => item.id === departmentId) ?? null;
+                setFormData((prev) => ({
+                  ...prev,
+                  departmentId,
+                  departmentName: department?.name ?? null,
+                }));
+              }}
+              disabled={isFieldLocked('full') || !selectedBranchId}
+              className={inputCls(isFieldLocked('full') || !selectedBranchId)}
+            >
+              <option value="">{selectedBranchId ? 'اختر القسم' : 'اختر الفرع أولاً'}</option>
+              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
             </select>
           </div>
           <div>
@@ -448,6 +504,7 @@ export default function Vacancies() {
           {[
             { l: 'المسمى الوظيفي', v: formData.title || '—' },
             { l: 'الفرع', v: formData.branch || '—' },
+            { l: 'القسم', v: formData.departmentName || '—' },
             { l: 'نوع العمل', v: formData.workType || '—' },
             { l: 'الجنس', v: formData.requiredGender || 'لا يهم' },
             { l: 'الشهادة', v: formData.requiredCertificate || '—' },
@@ -716,6 +773,7 @@ export default function Vacancies() {
                           if (wizardStep === 1) {
                             if (!formData.title?.trim()) { setFormError('عنوان الوظيفة مطلوب'); return; }
                             if (!formData.branch?.trim()) { setFormError('الفرع مطلوب'); return; }
+                            if (!formData.departmentId) { setFormError('القسم مطلوب'); return; }
                           }
                           setWizardStep(s => (s + 1) as 1 | 2 | 3);
                         }} className="px-6 py-2.5 text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl shadow-lg shadow-sky-500/25 transition-all flex items-center gap-2">

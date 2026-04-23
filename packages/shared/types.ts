@@ -519,6 +519,9 @@ export interface JobVacancy {
   id: number;
   title: string;
   branch: string;
+  branchId?: number | null;
+  departmentId?: number | null;
+  departmentName?: string | null;
   governorate: string | null;
   cityOrArea: string | null;
   subArea: string | null;
