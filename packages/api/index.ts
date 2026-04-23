@@ -7,6 +7,8 @@ import { appRouter } from './trpc/router.js';
 import { createContext } from './trpc/init.js';
 import { NODE_ENV, PORT, CORS_ORIGINS } from './config/env.js';
 import { UPLOADS_DIR } from './storage/uploader.js';
+import { requireAuth } from './middleware/auth.js';
+import { requireNotHQOnly } from './middleware/permission.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -63,17 +65,25 @@ app.use('/api/clients', clientsRouter);
 app.use('/api/candidates', candidatesRouter);
 app.use('/api/referral-sheets', referralSheetsRouter);
 app.use('/api/routes', routesRouter);
-app.use('/api/tasks', tasksRouter);
+// ── Branch-only routes ────────────────────────────────────────────────────────
+// These modules have no meaning at HQ level. Super admins must pick a branch
+// via the branch switcher (X-Branch-Id header) before accessing them.
+// Branch-bound users always pass (requireNotHQOnly is a no-op for them).
+const branchOnly = [requireAuth, requireNotHQOnly];
+
+app.use('/api/tasks', ...branchOnly, tasksRouter);
+app.use('/api/dues', ...branchOnly, duesRouter);
+app.use('/api/maintenance-requests', ...branchOnly, maintenanceRequestsRouter);
+app.use('/api/emergency-tickets', ...branchOnly, emergencyTicketsRouter);
+app.use('/api/visits', ...branchOnly, visitsRouter);
+app.use('/api/schedules', ...branchOnly, schedulesRouter);
+app.use('/api/route-assignments', ...branchOnly, routeAssignmentsRouter);
+app.use('/api/telemarketing', ...branchOnly, telemarketingRouter);
+
+// ── Shared routes (HQ + branch) ───────────────────────────────────────────────
 app.use('/api/contracts', contractsRouter);
-app.use('/api/dues', duesRouter);
 app.use('/api/device-models', deviceModelsRouter);
 app.use('/api/spare-parts', sparePartsRouter);
-app.use('/api/maintenance-requests', maintenanceRequestsRouter);
-app.use('/api/emergency-tickets', emergencyTicketsRouter);
-app.use('/api/visits', visitsRouter);
-app.use('/api/schedules', schedulesRouter);
-app.use('/api/route-assignments', routeAssignmentsRouter);
-app.use('/api/telemarketing', telemarketingRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/admin/vacancies', vacanciesRouter);
 app.use('/api/public/vacancies', publicVacanciesRouter);

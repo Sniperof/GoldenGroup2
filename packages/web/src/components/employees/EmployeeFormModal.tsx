@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Briefcase,
   Check,
+  CheckCircle,
   ChevronRight,
   ChevronLeft,
   GraduationCap,
   Loader2,
   Lock,
   MapPin,
+  MessageCircle,
   Phone,
   Plus,
   Save,
@@ -100,22 +102,46 @@ const DEFAULT_CONTACT = (): ContactEntry => ({
   status: 'active',
 });
 
+// Matches the client form's referral types exactly
 const REFERRER_TYPE_OPTIONS = [
-  { value: 'Personal', label: 'شخصي' },
-  { value: 'Client', label: 'زبون' },
-  { value: 'Employee', label: 'موظف' },
-  { value: 'Unknown', label: 'غير معروف' },
+  { value: 'Personal',  label: 'شخصي (أنا)',   autoName: 'المدير/المشرف المباشر' },
+  { value: 'Employee',  label: 'موظف',          autoName: null },
+  { value: 'Client',    label: 'زبون حالي',     autoName: null },
+  { value: 'Unknown',   label: 'مجهول',         autoName: 'مجهول' },
 ];
 
+// Matches the client form's origin channels exactly
 const SOURCE_CHANNEL_OPTIONS = [
-  { value: 'App', label: 'تطبيق' },
-  { value: 'Campaign', label: 'حملة' },
-  { value: 'Acquaintance', label: 'معرفة' },
-  { value: 'Mobile App', label: 'تطبيق الجوال' },
-  { value: 'Website', label: 'الموقع الإلكتروني' },
-  { value: 'External Platforms', label: 'منصات خارجية' },
-  { value: 'Internal', label: 'داخلي' },
+  { value: 'Acquaintance', label: 'معرفة شخصية'  },
+  { value: 'PhoneCall',    label: 'مكالمة هاتفية' },
+  { value: 'SocialMedia',  label: 'سوشال ميديا'   },
+  { value: 'Campaign',     label: 'حملة إعلانية'  },
 ];
+
+// Contact type config matching client form (with emojis)
+const CONTACT_TYPE_CONFIG: Record<string, { label: string; emoji: string }> = {
+  mobile:   { label: 'موبايل', emoji: '📱' },
+  landline: { label: 'أرضي',   emoji: '☎️' },
+  other:    { label: 'آخر',    emoji: '📞' },
+};
+
+// Contact status config matching client form (colored)
+const CONTACT_STATUS_CONFIG: Record<string, { label: string; style: string }> = {
+  active:           { label: 'فعّال',         style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  preferred:        { label: 'مفضّل',         style: 'bg-sky-50 text-sky-700 border-sky-200' },
+  'out-of-coverage':{ label: 'خارج التغطية', style: 'bg-amber-50 text-amber-700 border-amber-200' },
+  unused:           { label: 'غير مستخدم',   style: 'bg-gray-50 text-gray-500 border-gray-200' },
+};
+
+// Returns auto-filled name for Personal/Unknown, null otherwise
+function getReferralAutoName(type: string): string | null {
+  return REFERRER_TYPE_OPTIONS.find((o) => o.value === type)?.autoName ?? null;
+}
+
+// Channel is free to pick only when type is Employee or Client
+function isChannelEnabled(type: string): boolean {
+  return type === 'Employee' || type === 'Client';
+}
 
 const STATUS_OPTIONS: Array<{ value: Employee['status']; label: string }> = [
   { value: 'active', label: 'نشط' },
@@ -272,6 +298,8 @@ export default function EmployeeFormModal({
   const [listsByCategory, setListsByCategory] = useState<Record<string, SystemList[]>>({});
   const [currentStepIdx, setCurrentStepIdx] = useState(0);
   const [visitedSteps, setVisitedSteps] = useState<Set<StepKey>>(() => new Set(['identity']));
+  // Tracks the highest step index the user has *completed* by clicking Next (not just visited).
+  const [completedUpTo, setCompletedUpTo] = useState(0);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -279,6 +307,7 @@ export default function EmployeeFormModal({
     setLocalError('');
     setCurrentStepIdx(0);
     setVisitedSteps(new Set(['identity']));
+    setCompletedUpTo(0);
   }, [isOpen, initialValues, fixedBranchId]);
 
   useEffect(() => {
@@ -420,24 +449,6 @@ export default function EmployeeFormModal({
 
   const combinedError = localError || error;
 
-  // Per-step completion derived from form state.
-  const stepCompletion = useMemo(() => {
-    const identityDone = Boolean(
-      form.firstName.trim() && form.lastName.trim() && form.birthDate
-      && form.gender && form.maritalStatus && form.militaryService,
-    );
-    const hasContact = form.contacts.some((c) => String(c.number ?? '').replace(/\D/g, ''));
-    const contactDone = Boolean(
-      form.geoSelection.govId && form.geoSelection.regionId && form.geoSelection.subId && hasContact,
-    );
-    const qualificationsDone = true; // optional section
-    const employmentDone = Boolean(
-      form.branchId && form.departmentId && form.contractType && form.workType && form.jobTitle,
-    );
-    const referralDone = true;
-    return { identity: identityDone, contact: contactDone, qualifications: qualificationsDone, employment: employmentDone, referral: referralDone };
-  }, [form]);
-
   if (!isOpen) return null;
 
   const currentStep = STEPS[currentStepIdx];
@@ -480,12 +491,13 @@ export default function EmployeeFormModal({
 
   function goToStep(idx: number) {
     if (idx === currentStepIdx) return;
-    // allow going backwards freely, forward only if current step valid
+    // Allow going backwards freely; forward only if current step is valid
+    // and target is within already-completed range.
     if (idx > currentStepIdx) {
-      const err = validateStep(currentStep.key);
-      if (err) {
-        setLocalError(err);
-        return;
+      if (idx > completedUpTo) {
+        // Can only jump forward to steps the user already passed through
+        const err = validateStep(currentStep.key);
+        if (err) { setLocalError(err); return; }
       }
     }
     setLocalError('');
@@ -502,6 +514,8 @@ export default function EmployeeFormModal({
     if (err) { setLocalError(err); return; }
     setLocalError('');
     const nextIdx = Math.min(currentStepIdx + 1, STEPS.length - 1);
+    // Advance the progress counter — only grows, never shrinks
+    setCompletedUpTo((prev) => Math.max(prev, nextIdx));
     setCurrentStepIdx(nextIdx);
     setVisitedSteps((prev) => {
       const next = new Set(prev);
@@ -615,6 +629,18 @@ export default function EmployeeFormModal({
     }));
   }
 
+  function handleReferralTypeChange(value: string) {
+    const autoName = getReferralAutoName(value);
+    setForm((current) => ({
+      ...current,
+      referrerType: value,
+      // Auto-fill name for Personal/Unknown; clear it when switching to Employee/Client
+      referrerName: autoName ?? (current.referrerType === value ? current.referrerName : ''),
+      // Disable channel for Personal/Unknown — reset to Acquaintance as default
+      sourceChannel: isChannelEnabled(value) ? current.sourceChannel : '',
+    }));
+  }
+
   // ── Step renderers ──────────────────────────────────────────────────────────
 
   function renderIdentityStep() {
@@ -701,6 +727,7 @@ export default function EmployeeFormModal({
   function renderContactStep() {
     return (
       <div className="space-y-6">
+        {/* Address */}
         <div className="rounded-3xl border border-slate-200 bg-white p-5">
           <div className="mb-4 flex items-center gap-2 text-sm font-bold text-slate-800">
             <MapPin className="h-4 w-4 text-sky-500" /> عنوان الإقامة
@@ -730,123 +757,136 @@ export default function EmployeeFormModal({
           </label>
         </div>
 
+        {/* Contacts — compact row layout matching client form */}
         <div className="rounded-3xl border border-slate-200 bg-white p-5">
           <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
               <Phone className="h-4 w-4 text-sky-500" /> وسائل التواصل
             </div>
-            <button
-              type="button"
-              onClick={addContact}
-              className="inline-flex items-center gap-1.5 rounded-2xl border border-dashed border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-50"
-            >
-              <Plus className="h-3.5 w-3.5" /> رقم جديد
-            </button>
           </div>
 
-          <div className="space-y-4">
-            {form.contacts.map((contact, index) => (
-              <div key={contact.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="text-xs font-bold text-slate-600">وسيلة التواصل #{index + 1}</div>
-                  <button
-                    type="button"
-                    onClick={() => removeContact(contact.id)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-rose-200 bg-white text-rose-500 transition-colors hover:bg-rose-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <label className="block">
-                    <FieldLabel required>نوع الرقم</FieldLabel>
+          <div className="space-y-3">
+            {form.contacts.map((contact) => {
+              const statusCfg = CONTACT_STATUS_CONFIG[contact.status ?? 'active'] ?? CONTACT_STATUS_CONFIG.active;
+              return (
+                <div
+                  key={contact.id}
+                  className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-2.5"
+                >
+                  {/* Row 1: type + prefix/areaCode + number + delete */}
+                  <div className="flex items-center gap-2">
+                    {/* Type select */}
                     <select
                       value={contact.type}
-                      onChange={(e) => updateContact(contact.id, { type: e.target.value as ContactEntry['type'], areaCode: e.target.value === 'mobile' ? '' : contact.areaCode ?? '' })}
-                      className={INPUT_CLASS}
+                      onChange={(e) => updateContact(contact.id, {
+                        type: e.target.value as ContactEntry['type'],
+                        areaCode: e.target.value === 'mobile' ? '' : (contact.areaCode ?? ''),
+                      })}
+                      className="border border-gray-200 rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[110px] bg-white"
                     >
-                      <option value="mobile">موبايل</option>
-                      <option value="landline">هاتف آخر</option>
+                      {Object.entries(CONTACT_TYPE_CONFIG).map(([key, cfg]) => (
+                        <option key={key} value={key}>{cfg.emoji} {cfg.label}</option>
+                      ))}
                     </select>
-                  </label>
 
-                  {contact.type === 'mobile' ? (
-                    <label className="block">
-                      <FieldLabel required>رقم الموبايل</FieldLabel>
-                      <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-white focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-100">
-                        <span className="inline-flex items-center border-l border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-500">+963</span>
-                        <input
-                          value={contact.number}
-                          onChange={(e) => updateContact(contact.id, { number: e.target.value.replace(/\D/g, '').slice(0, 10) })}
-                          className="w-full px-4 py-3 text-sm text-slate-800 outline-none"
-                          placeholder="9XXXXXXXX"
-                        />
-                      </div>
-                    </label>
-                  ) : (
-                    <label className="block">
-                      <FieldLabel required>لاحقة الهاتف</FieldLabel>
+                    {/* Mobile: +963 badge */}
+                    {contact.type === 'mobile' && (
+                      <span className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">
+                        +963
+                      </span>
+                    )}
+
+                    {/* Landline: area code */}
+                    {contact.type === 'landline' && (
                       <input
+                        type="text"
                         value={contact.areaCode ?? ''}
                         onChange={(e) => updateContact(contact.id, { areaCode: e.target.value.replace(/\D/g, '').slice(0, 3) })}
-                        className={INPUT_CLASS}
                         placeholder="011"
+                        dir="ltr"
+                        maxLength={3}
+                        className="bg-white border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono text-slate-800 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none w-[60px] text-center"
                       />
-                    </label>
-                  )}
+                    )}
 
-                  {contact.type === 'landline' && (
-                    <label className="block">
-                      <FieldLabel required>رقم الهاتف</FieldLabel>
-                      <input
-                        value={contact.number}
-                        onChange={(e) => updateContact(contact.id, { number: e.target.value.replace(/\D/g, '').slice(0, 7) })}
-                        className={INPUT_CLASS}
-                        placeholder="1234567"
-                      />
-                    </label>
-                  )}
-
-                  <label className="block">
-                    <FieldLabel>تسمية الرقم</FieldLabel>
+                    {/* Number */}
                     <input
+                      type="text"
+                      value={contact.number}
+                      onChange={(e) => {
+                        let v = e.target.value.replace(/\D/g, '');
+                        if (contact.type === 'mobile') v = v.slice(0, 10);
+                        else if (contact.type === 'landline') v = v.slice(0, 7);
+                        updateContact(contact.id, { number: v });
+                      }}
+                      placeholder={
+                        contact.type === 'mobile' ? '9XXXXXXXXX'
+                        : contact.type === 'landline' ? 'XXXXXXX'
+                        : 'الرقم...'
+                      }
+                      dir="ltr"
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-gray-300 focus:outline-none bg-white focus:border-sky-500"
+                    />
+
+                    {/* Delete */}
+                    <button
+                      type="button"
+                      onClick={() => removeContact(contact.id)}
+                      title="حذف الرقم"
+                      className="w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 text-gray-300 hover:text-rose-500 hover:bg-rose-50 border-transparent hover:border-rose-100"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Row 2: label + status (colored) + whatsapp toggle */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
                       value={contact.label}
                       onChange={(e) => updateContact(contact.id, { label: e.target.value })}
-                      className={INPUT_CLASS}
-                      placeholder="مثال: شخصي"
+                      placeholder="العلاقة (شخصي، أخ، عمل...)"
+                      className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none"
                     />
-                  </label>
 
-                  <label className="block">
-                    <FieldLabel>حالة الرقم</FieldLabel>
                     <select
                       value={contact.status}
                       onChange={(e) => updateContact(contact.id, { status: e.target.value as ContactEntry['status'] })}
-                      className={INPUT_CLASS}
+                      className={`border rounded-lg px-2 py-1.5 text-[11px] font-medium focus:outline-none min-w-[115px] ${statusCfg.style}`}
                     >
-                      <option value="active">فعال</option>
-                      <option value="preferred">مفضل</option>
-                      <option value="out-of-coverage">خارج التغطية</option>
-                      <option value="unused">غير مستخدم</option>
+                      {Object.entries(CONTACT_STATUS_CONFIG).map(([key, cfg]) => (
+                        <option key={key} value={key}>{cfg.label}</option>
+                      ))}
                     </select>
-                  </label>
 
-                  {contact.type === 'mobile' && (
-                    <label className="mt-6 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 xl:col-span-4">
-                      <input
-                        type="checkbox"
-                        checked={contact.hasWhatsApp}
-                        onChange={(e) => updateContact(contact.id, { hasWhatsApp: e.target.checked })}
-                        className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                      />
-                      واتساب متاح على هذا الرقم
-                    </label>
-                  )}
+                    {/* WhatsApp icon toggle */}
+                    <button
+                      type="button"
+                      onClick={() => updateContact(contact.id, { hasWhatsApp: !contact.hasWhatsApp })}
+                      title={contact.hasWhatsApp ? 'يدعم واتساب' : 'بدون واتساب'}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${
+                        contact.hasWhatsApp
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                          : 'bg-white border-gray-200 text-gray-300 hover:text-gray-400'
+                      }`}
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+
+          {/* Add number */}
+          <button
+            type="button"
+            onClick={addContact}
+            className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-gray-200 text-slate-500 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50 transition-all text-sm font-medium"
+          >
+            <Plus className="h-4 w-4" />
+            إضافة رقم
+          </button>
         </div>
       </div>
     );
@@ -1118,59 +1158,102 @@ export default function EmployeeFormModal({
   }
 
   function renderReferralStep() {
+    const autoName   = getReferralAutoName(form.referrerType);
+    const isAutoName = autoName !== null;
+    const channelEnabled = isChannelEnabled(form.referrerType);
+
     return (
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs text-sky-700">
+      <div className="space-y-4">
+        {/* Optional notice */}
+        <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs text-sky-700">
           هذه الخطوة اختيارية — يمكنك حفظ الموظف مباشرة إن لم تتوفر معلومات الوسيط.
         </div>
 
-        <label className="block">
-          <FieldLabel>نوع الوسيط</FieldLabel>
-          <select
-            value={form.referrerType}
-            onChange={(e) => setForm((c) => ({ ...c, referrerType: e.target.value }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">بدون تحديد</option>
-            {REFERRER_TYPE_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
-            ))}
-          </select>
-        </label>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Referral type */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">نوع الوسيط</label>
+            <select
+              value={form.referrerType}
+              onChange={(e) => handleReferralTypeChange(e.target.value)}
+              className="w-full p-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:border-sky-500"
+            >
+              <option value="">بدون تحديد</option>
+              {REFERRER_TYPE_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </select>
+          </div>
 
-        <label className="block">
-          <FieldLabel>نوع التواصل</FieldLabel>
-          <select
-            value={form.sourceChannel}
-            onChange={(e) => setForm((c) => ({ ...c, sourceChannel: e.target.value }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">بدون تحديد</option>
-            {SOURCE_CHANNEL_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
-            ))}
-          </select>
-        </label>
+          {/* Origin channel — disabled for Personal/Unknown */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">طريقة التواصل</label>
+            <select
+              value={form.sourceChannel}
+              onChange={(e) => setForm((c) => ({ ...c, sourceChannel: e.target.value }))}
+              disabled={!channelEnabled}
+              className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${
+                !channelEnabled
+                  ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'border-gray-200 bg-white focus:border-sky-500'
+              }`}
+            >
+              <option value="">بدون تحديد</option>
+              {SOURCE_CHANNEL_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-        <label className="block md:col-span-2">
-          <FieldLabel>اسم الوسيط</FieldLabel>
-          <input
-            value={form.referrerName}
-            onChange={(e) => setForm((c) => ({ ...c, referrerName: e.target.value }))}
-            className={INPUT_CLASS}
-          />
-        </label>
+        {/* Referrer name */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1.5">اسم الوسيط</label>
+          {isAutoName ? (
+            /* Auto-filled for Personal / Unknown — show locked badge */
+            <div className="flex items-center gap-2">
+              <input
+                value={autoName}
+                readOnly
+                className="flex-1 p-2.5 rounded-xl border border-gray-200 bg-slate-50 text-slate-500 font-bold cursor-not-allowed text-sm focus:outline-none"
+              />
+              <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-400">
+                <Lock className="h-3.5 w-3.5" /> محدد تلقائياً
+              </div>
+            </div>
+          ) : (
+            /* Free text for Employee / Client */
+            <div>
+              <input
+                value={form.referrerName}
+                onChange={(e) => setForm((c) => ({ ...c, referrerName: e.target.value }))}
+                placeholder={
+                  form.referrerType === 'Employee' ? 'اسم الموظف الوسيط...'
+                  : form.referrerType === 'Client'  ? 'اسم الزبون الوسيط...'
+                  : 'اسم الوسيط...'
+                }
+                className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+              />
+              {form.referrerName && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+                  <CheckCircle className="h-3.5 w-3.5" /> {form.referrerName}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
-        <label className="block md:col-span-2">
-          <FieldLabel>ملاحظات الوسيط</FieldLabel>
+        {/* Notes */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1.5">ملاحظات الوسيط</label>
           <textarea
-            rows={4}
+            rows={3}
             value={form.referralNotes}
             onChange={(e) => setForm((c) => ({ ...c, referralNotes: e.target.value }))}
-            className={INPUT_CLASS}
-            placeholder="ملاحظات أو تفاصيل إضافية عن الوسيط"
+            placeholder="أي ملاحظات تخص الوسيط أو طريقة التواصل..."
+            className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none resize-none"
           />
-        </label>
+        </div>
       </div>
     );
   }
@@ -1186,9 +1269,9 @@ export default function EmployeeFormModal({
     }
   }
 
-  // Progress percentage based on completed steps
-  const completedCount = STEPS.filter((s) => stepCompletion[s.key]).length;
-  const progressPct = Math.round((completedCount / STEPS.length) * 100);
+  // Progress: based solely on how far the user has navigated via "Next" button.
+  // completedUpTo = highest step index reached by clicking Next (0 = none yet).
+  const progressPct = Math.round((completedUpTo / STEPS.length) * 100);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-sm" dir="rtl">
@@ -1212,12 +1295,12 @@ export default function EmployeeFormModal({
               </button>
             </div>
 
-            {/* Progress bar */}
+            {/* Progress bar — advances only when user clicks Next */}
             <div className="mt-4 flex items-center gap-3 text-xs text-slate-500">
-              <span className="font-semibold">{completedCount} / {STEPS.length} أقسام</span>
+              <span className="font-semibold">{completedUpTo} / {STEPS.length} خطوات</span>
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                 <div
-                  className="h-full rounded-full bg-gradient-to-l from-sky-400 to-sky-600 transition-all duration-300"
+                  className="h-full rounded-full bg-gradient-to-l from-sky-400 to-sky-600 transition-all duration-500"
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
@@ -1233,29 +1316,34 @@ export default function EmployeeFormModal({
                 {STEPS.map((step, idx) => {
                   const Icon = step.icon;
                   const isActive = idx === currentStepIdx;
-                  const isComplete = stepCompletion[step.key];
-                  const isVisited = visitedSteps.has(step.key);
+                  // A step is "done" when the user has clicked Next past it
+                  const isDone = idx < completedUpTo;
+                  // Clickable if already visited (current or behind) or already passed through
+                  const isClickable = idx <= completedUpTo || idx === currentStepIdx;
                   return (
                     <li key={step.key}>
                       <button
                         type="button"
-                        onClick={() => goToStep(idx)}
+                        onClick={() => isClickable ? goToStep(idx) : undefined}
+                        disabled={!isClickable}
                         className={`group flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-right transition-all ${
                           isActive
                             ? 'border-sky-300 bg-sky-50 shadow-sm'
-                            : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
+                            : isClickable
+                              ? 'border-transparent hover:border-slate-200 hover:bg-slate-50'
+                              : 'cursor-not-allowed border-transparent opacity-50'
                         }`}
                       >
                         <div
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold transition-colors ${
-                            isComplete && isVisited
+                            isDone && !isActive
                               ? 'bg-emerald-500 text-white'
                               : isActive
                                 ? 'bg-sky-500 text-white'
                                 : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
                           }`}
                         >
-                          {isComplete && isVisited && !isActive ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                          {isDone && !isActive ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className={`text-sm font-bold ${isActive ? 'text-sky-700' : 'text-slate-800'}`}>
@@ -1277,21 +1365,23 @@ export default function EmployeeFormModal({
                   {STEPS.map((step, idx) => {
                     const Icon = step.icon;
                     const isActive = idx === currentStepIdx;
-                    const isComplete = stepCompletion[step.key] && visitedSteps.has(step.key);
+                    const isDone = idx < completedUpTo;
+                    const isClickable = idx <= completedUpTo || idx === currentStepIdx;
                     return (
                       <button
                         key={step.key}
                         type="button"
-                        onClick={() => goToStep(idx)}
+                        onClick={() => isClickable ? goToStep(idx) : undefined}
+                        disabled={!isClickable}
                         className={`inline-flex shrink-0 items-center gap-1.5 rounded-2xl border px-3 py-1.5 text-xs font-semibold transition-colors ${
                           isActive
                             ? 'border-sky-300 bg-sky-50 text-sky-700'
-                            : isComplete
+                            : isDone
                               ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                              : 'border-slate-200 bg-white text-slate-500'
+                              : 'border-slate-200 bg-white text-slate-400 opacity-60'
                         }`}
                       >
-                        {isComplete ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
+                        {isDone && !isActive ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
                         {step.title}
                       </button>
                     );

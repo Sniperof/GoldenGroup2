@@ -23,18 +23,21 @@ export default function BranchSwitcher() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (user?.isSuperAdmin !== true) return;
+    // Super admins need full list for the switcher dropdown.
+    // Branch users need just enough to resolve the name badge.
+    if (!user) return;
     api.branches.list().then(rows => setBranches(rows as Branch[])).catch(() => setBranches([]));
-  }, [user?.isSuperAdmin]);
+  }, [user?.id]);
 
-  // Non-super users: read-only indicator of their pinned branch.
+  // Non-super users: read-only badge showing their pinned branch name.
   if (user?.isSuperAdmin !== true) {
     if (!user?.branchId) return null;
+    const branchName = branches.find(b => b.id === user.branchId)?.name;
     return (
       <div className="mx-3 my-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 text-sm">
-        <Building2 className="w-4 h-4" />
-        <span className="flex-1 text-right truncate">
-          الفرع: <span className="font-semibold text-slate-800">#{user.branchId}</span>
+        <Building2 className="w-4 h-4 shrink-0" />
+        <span className="flex-1 text-right truncate font-medium text-slate-700">
+          {branchName ?? `الفرع #${user.branchId}`}
         </span>
       </div>
     );

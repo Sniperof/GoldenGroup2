@@ -1,13 +1,12 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { requireAuth } from '../middleware/auth.js';
 import { requireSuperAdmin } from '../middleware/permission.js';
 
 const router = Router();
 
-// geo_units are global reference data — any authenticated user may read,
-// only HQ may mutate.
-router.get('/', requireAuth, async (_req, res) => {
+// geo_units are global reference data used by both internal and public forms.
+// Keep read access public, while mutations remain HQ-only.
+router.get('/', async (_req, res) => {
   const { rows } = await pool.query('SELECT id, name, level, parent_id AS "parentId" FROM geo_units ORDER BY level, id');
   res.json(rows);
 });

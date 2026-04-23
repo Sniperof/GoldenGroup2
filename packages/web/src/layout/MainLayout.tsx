@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { usePermissions } from '../hooks/usePermissions';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import FloatingActionButton from '../components/FloatingActionButton';
 import NewEmergencyTicketModal from '../components/NewEmergencyTicketModal';
@@ -64,6 +65,13 @@ export default function MainLayout() {
     const isSuperAdmin = authUser?.isSuperAdmin === true;
     const isPrivilegedUser = isSuperAdmin || authUser?.role === 'HR_MANAGER' || authUser?.role === 'ADMIN';
     const can = (perm: string) => isPrivilegedUser || hasPermission(perm);
+
+    // Branch-only modules are hidden from super admin when they have NOT selected
+    // a branch context (i.e. they are viewing "all branches / HQ mode").
+    const { branchId: selectedBranchId } = useBranchContextStore();
+    // A super admin is "in branch mode" when they have picked a specific branch.
+    // Branch-bound users always see branch-only modules.
+    const canSeeBranchModules = !isSuperAdmin || selectedBranchId != null;
 
     const jobsViewPermMap: Record<string, string> = {
       '/jobs/applications': 'jobs.applications.view_list',
@@ -244,8 +252,8 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 2. Appointments (Separate Section) */}
-                    {can('telemarketer.view') && (
+                    {/* 2. Appointments (Branch-only — hidden at HQ when no branch selected) */}
+                    {canSeeBranchModules && can('telemarketer.view') && (
                     <NavLink
                         to="/telemarketer"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -342,8 +350,8 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 5. Branch Operations (formerly Planning) */}
-                    {can('planning.view') && (
+                    {/* 5. Branch Operations — hidden at HQ when no branch selected */}
+                    {canSeeBranchModules && can('planning.view') && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setPlanningOpen((o: boolean) => !o)}
@@ -389,8 +397,8 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 6. Tasks & Operations */}
-                    {can('tasks.view') && (
+                    {/* 6. Tasks & Operations — hidden at HQ when no branch selected */}
+                    {canSeeBranchModules && can('tasks.view') && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setOperationsOpen((o: boolean) => !o)}

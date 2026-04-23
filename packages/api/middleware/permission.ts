@@ -115,6 +115,45 @@ export function requireSuperAdmin(req: Request, res: Response, next: NextFunctio
 }
 
 /**
+ * Route guard: rejects super admins who have NOT selected a branch context.
+ * Use on branch-only routes (tasks, appointments, planning, operations) that
+ * have no meaning at HQ level.
+ *
+ * Branch-bound users always pass.
+ * Super admins pass only if they supply X-Branch-Id (i.e. they've switched
+ * into a specific branch's context via the branch switcher).
+ */
+export function requireNotHQOnly(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول أولاً' });
+    }
+    try {
+      req.user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
+    } catch {
+      return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
+    }
+  }
+  attachScope(req);
+
+  // Branch-bound users always allowed
+  if (req.user.isSuperAdmin !== true) return next();
+
+  // Super admin must have selected a branch via X-Branch-Id header
+  const headerId = Number(req.header('x-branch-id'));
+  if (Number.isFinite(headerId) && headerId > 0) {
+    // Override scope.branchId so downstream handlers can rely on it
+    if (req.scope) req.scope.branchId = headerId;
+    return next();
+  }
+
+  return res.status(403).json({
+    error: 'هذه الصفحة متاحة على مستوى الفرع فقط — يرجى اختيار فرع من محوّل الفروع',
+  });
+}
+
+/**
  * Resolve the effective target branch for a write operation.
  *
  * - Branch users can only write to their own branch; supplying any other
