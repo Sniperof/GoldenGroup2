@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import type { Branch, Department, SystemList, DeviceModel } from '../../lib/types';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
+import { usePermissions } from '../../hooks/usePermissions';
 import {
   Building2, ArrowRight, Plus, Edit, Trash2, X,
   Layers, Cpu, Users, StickyNote, ChevronDown, CheckSquare, Square,
@@ -28,7 +29,13 @@ const EMPTY_FORM: DeptForm = {
 export default function BranchDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { hasPermission } = usePermissions();
   const branchId = Number(id);
+  const canManageBranches = hasPermission('branches.manage');
+
+  if (!hasPermission('branches.view')) {
+    return <Navigate to="/" replace />;
+  }
 
   const [branch, setBranch] = useState<Branch | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -108,6 +115,7 @@ export default function BranchDetail() {
   // ── Form save ────────────────────────────────────────────────────────────────
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageBranches) return;
     if (!form.name.trim()) return;
     setSaving(true);
     try {
@@ -136,6 +144,7 @@ export default function BranchDetail() {
 
   // ── Delete ────────────────────────────────────────────────────────────────────
   const handleDelete = async (dept: Department) => {
+    if (!canManageBranches) return;
     if (!confirm(`هل أنت متأكد من حذف قسم "${dept.name}"؟\nسيتم إلغاء ارتباط الموظفين بهذا القسم.`)) return;
     try {
       await api.departments.delete(dept.id);
@@ -258,7 +267,8 @@ export default function BranchDetail() {
 
         <button
           onClick={openCreate}
-          className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95"
+          disabled={!canManageBranches}
+          className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95 disabled:opacity-50"
         >
           <Plus className="w-4 h-4" />
           إضافة قسم
@@ -276,14 +286,16 @@ export default function BranchDetail() {
           <div className="flex items-center gap-1">
             <button
               onClick={() => openEdit(d)}
-              className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500"
+              disabled={!canManageBranches}
+              className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50"
               title="تعديل"
             >
               <Edit className="w-4 h-4" />
             </button>
             <button
               onClick={() => handleDelete(d)}
-              className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500"
+              disabled={!canManageBranches}
+              className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50"
               title="حذف"
             >
               <Trash2 className="w-4 h-4" />
@@ -293,7 +305,7 @@ export default function BranchDetail() {
       />
 
       {/* ── Modal ── */}
-      {isModalOpen && (
+      {isModalOpen && canManageBranches && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
 
@@ -320,6 +332,7 @@ export default function BranchDetail() {
                     required
                     value={form.name}
                     onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                    disabled={!canManageBranches}
                     placeholder="مثال: قسم التسويق الرقمي"
                     className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none"
                   />
@@ -331,6 +344,7 @@ export default function BranchDetail() {
                   <select
                     value={form.departmentTypeId}
                     onChange={e => setForm(f => ({ ...f, departmentTypeId: e.target.value !== '' ? Number(e.target.value) : '', deviceModelIds: [] }))}
+                    disabled={!canManageBranches}
                     className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none"
                   >
                     <option value="">— بدون نوع —</option>
@@ -361,9 +375,10 @@ export default function BranchDetail() {
                             key={m.id}
                             type="button"
                             onClick={() => toggleDevice(m.id)}
+                            disabled={!canManageBranches}
                             className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-right transition-colors ${
                               checked ? 'bg-indigo-50 text-indigo-700' : 'bg-white text-slate-700 hover:bg-slate-50'
-                            }`}
+                            } disabled:opacity-50`}
                           >
                             {checked
                               ? <CheckSquare className="w-4 h-4 text-indigo-500 flex-shrink-0" />
@@ -391,6 +406,7 @@ export default function BranchDetail() {
                   <textarea
                     value={form.notes}
                     onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                    disabled={!canManageBranches}
                     rows={3}
                     placeholder="أي ملاحظات إضافية عن هذا القسم..."
                     className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none resize-none"
@@ -416,7 +432,7 @@ export default function BranchDetail() {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || !canManageBranches}
                   className="px-5 py-2 rounded-xl text-sm font-bold bg-sky-600 hover:bg-sky-500 text-white transition disabled:opacity-60"
                 >
                   {saving ? 'جاري الحفظ…' : editingDept ? 'حفظ التعديلات' : 'إضافة القسم'}

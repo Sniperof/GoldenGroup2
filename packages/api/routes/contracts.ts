@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { resolveTargetBranchId } from '../middleware/permission.js';
+import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -26,13 +27,13 @@ const dueSelect = `
   status, escalated
 `;
 
-router.get('/', async (req, res) => {
-  const scope = req.scope!;
+router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
+  const authContext = req.authContext!;
   let where = '';
   const params: any[] = [];
-  if (!scope.isSuperAdmin) {
+  if (!authContext.isSuperAdmin) {
     where = 'WHERE c.branch_id = $1';
-    params.push(scope.branchId);
+    params.push(authContext.actingBranchId);
   } else {
     const hb = Number(req.header('x-branch-id'));
     if (Number.isFinite(hb) && hb > 0) {
@@ -59,7 +60,7 @@ router.get('/', async (req, res) => {
   res.json(result);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const c = req.body;
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
   if (targetBranchId == null) return;
@@ -107,13 +108,12 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
-  const scope = req.scope!;
+router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
+  const authContext = req.authContext!;
   const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [req.params.id]);
   if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
-  if (!scope.isSuperAdmin && existing[0].branch_id !== scope.branchId) {
-    return res.status(403).json({ message: 'غير مسموح' });
-  }
+  const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branch_id });
+  if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const c = req.body;
   const { rows } = await pool.query(
     `UPDATE contracts SET contract_number=$1, customer_id=$2, customer_name=$3,
@@ -131,13 +131,12 @@ router.put('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', async (req, res) => {
-  const scope = req.scope!;
+router.delete('/:id', requirePermission('contracts.delete'), async (req, res) => {
+  const authContext = req.authContext!;
   const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [req.params.id]);
   if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
-  if (!scope.isSuperAdmin && existing[0].branch_id !== scope.branchId) {
-    return res.status(403).json({ message: 'غير مسموح' });
-  }
+  const access = authorize(authContext, { permission: 'contracts.delete', branchId: existing[0].branch_id });
+  if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   await pool.query('DELETE FROM contracts WHERE id = $1', [req.params.id]);
   res.json({ success: true });
 });

@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { Navigate } from 'react-router-dom';
 import { Settings, Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { usePermissions } from '../hooks/usePermissions';
 
 export default function SystemSettings() {
+    const { hasPermission } = usePermissions();
     const [isClearing, setIsClearing] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
+    const canManageSettings = hasPermission('settings.manage');
+
+    if (!hasPermission('settings.view')) {
+        return <Navigate to="/" replace />;
+    }
 
     const handleClearData = () => {
         setIsClearing(true);
@@ -57,6 +65,7 @@ export default function SystemSettings() {
                             {!showConfirm ? (
                                 <button
                                     onClick={() => setShowConfirm(true)}
+                                    disabled={!canManageSettings}
                                     className="px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors flex items-center gap-2"
                                 >
                                     <Trash2 className="w-4 h-4" />
@@ -67,7 +76,7 @@ export default function SystemSettings() {
                                     <span className="text-xs text-red-600 font-bold">هل أنت متأكد؟</span>
                                     <button
                                         onClick={handleClearData}
-                                        disabled={isClearing}
+                                        disabled={isClearing || !canManageSettings}
                                         className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 transition-colors flex items-center gap-2 shadow-sm"
                                     >
                                         {isClearing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}

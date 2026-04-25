@@ -12,6 +12,23 @@ import QualificationModal from '../components/candidates/QualificationModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 
+function extractApiPayload(error: unknown): any | null {
+    if (!(error instanceof Error)) {
+        return null;
+    }
+
+    const prefix = error.message.match(/^API Error \d+: ([\s\S]+)$/);
+    if (!prefix) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(prefix[1]);
+    } catch {
+        return null;
+    }
+}
+
 export default function Clients() {
     const [clients, setClients] = useState<Client[]>([]);
     const [visits, setVisits] = useState<Visit[]>([]);
@@ -45,16 +62,16 @@ export default function Clients() {
         const fetchAll = async () => {
             try {
                 setLoading(true);
-                const [clientsData, visitsData, contractsData, geoUnitsData] = await Promise.all([
+                // Use allSettled so a permission failure on visits/contracts
+                // does NOT prevent the client list from loading.
+                const [clientsRes, visitsRes, contractsRes] = await Promise.allSettled([
                     api.clients.list(),
                     api.visits.list(),
                     api.contracts.list(),
-                    api.geoUnits.list(),
                 ]);
-                setClients(clientsData);
-                setVisits(visitsData);
-                setContracts(contractsData);
-                setGeoUnits(geoUnitsData);
+                if (clientsRes.status === 'fulfilled') setClients(clientsRes.value);
+                if (visitsRes.status === 'fulfilled') setVisits(visitsRes.value);
+                if (contractsRes.status === 'fulfilled') setContracts(contractsRes.value);
             } catch (err) {
                 console.error('Failed to fetch data:', err);
             } finally {
@@ -62,6 +79,14 @@ export default function Clients() {
             }
         };
         fetchAll();
+    }, []);
+
+    // Geo units are global reference data — fetched independently so a
+    // permission failure on clients/visits/contracts does NOT blank the map.
+    useEffect(() => {
+        api.geoUnits.list()
+            .then(setGeoUnits)
+            .catch(() => setGeoUnits([]));
     }, []);
 
     const getLifecycleStage = useCallback((client: Client) => {
@@ -87,7 +112,9 @@ export default function Clients() {
                 return fullName.includes(q) ||
                     hasPhone ||
                     c.id.toString().includes(q) ||
-                    (c.referrerName || '').toLowerCase().includes(q);
+                    (c.referrerName || '').toLowerCase().includes(q) ||
+                    (c.branchName || '').toLowerCase().includes(q) ||
+                    (c.assignedHrUserName || '').toLowerCase().includes(q);
             });
         }
 
@@ -104,7 +131,6 @@ export default function Clients() {
         return list;
     }, [clients, getLifecycleStage, searchTerm, filterClass, filterMediator, filterArea, geoUnits]);
 
-    const candidateList = useMemo(() => clients.filter(c => c.isCandidate), [clients]);
 
     // ─── KPI Calculations ───
     const kpis = useMemo(() => {
@@ -162,12 +188,24 @@ export default function Clients() {
                 });
             }
             await fetchClients();
+            setIsModalOpen(false);
+            setIsAddCandidateModalOpen(false);
+            setEditingClient(null);
         } catch (err) {
+            const payload = extractApiPayload(err);
+            if (payload?.status === 'MATCH_RESTRICTED') {
+                alert(payload.message || 'الرقم موجود مسبقاً في النظام ولا يمكنك عرض تفاصيله.');
+                return;
+            }
+
+            if (payload?.status === 'MATCH_VISIBLE') {
+                alert(`الرقم موجود مسبقاً للزبون: ${payload.client?.name || `#${payload.client?.id}`}`);
+                return;
+            }
+
             console.error('Failed to save client:', err);
+            alert('تعذر حفظ الزبون حالياً.');
         }
-        setIsModalOpen(false);
-        setIsAddCandidateModalOpen(false);
-        setEditingClient(null);
     };
 
     const openEditModal = (client: Client) => { setEditingClient(client); setIsModalOpen(true); };
@@ -236,6 +274,38 @@ export default function Clients() {
             }
         },
         { key: 'referrerName', label: 'اسم الوسيط', sortable: true, render: (c) => <span className="text-sm font-medium text-slate-700">{c.referrerName || '--'}</span> },
+    ];
+
+    const visibleClientColumns: ColumnDef<Client & { lifecycleStage: string }>[] = [
+        clientColumns[0],
+        clientColumns[1],
+        clientColumns[2],
+        {
+            key: 'branchName',
+            label: 'الفرع',
+            sortable: true,
+            render: (c) => (
+                <span className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700">
+                    {c.branchName || '--'}
+                </span>
+            ),
+            getValue: (c) => c.branchName || '',
+        },
+        {
+            key: 'assignedHrUserName',
+            label: 'المشرفة',
+            sortable: true,
+            render: (c) => (
+                <div className="text-xs leading-5">
+                    <div className="font-bold text-slate-700">{c.assignedHrUserName || '--'}</div>
+                    {c.assignedHrUsername && (
+                        <div className="font-mono text-slate-400" dir="ltr">@{c.assignedHrUsername}</div>
+                    )}
+                </div>
+            ),
+            getValue: (c) => c.assignedHrUserName || c.assignedHrUsername || '',
+        },
+        ...clientColumns.slice(3),
     ];
 
     const candidateColumns: ColumnDef<Client>[] = [
@@ -365,7 +435,7 @@ export default function Clients() {
                 icon={Users}
                 hideFilterBar={true}
                 data={mainList}
-                columns={clientColumns}
+                columns={visibleClientColumns}
                 tableMinWidth={980}
                 getId={(c) => c.id}
                 defaultSortKey="id"
@@ -402,8 +472,6 @@ export default function Clients() {
                 isOpen={isPreAddModalOpen}
                 onClose={() => setIsPreAddModalOpen(false)}
                 candidate={activeCandidateForSearch || {}}
-                clients={clients}
-                candidates={candidateList}
                 onLink={(entity, type) => {
                     setIsPreAddModalOpen(false);
                     if (type === 'Client') {

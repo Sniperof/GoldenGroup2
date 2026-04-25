@@ -10,9 +10,10 @@ interface Branch {
 }
 
 /**
- * Shown only to super admins. Picks which branch's data the UI should scope
- * reads/writes to. Selection is persisted in localStorage and attached as
- * `X-Branch-Id` to every API call by api.ts / authFetch.ts.
+ * Shown only to super admins on branch-aware pages. Picks which branch's data
+ * the UI should scope reads/writes to. Selection is persisted in localStorage
+ * and attached as `X-Branch-Id` to branch-aware API calls by api.ts /
+ * authFetch.ts.
  *
  * Non-super users don't see this — the server pins them to their own branch.
  */
@@ -61,7 +62,7 @@ export default function BranchSwitcher() {
       >
         <Building2 className="w-4 h-4" />
         <span className="flex-1 text-right truncate font-medium">
-          {current ? current.name : 'كل الفروع (HQ)'}
+          {current ? current.name : 'كل الفروع'}
         </span>
         <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -74,7 +75,10 @@ export default function BranchSwitcher() {
             className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-right text-sm"
           >
             {branchId == null ? <Check className="w-4 h-4 text-sky-600" /> : <span className="w-4" />}
-            <span className="flex-1 text-slate-700">كل الفروع (HQ)</span>
+            <div className="flex-1 text-right">
+              <div className="text-slate-700">كل الفروع</div>
+              <div className="text-xs text-slate-500">فلتر عرض للإدارة، وليس فرعاً تشغيلياً</div>
+            </div>
           </button>
           {branches.map(b => (
             <button

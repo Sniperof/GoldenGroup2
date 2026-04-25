@@ -7,6 +7,7 @@ export interface LoginUserRecord {
   password_hash: string;
   role: string;
   role_id: number | null;
+  role_display_name: string | null;
   is_active: boolean;
   is_super_admin: boolean;
   branch_id: number | null;
@@ -14,9 +15,19 @@ export interface LoginUserRecord {
 
 export async function findUserForLogin(username: string): Promise<LoginUserRecord | null> {
   const { rows } = await pool.query(
-    `SELECT id, name, username, password_hash, role, role_id, is_active,
-            is_super_admin, branch_id
-     FROM hr_users WHERE username = $1`,
+    `SELECT u.id,
+            u.name,
+            u.username,
+            u.password_hash,
+            u.role,
+            u.role_id,
+            r.display_name AS role_display_name,
+            u.is_active,
+            u.is_super_admin,
+            u.branch_id
+       FROM hr_users u
+       LEFT JOIN roles r ON r.id = u.role_id
+      WHERE u.username = $1`,
     [username.trim()]
   );
 

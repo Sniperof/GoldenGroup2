@@ -1,11 +1,13 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Navigate } from 'react-router-dom';
 import { Plus, Trash2, RotateCcw, Globe, MapPin, Map, Building, Home, X } from 'lucide-react';
 import { levelNames } from '../lib/geoConstants';
 import { api } from '../lib/api';
 import type { GeoUnit } from '../lib/types';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
+import { usePermissions } from '../hooks/usePermissions';
 
 const tabs = [
     { level: 1, label: 'المحافظات', icon: MapPin },
@@ -15,6 +17,8 @@ const tabs = [
 ];
 
 export default function GeoSettings() {
+    const { hasPermission } = usePermissions();
+    const canManageGeo = hasPermission('geo.manage');
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState(1);
@@ -24,6 +28,10 @@ export default function GeoSettings() {
     const [modalRegion, setModalRegion] = useState('');
     const [modalSubDistrict, setModalSubDistrict] = useState('');
     const [modalName, setModalName] = useState('');
+
+    if (!hasPermission('geo.view')) {
+        return <Navigate to="/" replace />;
+    }
 
     const fetchGeoUnits = useCallback(async () => {
         try {
@@ -60,6 +68,7 @@ export default function GeoSettings() {
     };
 
     const deleteUnit = async (id: number) => {
+        if (!canManageGeo) return;
         const descendants = new Set<number>();
         const collect = (pid: number) => {
             geoUnits.filter(u => u.parentId === pid).forEach(u => { descendants.add(u.id); collect(u.id); });
@@ -84,6 +93,7 @@ export default function GeoSettings() {
     };
 
     const handleAdd = async () => {
+        if (!canManageGeo) return;
         const name = modalName.trim();
         if (!name) return;
         const level = activeTab;
@@ -213,7 +223,7 @@ export default function GeoSettings() {
 
             {/* ============ Add Modal ============ */}
             <AnimatePresence>
-                {isModalOpen && (
+                {isModalOpen && canManageGeo && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}

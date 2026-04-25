@@ -10,6 +10,9 @@ import GeoSmartSearch from './GeoSmartSearch';
 import type { GeoSelection } from './GeoSmartSearch';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
+import { useAuthStore } from '../hooks/useAuthStore';
+import { usePermissions } from '../hooks/usePermissions';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
 
 interface ClientModalProps {
     isOpen: boolean;
@@ -23,6 +26,17 @@ interface ClientModalProps {
 }
 
 type Tab = 'identity' | 'contact' | 'location' | 'referral' | 'contract' | 'additional';
+
+interface BranchOption {
+    id: number;
+    name: string;
+}
+
+interface HrUserOption {
+    id: number;
+    name: string;
+    branchId?: number | null;
+}
 
 const tabsDef: { id: Tab; label: string; icon: any }[] = [
     { id: 'identity',    label: 'الهوية',         icon: User          },
@@ -57,13 +71,22 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const isEditMode = Boolean(initialData?.id);
     const [activeTab, setActiveTab] = useState<Tab>('identity');
     const [formData, setFormData] = useState<Partial<Client>>({});
+    const authUser = useAuthStore(state => state.user);
+    const { hasPermission } = usePermissions();
+    const { branchId: contextBranchId } = useBranchContextStore();
+    const canChooseBranch = authUser?.isSuperAdmin === true;
+    const canChooseAssignedOwner = authUser?.isSuperAdmin === true || hasPermission('admin.roles.view');
 
     const candidates = useCandidateStore(state => state.candidates);
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
     const [employees, setEmployees] = useState<Array<{ id: number; name: string }>>([]);
+    const [branches, setBranches] = useState<BranchOption[]>([]);
+    const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
+    const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
+    const [assignedHrUserId, setAssignedHrUserId] = useState<number | ''>('');
 
     // Identity fields
     const [firstName, setFirstName] = useState('');
@@ -100,6 +123,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [notes, setNotes] = useState('');
     const [rating, setRating] = useState<ClientRating>('Undefined');
     const clientSearchRef = useRef<HTMLDivElement>(null);
+    const currentUserDisplayName = authUser?.name?.trim() || '';
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -117,30 +141,58 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         let active = true;
 
         const fetchLookupData = async () => {
-            try {
-                const [clientsData, employeesData, visitsData, contractsData, occupationList] = await Promise.all([
-                    api.clients.list(),
-                    api.employees.list(),
-                    api.visits.list(),
-                    api.contracts.list(),
-                    api.systemLists.list({ category: 'occupation', activeOnly: true }),
-                ]);
+            // X3.4: Use allSettled so a permission failure on one lookup (e.g.
+            // contracts.view_list for a supervisor) does NOT blank out the clients
+            // list that powers the mediator/وسيط field.  Each fetch is independent.
+            const [
+                clientsRes,
+                employeesRes,
+                visitsRes,
+                contractsRes,
+                occupationRes,
+                branchesRes,
+                hrUsersRes,
+            ] = await Promise.allSettled([
+                api.clients.list(),
+                api.employees.list(),
+                api.visits.list(),
+                api.contracts.list(),
+                api.systemLists.list({ category: 'occupation', activeOnly: true }),
+                canChooseBranch ? api.branches.list() : Promise.resolve([]),
+                canChooseAssignedOwner ? api.admin.hrUsers.list() : Promise.resolve([]),
+            ]);
 
-                if (!active) return;
-                setAllClients(clientsData);
-                setEmployees(employeesData.map((employee: any) => ({ id: employee.id, name: employee.name })));
-                setVisits(visitsData);
-                setContracts(contractsData);
-                setOccupationOptions(occupationList.map((item: any) => item.value));
-            } catch (error) {
-                console.error('Failed to fetch client modal lookup data:', error);
-                if (!active) return;
-                setAllClients([]);
-                setEmployees([]);
-                setVisits([]);
-                setContracts([]);
-                setOccupationOptions([]);
-            }
+            if (!active) return;
+
+            // clients: authorized by GET /clients (GLOBAL / BRANCH / ASSIGNED)
+            setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
+
+            setEmployees(
+                employeesRes.status === 'fulfilled'
+                    ? employeesRes.value.map((e: any) => ({ id: e.id, name: e.name }))
+                    : [],
+            );
+            setVisits(visitsRes.status === 'fulfilled' ? visitsRes.value : []);
+            setContracts(contractsRes.status === 'fulfilled' ? contractsRes.value : []);
+            setOccupationOptions(
+                occupationRes.status === 'fulfilled'
+                    ? occupationRes.value.map((item: any) => item.value)
+                    : [],
+            );
+            setBranches(
+                branchesRes.status === 'fulfilled'
+                    ? branchesRes.value.map((b: any) => ({ id: b.id, name: b.name }))
+                    : [],
+            );
+            setHrUsers(
+                hrUsersRes.status === 'fulfilled'
+                    ? hrUsersRes.value.map((u: any) => ({
+                          id: u.id,
+                          name: u.name,
+                          branchId: u.branch_id ?? u.branchId ?? null,
+                      }))
+                    : [],
+            );
         };
 
         fetchLookupData();
@@ -148,20 +200,32 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         return () => {
             active = false;
         };
-    }, [isOpen]);
+    }, [isOpen, canChooseAssignedOwner, canChooseBranch]);
 
     useEffect(() => {
         if (referralType === 'Personal') {
             setOriginChannel('Acquaintance');
-            setReferralNameSnapshot('المدير/المشرف المباشر');
+            setReferralNameSnapshot(currentUserDisplayName);
+            setEmployeeIdInput('');
+            setEmployeeFound(null);
+            setEmployeeSearchError('');
+            setClientSearch('');
+            setSelectedClientId(null);
+            setClientSuggestions([]);
         } else if (referralType === 'Unknown') {
             setReferralNameSnapshot('مجهول');
+            setEmployeeIdInput('');
+            setEmployeeFound(null);
+            setEmployeeSearchError('');
+            setClientSearch('');
+            setSelectedClientId(null);
+            setClientSuggestions([]);
         } else if (referralType === 'Employee' && employeeFound) {
             setReferralNameSnapshot(employeeFound.name);
         } else if (referralType === 'Client' && selectedClientId) {
             // Already handled in select client
         }
-    }, [referralType, employeeFound, selectedClientId]);
+    }, [referralType, employeeFound, selectedClientId, currentUserDisplayName]);
 
     const handleEmployeeBlur = () => {
         if (!employeeIdInput.trim()) {
@@ -212,6 +276,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         if (isOpen) {
             if (initialData) {
                 setFormData(initialData);
+                setSelectedBranchId(initialData.branchId ?? '');
+                setAssignedHrUserId(initialData.assignedHrUserId ?? '');
                 setFirstName(initialData.firstName || '');
                 setNickname(initialData.nickname || '');
                 setLastName(initialData.lastName || '');
@@ -241,7 +307,15 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setNotes(initialData.notes || '');
                 setRating(initialData.rating || 'Undefined');
             } else {
-                setFormData({ sourceChannel: 'App', referrerType: 'Other', governorate: '1' });
+                setFormData({
+                    sourceChannel: 'App',
+                    referrerType: 'Other',
+                    governorate: '1',
+                    branchId: canChooseBranch ? (contextBranchId ?? undefined) : undefined,
+                    assignedHrUserId: undefined,
+                });
+                setSelectedBranchId(canChooseBranch ? (contextBranchId ?? '') : '');
+                setAssignedHrUserId('');
                 setFirstName(''); setNickname(''); setLastName(''); setFatherName('');
                 setContacts(lockedPhone
                     ? [{ ...emptyContact(true), number: lockedPhone, type: 'mobile' }]
@@ -249,7 +323,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setMapPosition(null);
                 setReferralType('Personal');
                 setOriginChannel('App');
-                setReferralNameSnapshot('');
+                setReferralNameSnapshot(currentUserDisplayName);
                 setGender('');
                 setNationalId('');
                 setBirthDate('');
@@ -267,14 +341,27 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             // Reconstruct geoSelection: stored neighborhood may be level 3 (ناحية) or level 4 (حي)
             const storedNeighId = initialData?.neighborhood?.toString() || '';
             const storedUnit = storedNeighId ? geoUnits.find(u => u.id.toString() === storedNeighId) : null;
+            const storedSubArea = storedUnit?.level === 4 && storedUnit.parentId != null
+                ? geoUnits.find(u => u.id === storedUnit.parentId) || null
+                : storedUnit?.level === 3
+                    ? storedUnit
+                    : null;
+            const storedRegion = storedSubArea?.parentId != null
+                ? geoUnits.find(u => u.id === storedSubArea.parentId) || null
+                : null;
+            const storedGovernorate = storedRegion?.parentId != null
+                ? geoUnits.find(u => u.id === storedRegion.parentId) || null
+                : initialData?.governorate
+                    ? geoUnits.find(u => u.id.toString() === initialData.governorate.toString()) || null
+                    : null;
             setGeoSelection({
-                govId: initialData?.governorate?.toString() || '',
-                regionId: '',
-                subId: storedUnit?.level === 3 ? storedNeighId : '',
+                govId: storedGovernorate?.id?.toString() || initialData?.governorate?.toString() || '',
+                regionId: storedRegion?.id?.toString() || '',
+                subId: storedSubArea?.id?.toString() || '',
                 neighborhoodId: storedUnit?.level === 4 ? storedNeighId : '',
             });
         }
-    }, [isOpen, initialData, geoUnits]);
+    }, [isOpen, initialData, geoUnits, canChooseBranch, contextBranchId, currentUserDisplayName]);
 
     const updateForm = useCallback((key: string, value: any) => {
         setFormData(prev => ({ ...prev, [key]: value }));
@@ -394,6 +481,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         ? duplicateMap.get(primaryContact.number)
         : undefined;
 
+    const assignableHrUsers = useMemo(() => {
+        if (!canChooseAssignedOwner) return [];
+        if (selectedBranchId === '') return hrUsers;
+        return hrUsers.filter(user => user.branchId == null || user.branchId === Number(selectedBranchId));
+    }, [canChooseAssignedOwner, hrUsers, selectedBranchId]);
+
     // -- fromCandidate locking helpers --
     // effectiveLockedPhone: either explicit lockedPhone prop OR the candidate's mobile when fromCandidate
     const effectiveLockedPhone = useMemo(() => {
@@ -414,6 +507,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
     // -- Save --
     const handleSave = () => {
+        if (canChooseBranch && !selectedBranchId) {
+            alert('يجب تحديد الفرع قبل حفظ العميل');
+            return;
+        }
+
         if (!firstName.trim()) {
             alert('الاسم الأول إلزامي');
             return;
@@ -438,7 +536,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         }
 
         // Geo validation: skip when fromCandidate (geo is locked from candidate data)
-        if (!fromCandidate && !geoSelection.subId) {
+        if (!fromCandidate && !(geoSelection.subId || geoSelection.neighborhoodId)) {
             alert('يجب اختيار ناحية على الأقل في العنوان — لا يمكن الاكتفاء بمحافظة أو منطقة');
             return;
         }
@@ -454,6 +552,21 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             return;
         }
 
+        const resolvedReferrerName = referralType === 'Personal'
+            ? currentUserDisplayName
+            : referralType === 'Unknown'
+                ? 'مجهول'
+                : referralType === 'Employee'
+                    ? (employeeFound?.name || '')
+                    : referralType === 'Client'
+                        ? (clientSearch.trim() || referralNameSnapshot.trim())
+                        : referralNameSnapshot.trim();
+        const resolvedReferralEntityId = referralType === 'Client'
+            ? selectedClientId || undefined
+            : referralType === 'Employee'
+                ? employeeFound?.id || undefined
+                : undefined;
+
         onSave({
             ...formData,
             firstName: firstName.trim(),
@@ -466,8 +579,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             gpsCoordinates: mapPosition ? { lat: mapPosition[0], lng: mapPosition[1] } : undefined,
             referrerType: referralType,
             sourceChannel: originChannel,
-            referrerName: referralNameSnapshot,
-            referralEntityId: selectedClientId || employeeFound?.id || undefined,
+            referrerName: resolvedReferrerName || undefined,
+            referralEntityId: resolvedReferralEntityId,
             gender: (gender as any) || undefined,
             nationalId: nationalId.trim() || undefined,
             birthDate: birthDate || undefined,
@@ -476,6 +589,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             spouseOccupation: spouseOccupation.trim() || undefined,
             dataQuality: (dataQuality as any) || undefined,
             notes: notes.trim() || undefined,
+            branchId: selectedBranchId === '' ? undefined : Number(selectedBranchId),
+            assignedHrUserId: assignedHrUserId === '' ? undefined : Number(assignedHrUserId),
             ...(isEditMode ? { rating } : {}),
         } as Client);
     };
@@ -535,6 +650,50 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             {/* ============ IDENTITY TAB ============ */}
                             {activeTab === 'identity' && (
                                 <div className="space-y-4">
+                                    {(canChooseBranch || canChooseAssignedOwner) && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                            {canChooseBranch && (
+                                                <div className="space-y-1">
+                                                    <label className="text-xs font-semibold text-slate-500">
+                                                        الفرع التشغيلي <span className="text-red-500">*</span>
+                                                    </label>
+                                                    <select
+                                                        value={selectedBranchId}
+                                                        onChange={e => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
+                                                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
+                                                    >
+                                                        <option value="">اختر الفرع</option>
+                                                        {branches.map(branch => (
+                                                            <option key={branch.id} value={branch.id}>{branch.name}</option>
+                                                        ))}
+                                                    </select>
+                                                    <p className="text-[11px] text-slate-400">
+                                                        هذا هو الفرع التشغيلي للعميل، وليس فلتر عرض فقط.
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {canChooseAssignedOwner && (
+                                                <div className="space-y-1">
+                                                    <label className="text-xs font-semibold text-slate-500">المسؤول عن العميل</label>
+                                                    <select
+                                                        value={assignedHrUserId}
+                                                        onChange={e => setAssignedHrUserId(e.target.value ? Number(e.target.value) : '')}
+                                                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
+                                                    >
+                                                        <option value="">غير مسند حالياً</option>
+                                                        {assignableHrUsers.map(user => (
+                                                            <option key={user.id} value={user.id}>{user.name}</option>
+                                                        ))}
+                                                    </select>
+                                                    <p className="text-[11px] text-slate-400">
+                                                        هذا الحقل يحدد المسؤول الأمني عن العميل، وليس المُحيل أو الواسطة.
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
@@ -820,7 +979,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             العنوان منقول من الاسم المقترح — لا يمكن تعديله
                                         </p>
                                     )}
-                                    {!fl(initialData?.neighborhood) && !geoSelection.subId && (
+                                    {!fl(initialData?.neighborhood) && !(geoSelection.subId || geoSelection.neighborhoodId) && (
                                         <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1.5 -mt-2">
                                             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                                             يجب اختيار ناحية على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
@@ -947,39 +1106,47 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 {referralType === 'Client' && (
                                                     <div ref={clientSearchRef} className="relative">
                                                         <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الزبون *</label>
-                                                        <input
-                                                            type="text"
-                                                            value={clientSearch}
-                                                            onChange={(e) => handleClientSearch(e.target.value)}
-                                                            onFocus={() => handleClientSearch(clientSearch)}
-                                                            placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-                                                            className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
-                                                        />
-                                                        {clientSuggestions.length > 0 && (
-                                                            <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-10 overflow-hidden">
-                                                                {clientSuggestions.map(client => (
-                                                                    <button
-                                                                        key={client.id}
-                                                                        onClick={() => handleSelectClient(client)}
-                                                                        className="w-full text-right px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors flex items-center justify-between"
-                                                                    >
-                                                                        <div className="flex flex-col items-start gap-1">
-                                                                            <span className="font-bold text-slate-700 text-sm">{client.name}</span>
-                                                                            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
-                                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                                                : getClientLifecycleStage(client) === 'FOP'
-                                                                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                                    : 'bg-slate-50 text-slate-600 border-slate-200'
-                                                                                }`}>
-                                                                                {getClientLifecycleStage(client) === 'OP' ? 'زبون OP' : getClientLifecycleStage(client) === 'FOP' ? 'زبون محتمل FOP' : 'اسم مرشح'}
-                                                                            </span>
-                                                                        </div>
-                                                                        <span className="text-xs text-slate-400 font-mono" dir="ltr">
-                                                                            {client.contacts.find(con => con.isPrimary)?.number || client.contacts[0]?.number || '--'}
-                                                                        </span>
-                                                                    </button>
-                                                                ))}
-                                                            </div>
+                                                        {allClients.filter(c => !c.isCandidate).length === 0 ? (
+                                                            <p className="text-xs text-slate-400 italic py-2 px-1">
+                                                                لا يوجد زبائن متاحون كوسيط ضمن صلاحياتك.
+                                                            </p>
+                                                        ) : (
+                                                            <>
+                                                                <input
+                                                                    type="text"
+                                                                    value={clientSearch}
+                                                                    onChange={(e) => handleClientSearch(e.target.value)}
+                                                                    onFocus={() => handleClientSearch(clientSearch)}
+                                                                    placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
+                                                                    className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+                                                                />
+                                                                {clientSuggestions.length > 0 && (
+                                                                    <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-10 overflow-hidden">
+                                                                        {clientSuggestions.map(client => (
+                                                                            <button
+                                                                                key={client.id}
+                                                                                onClick={() => handleSelectClient(client)}
+                                                                                className="w-full text-right px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors flex items-center justify-between"
+                                                                            >
+                                                                                <div className="flex flex-col items-start gap-1">
+                                                                                    <span className="font-bold text-slate-700 text-sm">{client.name}</span>
+                                                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
+                                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                                        : getClientLifecycleStage(client) === 'FOP'
+                                                                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                                            : 'bg-slate-50 text-slate-600 border-slate-200'
+                                                                                        }`}>
+                                                                                        {getClientLifecycleStage(client) === 'OP' ? 'زبون OP' : getClientLifecycleStage(client) === 'FOP' ? 'زبون محتمل FOP' : 'اسم مرشح'}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <span className="text-xs text-slate-400 font-mono" dir="ltr">
+                                                                                    {client.contacts.find(con => con.isPrimary)?.number || client.contacts[0]?.number || '--'}
+                                                                                </span>
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </>
                                                         )}
                                                     </div>
                                                 )}
@@ -990,9 +1157,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         <input
                                                             type="text"
                                                             value={referralNameSnapshot}
-                                                            disabled
-                                                            className="w-full p-2.5 rounded-xl border border-gray-200 bg-slate-50 text-slate-500 font-bold cursor-not-allowed text-sm focus:border-sky-500 focus:outline-none"
+                                                            readOnly
+                                                            className="w-full p-2.5 rounded-xl border border-gray-200 bg-slate-50 text-slate-600 font-bold cursor-not-allowed text-sm focus:border-sky-500 focus:outline-none"
                                                         />
+                                                        {referralType === 'Personal' && (
+                                                            <p className="mt-1 text-[11px] text-slate-400">
+                                                                يتم اعتماد اسم المستخدم الحالي تلقائياً عند اختيار وسيط شخصي.
+                                                            </p>
+                                                        )}
                                                     </div>
                                                 )}
                                             </>

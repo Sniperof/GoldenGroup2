@@ -1,14 +1,17 @@
+import { shouldAttachBranchContextHeader } from './branchContext';
+
 /**
  * Drop-in replacement for fetch() that attaches the JWT Authorization header
  * from localStorage for all admin API calls.
  *
  * Also attaches X-Branch-Id when the current user is a super admin and has
- * selected a branch context. Non-super users never set this header; the server
- * ignores it for them anyway.
+ * selected a branch context. Non-super users never set this header; global-only
+ * admin pages also skip it so they stay outside branch context.
  */
 
 function getBranchContextHeader(): string | null {
   try {
+    if (!shouldAttachBranchContextHeader(window.location.pathname)) return null;
     const rawUser = localStorage.getItem('hr_user');
     if (!rawUser) return null;
     const user = JSON.parse(rawUser);

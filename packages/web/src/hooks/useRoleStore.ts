@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { trpc } from '../lib/trpc';
-import type { Role, Permission, HrUser } from '@golden-crm/shared';
+import type { Role, Permission, RolePermissionGrant, HrUser } from '@golden-crm/shared';
 
 // Re-export so existing page components that `import { Role } from '../hooks/useRoleStore'`
 // continue to work without any changes.
-export type { Role, Permission, HrUser };
+export type { Role, Permission, RolePermissionGrant, HrUser };
 
 // ── Store interface ────────────────────────────────────────────────────────
 // Identical to the previous interface — page components are unaffected.
@@ -23,7 +23,7 @@ interface RoleStore {
   createRole: (data: { name: string; displayName: string; description?: string }) => Promise<Role>;
   updateRole: (id: number, data: { displayName?: string; description?: string; isActive?: boolean }) => Promise<void>;
   deleteRole: (id: number) => Promise<void>;
-  updateRolePermissions: (roleId: number, permissionIds: number[]) => Promise<void>;
+  updateRolePermissions: (roleId: number, grants: Array<{ permissionId: number; scopeType: RolePermissionGrant['scopeType'] }>) => Promise<void>;
 
   createHrUser: (data: { name: string; username: string; password: string; roleId: number }) => Promise<void>;
   updateHrUser: (id: number, data: { name?: string; username?: string; password?: string; roleId?: number; isActive?: boolean }) => Promise<void>;
@@ -84,10 +84,10 @@ export const useRoleStore = create<RoleStore>((set) => ({
     set(s => ({ roles: s.roles.filter(r => r.id !== id) }));
   },
 
-  async updateRolePermissions(roleId, permissionIds) {
-    await trpc.roles.setPermissions.mutate({ roleId, permissionIds });
+  async updateRolePermissions(roleId, grants) {
+    await trpc.roles.setPermissions.mutate({ roleId, grants });
     set(s => ({
-      roles: s.roles.map(r => r.id === roleId ? { ...r, permissionCount: permissionIds.length } : r),
+      roles: s.roles.map(r => r.id === roleId ? { ...r, permissionCount: grants.length } : r),
     }));
   },
 

@@ -1,7 +1,8 @@
-import bcrypt from 'bcryptjs';
+﻿import bcrypt from 'bcryptjs';
 import type { ContactEntry, ContactStatus, ContactType } from '@golden-crm/shared';
 import pool from '../db.js';
 import { clearPermissionCache } from '../middleware/permission.js';
+import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment } from './roleAssignmentGuard.js';
 import { deriveEmployeeRoleFromVacancyTitle, getEmployeeAvatar } from '../utils/recruitmentPolicy.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import {
@@ -22,7 +23,6 @@ import {
   findEmployeeDuplicateByContactNumbers,
   findEmployeeSystemAccount,
   findGeoUnitsByIds,
-  findRoleById,
   findRoleDisplayName,
   insertEmployeeSystemAccount,
   listScopedEmployeeManagerCandidates,
@@ -109,7 +109,7 @@ function asOptionalDate(value: unknown, error?: string): string | null {
   if (value == null || value === '') return null;
   const raw = String(value);
   if (Number.isNaN(Date.parse(raw))) {
-    throw createServiceError(400, { error: error || 'التاريخ غير صالح' });
+    throw createServiceError(400, { error: error || 'Ø§Ù„ØªØ§Ø±ÙŠØ® ØºÙŠØ± ØµØ§Ù„Ø­' });
   }
   return raw;
 }
@@ -124,16 +124,16 @@ function asOptionalNumber(value: unknown, error?: string): number | null {
   if (value == null || value === '') return null;
   const num = Number(value);
   if (!Number.isFinite(num)) {
-    throw createServiceError(400, { error: error || 'القيمة الرقمية غير صالحة' });
+    throw createServiceError(400, { error: error || 'Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø±Ù‚Ù…ÙŠØ© ØºÙŠØ± ØµØ§Ù„Ø­Ø©' });
   }
   return num;
 }
 
 function asGender(value: unknown): 'male' | 'female' {
   const raw = String(value ?? '').trim().toLowerCase();
-  if (raw === 'male' || raw === 'ذكر') return 'male';
-  if (raw === 'female' || raw === 'أنثى' || raw === 'انثى') return 'female';
-  throw createServiceError(400, { error: 'الجنس مطلوب' });
+  if (raw === 'male' || raw === 'Ø°ÙƒØ±') return 'male';
+  if (raw === 'female' || raw === 'Ø£Ù†Ø«Ù‰' || raw === 'Ø§Ù†Ø«Ù‰') return 'female';
+  throw createServiceError(400, { error: 'Ø§Ù„Ø¬Ù†Ø³ Ù…Ø·Ù„ÙˆØ¨' });
 }
 
 function asEmployeeStatus(value: unknown): 'active' | 'leave' | 'inactive' {
@@ -146,8 +146,8 @@ function asOptionalBoolean(value: unknown): boolean | null {
   if (value == null || value === '') return null;
   if (typeof value === 'boolean') return value;
   const raw = String(value).trim().toLowerCase();
-  if (['yes', 'true', '1', 'نعم'].includes(raw)) return true;
-  if (['no', 'false', '0', 'لا'].includes(raw)) return false;
+  if (['yes', 'true', '1', 'Ù†Ø¹Ù…'].includes(raw)) return true;
+  if (['no', 'false', '0', 'Ù„Ø§'].includes(raw)) return false;
   return null;
 }
 
@@ -196,10 +196,10 @@ function normalizeContacts(rawContacts: unknown, fallbackMobile?: unknown): Cont
       if (!digits) return null;
 
       if (type === 'mobile' && digits.length !== 10) {
-        throw createServiceError(400, { error: 'رقم الموبايل يجب أن يتكون من 10 أرقام' });
+        throw createServiceError(400, { error: 'Ø±Ù‚Ù… Ø§Ù„Ù…ÙˆØ¨Ø§ÙŠÙ„ ÙŠØ¬Ø¨ Ø£Ù† ÙŠØªÙƒÙˆÙ† Ù…Ù† 10 Ø£Ø±Ù‚Ø§Ù…' });
       }
       if (type === 'landline' && digits.length !== 7) {
-        throw createServiceError(400, { error: 'رقم الهاتف الأرضي يجب أن يتكون من 7 أرقام' });
+        throw createServiceError(400, { error: 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ Ø§Ù„Ø£Ø±Ø¶ÙŠ ÙŠØ¬Ø¨ Ø£Ù† ÙŠØªÙƒÙˆÙ† Ù…Ù† 7 Ø£Ø±Ù‚Ø§Ù…' });
       }
 
       const areaCode = type === 'landline'
@@ -207,7 +207,7 @@ function normalizeContacts(rawContacts: unknown, fallbackMobile?: unknown): Cont
         : undefined;
 
       if (type === 'landline' && !areaCode) {
-        throw createServiceError(400, { error: 'لاحقة الهاتف الأرضي مطلوبة' });
+        throw createServiceError(400, { error: 'Ù„Ø§Ø­Ù‚Ø© Ø§Ù„Ù‡Ø§ØªÙ Ø§Ù„Ø£Ø±Ø¶ÙŠ Ù…Ø·Ù„ÙˆØ¨Ø©' });
       }
 
       return {
@@ -239,7 +239,7 @@ function normalizeContacts(rawContacts: unknown, fallbackMobile?: unknown): Cont
   }
 
   if (prepared.length === 0) {
-    throw createServiceError(400, { error: 'يجب إضافة وسيلة تواصل واحدة على الأقل' });
+    throw createServiceError(400, { error: 'ÙŠØ¬Ø¨ Ø¥Ø¶Ø§ÙØ© ÙˆØ³ÙŠÙ„Ø© ØªÙˆØ§ØµÙ„ ÙˆØ§Ø­Ø¯Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„' });
   }
 
   const primaryIndex = prepared.findIndex((contact) => contact.type === 'mobile');
@@ -250,7 +250,7 @@ function normalizeContacts(rawContacts: unknown, fallbackMobile?: unknown): Cont
 function getCanonicalMobile(contacts: ContactEntry[]): string {
   const primary = contacts.find((contact) => contact.isPrimary) || contacts[0];
   if (!primary) {
-    throw createServiceError(400, { error: 'يجب إضافة وسيلة تواصل صالحة' });
+    throw createServiceError(400, { error: 'ÙŠØ¬Ø¨ Ø¥Ø¶Ø§ÙØ© ÙˆØ³ÙŠÙ„Ø© ØªÙˆØ§ØµÙ„ ØµØ§Ù„Ø­Ø©' });
   }
   return primary.type === 'landline' && primary.areaCode
     ? `${primary.areaCode}${primary.number}`
@@ -278,48 +278,48 @@ export async function prepareEmployeeWriteInput(
   branchId: number,
   options?: { excludeEmployeeId?: number | string | null },
 ): Promise<EmployeeWriteInput> {
-  const firstName = asRequiredText(body.firstName, 'الاسم الأول مطلوب');
-  const lastName = asRequiredText(body.lastName, 'الكنية مطلوبة');
+  const firstName = asRequiredText(body.firstName, 'Ø§Ù„Ø§Ø³Ù… Ø§Ù„Ø£ÙˆÙ„ Ù…Ø·Ù„ÙˆØ¨');
+  const lastName = asRequiredText(body.lastName, 'Ø§Ù„ÙƒÙ†ÙŠØ© Ù…Ø·Ù„ÙˆØ¨Ø©');
   const fatherName = asOptionalText(body.fatherName);
-  const birthDate = asRequiredDate(body.birthDate, 'تاريخ الميلاد مطلوب');
+  const birthDate = asRequiredDate(body.birthDate, 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ù…ÙŠÙ„Ø§Ø¯ Ù…Ø·Ù„ÙˆØ¨');
   const gender = asGender(body.gender);
-  const maritalStatus = asRequiredText(body.maritalStatus, 'الحالة الاجتماعية مطلوبة');
-  const militaryService = asRequiredText(body.militaryService, 'الخدمة العسكرية مطلوبة');
-  const jobTitle = asRequiredText(body.jobTitle, 'المسمى الوظيفي مطلوب');
-  const contractType = asRequiredText(body.contractType, 'نوع العقد مطلوب');
-  const workType = asRequiredText(body.workType, 'نوع العمل مطلوب');
-  const departmentId = asOptionalNumber(body.departmentId, 'القسم غير صالح');
+  const maritalStatus = asRequiredText(body.maritalStatus, 'Ø§Ù„Ø­Ø§Ù„Ø© Ø§Ù„Ø§Ø¬ØªÙ…Ø§Ø¹ÙŠØ© Ù…Ø·Ù„ÙˆØ¨Ø©');
+  const militaryService = asRequiredText(body.militaryService, 'Ø§Ù„Ø®Ø¯Ù…Ø© Ø§Ù„Ø¹Ø³ÙƒØ±ÙŠØ© Ù…Ø·Ù„ÙˆØ¨Ø©');
+  const jobTitle = asRequiredText(body.jobTitle, 'Ø§Ù„Ù…Ø³Ù…Ù‰ Ø§Ù„ÙˆØ¸ÙŠÙÙŠ Ù…Ø·Ù„ÙˆØ¨');
+  const contractType = asRequiredText(body.contractType, 'Ù†ÙˆØ¹ Ø§Ù„Ø¹Ù‚Ø¯ Ù…Ø·Ù„ÙˆØ¨');
+  const workType = asRequiredText(body.workType, 'Ù†ÙˆØ¹ Ø§Ù„Ø¹Ù…Ù„ Ù…Ø·Ù„ÙˆØ¨');
+  const departmentId = asOptionalNumber(body.departmentId, 'Ø§Ù„Ù‚Ø³Ù… ØºÙŠØ± ØµØ§Ù„Ø­');
   if (!departmentId) {
-    throw createServiceError(400, { error: 'القسم مطلوب' });
+    throw createServiceError(400, { error: 'Ø§Ù„Ù‚Ø³Ù… Ù…Ø·Ù„ÙˆØ¨' });
   }
 
   const geoSelection = body.geoSelection || {};
-  const residenceGovernorateId = asOptionalNumber(geoSelection.govId ?? body.residenceGovernorateId, 'المحافظة غير صالحة');
-  const residenceRegionId = asOptionalNumber(geoSelection.regionId ?? body.residenceRegionId, 'المنطقة غير صالحة');
-  const residenceSubAreaId = asOptionalNumber(geoSelection.subId ?? body.residenceSubAreaId, 'الناحية غير صالحة');
+  const residenceGovernorateId = asOptionalNumber(geoSelection.govId ?? body.residenceGovernorateId, 'Ø§Ù„Ù…Ø­Ø§ÙØ¸Ø© ØºÙŠØ± ØµØ§Ù„Ø­Ø©');
+  const residenceRegionId = asOptionalNumber(geoSelection.regionId ?? body.residenceRegionId, 'Ø§Ù„Ù…Ù†Ø·Ù‚Ø© ØºÙŠØ± ØµØ§Ù„Ø­Ø©');
+  const residenceSubAreaId = asOptionalNumber(geoSelection.subId ?? body.residenceSubAreaId, 'Ø§Ù„Ù†Ø§Ø­ÙŠØ© ØºÙŠØ± ØµØ§Ù„Ø­Ø©');
   const residenceNeighborhoodId = asOptionalNumber(
     geoSelection.neighborhoodId ?? body.residenceNeighborhoodId,
-    'الحي غير صالح',
+    'Ø§Ù„Ø­ÙŠ ØºÙŠØ± ØµØ§Ù„Ø­',
   );
 
   if (!residenceGovernorateId) {
-    throw createServiceError(400, { error: 'المحافظة مطلوبة' });
+    throw createServiceError(400, { error: 'Ø§Ù„Ù…Ø­Ø§ÙØ¸Ø© Ù…Ø·Ù„ÙˆØ¨Ø©' });
   }
   if (!residenceRegionId) {
-    throw createServiceError(400, { error: 'المنطقة مطلوبة' });
+    throw createServiceError(400, { error: 'Ø§Ù„Ù…Ù†Ø·Ù‚Ø© Ù…Ø·Ù„ÙˆØ¨Ø©' });
   }
   if (!residenceSubAreaId) {
-    throw createServiceError(400, { error: 'الناحية مطلوبة' });
+    throw createServiceError(400, { error: 'Ø§Ù„Ù†Ø§Ø­ÙŠØ© Ù…Ø·Ù„ÙˆØ¨Ø©' });
   }
 
   const branch = await findBranchById(branchId);
   if (!branch) {
-    throw createServiceError(400, { error: 'الفرع المحدد غير موجود' });
+    throw createServiceError(400, { error: 'Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ù…Ø­Ø¯Ø¯ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
   }
 
   const department = await findDepartmentInBranch(departmentId, branchId);
   if (!department) {
-    throw createServiceError(400, { error: 'القسم المحدد لا ينتمي إلى الفرع المختار' });
+    throw createServiceError(400, { error: 'Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ù…Ø­Ø¯Ø¯ Ù„Ø§ ÙŠÙ†ØªÙ…ÙŠ Ø¥Ù„Ù‰ Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ù…Ø®ØªØ§Ø±' });
   }
 
   const geoRows = await findGeoUnitsByIds([
@@ -336,7 +336,7 @@ export async function prepareEmployeeWriteInput(
   const residenceNeighborhood = residenceNeighborhoodId ? geoMap.get(residenceNeighborhoodId) ?? null : null;
 
   if (!residenceGovernorate || !residenceRegion || !residenceSubArea) {
-    throw createServiceError(400, { error: 'تعذر قراءة العنوان الجغرافي المحدد' });
+    throw createServiceError(400, { error: 'ØªØ¹Ø°Ø± Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„Ø¹Ù†ÙˆØ§Ù† Ø§Ù„Ø¬ØºØ±Ø§ÙÙŠ Ø§Ù„Ù…Ø­Ø¯Ø¯' });
   }
 
   const contacts = normalizeContacts(body.contacts, body.mobile);
@@ -348,31 +348,31 @@ export async function prepareEmployeeWriteInput(
   );
   if (duplicate) {
     throw createServiceError(409, {
-      error: `يوجد سجل موظف مطابق لأحد أرقام التواصل مسبقاً (#${duplicate.employeeNumber ?? duplicate.id})`,
+      error: `ÙŠÙˆØ¬Ø¯ Ø³Ø¬Ù„ Ù…ÙˆØ¸Ù Ù…Ø·Ø§Ø¨Ù‚ Ù„Ø£Ø­Ø¯ Ø£Ø±Ù‚Ø§Ù… Ø§Ù„ØªÙˆØ§ØµÙ„ Ù…Ø³Ø¨Ù‚Ø§Ù‹ (#${duplicate.employeeNumber ?? duplicate.id})`,
       duplicateEmployeeId: duplicate.id,
     });
   }
 
-  const directManagerId = asOptionalNumber(body.directManagerId, 'المدير المباشر غير صالح');
+  const directManagerId = asOptionalNumber(body.directManagerId, 'Ø§Ù„Ù…Ø¯ÙŠØ± Ø§Ù„Ù…Ø¨Ø§Ø´Ø± ØºÙŠØ± ØµØ§Ù„Ø­');
   if (directManagerId != null) {
     if (options?.excludeEmployeeId != null && Number(options.excludeEmployeeId) === directManagerId) {
-      throw createServiceError(400, { error: 'لا يمكن أن يكون الموظف مديراً مباشراً لنفسه' });
+      throw createServiceError(400, { error: 'Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø£Ù† ÙŠÙƒÙˆÙ† Ø§Ù„Ù…ÙˆØ¸Ù Ù…Ø¯ÙŠØ±Ø§Ù‹ Ù…Ø¨Ø§Ø´Ø±Ø§Ù‹ Ù„Ù†ÙØ³Ù‡' });
     }
     const managerCandidates = await listScopedEmployeeManagerCandidates(branchId, departmentId);
     if (!managerCandidates.some((candidate) => candidate.id === directManagerId)) {
       throw createServiceError(400, {
-        error: 'يجب اختيار المدير المباشر من مدراء القسم المعتمدين في نفس الفرع',
+        error: 'ÙŠØ¬Ø¨ Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ù…Ø¯ÙŠØ± Ø§Ù„Ù…Ø¨Ø§Ø´Ø± Ù…Ù† Ù…Ø¯Ø±Ø§Ø¡ Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ù…Ø¹ØªÙ…Ø¯ÙŠÙ† ÙÙŠ Ù†ÙØ³ Ø§Ù„ÙØ±Ø¹',
       });
     }
     const managerBranchId = await findEmployeeBranchId(directManagerId);
     if (managerBranchId !== branchId) {
-      throw createServiceError(400, { error: 'يجب أن يكون المدير المباشر من نفس الفرع' });
+      throw createServiceError(400, { error: 'ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ø§Ù„Ù…Ø¯ÙŠØ± Ø§Ù„Ù…Ø¨Ø§Ø´Ø± Ù…Ù† Ù†ÙØ³ Ø§Ù„ÙØ±Ø¹' });
     }
   }
 
-  const yearsOfExperience = asOptionalNumber(body.yearsOfExperience, 'سنوات الخبرة غير صالحة');
+  const yearsOfExperience = asOptionalNumber(body.yearsOfExperience, 'Ø³Ù†ÙˆØ§Øª Ø§Ù„Ø®Ø¨Ø±Ø© ØºÙŠØ± ØµØ§Ù„Ø­Ø©');
   if (yearsOfExperience != null && yearsOfExperience < 0) {
-    throw createServiceError(400, { error: 'سنوات الخبرة يجب أن تكون 0 أو أكثر' });
+    throw createServiceError(400, { error: 'Ø³Ù†ÙˆØ§Øª Ø§Ù„Ø®Ø¨Ø±Ø© ÙŠØ¬Ø¨ Ø£Ù† ØªÙƒÙˆÙ† 0 Ø£Ùˆ Ø£ÙƒØ«Ø±' });
   }
 
   const fullName = [firstName, fatherName, lastName].filter(Boolean).join(' ');
@@ -418,8 +418,8 @@ export async function prepareEmployeeWriteInput(
     drivingLicense: asOptionalBoolean(body.drivingLicense),
     jobSkills: asOptionalText(body.jobSkills),
     foreignLanguages: normalizeStringArray(body.foreignLanguages),
-    hireDate: asOptionalDate(body.hireDate, 'تاريخ التوظيف غير صالح'),
-    startWorkDate: asOptionalDate(body.startWorkDate, 'تاريخ بدء العمل غير صالح'),
+    hireDate: asOptionalDate(body.hireDate, 'ØªØ§Ø±ÙŠØ® Ø§Ù„ØªÙˆØ¸ÙŠÙ ØºÙŠØ± ØµØ§Ù„Ø­'),
+    startWorkDate: asOptionalDate(body.startWorkDate, 'ØªØ§Ø±ÙŠØ® Ø¨Ø¯Ø¡ Ø§Ù„Ø¹Ù…Ù„ ØºÙŠØ± ØµØ§Ù„Ø­'),
     departmentId,
     contractType,
     workType,
@@ -612,7 +612,7 @@ function buildFallbackApplicantContacts(applicant: any): ContactEntry[] {
       id: 'applicant-primary',
       type: 'mobile',
       number: primary,
-      label: 'أساسي',
+      label: 'Ø£Ø³Ø§Ø³ÙŠ',
       hasWhatsApp: Boolean(applicant?.hasWhatsappPrimary),
       isPrimary: true,
       status: 'active',
@@ -624,7 +624,7 @@ function buildFallbackApplicantContacts(applicant: any): ContactEntry[] {
       id: 'applicant-secondary',
       type: 'mobile',
       number: secondary,
-      label: 'بديل',
+      label: 'Ø¨Ø¯ÙŠÙ„',
       hasWhatsApp: Boolean(applicant?.hasWhatsappSecondary),
       isPrimary: !primary,
       status: 'active',
@@ -647,7 +647,7 @@ export async function getEmployees(scope?: { isSuperAdmin: boolean; branchId: nu
 export async function getEmployeeById(employeeId: number | string) {
   const row = await fetchEmployeeDetailRow(employeeId);
   if (!row) {
-    throw createServiceError(404, { error: 'الموظف غير موجود' });
+    throw createServiceError(404, { error: 'Ø§Ù„Ù…ÙˆØ¸Ù ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
   }
 
   const app = await fetchLatestHiringApplication(employeeId);
@@ -749,7 +749,7 @@ export async function createEmployeeRecord(body: any, branchId: number) {
 export async function updateEmployeeRecord(employeeId: number | string, body: any, branchId: number) {
   const existing = await findEmployeeAvatarRecord(employeeId);
   if (!existing) {
-    throw createServiceError(404, { error: 'الموظف غير موجود' });
+    throw createServiceError(404, { error: 'Ø§Ù„Ù…ÙˆØ¸Ù ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
   }
 
   const prepared = await prepareEmployeeWriteInput(
@@ -782,30 +782,23 @@ export async function saveEmployeeSystemAccount(
   const { username, password, roleId, isActive } = body;
   const employee = await findEmployeeBasic(employeeId);
   if (!employee) {
-    throw createServiceError(404, { error: 'الموظف غير موجود' });
+    throw createServiceError(404, { error: 'Ø§Ù„Ù…ÙˆØ¸Ù ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
   }
   if (!roleId) {
-    throw createServiceError(400, { error: 'الدور مطلوب' });
+    throw createServiceError(400, { error: 'Ø§Ù„Ø¯ÙˆØ± Ù…Ø·Ù„ÙˆØ¨' });
   }
 
   const normalizedUsername = username?.trim?.();
-  const role = await findRoleById(roleId);
-  if (!role) {
-    throw createServiceError(400, { error: 'الدور غير موجود' });
-  }
-  if (!role.is_active) {
-    throw createServiceError(400, { error: 'لا يمكن إسناد دور معطل' });
-  }
-
-  if (role.is_template) {
-    throw createServiceError(400, { error: 'لا يمكن إسناد دور قالب مباشرةً — اختر نسخة الفرع الصحيحة' });
-  }
-
-  if (scope && !scope.isSuperAdmin) {
-    const employeeBranchId = await findEmployeeBranchId(employeeId);
-    if (role.branch_id !== employeeBranchId) {
-      throw createServiceError(403, { error: 'الدور المحدد لا ينتمي لفرع هذا الموظف' });
+  const roleCheck = await validateTemplateRoleAssignment(roleId);
+  if (roleCheck.ok === false) {
+    if (roleCheck.reason === 'NOT_FOUND') {
+      throw createServiceError(400, { error: 'الدور غير موجود' });
     }
+    throw createServiceError(400, { error: TEMPLATE_ROLE_ASSIGNMENT_ERROR });
+  }
+  const role = roleCheck.role;
+  if (!role.isActive) {
+    throw createServiceError(400, { error: 'لا يمكن إسناد دور معطل' });
   }
 
   const account = await findEmployeeSystemAccount(employeeId);
@@ -813,10 +806,10 @@ export async function saveEmployeeSystemAccount(
 
   if (!account) {
     if (!normalizedUsername) {
-      throw createServiceError(400, { error: 'اسم الدخول مطلوب لإنشاء حساب الموظف' });
+      throw createServiceError(400, { error: 'Ø§Ø³Ù… Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù…Ø·Ù„ÙˆØ¨ Ù„Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙˆØ¸Ù' });
     }
     if (!password?.trim?.()) {
-      throw createServiceError(400, { error: 'كلمة المرور مطلوبة لإنشاء حساب الموظف' });
+      throw createServiceError(400, { error: 'ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ù…Ø·Ù„ÙˆØ¨Ø© Ù„Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙˆØ¸Ù' });
     }
 
     const passwordHash = await bcrypt.hash(password.trim(), 10);
@@ -862,3 +855,4 @@ export async function deleteEmployeeRecord(employeeId: number | string) {
   await deleteEmployee(employeeId);
   return { success: true };
 }
+

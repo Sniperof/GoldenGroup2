@@ -13,6 +13,7 @@ type PublicApplicationResult = {
   jobVacancyId: number;
   applicantId: number;
   referrerId: number | null;
+  branchId: number;
   submissionType: string;
   applicationSource: string;
   currentStage: string;
@@ -73,6 +74,11 @@ export async function createPublicApplication(body: any): Promise<PublicApplicat
       throw createServiceError(400, { error: 'Ã˜Â§Ã™â€žÃ˜Â´Ã˜Â§Ã˜ÂºÃ˜Â± Ã˜Â§Ã™â€žÃ™Ë†Ã˜Â¸Ã™Å Ã™ÂÃ™Å  Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã™ÂÃ˜ÂªÃ™Ë†Ã˜Â­ Ã™â€žÃ™â€žÃ˜ÂªÃ™â€šÃ˜Â¯Ã™Å Ã™â€¦' });
     }
 
+    if (!vacancy.branchId) {
+      await client.query('ROLLBACK');
+      throw createServiceError(400, { error: 'لا يمكن إنشاء طلب لهذا الشاغر لأن الشاغر غير مرتبط بفرع.' });
+    }
+
     const dupResult = await checkPublicApplicationDuplicate(client, a.mobileNumber, body.jobVacancyId);
     if (dupResult.blocked) {
       await client.query('ROLLBACK');
@@ -99,6 +105,7 @@ export async function createPublicApplication(body: any): Promise<PublicApplicat
       enteredByUserId: body.enteredByUserId || null,
       enteredByName: body.enteredByName || null,
       duplicateFlag,
+      branchId: vacancy.branchId,
     });
 
     await insertAuditLog(client, {

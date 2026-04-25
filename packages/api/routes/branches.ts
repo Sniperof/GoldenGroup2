@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { requireSuperAdmin } from '../middleware/permission.js';
+import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
 
@@ -55,7 +55,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 // POST /api/branches — HQ only.
 // On create, we also clone all role templates into the new branch so the
 // branch starts with a full role/permission matrix that its admin can tune.
-router.post('/', requireSuperAdmin, async (req, res) => {
+router.post('/', requirePermission('branches.manage'), async (req, res) => {
   const client = await pool.connect();
   try {
     const { name, locationGeoId, coveredGeoIds, contactInfo, status } = req.body;
@@ -78,7 +78,6 @@ router.post('/', requireSuperAdmin, async (req, res) => {
       ]
     );
     const newBranch = rows[0];
-    await client.query('SELECT clone_role_templates_to_branch($1)', [newBranch.id]);
     await client.query('COMMIT');
     res.json(newBranch);
   } catch (err: any) {
@@ -91,7 +90,7 @@ router.post('/', requireSuperAdmin, async (req, res) => {
 });
 
 // PUT /api/branches/:id — HQ only.
-router.put('/:id', requireSuperAdmin, async (req, res) => {
+router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, locationGeoId, coveredGeoIds, contactInfo, status } = req.body;
@@ -127,7 +126,7 @@ router.put('/:id', requireSuperAdmin, async (req, res) => {
 });
 
 // DELETE /api/branches/:id — HQ only.
-router.delete('/:id', requireSuperAdmin, async (req, res) => {
+router.delete('/:id', requirePermission('branches.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { rowCount } = await pool.query('DELETE FROM branches WHERE id = $1', [id]);

@@ -58,11 +58,11 @@ function deriveStageStatusFromLegacy(stage: string, legacyStatus: string): strin
 }
 
 async function assertAppBranchAccess(req: any, res: any, appId: string | number): Promise<boolean> {
-  const scope = req.scope!;
-  if (scope.isSuperAdmin) return true;
+  const authContext = req.authContext!;
+  if (authContext.isSuperAdmin) return true;
   const { rows } = await pool.query('SELECT branch_id FROM job_applications WHERE id = $1', [appId]);
   if (!rows[0]) { res.status(404).json({ error: 'الطلب غير موجود' }); return false; }
-  if (rows[0].branch_id !== scope.branchId) {
+  if (!authContext.allowedBranchIds.includes(rows[0].branch_id)) {
     res.status(403).json({ error: 'غير مسموح' });
     return false;
   }
@@ -81,16 +81,16 @@ function deriveDecisionFromLegacy(legacyStatus: string): string | null {
 // GET /api/admin/applications
 router.get('/', requirePermission('jobs.applications.view_list'), async (req, res) => {
   try {
-    const scope = req.scope!;
+    const authContext = req.authContext!;
     const { vacancyId, branch, gender, stage, status, search, applicationSource, isArchived } = req.query;
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
 
     // Branch scoping
-    if (!scope.isSuperAdmin) {
-      conditions.push(`ja.branch_id = $${idx++}`);
-      params.push(scope.branchId);
+    if (!authContext.isSuperAdmin) {
+      conditions.push(`ja.branch_id = ANY($${idx++}::int[])`);
+      params.push(authContext.allowedBranchIds);
     } else {
       const hb = Number(req.header('x-branch-id'));
       if (Number.isFinite(hb) && hb > 0) {
@@ -157,7 +157,7 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
         ) AS "hasScheduledInterview"
       FROM job_applications ja
       JOIN applicants a ON a.id = ja.applicant_id
-      JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
+      LEFT JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
       ${where}
       ORDER BY ja.created_at DESC`,
       params
@@ -216,9 +216,13 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
         return res.status(400).json({ error: 'الشاغر غير موجود أو غير مفتوح للتقديم أو خارج الفترة المحددة' });
       }
       applicationBranchId = vacRows[0].branch_id;
+      if (!applicationBranchId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'لا يمكن إنشاء طلب لهذا الشاغر لأن الشاغر غير مرتبط بفرع.' });
+      }
       // Branch-admin can only apply to their own branch's vacancies
-      const scope = req.scope!;
-      if (!scope.isSuperAdmin && applicationBranchId !== scope.branchId) {
+      const authContext = req.authContext!;
+      if (!authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(applicationBranchId)) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'غير مسموح: الشاغر يخص فرعاً آخر' });
       }
@@ -227,6 +231,10 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
       const resolved = resolveTargetBranchId(req, res, body.branchId);
       if (resolved == null) { await client.query('ROLLBACK'); return; }
       applicationBranchId = resolved;
+    }
+    if (applicationBranchId == null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'يجب تحديد فرع واضح لطلب التوظيف.' });
     }
 
     // Duplicate check
@@ -342,14 +350,14 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
 // GET /api/admin/applications/:id
 router.get('/:id', requirePermission('jobs.applications.view_detail'), async (req, res) => {
   try {
-    const scope = req.scope!;
+    const authContext = req.authContext!;
     const { rows: appRows } = await pool.query(
       `SELECT ${APP_COLS}, ja.branch_id AS "branchId" FROM job_applications ja WHERE ja.id = $1`,
       [req.params.id]
     );
     if (appRows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     const app = appRows[0];
-    if (!scope.isSuperAdmin && app.branchId !== scope.branchId) {
+    if (!authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(app.branchId)) {
       return res.status(403).json({ error: 'غير مسموح' });
     }
 

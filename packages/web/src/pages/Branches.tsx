@@ -1,8 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useBranchStore } from '../hooks/useBranchStore';
 import { api } from '../lib/api';
 import type { Branch, BranchContact, BranchContactType, BranchDepartment, GeoUnit } from '../lib/types';
+import { usePermissions } from '../hooks/usePermissions';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
 import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } from '../components/GeoSmartSearch';
@@ -56,7 +57,9 @@ function newContact(): BranchContact {
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function Branches() {
   const navigate = useNavigate();
+  const { hasPermission } = usePermissions();
   const { branches, loading, fetchBranches, createBranch, updateBranch, deleteBranch } = useBranchStore();
+  const canManageBranches = hasPermission('branches.manage');
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -72,6 +75,10 @@ export default function Branches() {
     fetchBranches();
     api.geoUnits.list().then(setGeoUnits).catch(console.error);
   }, []);
+
+  if (!hasPermission('branches.view')) {
+    return <Navigate to="/" replace />;
+  }
 
   const openForm = (branch?: Branch) => {
     if (branch) {
@@ -106,6 +113,7 @@ export default function Branches() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageBranches) return;
     const locationGeoId = getDeepestId(locationSelection);
     const coveredGeoIds = coveredSelections.map(getDeepestId).filter(Boolean) as number[];
     // Validate contacts have values
@@ -132,6 +140,7 @@ export default function Branches() {
   };
 
   const handleDelete = async (id: number) => {
+    if (!canManageBranches) return;
     if (!confirm('هل أنت متأكد من حذف هذا الفرع؟')) return;
     try { await deleteBranch(id); }
     catch { alert('لا يمكن حذف الفرع لاحتمال وجود سجلات مرتبطة به'); }
@@ -203,6 +212,7 @@ export default function Branches() {
           <p className="text-sm text-slate-500 mt-1">إضافة الفروع وتحديد معلومات التواصل ونطاق التغطية الجغرافية</p>
         </div>
         <button onClick={() => openForm()}
+          disabled={!canManageBranches}
           className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95">
           <Plus className="w-4 h-4" /> إضافة فرع جديد
         </button>
@@ -223,10 +233,10 @@ export default function Branches() {
               >
                 <Layers className="w-4 h-4" />
               </button>
-              <button onClick={() => openForm(b)} className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500" title="تعديل">
+              <button onClick={() => openForm(b)} disabled={!canManageBranches} className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50" title="تعديل">
                 <Edit className="w-4 h-4" />
               </button>
-              <button onClick={() => handleDelete(b.id)} className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500" title="حذف">
+              <button onClick={() => handleDelete(b.id)} disabled={!canManageBranches} className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50" title="حذف">
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
@@ -289,7 +299,8 @@ export default function Branches() {
                         <span className="text-xs bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full font-bold">{contacts.length}</span>
                       )}
                     </h4>
-                    <button type="button" onClick={addContact}
+                <button type="button" onClick={addContact}
+                      disabled={!canManageBranches}
                       className="text-xs font-bold text-violet-600 hover:text-violet-700 flex items-center gap-1 bg-violet-100 hover:bg-violet-200 px-3 py-1.5 rounded-lg transition-colors">
                       <Plus className="w-3.5 h-3.5" /> إضافة وسيلة تواصل
                     </button>
@@ -300,6 +311,7 @@ export default function Branches() {
                       <Phone className="w-8 h-8 text-violet-200" />
                       لم تُضف معلومات تواصل بعد
                       <button type="button" onClick={addContact}
+                        disabled={!canManageBranches}
                         className="text-xs font-bold text-violet-500 bg-violet-50 hover:bg-violet-100 px-4 py-1.5 rounded-lg transition-colors">
                         + إضافة أول وسيلة تواصل
                       </button>
@@ -323,6 +335,7 @@ export default function Branches() {
                                       type: e.target.value as BranchContactType,
                                       value: '', // reset value when type changes
                                     })}
+                                    disabled={!canManageBranches}
                                     className="w-full appearance-none bg-white border border-slate-200 rounded-xl pl-8 pr-4 py-2 text-sm focus:border-violet-400 focus:ring-2 focus:ring-violet-100 outline-none"
                                   >
                                     {CONTACT_TYPES.map(t => (
@@ -341,6 +354,7 @@ export default function Branches() {
                                 <select
                                   value={contact.department}
                                   onChange={e => updateContact(contact.id, { department: e.target.value as BranchDepartment })}
+                                  disabled={!canManageBranches}
                                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:border-violet-400 focus:ring-2 focus:ring-violet-100 outline-none"
                                 >
                                   {DEPARTMENTS.map(d => (
@@ -364,6 +378,7 @@ export default function Branches() {
                                     type={typeMeta.inputType}
                                     value={contact.value}
                                     onChange={e => updateContact(contact.id, { value: e.target.value })}
+                                    disabled={!canManageBranches}
                                     placeholder={typeMeta.placeholder}
                                     className="flex-1 text-sm outline-none bg-transparent"
                                     dir={contact.type === 'website' || contact.type === 'email' ? 'ltr' : 'rtl'}
@@ -377,12 +392,13 @@ export default function Branches() {
                                   type="text"
                                   value={contact.label || ''}
                                   onChange={e => updateContact(contact.id, { label: e.target.value })}
+                                  disabled={!canManageBranches}
                                   placeholder="مثال: للتوظيف فقط"
                                   className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
                                 />
                               </div>
 
-                              <button type="button" onClick={() => removeContact(contact.id)}
+                              <button type="button" onClick={() => removeContact(contact.id)} disabled={!canManageBranches}
                                 className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors rounded-xl border border-red-100 mb-0.5">
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -416,6 +432,7 @@ export default function Branches() {
                       نطاق التغطية والمناطق التابعة
                     </h4>
                     <button type="button" onClick={addCoveredRange}
+                      disabled={!canManageBranches}
                       className="text-xs font-bold text-sky-600 hover:text-sky-700 flex items-center gap-1 bg-sky-100 px-3 py-1.5 rounded-lg transition-colors">
                       <Plus className="w-3.5 h-3.5" /> إضافة منطقة
                     </button>
@@ -435,9 +452,10 @@ export default function Branches() {
                                 arr[idx] = newSel;
                                 setCoveredSelections(arr);
                               }}
+                              disabled={!canManageBranches}
                               placeholder="اختر المحافظة، المنطقة أو الحي..." />
                           </div>
-                          <button type="button" onClick={() => removeCoveredRange(idx)}
+                          <button type="button" onClick={() => removeCoveredRange(idx)} disabled={!canManageBranches}
                             className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-red-50 text-red-500 hover:bg-red-100 rounded-xl border border-red-100 mb-0.5">
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -456,7 +474,8 @@ export default function Branches() {
                   إلغاء
                 </button>
                 <button type="submit" disabled={loading}
-                  className="bg-sky-500 hover:bg-sky-600 active:scale-95 transition-all text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 disabled:opacity-50">
+                  className="bg-sky-500 hover:bg-sky-600 active:scale-95 transition-all text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 disabled:opacity-50"
+                  >
                   {loading ? 'جاري الحفظ...' : `حفظ الفرع${contacts.filter(c => c.value).length > 0 ? ` (${contacts.filter(c => c.value).length} وسيلة تواصل)` : ''}`}
                 </button>
               </div>

@@ -1,9 +1,11 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Navigate } from 'react-router-dom';
 import { Plus, Search, Eye, Trash2, X, ArrowUp, ArrowDown, Route as RouteIcon, ChevronRight } from 'lucide-react';
 import { api } from '../lib/api';
 import { levelNames } from '../lib/geoConstants';
 import type { Route, GeoUnit, RoutePoint } from '../lib/types';
+import { usePermissions } from '../hooks/usePermissions';
 
 const levelColors: Record<number, { bg: string; text: string; border: string }> = {
     1: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
@@ -13,6 +15,8 @@ const levelColors: Record<number, { bg: string; text: string; border: string }> 
 };
 
 export default function RouteManager() {
+    const { hasPermission } = usePermissions();
+    const canManageGeo = hasPermission('geo.manage');
     const [routes, setRoutes] = useState<Route[]>([]);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
@@ -24,6 +28,10 @@ export default function RouteManager() {
     const [builderPoints, setBuilderPoints] = useState<RoutePoint[]>([]);
 
     const [treeSel, setTreeSel] = useState<(number | null)[]>([null, null, null, null]);
+
+    if (!hasPermission('geo.view')) {
+        return <Navigate to="/" replace />;
+    }
 
     const fetchData = useCallback(async () => {
         try {
@@ -111,6 +119,7 @@ export default function RouteManager() {
     };
 
     const saveRoute = async () => {
+        if (!canManageGeo) return;
         if (!builderName.trim() || builderPoints.length === 0) { alert('أدخل اسم المسار وأضف محطة واحدة على الأقل'); return; }
         try {
             if (editRoute) {
@@ -126,6 +135,7 @@ export default function RouteManager() {
     };
 
     const deleteRoute = async (id: number) => {
+        if (!canManageGeo) return;
         if (!confirm('حذف هذا المسار؟')) return;
         try {
             await api.routes.delete(id);
@@ -150,7 +160,7 @@ export default function RouteManager() {
                     <h1 className="text-xl font-bold text-slate-900 mb-1">إدارة خطوط السير</h1>
                     <p className="text-slate-500 text-sm">عرض وإدارة مسارات التوزيع والصيانة.</p>
                 </div>
-                <button onClick={() => openBuilder()} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all">
+                <button onClick={() => openBuilder()} disabled={!canManageGeo} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all disabled:opacity-50">
                     <Plus className="w-4 h-4" />
                     <span>مسار جديد</span>
                 </button>
@@ -207,8 +217,8 @@ export default function RouteManager() {
                                 </td>
                                 <td className="px-6 py-4">
                                     <div className="flex items-center gap-2">
-                                        <button onClick={() => openBuilder(r)} className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-all"><Eye className="w-4 h-4" /></button>
-                                        <button onClick={() => deleteRoute(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all"><Trash2 className="w-4 h-4" /></button>
+                                        <button onClick={() => openBuilder(r)} disabled={!canManageGeo} className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-all disabled:opacity-50"><Eye className="w-4 h-4" /></button>
+                                        <button onClick={() => deleteRoute(r.id)} disabled={!canManageGeo} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>
                                     </div>
                                 </td>
                             </motion.tr>
@@ -219,7 +229,7 @@ export default function RouteManager() {
 
             {/* Builder Slide-in */}
             <AnimatePresence>
-                {showBuilder && (
+                {showBuilder && canManageGeo && (
                     <>
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40" onClick={() => setShowBuilder(false)} />
                         <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'spring', damping: 25 }} className="fixed top-0 left-0 h-full w-[480px] bg-white border-r border-gray-200 z-50 flex flex-col shadow-2xl" style={{ direction: 'rtl' }}>

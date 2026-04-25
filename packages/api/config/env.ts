@@ -5,16 +5,27 @@ import dotenv from 'dotenv';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..', '..', '..');
 
+// Default to 'development' when NODE_ENV is not explicitly set.
+// Production deployments always set NODE_ENV=production; the only time
+// it is unset is on local dev machines or when running dev scripts, so
+// 'production' as a fallback would incorrectly trigger hard safety checks.
+if (!process.env.NODE_ENV) {
+  process.env.NODE_ENV = 'development';
+}
+
 // Load env file based on NODE_ENV:
-//   development -> .env.development
+//   development -> .env.development (falls back to .env if absent)
 //   production  -> .env
 const envFile = process.env.NODE_ENV === 'development'
   ? path.join(root, '.env.development')
   : path.join(root, '.env');
 
 dotenv.config({ path: envFile });
+// Always also load .env as a fallback (lower priority than the specific file above)
+dotenv.config({ path: path.join(root, '.env') });
 
-export const NODE_ENV = process.env.NODE_ENV ?? 'production';
+// process.env.NODE_ENV is guaranteed to be set by the block above.
+export const NODE_ENV = process.env.NODE_ENV as string;
 export const PORT = parseInt(process.env.PORT || '3000');
 export const DATABASE_URL = process.env.DATABASE_URL;
 

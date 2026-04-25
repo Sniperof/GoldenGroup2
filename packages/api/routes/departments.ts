@@ -29,9 +29,9 @@ async function assertBranchAccess(
   res: any,
   branchId: number,
 ): Promise<boolean> {
-  const scope = req.scope!;
-  if (scope.isSuperAdmin) return true;
-  if (scope.branchId !== branchId) {
+  const authContext = req.authContext!;
+  if (authContext.isSuperAdmin) return true;
+  if (authContext.actingBranchId !== branchId) {
     res.status(403).json({ error: 'غير مسموح' });
     return false;
   }
@@ -43,13 +43,13 @@ async function assertDeptBranchAccess(
   res: any,
   deptId: number,
 ): Promise<{ ok: boolean; branchId?: number }> {
-  const scope = req.scope!;
+  const authContext = req.authContext!;
   const { rows } = await pool.query('SELECT branch_id FROM departments WHERE id = $1', [deptId]);
   if (!rows[0]) {
     res.status(404).json({ error: 'القسم غير موجود' });
     return { ok: false };
   }
-  if (!scope.isSuperAdmin && rows[0].branch_id !== scope.branchId) {
+  if (!authContext.isSuperAdmin && rows[0].branch_id !== authContext.actingBranchId) {
     res.status(403).json({ error: 'غير مسموح' });
     return { ok: false };
   }
@@ -59,20 +59,18 @@ async function assertDeptBranchAccess(
 // ── Routes ─────────────────────────────────────────────────────────────────────
 
 // GET /api/departments?branchId=X
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', requirePermission('departments.view_list'), async (req, res) => {
   try {
-    const scope = req.scope!;
+    const authContext = req.authContext!;
     const requestedBranchId = req.query.branchId ? Number(req.query.branchId) : null;
 
     let filterBranchId: number | null;
 
-    if (scope.isSuperAdmin) {
-      // Super admin may filter by query param or X-Branch-Id header
+    if (authContext.isSuperAdmin) {
       const hb = Number(req.header('x-branch-id'));
       filterBranchId = requestedBranchId ?? (Number.isFinite(hb) && hb > 0 ? hb : null);
     } else {
-      // Branch-scoped user: always filter to own branch
-      filterBranchId = scope.branchId;
+      filterBranchId = authContext.actingBranchId;
     }
 
     let query = SELECT_QUERY;

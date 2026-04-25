@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { requireSuperAdmin } from '../middleware/permission.js';
+import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
 
@@ -56,7 +56,7 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // POST /api/system-lists
-router.post('/', requireSuperAdmin, async (req, res) => {
+router.post('/', requirePermission('admin.system_lists.manage'), async (req, res) => {
   try {
     const { category, value, isActive, displayOrder, linkedRoleId, metadata } = req.body;
 
@@ -88,7 +88,7 @@ router.post('/', requireSuperAdmin, async (req, res) => {
 });
 
 // PUT /api/system-lists/:id
-router.put('/:id', requireSuperAdmin, async (req, res) => {
+router.put('/:id', requirePermission('admin.system_lists.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { category, value, isActive, displayOrder, linkedRoleId, metadata } = req.body;
@@ -141,7 +141,7 @@ router.put('/:id', requireSuperAdmin, async (req, res) => {
 });
 
 // DELETE /api/system-lists/:id
-router.delete('/:id', requireSuperAdmin, async (req, res) => {
+router.delete('/:id', requirePermission('admin.system_lists.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { rowCount } = await pool.query('DELETE FROM system_lists WHERE id = $1', [id]);

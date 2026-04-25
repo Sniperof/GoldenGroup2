@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { JobApplicationDetail, AuditLog, ApplicationStage, ContactEntry } from '../../lib/types';
+import type { JobApplicationDetail, AuditLog, ApplicationStage, ContactEntry, InterviewerOption } from '../../lib/types';
 import { authFetch } from '../../lib/authFetch';
 import { useInterviewStore } from '../../hooks/useInterviewStore';
 import EmployeeFormModal, { type EmployeeFormInitialValues } from '../../components/employees/EmployeeFormModal';
@@ -17,6 +17,7 @@ import PermissionGate from '../../components/PermissionGate';
 import { calculateJobMatchScore } from '../../lib/jobMatch';
 import { getUnifiedApplicationState } from '../../lib/applicationState';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { fetchInterviewersForApplication } from './interviewerLookup';
 
 const STAGE_LABELS: Record<ApplicationStage, string> = {
   'Submitted': 'استلام الطلب', 'Shortlisted': 'القائمة القصيرة',
@@ -231,13 +232,15 @@ export default function ApplicationDetail() {
   const [interviewForm, setInterviewForm] = useState({
     interviewType: 'HR Interview' as 'HR Interview' | 'Technical Interview',
     interviewNumber: 'First Interview' as 'First Interview' | 'Second Interview',
-    interviewerName: '',
+    interviewerUserId: '',
     interviewDate: '',
     interviewTime: '',
     internalNotes: '',
   });
   const [interviewFormError, setInterviewFormError] = useState('');
   const [interviewSubmitting, setInterviewSubmitting] = useState(false);
+  const [interviewerOptions, setInterviewerOptions] = useState<InterviewerOption[]>([]);
+  const [loadingInterviewers, setLoadingInterviewers] = useState(false);
 
   // ── Create Training Course inline ──
   const [showCreateTrainingModal, setShowCreateTrainingModal] = useState(false);
@@ -262,7 +265,30 @@ export default function ApplicationDetail() {
     }).catch(() => setLoading(false));
   };
 
+  const loadInterviewerOptions = async () => {
+    if (!id) return;
+    setLoadingInterviewers(true);
+    setInterviewerOptions([]);
+    setInterviewFormError('');
+    try {
+      const rows = await fetchInterviewersForApplication(Number(id));
+      setInterviewerOptions(rows);
+      if (rows.length === 0) {
+        setInterviewFormError('لا يوجد مستخدمون مؤهلون لإجراء مقابلات ضمن هذا الفرع.');
+      }
+    } catch (err: any) {
+      setInterviewFormError(err.message || 'تعذر تحميل قائمة المقابلين المؤهلين.');
+    } finally {
+      setLoadingInterviewers(false);
+    }
+  };
+
   useEffect(() => { fetchDetail(); }, [id]);
+  useEffect(() => {
+    if (showScheduleInterviewModal) {
+      void loadInterviewerOptions();
+    }
+  }, [showScheduleInterviewModal]);
 
   const handleStageAction = async (newStage: string, newStatus: string, reason?: string) => {
     setActionLoading(true);

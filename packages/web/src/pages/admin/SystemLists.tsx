@@ -168,9 +168,10 @@ const IMPACT_CONFIG = {
 };
 
 export default function SystemLists() {
-  const { user } = useAuthStore();
+  const { user, hasPermission } = useAuthStore();
   const { lists, loading, fetchLists, createList, updateList, deleteList } = useSystemListsStore();
   const { roles, fetchRoles } = useRoleStore();
+  const canManageSystemLists = user?.isSuperAdmin === true || hasPermission('admin.system_lists.manage');
 
   const allDbCategories = useMemo(() => {
     const cats = new Set(lists.map(l => l.category));
@@ -208,7 +209,7 @@ export default function SystemLists() {
   useEffect(() => { fetchLists(); fetchRoles(); }, []);
   useEffect(() => { setSearch(''); setActiveCertificate(null); }, [activeCategory]);
 
-  if (!user || !['HR_MANAGER', 'ADMIN'].includes(user.role)) return <Navigate to="/" replace />;
+  if (!user || (!user.isSuperAdmin && !hasPermission('admin.system_lists.view'))) return <Navigate to="/" replace />;
 
   const activeMeta = sidebarCategories.find(c => c.id === activeCategory);
   const isCertificateView = activeCategory === 'certificate';
@@ -245,6 +246,7 @@ export default function SystemLists() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageSystemLists) return;
     try {
       const saveCategory = (isCertificateView && activeCertificate)
         ? `${MAJOR_PREFIX}${activeCertificate}` : activeCategory;
@@ -275,11 +277,13 @@ export default function SystemLists() {
   };
 
   const toggleActive = async (item: SystemList) => {
+    if (!canManageSystemLists) return;
     try { await updateList(item.id, { isActive: !item.isActive }); }
     catch (err: any) { alert(err.message || 'حدث خطأ'); }
   };
 
   const handleDelete = async (id: number) => {
+    if (!canManageSystemLists) return;
     if (!window.confirm('هل أنت متأكد؟ يُفضّل التعطيل بدلاً من الحذف لحماية السجلات.')) return;
     try { await deleteList(id); }
     catch (err: any) { alert(err.message || 'حدث خطأ أثناء الحذف'); }
@@ -431,14 +435,14 @@ export default function SystemLists() {
                     onChange={e => setSearch(e.target.value)}
                     className="pl-4 pr-9 py-2 rounded-xl border border-slate-200 text-sm w-48 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none" />
                 </div>
-                {(!isCertificateView || activeCertificate) && (
+                {canManageSystemLists && (!isCertificateView || activeCertificate) && (
                   <button onClick={() => openForm()}
                     className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm">
                     <Plus className="w-4 h-4" />
                     {isCertificateView && activeCertificate ? 'إضافة اختصاص' : 'إضافة خيار'}
                   </button>
                 )}
-                {isCertificateView && !activeCertificate && (
+                {canManageSystemLists && isCertificateView && !activeCertificate && (
                   <button onClick={() => openForm()}
                     className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm">
                     <Plus className="w-4 h-4" /> إضافة شهادة
@@ -483,11 +487,11 @@ export default function SystemLists() {
                                 className="flex items-center gap-1.5 text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed border border-violet-100">
                                 <BookOpen className="w-3.5 h-3.5" /> الاختصاصات
                               </button>
-                              <button onClick={() => toggleActive(cert)} className={`p-1.5 rounded-lg ${cert.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'}`}>
+                              <button onClick={() => toggleActive(cert)} disabled={!canManageSystemLists} className={`p-1.5 rounded-lg ${cert.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'} disabled:opacity-50`}>
                                 {cert.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
                               </button>
-                              <button onClick={() => openForm(cert)} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg"><Edit className="w-4 h-4" /></button>
-                              <button onClick={() => handleDelete(cert.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                              <button onClick={() => openForm(cert)} disabled={!canManageSystemLists} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg disabled:opacity-50"><Edit className="w-4 h-4" /></button>
+                              <button onClick={() => handleDelete(cert.id)} disabled={!canManageSystemLists} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>
                             </div>
                           </div>
                         </div>
@@ -548,11 +552,11 @@ export default function SystemLists() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => toggleActive(item)} className={`p-2 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'}`} title={item.isActive ? 'تعطيل' : 'تفعيل'}>
+                        <button onClick={() => toggleActive(item)} disabled={!canManageSystemLists} className={`p-2 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'} disabled:opacity-50`} title={item.isActive ? 'تعطيل' : 'تفعيل'}>
                           {item.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
                         </button>
-                        <button onClick={() => openForm(item)} className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg"><Edit className="w-4 h-4" /></button>
-                        <button onClick={() => handleDelete(item.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={() => openForm(item)} disabled={!canManageSystemLists} className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg disabled:opacity-50"><Edit className="w-4 h-4" /></button>
+                        <button onClick={() => handleDelete(item.id)} disabled={!canManageSystemLists} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </div>
                   ))}

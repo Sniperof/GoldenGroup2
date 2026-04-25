@@ -13,51 +13,40 @@ declare global {
   }
 }
 
-function attachScope(req: Request) {
-  if (!req.user) return;
-  (req as any).scope = {
-    userId: req.user.id,
-    isSuperAdmin: req.user.isSuperAdmin === true,
-    branchId: req.user.branchId ?? null,
-  };
-}
-
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول أولاً' });
+    return res.status(401).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­: ÙŠØ¬Ø¨ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø£ÙˆÙ„Ø§Ù‹' });
   }
-  const token = authHeader.slice(7);
+
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as AuthUser;
-    req.user = payload;
-    attachScope(req);
+    req.user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
     next();
   } catch {
-    return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
+    return res.status(401).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­: Ø±Ù…Ø² Ø§Ù„ØªØ­Ù‚Ù‚ ØºÙŠØ± ØµØ§Ù„Ø­ Ø£Ùˆ Ù…Ù†ØªÙ‡ÙŠ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©' });
   }
 }
 
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    // If req.user is not set yet, try to parse the JWT first
+    // Legacy guard kept for untouched routes; no new callers should be added.
     if (!req.user) {
       const authHeader = req.headers.authorization;
       if (!authHeader?.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول أولاً' });
+        return res.status(401).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­: ÙŠØ¬Ø¨ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø£ÙˆÙ„Ø§Ù‹' });
       }
-      const token = authHeader.slice(7);
+
       try {
-        const payload = jwt.verify(token, JWT_SECRET) as AuthUser;
-        req.user = payload;
-        attachScope(req);
+        req.user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
       } catch {
-        return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
+        return res.status(401).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­: Ø±Ù…Ø² Ø§Ù„ØªØ­Ù‚Ù‚ ØºÙŠØ± ØµØ§Ù„Ø­ Ø£Ùˆ Ù…Ù†ØªÙ‡ÙŠ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©' });
       }
     }
+
     if (req.user.isSuperAdmin !== true && !roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'غير مسموح: صلاحياتك لا تسمح بهذا الإجراء' });
+      return res.status(403).json({ error: 'ØºÙŠØ± Ù…Ø³Ù…ÙˆØ­: ØµÙ„Ø§Ø­ÙŠØ§ØªÙƒ Ù„Ø§ ØªØ³Ù…Ø­ Ø¨Ù‡Ø°Ø§ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡' });
     }
+
     next();
   };
 }

@@ -306,7 +306,7 @@ export default function EmployeeDetail() {
   const fixedBranchName = detail?.branch ?? (fixedBranchId != null ? `#${fixedBranchId}` : null);
 
   const activeRoles = roles.filter(
-    (role) => !role.isTemplate && (role.isActive || role.id === detail?.systemAccount?.roleId),
+    (role) => role.isTemplate && role.templateId == null && (role.isActive || role.id === detail?.systemAccount?.roleId),
   );
 
   // ── Handlers ───────────────────────────────────────────────────────────────

@@ -1,8 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { useRoleStore } from '../../hooks/useRoleStore';
-import type { Permission } from '../../hooks/useRoleStore';
-import { authFetch } from '../../lib/authFetch';
+import type { Permission, RolePermissionGrant } from '../../hooks/useRoleStore';
+import { trpc } from '../../lib/trpc';
+import { usePermissions } from '../../hooks/usePermissions';
 import {
   ShieldCheck, ChevronRight, Save, Loader2, AlertTriangle,
   CheckSquare, Square, Key, Eye, Plus, Pencil, Trash2,
@@ -10,6 +11,15 @@ import {
   Briefcase, GraduationCap, Settings, ListChecks, CheckCheck,
   UserCheck, Calendar, FileText, AlertCircle, BarChart2, ChevronDown
 } from 'lucide-react';
+
+type ScopeType = RolePermissionGrant['scopeType'];
+
+const DEFAULT_SCOPE: ScopeType = 'BRANCH';
+const SCOPE_OPTIONS: Array<{ value: ScopeType; label: string }> = [
+  { value: 'BRANCH', label: 'BRANCH' },
+  { value: 'GLOBAL', label: 'GLOBAL' },
+  { value: 'ASSIGNED', label: 'ASSIGNED' },
+];
 
 // ── Human-readable labels & descriptions ─────────────────────────────────────
 const PERM_LABELS: Record<string, { label: string; desc: string }> = {
@@ -37,6 +47,7 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'jobs.interviews.view_detail':    { label: 'عرض تفاصيل المقابلة',        desc: 'الاطلاع على بيانات مقابلة محددة' },
   'jobs.interviews.view_eligible':  { label: 'عرض المرشحين للمقابلة',      desc: 'رؤية قائمة المتقدمين المؤهلين لإجراء المقابلة' },
   'jobs.interviews.schedule':       { label: 'جدولة موعد مقابلة',          desc: 'تحديد تاريخ ووقت إجراء المقابلة' },
+  'jobs.interviews.conduct':        { label: 'إجراء المقابلات',            desc: 'التأهل للظهور كمقابِل داخل فرع الطلب' },
   'jobs.interviews.edit':           { label: 'تعديل بيانات المقابلة',       desc: 'تحديث تفاصيل مقابلة مجدولة' },
   'jobs.interviews.record_result':  { label: 'تسجيل نتيجة المقابلة',       desc: 'إدخال تقييم ونتيجة المقابلة بعد إجرائها' },
 
@@ -59,9 +70,11 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
 
   // Clients
   'clients.view_list':    { label: 'عرض قائمة الزبائن',     desc: 'الاطلاع على جميع سجلات الزبائن في النظام' },
+  'clients.view':         { label: 'عرض ملف الزبون',        desc: 'الدخول إلى الصفحة التفصيلية لكل زبون' },
   'clients.view_detail':  { label: 'عرض ملف الزبون',        desc: 'الدخول إلى الصفحة التفصيلية لكل زبون' },
   'clients.create':       { label: 'إضافة زبون جديد',        desc: 'إنشاء سجل زبون جديد في النظام' },
   'clients.edit':         { label: 'تعديل بيانات الزبون',    desc: 'تحديث معلومات الزبون الموجود' },
+  'clients.delete':       { label: 'حذف الزبون',             desc: 'حذف سجل زبون من النظام' },
 
   // Candidates
   'candidates.view_list': { label: 'عرض الأسماء المقترحة',   desc: 'الاطلاع على قائمة الأسماء المقترحة للتوظيف' },
@@ -186,11 +199,14 @@ export default function RolePermissions() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const roleId = Number(id);
+  const { hasPermission } = usePermissions();
 
-  const { roles, allPermissions, fetchRoles, fetchPermissions } = useRoleStore();
+  const { roles, allPermissions, fetchRoles, fetchPermissions, updateRolePermissions } = useRoleStore();
   const role = roles.find(r => r.id === roleId);
+  const canManageRolePermissions = hasPermission('admin.roles.manage');
+  const isProtectedRole = role?.isSystem || role?.isProtected;
 
-  const [assigned, setAssigned] = useState<Set<number>>(new Set());
+  const [assigned, setAssigned] = useState<Map<number, ScopeType>>(new Map());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -203,9 +219,10 @@ export default function RolePermissions() {
 
   useEffect(() => {
     if (!roleId) return;
-    authFetch(`/api/admin/roles/${roleId}/permissions`)
-      .then(res => res.ok ? res.json() : [])
-      .then((perms: Permission[]) => setAssigned(new Set(perms.map(p => p.id))))
+    trpc.roles.getPermissions.query({ id: roleId })
+      .then((perms: RolePermissionGrant[]) => {
+        setAssigned(new Map(perms.map(p => [p.id, p.scopeType ?? DEFAULT_SCOPE])));
+      })
       .catch(() => {});
   }, [roleId]);
 
@@ -230,30 +247,42 @@ export default function RolePermissions() {
   }, [moduleKeys]);
 
   function toggle(permId: number) {
+    if (!canManageRolePermissions || isProtectedRole) return;
     setAssigned(prev => {
-      const next = new Set(prev);
-      next.has(permId) ? next.delete(permId) : next.add(permId);
+      const next = new Map(prev);
+      next.has(permId) ? next.delete(permId) : next.set(permId, DEFAULT_SCOPE);
+      return next;
+    });
+  }
+
+  function setScope(permId: number, scopeType: ScopeType) {
+    if (!canManageRolePermissions || isProtectedRole) return;
+    setAssigned(prev => {
+      const next = new Map(prev);
+      next.set(permId, scopeType);
       return next;
     });
   }
 
   function toggleSubModule(perms: Permission[]) {
+    if (!canManageRolePermissions || isProtectedRole) return;
     const ids = perms.map(p => p.id);
     const allSelected = ids.every(id => assigned.has(id));
     setAssigned(prev => {
-      const next = new Set(prev);
-      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => next.add(id));
+      const next = new Map(prev);
+      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => next.set(id, DEFAULT_SCOPE));
       return next;
     });
   }
 
   function toggleModule(subGroups: Record<string, Permission[]>) {
+    if (!canManageRolePermissions || isProtectedRole) return;
     const allPerms = Object.values(subGroups).flat();
     const ids = allPerms.map(p => p.id);
     const allSelected = ids.every(id => assigned.has(id));
     setAssigned(prev => {
-      const next = new Set(prev);
-      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => next.add(id));
+      const next = new Map(prev);
+      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => next.set(id, DEFAULT_SCOPE));
       return next;
     });
   }
@@ -276,16 +305,15 @@ export default function RolePermissions() {
   }
 
   async function handleSave() {
+    if (!canManageRolePermissions || isProtectedRole) return;
     setSaving(true);
     setError('');
     setSuccess(false);
     try {
-      const res = await authFetch(`/api/admin/roles/${roleId}/permissions`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permissionIds: [...assigned] }),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+      await updateRolePermissions(
+        roleId,
+        [...assigned.entries()].map(([permissionId, scopeType]) => ({ permissionId, scopeType })),
+      );
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (e: any) {
@@ -301,6 +329,14 @@ export default function RolePermissions() {
         <Loader2 className="w-8 h-8 animate-spin text-sky-400" />
       </div>
     );
+  }
+
+  if (!hasPermission('admin.roles.view')) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (!role) {
+    return <Navigate to="/admin/roles" replace />;
   }
 
   const totalPerms = allPermissions.length;
@@ -330,7 +366,7 @@ export default function RolePermissions() {
           </div>
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !canManageRolePermissions || !!isProtectedRole}
             className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm disabled:opacity-50 shrink-0"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -419,6 +455,11 @@ export default function RolePermissions() {
         {success && (
           <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 rounded-xl p-4">
             <ShieldCheck className="w-4 h-4 shrink-0" />تم حفظ الصلاحيات بنجاح
+          </div>
+        )}
+        {isProtectedRole && (
+          <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 rounded-xl p-4">
+            <AlertTriangle className="w-4 h-4 shrink-0" />هذا الدور محمي ولا يمكن تعديل صلاحياته من الواجهة الإدارية العادية
           </div>
         )}
 
@@ -518,39 +559,57 @@ export default function RolePermissions() {
                         .sort((a, b) => ((a as any).display_order ?? 0) - ((b as any).display_order ?? 0))
                         .map(perm => {
                           const isOn = assigned.has(perm.id);
+                          const scopeType = assigned.get(perm.id) ?? DEFAULT_SCOPE;
                           const desc = getPermDesc(perm);
                           const action = (perm as any).action ?? '';
 
                           return (
-                            <label
+                            <div
                               key={perm.id}
-                              className={`flex items-start gap-3 px-5 py-3.5 cursor-pointer transition-colors group ${
+                              className={`flex items-start gap-3 px-5 py-3.5 transition-colors group ${
                                 isOn ? 'bg-sky-50/40 hover:bg-sky-50/70' : 'hover:bg-slate-50/80'
                               }`}
                             >
-                              <input
-                                type="checkbox"
-                                className="sr-only"
-                                checked={isOn}
-                                onChange={() => toggle(perm.id)}
-                              />
-                              <div className="mt-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => toggle(perm.id)}
+                                disabled={!canManageRolePermissions || !!isProtectedRole}
+                                aria-pressed={isOn}
+                                className="mt-0.5 shrink-0 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-300 disabled:cursor-not-allowed"
+                              >
                                 {isOn
                                   ? <CheckSquare className="w-4 h-4 text-sky-500" />
                                   : <Square className="w-4 h-4 text-slate-300 group-hover:text-slate-400" />}
-                              </div>
+                              </button>
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-sm font-semibold ${isOn ? 'text-slate-800' : 'text-slate-600'}`}>
-                                    {getPermLabel(perm)}
-                                  </span>
-                                  <ActionBadge action={action} />
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={`text-sm font-semibold ${isOn ? 'text-slate-800' : 'text-slate-600'}`}>
+                                        {getPermLabel(perm)}
+                                      </span>
+                                      <ActionBadge action={action} />
+                                    </div>
+                                    {desc && (
+                                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{desc}</p>
+                                    )}
+                                  </div>
+                                  {isOn && (
+                                    <select
+                                      value={scopeType}
+                                      onClick={event => event.stopPropagation()}
+                                      onChange={event => setScope(perm.id, event.target.value as ScopeType)}
+                                      disabled={!canManageRolePermissions || !!isProtectedRole}
+                                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                                    >
+                                      {SCOPE_OPTIONS.map(option => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  )}
                                 </div>
-                                {desc && (
-                                  <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{desc}</p>
-                                )}
                               </div>
-                            </label>
+                            </div>
                           );
                         })}
                     </div>
@@ -573,7 +632,7 @@ export default function RolePermissions() {
         <div className="sticky bottom-4 flex justify-center pb-2">
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !canManageRolePermissions || !!isProtectedRole}
             className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-8 py-3 rounded-2xl transition-colors shadow-lg disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

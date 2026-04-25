@@ -1,3 +1,5 @@
+import { shouldAttachBranchContextHeader } from './branchContext';
+
 const API_BASE = '/api';
 
 // Read token from localStorage at call time (not at import time)
@@ -8,10 +10,12 @@ function getToken(): string | null {
 /**
  * For super admin only: the currently-selected branch context (if any).
  * Read from localStorage to avoid a circular import with the Zustand store.
- * Non-super users never have this set, and the server ignores the header for them.
+ * Non-super users never have this set, and global-only admin pages should not
+ * send it because they operate outside branch context.
  */
 function getBranchContextHeader(): string | null {
   try {
+    if (!shouldAttachBranchContextHeader(window.location.pathname)) return null;
     const rawUser = localStorage.getItem('hr_user');
     if (!rawUser) return null;
     const user = JSON.parse(rawUser);
@@ -68,6 +72,11 @@ export const api = {
     update: (id: number, data: any) => request<any>(`/branches/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/branches/${id}`, { method: 'DELETE' }),
   },
+  admin: {
+    hrUsers: {
+      list: () => request<any[]>('/admin/hr-users'),
+    },
+  },
   employees: {
     list: () => request<any[]>('/employees'),
     get: (id: number) => request<any>(`/employees/${id}`),
@@ -84,6 +93,8 @@ export const api = {
   clients: {
     list: () => request<any[]>('/clients'),
     get: (id: number) => request<any>(`/clients/${id}`),
+    smartMatch: (data: { phone?: string; mobile?: string; name?: string }) =>
+      request<any>('/clients/smart-match', { method: 'POST', body: JSON.stringify(data) }),
     create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/clients/${id}`, { method: 'DELETE' }),

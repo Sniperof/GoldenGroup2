@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import { isGlobalOnlyPath } from '../lib/branchContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import FloatingActionButton from '../components/FloatingActionButton';
 import NewEmergencyTicketModal from '../components/NewEmergencyTicketModal';
@@ -64,13 +65,25 @@ export default function MainLayout() {
     // Privileged users bypass explicit UI permission checks
     const isSuperAdmin = authUser?.isSuperAdmin === true;
     const isPrivilegedUser = isSuperAdmin || authUser?.role === 'HR_MANAGER' || authUser?.role === 'ADMIN';
+    const authUserRoleLabel = authUser?.roleDisplayName
+        ?? (authUser?.role === 'ADMIN'
+            ? 'مدير النظام'
+            : authUser?.role === 'HR_MANAGER'
+                ? 'مدير الموارد البشرية'
+                : authUser?.role === 'SYSTEM_ADMIN'
+                    ? 'مدير النظام'
+                    : authUser?.role === 'HR_ASSISTANT'
+                        ? 'مساعد الموارد البشرية'
+                        : authUser?.role
+                            ? 'دور نظامي محمي'
+                            : 'بدون دور');
     const can = (perm: string) => isPrivilegedUser || hasPermission(perm);
+    const canAccessAdminSurface = (perm: string) => hasPermission(perm);
 
-    // Branch-only modules are hidden from super admin when they have NOT selected
-    // a branch context (i.e. they are viewing "all branches / HQ mode").
     const { branchId: selectedBranchId } = useBranchContextStore();
-    // A super admin is "in branch mode" when they have picked a specific branch.
-    // Branch-bound users always see branch-only modules.
+    const isGlobalOnlyPage = isGlobalOnlyPath(location.pathname);
+    // A super admin is "in branch mode" only when they have picked a specific
+    // operational branch. Branch-bound users always see branch-only modules.
     const canSeeBranchModules = !isSuperAdmin || selectedBranchId != null;
 
     const jobsViewPermMap: Record<string, string> = {
@@ -181,8 +194,8 @@ export default function MainLayout() {
                     </button>
                 </div>
 
-                {/* Branch Switcher (super admin only) */}
-                {!isCollapsed && <BranchSwitcher />}
+                {/* Branch Switcher appears only on branch-aware pages. */}
+                {!isCollapsed && !isGlobalOnlyPage && <BranchSwitcher />}
 
                 {/* Navigation */}
                 <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1 mt-16 lg:mt-0">
@@ -252,7 +265,7 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 2. Appointments (Branch-only — hidden at HQ when no branch selected) */}
+                    {/* 2. Appointments (branch-only for super admins without branch context) */}
                     {canSeeBranchModules && can('telemarketer.view') && (
                     <NavLink
                         to="/telemarketer"
@@ -350,7 +363,7 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 5. Branch Operations — hidden at HQ when no branch selected */}
+                    {/* 5. Branch Operations — hidden until a branch context is selected */}
                     {canSeeBranchModules && can('planning.view') && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
@@ -397,7 +410,7 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 6. Tasks & Operations — hidden at HQ when no branch selected */}
+                    {/* 6. Tasks & Operations — hidden until a branch context is selected */}
                     {canSeeBranchModules && can('tasks.view') && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
@@ -445,7 +458,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 7. Geo Section (Moved above Settings) */}
-                    {can('geo.view') && (
+                    {canAccessAdminSurface('geo.view') && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setGeoOpen(o => !o)}
@@ -469,7 +482,7 @@ export default function MainLayout() {
                                     exit={{ height: 0, opacity: 0 }}
                                     className="overflow-hidden"
                                 >
-                                    {geoChildren.filter(c => c.path !== '/geo' || isSuperAdmin).map(child => (
+                                    {geoChildren.map(child => (
                                         <NavLink
                                             key={child.path}
                                             to={child.path}
@@ -491,8 +504,8 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 8. Branches (HQ only) */}
-                    {isSuperAdmin && can('branches.view') && (
+                    {/* 8. Branches (admin-only) */}
+                    {canAccessAdminSurface('branches.view') && (
                     <NavLink
                         to="/branches"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -508,8 +521,8 @@ export default function MainLayout() {
                     </NavLink>
                     )}
 
-                    {/* 9. System Lists (HQ only) */}
-                    {isSuperAdmin && can('admin.system_lists.view') && (
+                    {/* 9. System Lists (admin-only) */}
+                    {canAccessAdminSurface('admin.system_lists.view') && (
                         <NavLink
                             to="/system-lists"
                             onClick={() => setIsMobileMenuOpen(false)}
@@ -526,7 +539,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 10. Roles & Permissions */}
-                    {can('admin.roles.view') && (
+                    {canAccessAdminSurface('admin.roles.view') && (
                         <NavLink
                             to="/admin/roles"
                             onClick={() => setIsMobileMenuOpen(false)}
@@ -543,7 +556,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 11. System Settings (At Bottom) */}
-                    {can('settings.view') && (
+                    {canAccessAdminSurface('settings.view') && (
                     <NavLink
                         to="/settings"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -576,11 +589,7 @@ export default function MainLayout() {
                         <div className={`flex-1 min-w-0 ${isCollapsed ? 'lg:hidden' : 'block'}`}>
                             <p className="text-sm font-semibold text-slate-700 truncate">{authUser?.name || '—'}</p>
                             <p className="text-xs text-slate-500 truncate">
-                                {authUser?.role === 'ADMIN'
-                                  ? 'مدير النظام'
-                                  : authUser?.role === 'HR_MANAGER'
-                                    ? 'مدير الموارد البشرية'
-                                    : 'مساعد الموارد البشرية'}
+                                {authUserRoleLabel}
                             </p>
                         </div>
                         <button

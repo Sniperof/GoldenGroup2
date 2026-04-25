@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { requireSuperAdmin } from '../middleware/permission.js';
+import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
 
@@ -11,7 +11,7 @@ router.get('/', async (_req, res) => {
   res.json(rows);
 });
 
-router.post('/', requireSuperAdmin, async (req, res) => {
+router.post('/', requirePermission('geo.manage'), async (req, res) => {
   const { name, level, parentId } = req.body;
   const { rows } = await pool.query(
     'INSERT INTO geo_units (name, level, parent_id) VALUES ($1, $2, $3) RETURNING id, name, level, parent_id AS "parentId"',
@@ -20,7 +20,7 @@ router.post('/', requireSuperAdmin, async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', requireSuperAdmin, async (req, res) => {
+router.delete('/:id', requirePermission('geo.manage'), async (req, res) => {
   await pool.query('DELETE FROM geo_units WHERE id = $1', [req.params.id]);
   res.json({ success: true });
 });

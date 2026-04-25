@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { resolveTargetBranchId } from '../middleware/permission.js';
+import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -12,9 +13,9 @@ const selectFields = `
   branch_id AS "branchId"
 `;
 
-router.get('/', async (req, res) => {
-  const scope = req.scope!;
-  if (scope.isSuperAdmin) {
+router.get('/', requirePermission('tasks.view_list'), async (req, res) => {
+  const authContext = req.authContext!;
+  if (authContext.isSuperAdmin) {
     const hb = Number(req.header('x-branch-id'));
     if (Number.isFinite(hb) && hb > 0) {
       const { rows } = await pool.query(`SELECT ${selectFields} FROM tasks WHERE branch_id = $1 ORDER BY id`, [hb]);
@@ -23,11 +24,11 @@ router.get('/', async (req, res) => {
     const { rows } = await pool.query(`SELECT ${selectFields} FROM tasks ORDER BY id`);
     return res.json(rows);
   }
-  const { rows } = await pool.query(`SELECT ${selectFields} FROM tasks WHERE branch_id = $1 ORDER BY id`, [scope.branchId]);
+  const { rows } = await pool.query(`SELECT ${selectFields} FROM tasks WHERE branch_id = $1 ORDER BY id`, [authContext.actingBranchId]);
   res.json(rows);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('tasks.create'), async (req, res) => {
   const t = req.body;
   const targetBranchId = resolveTargetBranchId(req, res, t.branchId);
   if (targetBranchId == null) return;
@@ -39,13 +40,12 @@ router.post('/', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.put('/:id', async (req, res) => {
-  const scope = req.scope!;
+router.put('/:id', requirePermission('tasks.edit'), async (req, res) => {
+  const authContext = req.authContext!;
   const { rows: existing } = await pool.query('SELECT branch_id FROM tasks WHERE id = $1', [req.params.id]);
   if (!existing[0]) return res.status(404).json({ message: 'المهمة غير موجودة' });
-  if (!scope.isSuperAdmin && existing[0].branch_id !== scope.branchId) {
-    return res.status(403).json({ message: 'غير مسموح' });
-  }
+  const access = authorize(authContext, { permission: 'tasks.edit', branchId: existing[0].branch_id });
+  if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const t = req.body;
   const { rows } = await pool.query(
     `UPDATE tasks SET type=$1, customer_name=$2, context=$3, location=$4,
@@ -55,13 +55,12 @@ router.put('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', async (req, res) => {
-  const scope = req.scope!;
+router.delete('/:id', requirePermission('tasks.delete'), async (req, res) => {
+  const authContext = req.authContext!;
   const { rows: existing } = await pool.query('SELECT branch_id FROM tasks WHERE id = $1', [req.params.id]);
   if (!existing[0]) return res.status(404).json({ message: 'المهمة غير موجودة' });
-  if (!scope.isSuperAdmin && existing[0].branch_id !== scope.branchId) {
-    return res.status(403).json({ message: 'غير مسموح' });
-  }
+  const access = authorize(authContext, { permission: 'tasks.delete', branchId: existing[0].branch_id });
+  if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
   res.json({ success: true });
 });

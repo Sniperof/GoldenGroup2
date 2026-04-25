@@ -10,6 +10,7 @@ export interface LoginResult {
     name: string;
     role: string;
     roleId: number | null;
+    roleDisplayName: string | null;
     isSuperAdmin: boolean;
     branchId: number | null;
   };
@@ -42,6 +43,7 @@ export async function loginUser(username: string, password: string): Promise<Log
     name: user.name,
     role: user.role,
     roleId: user.role_id,
+    roleDisplayName: user.role_display_name,
     isSuperAdmin: user.is_super_admin === true,
     branchId: user.branch_id,
   };
@@ -55,6 +57,7 @@ export async function loginUser(username: string, password: string): Promise<Log
       name: user.name,
       role: user.role,
       roleId: user.role_id,
+      roleDisplayName: user.role_display_name,
       isSuperAdmin: user.is_super_admin === true,
       branchId: user.branch_id,
     },

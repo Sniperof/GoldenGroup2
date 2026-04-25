@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { authFetch } from '../../lib/authFetch';
+import type { InterviewerOption } from '../../lib/types';
 import {
   ArrowRight, Users, Calendar, Clock, User, Briefcase, MapPin,
   GraduationCap, CheckCircle, XCircle, Edit, AlertTriangle, X,
@@ -8,6 +9,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
+import { fetchInterviewersForApplication } from './interviewerLookup';
 
 interface InterviewDetail {
   id: number;
@@ -15,6 +17,9 @@ interface InterviewDetail {
   interviewType: 'HR Interview' | 'Technical Interview';
   interviewNumber: 'First Interview' | 'Second Interview';
   interviewerName: string;
+  interviewerUserId?: number | null;
+  interviewerUsername?: string | null;
+  interviewerRoleDisplayName?: string | null;
   interviewDate: string;
   interviewTime: string;
   interviewStatus: 'Interview Scheduled' | 'Interview Completed' | 'Interview Failed';
@@ -34,7 +39,7 @@ interface InterviewDetail {
 interface EditForm {
   interviewDate: string;
   interviewTime: string;
-  interviewerName: string;
+  interviewerUserId: string;
   interviewType: 'HR Interview' | 'Technical Interview';
   interviewNumber: 'First Interview' | 'Second Interview';
   internalNotes: string;
@@ -58,17 +63,17 @@ export default function InterviewDetail() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [interviewers, setInterviewers] = useState<InterviewerOption[]>([]);
+  const [loadingInterviewers, setLoadingInterviewers] = useState(false);
 
-  // Edit modal
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState<EditForm>({
-    interviewDate: '', interviewTime: '', interviewerName: '',
+    interviewDate: '', interviewTime: '', interviewerUserId: '',
     interviewType: 'HR Interview', interviewNumber: 'First Interview', internalNotes: '',
   });
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
-  // Result modal
   const [showResultModal, setShowResultModal] = useState(false);
   const [resultStatus, setResultStatus] = useState<'Interview Completed' | 'Interview Failed'>('Interview Completed');
   const [resultNotes, setResultNotes] = useState('');
@@ -85,25 +90,47 @@ export default function InterviewDetail() {
 
   useEffect(() => { fetchDetail(); }, [id]);
 
-  const openEdit = () => {
+  const loadInterviewers = async (applicationId: number, currentInterviewerUserId?: number | null) => {
+    setLoadingInterviewers(true);
+    try {
+      const rows = await fetchInterviewersForApplication(applicationId, currentInterviewerUserId);
+      setInterviewers(rows);
+      return rows;
+    } finally {
+      setLoadingInterviewers(false);
+    }
+  };
+
+  const openEdit = async () => {
     if (!detail) return;
-    setEditForm({
-      interviewDate: detail.interviewDate ? detail.interviewDate.split('T')[0] : '',
-      interviewTime: detail.interviewTime || '',
-      interviewerName: detail.interviewerName,
-      interviewType: detail.interviewType,
-      interviewNumber: detail.interviewNumber,
-      internalNotes: detail.internalNotes || '',
-    });
     setEditError('');
-    setShowEditModal(true);
+    try {
+      const rows = await loadInterviewers(detail.applicationId, detail.interviewerUserId ?? null);
+      setEditForm({
+        interviewDate: detail.interviewDate ? detail.interviewDate.split('T')[0] : '',
+        interviewTime: detail.interviewTime || '',
+        interviewerUserId:
+          detail.interviewerUserId != null
+            ? String(detail.interviewerUserId)
+            : rows[0]
+              ? String(rows[0].id)
+              : '',
+        interviewType: detail.interviewType,
+        interviewNumber: detail.interviewNumber,
+        internalNotes: detail.internalNotes || '',
+      });
+      setShowEditModal(true);
+    } catch (err: any) {
+      setEditError(err.message || 'تعذر تحميل قائمة المقابلين المؤهلين حالياً.');
+      setShowEditModal(true);
+    }
   };
 
   const handleSaveEdit = async () => {
     setEditError('');
     if (!editForm.interviewDate) { setEditError('تاريخ المقابلة مطلوب'); return; }
     if (!editForm.interviewTime) { setEditError('وقت المقابلة مطلوب'); return; }
-    if (!editForm.interviewerName.trim()) { setEditError('اسم المقابِل مطلوب'); return; }
+    if (!editForm.interviewerUserId.trim()) { setEditError('يجب اختيار المقابِل من القائمة'); return; }
     setEditSaving(true);
     try {
       const res = await authFetch(`/api/admin/interviews/${id}`, {
@@ -112,7 +139,7 @@ export default function InterviewDetail() {
         body: JSON.stringify({
           interviewDate: editForm.interviewDate,
           interviewTime: editForm.interviewTime,
-          interviewerName: editForm.interviewerName,
+          interviewerUserId: Number(editForm.interviewerUserId),
           interviewType: editForm.interviewType,
           interviewNumber: editForm.interviewNumber,
           internalNotes: editForm.internalNotes || null,
@@ -174,7 +201,6 @@ export default function InterviewDetail() {
 
   return (
     <div className="h-full overflow-y-auto p-6" dir="rtl">
-      {/* Back + Header */}
       <div className="flex items-center gap-4 mb-6">
         <button onClick={() => navigate('/jobs/interviews')}
           className="p-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors">
@@ -201,7 +227,6 @@ export default function InterviewDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          {/* Section 1: Interview Info */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
               <Users className="w-4 h-4 text-sky-500" /> بيانات المقابلة
@@ -209,15 +234,22 @@ export default function InterviewDetail() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <IRow label="نوع المقابلة" value={detail.interviewType === 'HR Interview' ? 'مقابلة HR' : 'مقابلة تقنية'} />
               <IRow label="رقم المقابلة" value={detail.interviewNumber === 'First Interview' ? 'الأولى' : 'الثانية'} />
-              <IRow label="المقابِل" value={detail.interviewerName} />
+              <IRow
+                label="المقابِل"
+                value={
+                  detail.interviewerUsername
+                    ? `${detail.interviewerName} (@${detail.interviewerUsername})`
+                    : detail.interviewerName
+                }
+              />
               <IRow label="التاريخ" value={detail.interviewDate ? new Date(detail.interviewDate).toLocaleDateString('ar-IQ') : '—'} icon={<Calendar className="w-3.5 h-3.5" />} />
               <IRow label="الوقت" value={detail.interviewTime || '—'} icon={<Clock className="w-3.5 h-3.5" />} />
               <IRow label="تاريخ الإنشاء" value={new Date(detail.createdAt).toLocaleDateString('ar-IQ')} />
+              {detail.interviewerRoleDisplayName ? <IRow label="دور المقابِل" value={detail.interviewerRoleDisplayName} /> : null}
               {detail.internalNotes && <IRow label="ملاحظات" value={detail.internalNotes} className="col-span-2" />}
             </div>
           </div>
 
-          {/* Section 2: Applicant Info */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
               <User className="w-4 h-4 text-sky-500" /> بيانات المتقدم
@@ -238,9 +270,7 @@ export default function InterviewDetail() {
           </div>
         </div>
 
-        {/* Sidebar */}
         <div className="space-y-4">
-          {/* Section 3: Vacancy Info */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-sky-500" /> بيانات الشاغر
@@ -256,7 +286,6 @@ export default function InterviewDetail() {
             </div>
           </div>
 
-          {/* Actions */}
           {isScheduled && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
               <h3 className="text-sm font-bold text-slate-700 mb-4">الإجراءات</h3>
@@ -291,7 +320,6 @@ export default function InterviewDetail() {
         </div>
       </div>
 
-      {/* Edit Modal */}
       <AnimatePresence>
         {showEditModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -329,9 +357,28 @@ export default function InterviewDetail() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">اسم المقابِل *</label>
-                  <input value={editForm.interviewerName} onChange={e => setEditForm(p => ({ ...p, interviewerName: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500" />
+                  <label className="block text-xs font-medium text-slate-600 mb-1">المقابِل *</label>
+                  <select
+                    value={editForm.interviewerUserId}
+                    onChange={e => setEditForm(p => ({ ...p, interviewerUserId: e.target.value }))}
+                    disabled={loadingInterviewers}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white disabled:bg-slate-50 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {loadingInterviewers
+                        ? 'جاري تحميل المقابلين...'
+                        : interviewers.length === 0
+                          ? 'لا يوجد مقابِلون مؤهلون'
+                          : 'اختر المقابِل...'}
+                    </option>
+                    {interviewers.map(option => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}
+                        {option.username ? ` (@${option.username})` : ''}
+                        {option.roleDisplayName ? ` — ${option.roleDisplayName}` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -363,7 +410,6 @@ export default function InterviewDetail() {
         )}
       </AnimatePresence>
 
-      {/* Record Result Modal */}
       <AnimatePresence>
         {showResultModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}

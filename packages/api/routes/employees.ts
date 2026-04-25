@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
+import { authorize, resolveActingBranch } from '../services/authorizationService.js';
+import { requirePermission } from '../middleware/permission.js';
 import { getEmployeeBranchId } from '../repositories/employeeRepository.js';
 import {
   createEmployeeRecord,
@@ -13,31 +14,83 @@ import {
 
 const router = Router();
 
-router.get('/', requirePermission('employees.view_list'), async (req, res) => {
-  const scope = req.scope!;
-  if (scope.isSuperAdmin) {
-    const hb = Number(req.header('x-branch-id'));
-    if (Number.isFinite(hb) && hb > 0) {
-      return res.json(await getEmployees({ isSuperAdmin: false, branchId: hb }));
-    }
-    return res.json(await getEmployees({ isSuperAdmin: true, branchId: null }));
+function forbidBranchAccess(res: any, reason?: string) {
+  if (reason === 'MISSING_BRANCH_CONTEXT') {
+    return res.status(400).json({ error: 'يجب تحديد الفرع المطلوب لهذه العملية' });
   }
-  res.json(await getEmployees({ isSuperAdmin: false, branchId: scope.branchId }));
+
+  return res.status(403).json({ error: 'غير مسموح' });
+}
+
+function getRequiredAuthContext(req: any) {
+  if (!req.authContext) {
+    throw new Error('AuthContext is required after requirePermission');
+  }
+
+  return req.authContext;
+}
+
+function resolveEmployeeTargetBranch(req: any, requestedBranchId?: number | string | null): number | null {
+  const authContext = getRequiredAuthContext(req);
+
+  return resolveActingBranch({
+    headerBranchId: requestedBranchId ?? req.header('x-branch-id'),
+    primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
+    allowedBranchIds: authContext.allowedBranchIds,
+    isSuperAdmin: authContext.isSuperAdmin,
+  });
+}
+
+router.get('/', requirePermission('employees.view_list'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const requestedBranchId = req.header('x-branch-id');
+    const targetBranchId = resolveEmployeeTargetBranch(req, requestedBranchId);
+
+    if (!authContext.isSuperAdmin && targetBranchId == null) {
+      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
+    }
+
+    if (targetBranchId != null) {
+      const access = authorize(authContext, {
+        permission: 'employees.view_list',
+        branchId: targetBranchId,
+      });
+      if (!access.allowed) {
+        return forbidBranchAccess(res, access.reason);
+      }
+    }
+
+    if (authContext.isSuperAdmin && targetBranchId == null) {
+      return res.json(await getEmployees({ isSuperAdmin: true, branchId: null }));
+    }
+
+    res.json(await getEmployees({ isSuperAdmin: false, branchId: targetBranchId }));
+  } catch (err: any) {
+    if (err?.status) {
+      return res.status(err.status).json(err.payload ?? { error: err.message });
+    }
+    throw err;
+  }
 });
 
 router.get('/manager-candidates', requirePermission('employees.view_list'), async (req, res) => {
   try {
-    const scope = req.scope!;
+    const authContext = getRequiredAuthContext(req);
     const requestedBranchId = req.query.branchId != null ? Number(req.query.branchId) : null;
     const departmentId = req.query.departmentId != null ? Number(req.query.departmentId) : null;
-    const headerBranchId = Number(req.header('x-branch-id'));
-
-    const targetBranchId = scope.isSuperAdmin
-      ? (requestedBranchId ?? ((Number.isFinite(headerBranchId) && headerBranchId > 0) ? headerBranchId : null))
-      : scope.branchId;
+    const targetBranchId = resolveEmployeeTargetBranch(req, requestedBranchId);
 
     if (targetBranchId == null || !Number.isFinite(targetBranchId)) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المطلوب' });
+    }
+
+    const access = authorize(authContext, {
+      permission: 'employees.view_list',
+      branchId: targetBranchId,
+    });
+    if (!access.allowed) {
+      return forbidBranchAccess(res, access.reason);
     }
 
     const candidates = await getEmployeeManagerCandidates(
@@ -55,12 +108,22 @@ router.get('/manager-candidates', requirePermission('employees.view_list'), asyn
 
 router.get('/:id', requirePermission('employees.view_list'), async (req, res) => {
   try {
-    const scope = req.scope!;
+    const authContext = getRequiredAuthContext(req);
     const employeeId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    if (!scope.isSuperAdmin) {
-      const ownerBranch = await getEmployeeBranchId(employeeId!);
-      if (ownerBranch !== scope.branchId) return res.status(403).json({ error: 'غير مسموح' });
+    const ownerBranch = await getEmployeeBranchId(employeeId!);
+
+    if (ownerBranch == null) {
+      return res.status(404).json({ error: 'الموظف غير موجود' });
     }
+
+    const access = authorize(authContext, {
+      permission: 'employees.view_list',
+      branchId: ownerBranch,
+    });
+    if (!access.allowed) {
+      return forbidBranchAccess(res, access.reason);
+    }
+
     const result = await getEmployeeById(employeeId);
     res.json(result);
   } catch (err: any) {
@@ -73,8 +136,21 @@ router.get('/:id', requirePermission('employees.view_list'), async (req, res) =>
 
 router.post('/', requirePermission('employees.create'), async (req, res) => {
   try {
-    const targetBranchId = resolveTargetBranchId(req, res, req.body?.branchId);
-    if (targetBranchId == null) return;
+    const authContext = getRequiredAuthContext(req);
+    const targetBranchId = resolveEmployeeTargetBranch(req, req.body?.branchId);
+
+    if (targetBranchId == null) {
+      return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
+    }
+
+    const access = authorize(authContext, {
+      permission: 'employees.create',
+      branchId: targetBranchId,
+    });
+    if (!access.allowed) {
+      return forbidBranchAccess(res, access.reason);
+    }
+
     const employee = await createEmployeeRecord(req.body, targetBranchId);
     res.json(employee);
   } catch (err: any) {
@@ -87,20 +163,36 @@ router.post('/', requirePermission('employees.create'), async (req, res) => {
 
 router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
   try {
-    const scope = req.scope!;
+    const authContext = getRequiredAuthContext(req);
     const employeeId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const ownerBranch = await getEmployeeBranchId(employeeId!);
+
     if (ownerBranch == null) {
       return res.status(404).json({ error: 'الموظف غير موجود' });
     }
-    if (!scope.isSuperAdmin && ownerBranch !== scope.branchId) {
-      return res.status(403).json({ error: 'غير مسموح' });
+
+    const ownerAccess = authorize(authContext, {
+      permission: 'employees.edit',
+      branchId: ownerBranch,
+    });
+    if (!ownerAccess.allowed) {
+      return forbidBranchAccess(res, ownerAccess.reason);
     }
 
     const targetBranchId = req.body?.branchId != null
-      ? resolveTargetBranchId(req, res, req.body?.branchId)
+      ? resolveEmployeeTargetBranch(req, req.body?.branchId)
       : ownerBranch;
-    if (targetBranchId == null) return;
+    if (targetBranchId == null) {
+      return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
+    }
+
+    const targetAccess = authorize(authContext, {
+      permission: 'employees.edit',
+      branchId: targetBranchId,
+    });
+    if (!targetAccess.allowed) {
+      return forbidBranchAccess(res, targetAccess.reason);
+    }
 
     const employee = await updateEmployeeRecord(employeeId, req.body, targetBranchId);
     res.json(employee);
@@ -114,13 +206,23 @@ router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
 
 router.put('/:id/system-account', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
-    const scope = req.scope!;
+    const authContext = getRequiredAuthContext(req);
     const employeeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    if (!scope.isSuperAdmin) {
-      const ownerBranch = await getEmployeeBranchId(employeeIdParam!);
-      if (ownerBranch !== scope.branchId) return res.status(403).json({ error: 'غير مسموح' });
+    const ownerBranch = await getEmployeeBranchId(employeeIdParam!);
+
+    if (ownerBranch == null) {
+      return res.status(404).json({ error: 'الموظف غير موجود' });
     }
-    const result = await saveEmployeeSystemAccount(Number(employeeIdParam), req.body, scope);
+
+    const access = authorize(authContext, {
+      permission: 'admin.roles.manage',
+      branchId: ownerBranch,
+    });
+    if (!access.allowed) {
+      return forbidBranchAccess(res, access.reason);
+    }
+
+    const result = await saveEmployeeSystemAccount(Number(employeeIdParam), req.body);
     res.json(result);
   } catch (err: any) {
     if (err?.status) {
@@ -131,14 +233,31 @@ router.put('/:id/system-account', requirePermission('admin.roles.manage'), async
 });
 
 router.delete('/:id', requirePermission('employees.delete'), async (req, res) => {
-  const scope = req.scope!;
-  const employeeId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  if (!scope.isSuperAdmin) {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const employeeId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const ownerBranch = await getEmployeeBranchId(employeeId!);
-    if (ownerBranch !== scope.branchId) return res.status(403).json({ error: 'غير مسموح' });
+
+    if (ownerBranch == null) {
+      return res.status(404).json({ error: 'الموظف غير موجود' });
+    }
+
+    const access = authorize(authContext, {
+      permission: 'employees.delete',
+      branchId: ownerBranch,
+    });
+    if (!access.allowed) {
+      return forbidBranchAccess(res, access.reason);
+    }
+
+    const result = await deleteEmployeeRecord(employeeId);
+    res.json(result);
+  } catch (err: any) {
+    if (err?.status) {
+      return res.status(err.status).json(err.payload ?? { error: err.message });
+    }
+    throw err;
   }
-  const result = await deleteEmployeeRecord(employeeId);
-  res.json(result);
 });
 
 export default router;

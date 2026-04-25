@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useInterviewStore } from '../../hooks/useInterviewStore';
 import { useVacancyStore } from '../../hooks/useVacancyStore';
 import { authFetch } from '../../lib/authFetch';
+import type { InterviewerOption } from '../../lib/types';
 import {
   Users, Plus, Filter, Calendar, CheckCircle, XCircle, Clock,
   AlertTriangle, X, Search
@@ -11,6 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
+import { fetchInterviewersForApplication } from './interviewerLookup';
 
 const STATUS_LABELS: Record<string, string> = {
   'Interview Scheduled': 'مجدولة',
@@ -28,7 +30,7 @@ interface ScheduleForm {
   applicationId: string;
   interviewType: 'HR Interview' | 'Technical Interview';
   interviewNumber: 'First Interview' | 'Second Interview';
-  interviewerName: string;
+  interviewerUserId: string;
   interviewDate: string;
   interviewTime: string;
   internalNotes: string;
@@ -39,7 +41,7 @@ const emptyForm: ScheduleForm = {
   applicationId: '',
   interviewType: 'HR Interview',
   interviewNumber: 'First Interview',
-  interviewerName: '',
+  interviewerUserId: '',
   interviewDate: '',
   interviewTime: '',
   internalNotes: '',
@@ -58,6 +60,8 @@ export default function Interviews() {
   const [resultStatus, setResultStatus] = useState<'Interview Completed' | 'Interview Failed'>('Interview Completed');
   const [eligibleApps, setEligibleApps] = useState<any[]>([]);
   const [loadingEligible, setLoadingEligible] = useState(false);
+  const [interviewers, setInterviewers] = useState<InterviewerOption[]>([]);
+  const [loadingInterviewers, setLoadingInterviewers] = useState(false);
   const highlightedInterviewId = Number(searchParams.get('highlightInterviewId') || 0);
 
   useEffect(() => {
@@ -89,7 +93,8 @@ export default function Interviews() {
   }, [filters.applicationId, filters.jobVacancyId, filters.interviewerName, filters.date]);
 
   async function handleVacancyChange(vacId: string) {
-    setForm(p => ({ ...p, jobVacancyId: vacId, applicationId: '' }));
+    setForm(p => ({ ...p, jobVacancyId: vacId, applicationId: '', interviewerUserId: '' }));
+    setInterviewers([]);
     if (!vacId) {
       setEligibleApps([]);
       return;
@@ -109,9 +114,32 @@ export default function Interviews() {
     }
   }
 
+  async function handleApplicationChange(applicationId: string) {
+    setForm(p => ({ ...p, applicationId, interviewerUserId: '' }));
+    setInterviewers([]);
+    if (!applicationId) {
+      return;
+    }
+
+    setLoadingInterviewers(true);
+    try {
+      const rows = await fetchInterviewersForApplication(Number(applicationId));
+      setInterviewers(rows);
+      if (rows.length === 0) {
+        setFormError('لا يوجد مستخدمون مؤهلون لإجراء مقابلات ضمن هذا الفرع.');
+      } else {
+        setFormError('');
+      }
+    } catch (err: any) {
+      setFormError(err.message || 'تعذر تحميل قائمة المقابلين المؤهلين حالياً.');
+    } finally {
+      setLoadingInterviewers(false);
+    }
+  }
+
   const handleSchedule = async () => {
     if (!form.applicationId.trim()) { setFormError('رقم الطلب مطلوب'); return; }
-    if (!form.interviewerName.trim()) { setFormError('اسم المقابِل مطلوب'); return; }
+    if (!form.interviewerUserId.trim()) { setFormError('يجب اختيار المقابِل من القائمة'); return; }
     if (!form.interviewDate) { setFormError('تاريخ المقابلة مطلوب'); return; }
     if (!form.interviewTime) { setFormError('وقت المقابلة مطلوب'); return; }
     setFormError('');
@@ -121,13 +149,15 @@ export default function Interviews() {
         applicationId: Number(form.applicationId),
         interviewType: form.interviewType,
         interviewNumber: form.interviewNumber,
-        interviewerName: form.interviewerName,
+        interviewerUserId: Number(form.interviewerUserId),
         interviewDate: form.interviewDate,
         interviewTime: form.interviewTime,
         internalNotes: form.internalNotes || undefined,
       } as any);
       setShowScheduleModal(false);
       setForm({ ...emptyForm });
+      setInterviewers([]);
+      setEligibleApps([]);
     } catch (err: any) {
       setFormError(err.message);
     } finally {
@@ -170,7 +200,17 @@ export default function Interviews() {
     },
     {
       key: 'interviewerName', label: 'المقابِل', sortable: true,
-      render: (iv) => <span className="font-medium text-slate-700">{iv.interviewerName}</span>,
+      render: (iv) => (
+        <div>
+          <div className="font-medium text-slate-700">{iv.interviewerName}</div>
+          {iv.interviewerUsername ? (
+            <div className="text-xs text-slate-400">
+              @{iv.interviewerUsername}
+              {iv.interviewerRoleDisplayName ? ` • ${iv.interviewerRoleDisplayName}` : ''}
+            </div>
+          ) : null}
+        </div>
+      ),
     },
     {
       key: 'interviewType', label: 'النوع / الرقم',
@@ -213,7 +253,6 @@ export default function Interviews() {
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
@@ -232,7 +271,6 @@ export default function Interviews() {
         </PermissionGate>
       </div>
 
-      {/* Filters */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 text-slate-500">
           <Filter className="w-4 h-4" />
@@ -279,7 +317,6 @@ export default function Interviews() {
         )}
       </div>
 
-      {/* Table */}
       {loading ? (
         <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-center h-64">
           <div className="flex flex-col items-center gap-3 text-slate-400">
@@ -322,7 +359,6 @@ export default function Interviews() {
         />
       )}
 
-      {/* Schedule Modal */}
       <AnimatePresence>
         {showScheduleModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -357,7 +393,7 @@ export default function Interviews() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">المتقدم (الطلبات المؤهلة) *</label>
-                  <select value={form.applicationId} onChange={e => setForm(p => ({ ...p, applicationId: e.target.value }))}
+                  <select value={form.applicationId} onChange={e => handleApplicationChange(e.target.value)}
                     disabled={!form.jobVacancyId || loadingEligible}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white disabled:bg-slate-50 disabled:text-slate-400">
                     <option value="">{loadingEligible ? 'جاري التحميل...' : 'اختر المتقدم...'}</option>
@@ -387,10 +423,35 @@ export default function Interviews() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">اسم المقابِل *</label>
-                  <input value={form.interviewerName}
-                    onChange={e => setForm(p => ({ ...p, interviewerName: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500" />
+                  <label className="block text-xs font-medium text-slate-600 mb-1">المقابِل *</label>
+                  <select
+                    value={form.interviewerUserId}
+                    onChange={e => setForm(p => ({ ...p, interviewerUserId: e.target.value }))}
+                    disabled={!form.applicationId || loadingInterviewers}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white disabled:bg-slate-50 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {!form.applicationId
+                        ? 'اختر طلب التوظيف أولاً'
+                        : loadingInterviewers
+                          ? 'جاري تحميل المقابلين...'
+                          : interviewers.length === 0
+                            ? 'لا يوجد مقابِلون مؤهلون'
+                            : 'اختر المقابِل...'}
+                    </option>
+                    {interviewers.map(option => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}
+                        {option.username ? ` (@${option.username})` : ''}
+                        {option.roleDisplayName ? ` — ${option.roleDisplayName}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {form.applicationId && !loadingInterviewers && interviewers.length === 0 ? (
+                    <p className="mt-1 text-xs text-amber-600">
+                      لا يوجد مستخدمون مؤهلون لإجراء مقابلات ضمن هذا الفرع.
+                    </p>
+                  ) : null}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -429,7 +490,6 @@ export default function Interviews() {
         )}
       </AnimatePresence>
 
-      {/* Record Result Modal */}
       <AnimatePresence>
         {resultModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}

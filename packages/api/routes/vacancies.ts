@@ -31,13 +31,13 @@ const VACANCY_FROM = `
 `;
 
 async function assertVacancyBranchAccess(req: any, res: any, vacancyId: string | number): Promise<{ ok: boolean; branchId?: number }> {
-  const scope = req.scope!;
+  const authContext = req.authContext!;
   const { rows } = await pool.query('SELECT branch_id FROM job_vacancies WHERE id = $1', [vacancyId]);
   if (!rows[0]) {
     res.status(404).json({ error: 'الشاغر غير موجود' });
     return { ok: false };
   }
-  if (!scope.isSuperAdmin && rows[0].branch_id !== scope.branchId) {
+  if (!authContext.isSuperAdmin && rows[0].branch_id !== authContext.actingBranchId) {
     res.status(403).json({ error: 'غير مسموح' });
     return { ok: false };
   }
@@ -73,15 +73,15 @@ async function fetchVacancyById(client: any, vacancyId: string | number) {
 // GET /api/admin/vacancies
 router.get('/', requirePermission('jobs.vacancies.view_list'), async (req, res) => {
   try {
-    const scope = req.scope!;
+    const authContext = req.authContext!;
     const { status, branch, search } = req.query;
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
 
-    if (!scope.isSuperAdmin) {
+    if (!authContext.isSuperAdmin) {
       conditions.push(`jv.branch_id = $${idx++}`);
-      params.push(scope.branchId);
+      params.push(authContext.actingBranchId);
     } else {
       const hb = Number(req.header('x-branch-id'));
       if (Number.isFinite(hb) && hb > 0) {

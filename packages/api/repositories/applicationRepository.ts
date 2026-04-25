@@ -4,7 +4,7 @@ import { sanitizeText } from '../utils/sanitize.js';
 
 export async function findVacancyById(client: PoolClient, vacancyId: number) {
   const { rows } = await client.query(
-    `SELECT id, status FROM job_vacancies WHERE id = $1`,
+    `SELECT id, status, branch_id AS "branchId" FROM job_vacancies WHERE id = $1`,
     [vacancyId]
   );
 
@@ -80,24 +80,25 @@ export async function insertJobApplication(
     enteredByUserId?: number | null;
     enteredByName?: string | null;
     duplicateFlag?: boolean;
+    branchId: number;
   },
 ) {
   const { rows } = await client.query(
     `INSERT INTO job_applications (
       job_vacancy_id, applicant_id, referrer_id, submission_type,
       application_source, entered_by_user_id, entered_by_name,
-      current_stage, application_status, duplicate_flag
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted','New',$8)
+      current_stage, application_status, duplicate_flag, branch_id
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted','New',$8,$9)
     RETURNING id, job_vacancy_id AS "jobVacancyId", applicant_id AS "applicantId",
       referrer_id AS "referrerId", submission_type AS "submissionType",
       application_source AS "applicationSource",
       current_stage AS "currentStage", application_status AS "applicationStatus",
-      duplicate_flag AS "duplicateFlag", created_at AS "createdAt"`,
+      duplicate_flag AS "duplicateFlag", branch_id AS "branchId", created_at AS "createdAt"`,
     [
       input.jobVacancyId, input.applicantId, input.referrerId,
       input.submissionType, input.applicationSource,
       input.enteredByUserId || null, input.enteredByName || null,
-      input.duplicateFlag,
+      input.duplicateFlag, input.branchId,
     ]
   );
 

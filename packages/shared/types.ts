@@ -40,6 +40,7 @@ export interface ReferralSheet {
     referralNotes?: string;
     referralDate: string;
     ownerUserId: number;
+    assignedHrUserId?: number | null;
     status: 'New' | 'In-Progress' | 'Completed' | 'Archived';
     stats: ReferralSheetStats;
     createdAt: string;
@@ -236,12 +237,49 @@ export interface Client {
     referralReason?: string;
     referralSheetId?: number | null;
     referralAddressText?: string;
+    branchId?: number | null;
+    branchName?: string | null;
+    assignedHrUserId?: number | null;
+    assignedHrUserName?: string | null;
+    assignedHrUsername?: string | null;
     referrers?: ClientReferrer[];
     createdAt: string;
     isCandidate?: boolean;
     targetClient?: string;
     candidateStatus?: string;
 }
+
+export interface SmartMatchVisibleClient {
+    id: number;
+    name: string;
+    phone: string;
+    branchName: string | null;
+    assignedUserName: string | null;
+}
+
+export type ClientSmartMatchResponse =
+    | {
+        status: 'NO_MATCH';
+        matched: false;
+        visible: false;
+        normalizedPhone: string;
+        message: string;
+    }
+    | {
+        status: 'MATCH_VISIBLE';
+        matched: true;
+        visible: true;
+        normalizedPhone: string;
+        client: SmartMatchVisibleClient;
+    }
+    | {
+        status: 'MATCH_RESTRICTED';
+        matched: true;
+        visible: false;
+        normalizedPhone: string;
+        reason: 'OUT_OF_SCOPE';
+        message: string;
+    };
 
 export interface Visit {
     id: string;
@@ -638,11 +676,22 @@ export interface Interview {
   interviewType: 'HR Interview' | 'Technical Interview';
   interviewNumber: 'First Interview' | 'Second Interview';
   interviewerName: string;
+  interviewerUserId?: number | null;
+  interviewerUsername?: string | null;
+  interviewerRoleDisplayName?: string | null;
   interviewDate: string;
   interviewTime: string;
   interviewStatus: 'Interview Scheduled' | 'Interview Completed' | 'Interview Failed';
   internalNotes: string | null;
   createdAt: string;
+}
+
+export interface InterviewerOption {
+  id: number;
+  name: string;
+  username: string;
+  roleDisplayName: string | null;
+  branchName: string;
 }
 
 export interface TrainingCourse {

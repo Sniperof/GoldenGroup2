@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
+router.get('/', requirePermission('geo.view'), async (_req, res) => {
   const { rows: routes } = await pool.query('SELECT * FROM routes ORDER BY id');
   const { rows: points } = await pool.query(
     'SELECT route_id AS "routeId", geo_unit_id AS "geoUnitId", level, point_order AS "order" FROM route_points ORDER BY route_id, point_order'
@@ -15,7 +16,7 @@ router.get('/', async (_req, res) => {
   res.json(result);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('geo.manage'), async (req, res) => {
   const { name, points, status } = req.body;
   const client = await pool.connect();
   try {
@@ -43,9 +44,10 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
   const { name, points, status } = req.body;
-  const routeId = parseInt(req.params.id);
+  const routeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const routeId = parseInt(routeIdParam, 10);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -69,7 +71,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePermission('geo.manage'), async (req, res) => {
   await pool.query('DELETE FROM routes WHERE id = $1', [req.params.id]);
   res.json({ success: true });
 });

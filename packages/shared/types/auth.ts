@@ -14,6 +14,7 @@ export interface AuthUser {
   name: string;
   role: string;
   roleId?: number;
+  roleDisplayName?: string | null;
   isSuperAdmin?: boolean;
   branchId?: number | null;
 }
