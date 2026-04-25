@@ -353,26 +353,24 @@ export default function ApplicationDetail() {
   };
 
   const handleScheduleInterview = async () => {
-    if (!interviewForm.interviewerName.trim()) { setInterviewFormError('اسم المقابِل مطلوب'); return; }
+    if (!interviewForm.interviewerUserId) { setInterviewFormError('يجب اختيار المقابِل من القائمة'); return; }
     if (!interviewForm.interviewDate) { setInterviewFormError('تاريخ المقابلة مطلوب'); return; }
     if (!interviewForm.interviewTime) { setInterviewFormError('وقت المقابلة مطلوب'); return; }
     setInterviewFormError('');
     setInterviewSubmitting(true);
     try {
-      // Use the store's scheduleInterview so the Interviews list page reflects the new entry immediately
       await storeScheduleInterview({
         applicationId: Number(id),
         interviewType: interviewForm.interviewType,
         interviewNumber: interviewForm.interviewNumber,
-        interviewerName: interviewForm.interviewerName,
+        interviewerUserId: Number(interviewForm.interviewerUserId),
         interviewDate: interviewForm.interviewDate,
         interviewTime: interviewForm.interviewTime,
         internalNotes: interviewForm.internalNotes || undefined,
       } as any);
-      // Re-fetch the store with joined fields (applicantName, vacancyTitle)
       fetchInterviews();
       setShowScheduleInterviewModal(false);
-      setInterviewForm({ interviewType: 'HR Interview', interviewNumber: 'First Interview', interviewerName: '', interviewDate: '', interviewTime: '', internalNotes: '' });
+      setInterviewForm({ interviewType: 'HR Interview', interviewNumber: 'First Interview', interviewerUserId: '', interviewDate: '', interviewTime: '', internalNotes: '' });
       fetchDetail();
     } catch (err: any) {
       setInterviewFormError(err.message);
@@ -1943,12 +1941,28 @@ export default function ApplicationDetail() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">اسم المقابِل <span className="text-red-400">*</span></label>
-                  <input type="text" value={interviewForm.interviewerName}
-                    onChange={e => setInterviewForm(f => ({ ...f, interviewerName: e.target.value }))}
-                    placeholder="أدخل اسم المقابِل..."
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500"
-                  />
+                  <label className="text-xs font-bold text-slate-500 block mb-1.5">المقابِل <span className="text-red-400">*</span></label>
+                  <select
+                    value={interviewForm.interviewerUserId}
+                    onChange={e => setInterviewForm(f => ({ ...f, interviewerUserId: e.target.value }))}
+                    disabled={loadingInterviewers || interviewerOptions.length === 0}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white disabled:bg-slate-50 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {loadingInterviewers
+                        ? 'جاري تحميل المقابلين...'
+                        : interviewerOptions.length === 0
+                          ? 'لا يوجد مقابِلون مؤهلون لهذا الفرع'
+                          : 'اختر المقابِل...'}
+                    </option>
+                    {interviewerOptions.map(opt => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.name}
+                        {opt.username ? ` (@${opt.username})` : ''}
+                        {opt.roleDisplayName ? ` — ${opt.roleDisplayName}` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>

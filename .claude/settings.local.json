@@ -15,7 +15,9 @@
       "Bash(node -e ' *)",
       "Bash(node fix-delete.mjs)",
       "Bash(node fix-rest-delete.mjs)",
-      "Bash(node fix-rest2.mjs)"
+      "Bash(node fix-rest2.mjs)",
+      "Bash(pnpm --filter @golden-crm/shared build)",
+      "Bash(pnpm --filter @golden-crm/web build)"
     ]
   }
 }
