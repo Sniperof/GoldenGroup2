@@ -1,14 +1,16 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
+import { filterGeoUnitsByScope, listAllGeoUnits, resolveGeoScope } from '../services/geoScopeService.js';
 
 const router = Router();
 
-// geo_units are global reference data used by both internal and public forms.
-// Keep read access public, while mutations remain HQ-only.
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query('SELECT id, name, level, parent_id AS "parentId" FROM geo_units ORDER BY level, id');
-  res.json(rows);
+router.get('/', requirePermission('geo.view'), async (req, res) => {
+  const geoUnits = await listAllGeoUnits();
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.view', geoUnits)
+    : null;
+  res.json(filterGeoUnitsByScope(geoUnits, scope));
 });
 
 router.post('/', requirePermission('geo.manage'), async (req, res) => {

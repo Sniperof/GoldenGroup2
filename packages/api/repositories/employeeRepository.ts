@@ -135,10 +135,26 @@ const APP_COLS = `
   ja.branch_id AS "branchId"
 `;
 
-export async function listEmployees(filter?: { branchId?: number | null }) {
+export async function listEmployees(filter?: {
+  branchId?: number | null;
+  includeScheduleAppearanceFlag?: boolean;
+}) {
+  const scheduleAppearanceSelect = filter?.includeScheduleAppearanceFlag
+    ? `, EXISTS (
+         SELECT 1
+           FROM hr_users su
+           JOIN role_permission_grants srpg ON srpg.role_id = su.role_id
+           JOIN permissions sp ON sp.id = srpg.permission_id
+          WHERE su.employee_id = e.id
+            AND su.is_active = TRUE
+            AND sp.key = 'planning.schedule.appear'
+       ) AS "canAppearInSchedule"`
+    : '';
+
   if (filter?.branchId != null) {
     const { rows } = await pool.query(
       `SELECT ${EMPLOYEE_SELECT_COLS}
+              ${scheduleAppearanceSelect}
        ${HIRED_APPLICATION_JOINS}
        WHERE e.branch_id = $1
        ORDER BY e.created_at DESC NULLS LAST, e.id DESC`,
@@ -149,6 +165,7 @@ export async function listEmployees(filter?: { branchId?: number | null }) {
 
   const { rows } = await pool.query(
     `SELECT ${EMPLOYEE_SELECT_COLS}
+            ${scheduleAppearanceSelect}
      ${HIRED_APPLICATION_JOINS}
      ORDER BY e.created_at DESC NULLS LAST, e.id DESC`
   );

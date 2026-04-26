@@ -115,32 +115,29 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
     // Search suggestions
     const suggestions = useMemo((): GeoSuggestion[] => {
         if (!search.trim()) {
-            // Show all level-4 neighborhoods when empty
+            // Default: show all levels sorted by level ascending (محافظات first)
             return geoUnits
-                .filter(u => u.level === 4)
                 .map(u => {
                     const path = buildPath(u, unitsMap);
                     return { unit: u, path, score: 0 };
                 })
+                .sort((a, b) => a.unit.level - b.unit.level)
                 .slice(0, 30);
         }
 
         const q = search.trim().toLowerCase();
         const results: GeoSuggestion[] = [];
 
-        // Search only level 3 (ناحية) and level 4 (حي) — محافظة and منطقة are not selectable standalone
         geoUnits.forEach(u => {
-            if (u.level < 3) return;
             const name = u.name.toLowerCase();
             if (!name.includes(q)) return;
             const path = buildPath(u, unitsMap);
-            // Exact prefix match = best score
             const score = name.startsWith(q) ? 0 : name.indexOf(q) + 1;
             results.push({ unit: u, path, score });
         });
 
-        // Sort by score, then by level (deeper = more specific = better)
-        results.sort((a, b) => a.score - b.score || b.unit.level - a.unit.level);
+        // Sort by score, then by level ascending (more general first when tied)
+        results.sort((a, b) => a.score - b.score || a.unit.level - b.unit.level);
         return results.slice(0, 15);
     }, [search, geoUnits, unitsMap]);
 
@@ -217,7 +214,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                             disabled={disabled}
                             onChange={e => { setSearch(e.target.value); setIsOpen(true); }}
                             onFocus={() => setIsOpen(true)}
-                            placeholder={placeholder || 'ابحث عن ناحية أو حي...'}
+                            placeholder={placeholder || 'ابحث عن محافظة أو منطقة أو حي...'}
                             className={`w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm placeholder:text-gray-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/10 focus:outline-none transition-all ${disabled ? 'cursor-not-allowed bg-gray-50' : ''}`}
                         />
                     </div>

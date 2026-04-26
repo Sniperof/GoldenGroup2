@@ -10,7 +10,7 @@ import {
   ShieldCheck, Plus, Edit2, Trash2, Users, Key,
   ToggleLeft, ToggleRight, X, Save, Loader2, AlertTriangle,
   UserPlus, User, Eye, EyeOff, ChevronDown, Building2, Star,
-  ExternalLink,
+  ExternalLink, ListChecks,
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════════
@@ -85,6 +85,163 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
 // ══════════════════════════════════════════════════════════════════
 // HR User Modal
 // ══════════════════════════════════════════════════════════════════
+type EditableRoleTask = {
+  title: string;
+  description: string;
+  isActive: boolean;
+};
+
+function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void }) {
+  const { fetchRoles } = useRoleStore();
+  const [tasks, setTasks] = useState<EditableRoleTask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    trpc.roles.getRoleJobTasks.query({ roleId: role.id })
+      .then((rows) => {
+        if (!active) return;
+        setTasks(rows.map((task) => ({
+          title: task.title,
+          description: task.description ?? '',
+          isActive: task.isActive,
+        })));
+      })
+      .catch((err: any) => {
+        if (active) setError(err.message ?? 'تعذر تحميل المهام الوظيفية');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [role.id]);
+
+  function updateTask(index: number, patch: Partial<EditableRoleTask>) {
+    setTasks((cur) => cur.map((task, i) => i === index ? { ...task, ...patch } : task));
+  }
+
+  async function handleSave() {
+    const cleaned = tasks
+      .map((task) => ({
+        title: task.title.trim(),
+        description: task.description.trim() || null,
+        isActive: task.isActive,
+      }))
+      .filter((task) => task.title);
+
+    setSaving(true);
+    setError('');
+    try {
+      const saved = await trpc.roles.setRoleJobTasks.mutate({ roleId: role.id, tasks: cleaned });
+      setTasks(saved.map((task) => ({
+        title: task.title,
+        description: task.description ?? '',
+        isActive: task.isActive,
+      })));
+      await fetchRoles();
+      onClose();
+    } catch (err: any) {
+      setError(err.message ?? 'تعذر حفظ المهام الوظيفية');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" dir="rtl">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-slate-800">المهام الوظيفية</h3>
+            <p className="text-xs text-slate-400 mt-0.5">{role.displayName}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
+          {error && <div className="rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm px-4 py-3">{error}</div>}
+          {loading ? (
+            <div className="py-10 flex justify-center text-slate-400">
+              <Loader2 className="w-6 h-6 animate-spin" />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3">
+                {tasks.map((task, index) => (
+                  <div key={index} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-500">
+                        {index + 1}
+                      </span>
+                      <input
+                        value={task.title}
+                        onChange={(e) => updateTask(index, { title: e.target.value })}
+                        placeholder="عنوان المهمة"
+                        className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setTasks((cur) => cur.filter((_, i) => i !== index))}
+                        className="w-8 h-8 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500"
+                        title="حذف المهمة"
+                      >
+                        <Trash2 className="w-4 h-4 mx-auto" />
+                      </button>
+                    </div>
+                    <textarea
+                      value={task.description}
+                      onChange={(e) => updateTask(index, { description: e.target.value })}
+                      placeholder="تفاصيل اختيارية"
+                      rows={2}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none"
+                    />
+                    <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={task.isActive}
+                        onChange={(e) => updateTask(index, { isActive: e.target.checked })}
+                        className="rounded border-slate-300 text-sky-600"
+                      />
+                      مفعلة وتظهر للموظفين
+                    </label>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setTasks((cur) => [...cur, { title: '', description: '', isActive: true }])}
+                className="w-full rounded-xl border border-dashed border-sky-200 bg-sky-50/50 py-3 text-sm font-bold text-sky-600 hover:bg-sky-50"
+              >
+                إضافة مهمة
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-500 hover:bg-slate-200">إلغاء</button>
+          <button
+            onClick={handleSave}
+            disabled={saving || loading}
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-bold disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            حفظ المهام
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UserModal({ user, roles, onClose }: { user?: HrUser | null; roles: Role[]; onClose: () => void }) {
   const { createHrUser, updateHrUser } = useRoleStore();
   const [name, setName] = useState(user?.name ?? '');
@@ -625,6 +782,7 @@ function RolesTab() {
   const [editRole, setEditRole] = useState<Role | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [roleUsersModal, setRoleUsersModal] = useState<Role | null>(null);
+  const [roleTasksModal, setRoleTasksModal] = useState<Role | null>(null);
   const canManageRoles = hasPermission('admin.roles.manage');
 
   useEffect(() => { fetchRoles(); }, [fetchRoles]);
@@ -689,6 +847,7 @@ function RolesTab() {
                   <span className="group-hover:underline">{role.userCount} مستخدم</span>
                 </button>
                 <div className="flex items-center gap-1.5"><Key className="w-3.5 h-3.5" /><span>{role.permissionCount} صلاحية</span></div>
+                <div className="flex items-center gap-1.5"><ListChecks className="w-3.5 h-3.5" /><span>{role.jobTaskCount ?? 0} مهمة</span></div>
               </div>
 
               {/* Actions */}
@@ -707,6 +866,15 @@ function RolesTab() {
                 >
                   <Users className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">المستخدمون</span>
+                </button>
+                <button
+                  onClick={() => setRoleTasksModal(role)}
+                  disabled={!canManageRoles || role.isSystem || role.isProtected}
+                  className="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 py-2 px-3 rounded-lg transition-colors disabled:opacity-50"
+                  title="المهام الوظيفية"
+                >
+                  <ListChecks className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">المهام</span>
                 </button>
                 {!role.isSystem && !role.isProtected && canManageRoles && (
                   <>
@@ -735,6 +903,9 @@ function RolesTab() {
       {showModal && canManageRoles && <RoleModal role={editRole} onClose={() => { setShowModal(false); setEditRole(null); }} />}
       {roleUsersModal && (
         <RoleUsersModal role={roleUsersModal} onClose={() => setRoleUsersModal(null)} />
+      )}
+      {roleTasksModal && canManageRoles && (
+        <RoleJobTasksModal role={roleTasksModal} onClose={() => setRoleTasksModal(null)} />
       )}
     </>
   );

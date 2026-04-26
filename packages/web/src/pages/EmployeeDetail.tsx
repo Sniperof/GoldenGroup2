@@ -8,6 +8,7 @@ import {
   CalendarDays,
   FileText,
   GraduationCap,
+  ListChecks,
   Loader2,
   Lock,
   MapPin,
@@ -79,7 +80,7 @@ const TRAINING_RESULT_LABELS: Record<string, string> = {
 
 // ── Tab definition ────────────────────────────────────────────────────────────
 
-type TabKey = 'profile' | 'qualifications' | 'employment' | 'system' | 'hiring';
+type TabKey = 'profile' | 'qualifications' | 'employment' | 'jobTasks' | 'system' | 'hiring';
 
 interface TabDef {
   key: TabKey;
@@ -91,6 +92,7 @@ const TABS: TabDef[] = [
   { key: 'profile',        label: 'الشخصية والتواصل', icon: UserRound     },
   { key: 'qualifications', label: 'المؤهلات',          icon: GraduationCap },
   { key: 'employment',     label: 'الوظيفة',            icon: Briefcase     },
+  { key: 'jobTasks',       label: 'المهام الوظيفية',    icon: ListChecks    },
   { key: 'system',         label: 'حساب النظام',        icon: Lock          },
   { key: 'hiring',         label: 'ملف التوظيف',        icon: FileText      },
 ];
@@ -337,13 +339,14 @@ export default function EmployeeDetail() {
     setAccountMessage('');
     setError('');
     try {
-      const updatedAccount = await api.employees.upsertSystemAccount(detail.id, {
+      await api.employees.upsertSystemAccount(detail.id, {
         username:  accountForm.username,
         password:  accountForm.password,
         roleId:    Number(accountForm.roleId),
         isActive:  accountForm.isActive,
       });
-      setDetail((cur) => cur ? { ...cur, systemAccount: updatedAccount } : cur);
+      const refreshed = await api.employees.get(detail.id) as EmployeeDetailType;
+      setDetail(refreshed);
       setAccountForm((cur) => ({ ...cur, password: '' }));
       setAccountMessage(detail.systemAccount ? 'تم تحديث حساب النظام والدور' : 'تم إنشاء حساب النظام وربطه بالموظف');
     } catch (err: any) {
@@ -545,6 +548,59 @@ export default function EmployeeDetail() {
           <InfoRow label="تاريخ بدء العمل">{formatDate(detail!.startWorkDate)}</InfoRow>
           <InfoRow label="تاريخ إنشاء السجل">{formatDate(detail!.createdAt)}</InfoRow>
         </SectionCard>
+      </div>
+    );
+  }
+
+  function renderJobTasks() {
+    const roleName = detail!.systemAccount?.roleDisplayName;
+    const tasks = detail!.jobTasks ?? [];
+
+    if (!detail!.systemAccount) {
+      return (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center">
+          <ListChecks className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+          <div className="text-sm font-semibold text-slate-600">لا يوجد دور مسند لهذا الموظف بعد</div>
+          <p className="text-xs text-slate-400 mt-1">تظهر المهام الوظيفية هنا بعد إنشاء حساب نظام وإسناد دور للموظف.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-5">
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold text-emerald-600 mb-1">الدور المسند</div>
+            <div className="text-sm font-bold text-emerald-900">{roleName || '—'}</div>
+          </div>
+          <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-bold text-emerald-700">
+            {tasks.length} مهمة
+          </span>
+        </div>
+
+        {tasks.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center">
+            <ListChecks className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+            <div className="text-sm font-semibold text-slate-600">لا توجد مهام معرفة لهذا الدور</div>
+            <p className="text-xs text-slate-400 mt-1">يمكن إضافتها من إدارة الأدوار ثم زر المهام الخاص بالدور.</p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {tasks.map((task, index) => (
+              <div key={task.id} className="rounded-2xl border border-slate-200 bg-white px-5 py-4 flex gap-4">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-black shrink-0">
+                  {index + 1}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-slate-900">{task.title}</div>
+                  {task.description && (
+                    <p className="mt-1 text-sm text-slate-500 leading-relaxed whitespace-pre-wrap">{task.description}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -944,6 +1000,7 @@ export default function EmployeeDetail() {
             {activeTab === 'profile'        && renderProfile()}
             {activeTab === 'qualifications' && renderQualifications()}
             {activeTab === 'employment'     && renderEmployment()}
+            {activeTab === 'jobTasks'       && renderJobTasks()}
             {activeTab === 'system'         && renderSystemAccount()}
             {activeTab === 'hiring'         && renderHiring()}
           </div>

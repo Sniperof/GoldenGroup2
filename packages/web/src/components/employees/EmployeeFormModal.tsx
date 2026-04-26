@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   Briefcase,
   Check,
   CheckCircle,
@@ -23,6 +24,7 @@ import GeoSmartSearch, { type GeoSelection } from '../GeoSmartSearch';
 import { api } from '../../lib/api';
 import type {
   Branch,
+  Client,
   ContactEntry,
   Department,
   Employee,
@@ -30,6 +32,7 @@ import type {
   GeoUnit,
   SystemList,
 } from '../../lib/types';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 
 type GenderValue = '' | 'male' | 'female';
 type YesNoValue = '' | 'yes' | 'no';
@@ -66,6 +69,7 @@ export type EmployeeFormValues = {
   sourceChannel: string;
   referrerName: string;
   referralNotes: string;
+  referralEntityId: number | null;
 };
 
 export type EmployeeFormInitialValues = Partial<EmployeeFormValues> & {
@@ -231,6 +235,7 @@ function buildFormState(
     sourceChannel: initialValues?.sourceChannel ? String(initialValues.sourceChannel) : '',
     referrerName: initialValues?.referrerName ?? '',
     referralNotes: initialValues?.referralNotes ?? '',
+    referralEntityId: (initialValues as any)?.referralEntityId ?? null,
   };
 }
 
@@ -296,6 +301,17 @@ export default function EmployeeFormModal({
   const [managers, setManagers] = useState<EmployeeManagerCandidate[]>([]);
   const [specializationOptions, setSpecializationOptions] = useState<SystemList[]>([]);
   const [listsByCategory, setListsByCategory] = useState<Record<string, SystemList[]>>({});
+
+  // Referral section — employee lookup
+  const [employeeIdInput, setEmployeeIdInput] = useState('');
+  const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
+  const [employeeSearchError, setEmployeeSearchError] = useState('');
+
+  // Referral section — client search
+  const [allClients, setAllClients] = useState<Client[]>([]);
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientSuggestions, setClientSuggestions] = useState<Client[]>([]);
+  const clientSearchRef = useRef<HTMLDivElement>(null);
   const [currentStepIdx, setCurrentStepIdx] = useState(0);
   const [visitedSteps, setVisitedSteps] = useState<Set<StepKey>>(() => new Set(['identity']));
   // Tracks the highest step index the user has *completed* by clicking Next (not just visited).
@@ -308,6 +324,11 @@ export default function EmployeeFormModal({
     setCurrentStepIdx(0);
     setVisitedSteps(new Set(['identity']));
     setCompletedUpTo(0);
+    setEmployeeIdInput('');
+    setEmployeeFound(null);
+    setEmployeeSearchError('');
+    setClientSearch('');
+    setClientSuggestions([]);
   }, [isOpen, initialValues, fixedBranchId]);
 
   useEffect(() => {
@@ -353,6 +374,14 @@ export default function EmployeeFormModal({
           foreign_language: foreignLanguages,
           job_title: jobTitles,
         });
+
+        // Load clients for referral search (best-effort)
+        try {
+          const clients = await api.clients.list();
+          if (!cancelled) setAllClients(clients.filter((c: Client) => !c.isCandidate));
+        } catch {
+          // non-critical — referral client search simply won't show suggestions
+        }
       } catch (err: any) {
         if (!cancelled) {
           setLocalError(err.message ?? 'تعذر تحميل القوائم المرجعية لنموذج الموظف.');
@@ -576,6 +605,7 @@ export default function EmployeeFormModal({
       sourceChannel: form.sourceChannel || null,
       referrerName: form.referrerName.trim() || null,
       referralNotes: form.referralNotes.trim() || null,
+      referralEntityId: form.referralEntityId ?? null,
     });
   }
 
@@ -631,14 +661,61 @@ export default function EmployeeFormModal({
 
   function handleReferralTypeChange(value: string) {
     const autoName = getReferralAutoName(value);
+    // Reset referral-section sub-state when type changes
+    setEmployeeIdInput('');
+    setEmployeeFound(null);
+    setEmployeeSearchError('');
+    setClientSearch('');
+    setClientSuggestions([]);
     setForm((current) => ({
       ...current,
       referrerType: value,
+      referralEntityId: null,
       // Auto-fill name for Personal/Unknown; clear it when switching to Employee/Client
       referrerName: autoName ?? (current.referrerType === value ? current.referrerName : ''),
       // Disable channel for Personal/Unknown — reset to Acquaintance as default
       sourceChannel: isChannelEnabled(value) ? current.sourceChannel : '',
     }));
+  }
+
+  async function handleEmployeeBlur() {
+    const raw = employeeIdInput.trim();
+    if (!raw) return;
+    setEmployeeFound(null);
+    setEmployeeSearchError('');
+    try {
+      const employees: MediatorEmployee[] = (await api.employees.list()).map(toMediatorEmployee);
+      const match = findEmployeeByNumber(employees, raw);
+      if (match) {
+        setEmployeeFound(match);
+        setForm((c) => ({ ...c, referrerName: match.name, referralEntityId: match.id }));
+      } else {
+        setEmployeeSearchError('لم يُعثر على موظف بهذا الرقم');
+      }
+    } catch {
+      setEmployeeSearchError('تعذر البحث عن الموظف');
+    }
+  }
+
+  function handleClientSearch(value: string) {
+    setClientSearch(value);
+    if (!value.trim()) { setClientSuggestions([]); return; }
+    const q = value.toLowerCase();
+    setClientSuggestions(
+      allClients
+        .filter((c) => {
+          const name = (c.name || '').toLowerCase();
+          const phone = c.contacts?.find((cn) => cn.isPrimary)?.number || c.contacts?.[0]?.number || '';
+          return name.includes(q) || phone.includes(q);
+        })
+        .slice(0, 8),
+    );
+  }
+
+  function handleSelectClient(client: Client) {
+    setClientSearch(client.name || '');
+    setClientSuggestions([]);
+    setForm((c) => ({ ...c, referrerName: client.name || '', referralEntityId: client.id }));
   }
 
   // ── Step renderers ──────────────────────────────────────────────────────────
@@ -1158,8 +1235,7 @@ export default function EmployeeFormModal({
   }
 
   function renderReferralStep() {
-    const autoName   = getReferralAutoName(form.referrerType);
-    const isAutoName = autoName !== null;
+    const autoName       = getReferralAutoName(form.referrerType);
     const channelEnabled = isChannelEnabled(form.referrerType);
 
     return (
@@ -1206,14 +1282,94 @@ export default function EmployeeFormModal({
           </div>
         </div>
 
-        {/* Referrer name */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1.5">اسم الوسيط</label>
-          {isAutoName ? (
-            /* Auto-filled for Personal / Unknown — show locked badge */
+        {/* ── Referrer identity — varies by type ─────────────────────────── */}
+
+        {/* Employee — lookup by employee number */}
+        {form.referrerType === 'Employee' && (
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">الرقم الوظيفي للوسيط</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                value={employeeIdInput}
+                onChange={(e) => setEmployeeIdInput(e.target.value)}
+                onBlur={handleEmployeeBlur}
+                placeholder="أدخل الرقم الوظيفي للموظف الوسيط..."
+                className="w-1/2 p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleEmployeeBlur}
+                className="px-3 py-2.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold hover:bg-sky-100"
+              >
+                اعتماد
+              </button>
+              {employeeFound && (
+                <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 flex-1 text-sm">
+                  <CheckCircle className="w-4 h-4 shrink-0" />
+                  {formatEmployeeMediatorLabel(employeeFound)}
+                </div>
+              )}
+              {employeeSearchError && (
+                <div className="flex items-center gap-2 text-red-600 font-bold bg-red-50 px-3 py-2 rounded-lg border border-red-100 flex-1 text-sm">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {employeeSearchError}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Client — search autocomplete */}
+        {form.referrerType === 'Client' && (
+          <div ref={clientSearchRef} className="relative">
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الزبون الوسيط</label>
+            {allClients.length === 0 ? (
+              <p className="text-xs text-slate-400 italic py-2 px-1">لا يوجد زبائن متاحون ضمن صلاحياتك.</p>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={clientSearch}
+                  onChange={(e) => handleClientSearch(e.target.value)}
+                  onFocus={(e) => handleClientSearch(e.target.value)}
+                  placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
+                  className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+                />
+                {clientSuggestions.length > 0 && (
+                  <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
+                    {clientSuggestions.map((client) => (
+                      <button
+                        key={client.id}
+                        type="button"
+                        onClick={() => handleSelectClient(client)}
+                        className="w-full text-right px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors flex items-center justify-between"
+                      >
+                        <span className="font-bold text-slate-700 text-sm">{client.name}</span>
+                        <span className="text-xs text-slate-400 font-mono" dir="ltr">
+                          {client.contacts?.find((cn) => cn.isPrimary)?.number || client.contacts?.[0]?.number || '--'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {form.referralEntityId && form.referrerName && (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+                    <CheckCircle className="h-3.5 w-3.5" /> {form.referrerName}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Personal / Unknown — auto-filled locked name */}
+        {(form.referrerType === 'Personal' || form.referrerType === 'Unknown') && (
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الوسيط</label>
             <div className="flex items-center gap-2">
               <input
-                value={autoName}
+                value={autoName ?? ''}
                 readOnly
                 className="flex-1 p-2.5 rounded-xl border border-gray-200 bg-slate-50 text-slate-500 font-bold cursor-not-allowed text-sm focus:outline-none"
               />
@@ -1221,27 +1377,21 @@ export default function EmployeeFormModal({
                 <Lock className="h-3.5 w-3.5" /> محدد تلقائياً
               </div>
             </div>
-          ) : (
-            /* Free text for Employee / Client */
-            <div>
-              <input
-                value={form.referrerName}
-                onChange={(e) => setForm((c) => ({ ...c, referrerName: e.target.value }))}
-                placeholder={
-                  form.referrerType === 'Employee' ? 'اسم الموظف الوسيط...'
-                  : form.referrerType === 'Client'  ? 'اسم الزبون الوسيط...'
-                  : 'اسم الوسيط...'
-                }
-                className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
-              />
-              {form.referrerName && (
-                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-                  <CheckCircle className="h-3.5 w-3.5" /> {form.referrerName}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* No type selected yet — simple text fallback */}
+        {!form.referrerType && (
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">اسم الوسيط</label>
+            <input
+              value={form.referrerName}
+              onChange={(e) => setForm((c) => ({ ...c, referrerName: e.target.value }))}
+              placeholder="اسم الوسيط..."
+              className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+            />
+          </div>
+        )}
 
         {/* Notes */}
         <div>

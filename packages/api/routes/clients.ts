@@ -469,10 +469,15 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
 router.post('/smart-match', requirePermission('clients.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const normalizedPhone = normalizePhone(req.body?.phone ?? req.body?.mobile);
+    const rawPhoneDigits = String(req.body?.phone ?? req.body?.mobile ?? '').replace(/\D/g, '');
+    const normalizedPhone = normalizePhone(rawPhoneDigits);
 
     if (!normalizedPhone) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب للتحقق الذكي' });
+    }
+
+    if (!/^09\d{8}$/.test(rawPhoneDigits)) {
+      return res.status(400).json({ error: 'رقم الموبايل يجب أن يتألف من 10 خانات ويبدأ بـ 09' });
     }
 
     const duplicate = await findDuplicateClientByPhone(normalizedPhone);

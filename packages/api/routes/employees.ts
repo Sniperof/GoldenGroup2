@@ -106,6 +106,38 @@ router.get('/manager-candidates', requirePermission('employees.view_list'), asyn
   }
 });
 
+router.get('/schedule-pool', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const targetBranchId = resolveEmployeeTargetBranch(req, req.header('x-branch-id'));
+
+    if (!authContext.isSuperAdmin && targetBranchId == null) {
+      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
+    }
+
+    if (targetBranchId != null) {
+      const access = authorize(authContext, {
+        permission: 'planning.manage',
+        branchId: targetBranchId,
+      });
+      if (!access.allowed) {
+        return forbidBranchAccess(res, access.reason);
+      }
+    }
+
+    res.json(await getEmployees({
+      isSuperAdmin: authContext.isSuperAdmin && targetBranchId == null,
+      branchId: targetBranchId,
+      includeScheduleAppearanceFlag: true,
+    }));
+  } catch (err: any) {
+    if (err?.status) {
+      return res.status(err.status).json(err.payload ?? { error: err.message });
+    }
+    throw err;
+  }
+});
+
 router.get('/:id', requirePermission('employees.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -137,7 +169,18 @@ router.get('/:id', requirePermission('employees.view_list'), async (req, res) =>
 router.post('/', requirePermission('employees.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const targetBranchId = resolveEmployeeTargetBranch(req, req.body?.branchId);
+
+    // Users with GLOBAL scope for employees.create (e.g. SYSTEM_ADMIN) may have empty
+    // allowedBranchIds, so resolveActingBranch would return null even with a valid body
+    // branchId. Detect this case and accept the explicitly provided branchId directly.
+    const bodyBranchId = Number(req.body?.branchId) > 0 && Number.isInteger(Number(req.body?.branchId))
+      ? Number(req.body.branchId) : null;
+    const hasGlobalGrant = authContext.grants.some(
+      g => g.permission === 'employees.create' && g.scope === 'GLOBAL',
+    );
+    const targetBranchId = (hasGlobalGrant && bodyBranchId != null)
+      ? bodyBranchId
+      : resolveEmployeeTargetBranch(req, req.body?.branchId);
 
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });

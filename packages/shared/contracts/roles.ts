@@ -27,6 +27,16 @@ export const RoleSchema = z.object({
   isProtected: z.boolean().optional(),
   isHidden: z.boolean().optional(),
   protectedReason: z.string().nullable().optional(),
+  jobTaskCount: z.number().optional(),
+});
+
+export const RoleJobTaskSchema = z.object({
+  id: z.number(),
+  roleId: z.number(),
+  title: z.string(),
+  description: z.string().nullable(),
+  displayOrder: z.number(),
+  isActive: z.boolean(),
 });
 
 export const PermissionSchema = z.object({
@@ -125,6 +135,15 @@ export const SetPrimaryUserBranchInputSchema = z.object({
   branchId: z.number(),
 });
 
+export const SetRoleJobTasksInputSchema = z.object({
+  roleId: z.number(),
+  tasks: z.array(z.object({
+    title: z.string().min(1),
+    description: z.string().nullable().optional(),
+    isActive: z.boolean().optional(),
+  })),
+});
+
 export const DeactivateUserBranchAssignmentInputSchema = z.object({
   userId: z.number(),
   branchId: z.number(),
@@ -150,6 +169,7 @@ export const HrUserWithBranchesSchema = HrUserSchema.extend({
 export type UserBranchSummary = z.infer<typeof UserBranchSummarySchema>;
 export type HrUserWithBranches = z.infer<typeof HrUserWithBranchesSchema>;
 export type Role = z.infer<typeof RoleSchema>;
+export type RoleJobTask = z.infer<typeof RoleJobTaskSchema>;
 export type Permission = z.infer<typeof PermissionSchema>;
 export type RolePermissionGrant = z.infer<typeof RolePermissionGrantSchema>;
 export type HrUser = z.infer<typeof HrUserSchema>;
@@ -162,4 +182,5 @@ export type CreateHrUserInput = z.infer<typeof CreateHrUserInputSchema>;
 export type UpdateHrUserInput = z.infer<typeof UpdateHrUserInputSchema>;
 export type UpsertUserBranchAssignmentInput = z.infer<typeof UpsertUserBranchAssignmentInputSchema>;
 export type SetPrimaryUserBranchInput = z.infer<typeof SetPrimaryUserBranchInputSchema>;
+export type SetRoleJobTasksInput = z.infer<typeof SetRoleJobTasksInputSchema>;
 export type DeactivateUserBranchAssignmentInput = z.infer<typeof DeactivateUserBranchAssignmentInputSchema>;

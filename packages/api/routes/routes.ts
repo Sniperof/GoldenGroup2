@@ -1,23 +1,38 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
+import { areRoutePointsInsideScope, listAllGeoUnits, resolveGeoScope } from '../services/geoScopeService.js';
 
 const router = Router();
 
-router.get('/', requirePermission('geo.view'), async (_req, res) => {
+router.get('/', requirePermission('geo.view'), async (req, res) => {
   const { rows: routes } = await pool.query('SELECT * FROM routes ORDER BY id');
   const { rows: points } = await pool.query(
     'SELECT route_id AS "routeId", geo_unit_id AS "geoUnitId", level, point_order AS "order" FROM route_points ORDER BY route_id, point_order'
   );
-  const result = routes.map(r => ({
-    ...r,
-    points: points.filter(p => p.routeId === r.id).map(({ routeId, ...rest }) => rest)
-  }));
+  const geoUnits = await listAllGeoUnits();
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.view', geoUnits)
+    : null;
+  const result = routes
+    .map(r => ({
+      ...r,
+      points: points.filter(p => p.routeId === r.id).map(({ routeId, ...rest }) => rest)
+    }))
+    .filter(route => areRoutePointsInsideScope(route.points, scope));
   res.json(result);
 });
 
 router.post('/', requirePermission('geo.manage'), async (req, res) => {
   const { name, points, status } = req.body;
+  const geoUnits = await listAllGeoUnits();
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.manage', geoUnits)
+    : null;
+  if (!areRoutePointsInsideScope(points || [], scope)) {
+    return res.status(403).json({ error: 'لا يمكن إنشاء مسار خارج نطاق تغطية الفرع' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -48,6 +63,21 @@ router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
   const { name, points, status } = req.body;
   const routeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const routeId = parseInt(routeIdParam, 10);
+  const geoUnits = await listAllGeoUnits();
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.manage', geoUnits)
+    : null;
+  const existingRoute = await loadRouteForScopeCheck(routeId);
+  if (!existingRoute.exists) {
+    return res.status(404).json({ error: 'Route not found' });
+  }
+  if (!areRoutePointsInsideScope(existingRoute.points, scope)) {
+    return res.status(403).json({ error: 'لا يمكن تعديل مسار خارج نطاق تغطية الفرع' });
+  }
+  if (!areRoutePointsInsideScope(points || [], scope)) {
+    return res.status(403).json({ error: 'لا يمكن تعديل المسار ليخرج عن نطاق تغطية الفرع' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -72,8 +102,39 @@ router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
 });
 
 router.delete('/:id', requirePermission('geo.manage'), async (req, res) => {
-  await pool.query('DELETE FROM routes WHERE id = $1', [req.params.id]);
+  const routeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const routeId = parseInt(routeIdParam, 10);
+  const geoUnits = await listAllGeoUnits();
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.manage', geoUnits)
+    : null;
+  const existingRoute = await loadRouteForScopeCheck(routeId);
+  if (!existingRoute.exists) {
+    return res.status(404).json({ error: 'Route not found' });
+  }
+  if (!areRoutePointsInsideScope(existingRoute.points, scope)) {
+    return res.status(403).json({ error: 'لا يمكن حذف مسار خارج نطاق تغطية الفرع' });
+  }
+
+  await pool.query('DELETE FROM routes WHERE id = $1', [routeId]);
   res.json({ success: true });
 });
+
+async function loadRouteForScopeCheck(routeId: number): Promise<{ exists: boolean; points: Array<{ geoUnitId: number }> }> {
+  if (!Number.isInteger(routeId) || routeId <= 0) return { exists: false, points: [] };
+
+  const { rows: routeRows } = await pool.query('SELECT id FROM routes WHERE id = $1', [routeId]);
+  if (!routeRows[0]) return { exists: false, points: [] };
+
+  const { rows } = await pool.query(
+    'SELECT geo_unit_id AS "geoUnitId" FROM route_points WHERE route_id = $1',
+    [routeId],
+  );
+
+  return {
+    exists: true,
+    points: rows.map(row => ({ geoUnitId: Number(row.geoUnitId) })),
+  };
+}
 
 export default router;

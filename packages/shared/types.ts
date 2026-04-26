@@ -119,6 +119,7 @@ export interface Employee {
     residenceNeighborhood?: string | null;
     detailedAddress?: string | null;
     status: 'active' | 'leave' | 'inactive';
+    canAppearInSchedule?: boolean;
     avatar?: string;
     jobTitle?: string | null;
     academicQualification?: string | null;
@@ -149,8 +150,18 @@ export interface EmployeeSystemAccount {
     roleDisplayName: string | null;
 }
 
+export interface EmployeeJobTask {
+    id: number;
+    roleId: number;
+    title: string;
+    description: string | null;
+    displayOrder: number;
+    isActive: boolean;
+}
+
 export interface EmployeeDetail extends Employee {
     systemAccount: EmployeeSystemAccount | null;
+    jobTasks: EmployeeJobTask[];
     hiringApplication: JobApplicationDetail | null;
 }
 
@@ -340,10 +351,22 @@ export interface DeviceModel {
     id: number;
     name: string;
     brand: string;
+    nameAr?: string | null;
+    nameEn?: string | null;
     category: 'منزلي' | 'صناعي' | 'تجاري';
     maintenanceInterval: '3 أشهر' | '6 أشهر' | '1 سنة';
     basePrice: number;
-    supportedVisitTypes: ('تركيب' | 'صيانة' | 'توصيل')[];
+    discountPercent?: number;
+    discountedPrice?: number;
+    supportedVisitTypes: ('تركيب' | 'صيانة' | 'تعليم تسليم')[];
+    isGoldenWarranty?: boolean;
+    goldenWarrantyPeriods?: ('3 أشهر' | '6 أشهر' | '9 أشهر' | '12 شهرًا')[];
+    isOfferIncluded?: boolean;
+    description?: string | null;
+    images?: Array<{ id: string; name: string; url: string }>;
+    primaryImageId?: string | null;
+    videos?: Array<{ id: string; name: string; url: string }>;
+    documents?: Array<{ id: string; name: string; url: string }>;
 }
 
 export type ContractStatus = 'draft' | 'active' | 'completed' | 'cancelled';

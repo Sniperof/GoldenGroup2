@@ -13,6 +13,7 @@ import { api } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../lib/employeeMediatorLookup';
 
 interface ClientModalProps {
     isOpen: boolean;
@@ -81,7 +82,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
-    const [employees, setEmployees] = useState<Array<{ id: number; name: string }>>([]);
+    const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
     const [branches, setBranches] = useState<BranchOption[]>([]);
     const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
@@ -108,7 +109,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('App');
     const [referralNameSnapshot, setReferralNameSnapshot] = useState('');
     const [employeeIdInput, setEmployeeIdInput] = useState('');
-    const [employeeFound, setEmployeeFound] = useState<{ name: string, id: number } | null>(null);
+    const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
     const [employeeSearchError, setEmployeeSearchError] = useState('');
     const [clientSearch, setClientSearch] = useState('');
     const [clientSuggestions, setClientSuggestions] = useState<Client[]>([]);
@@ -169,7 +170,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
             setEmployees(
                 employeesRes.status === 'fulfilled'
-                    ? employeesRes.value.map((e: any) => ({ id: e.id, name: e.name }))
+                    ? employeesRes.value.map(toMediatorEmployee)
                     : [],
             );
             setVisits(visitsRes.status === 'fulfilled' ? visitsRes.value : []);
@@ -233,9 +234,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             setEmployeeSearchError('');
             return;
         }
-        const emp = employees.find(e => e.id.toString() === employeeIdInput.trim());
+        const emp = findEmployeeByNumber(employees, employeeIdInput);
         if (emp) {
-            setEmployeeFound({ name: emp.name, id: emp.id });
+            setEmployeeFound(emp);
             setReferralNameSnapshot(emp.name);
             setEmployeeSearchError('');
         } else {
@@ -1087,10 +1088,17 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                 placeholder="أدخل رقم الموظف..."
                                                                 className="w-1/2 p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
                                                             />
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleEmployeeBlur}
+                                                                className="px-3 py-2.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold hover:bg-sky-100"
+                                                            >
+                                                                اعتماد
+                                                            </button>
                                                             {employeeFound && (
                                                                 <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 flex-1 text-sm">
                                                                     <CheckCircle className="w-5 h-5" />
-                                                                    {employeeFound.name}
+                                                                    {formatEmployeeMediatorLabel(employeeFound)}
                                                                 </div>
                                                             )}
                                                             {employeeSearchError && (

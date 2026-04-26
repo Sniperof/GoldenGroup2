@@ -107,6 +107,7 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   // Planning
   'planning.view':   { label: 'عرض خطط وجداول الفرع',      desc: 'الاطلاع على ملخص الخطة وجداول الفرق' },
   'planning.manage': { label: 'إدارة الجدولة وتعيين المسارات', desc: 'إنشاء الجداول وتعيين مسارات العمل للفرق' },
+  'planning.schedule.appear': { label: 'الظهور في جدولة الفرق', desc: 'السماح للموظفين بهذا الدور بالظهور ضمن قائمة الموظفين المتاحين في جدولة الفرق' },
 
   // Telemarketer
   'telemarketer.view':   { label: 'عرض إدارة المواعيد',       desc: 'الاطلاع على المواعيد والعملاء المحتملين' },
@@ -144,6 +145,7 @@ function ActionBadge({ action }: { action: string }) {
     record_attendance:{ icon: <UserCheck className="w-3 h-3" />,    color: 'bg-purple-50 text-purple-600', text: 'حضور' },
     hire:             { icon: <CheckCheck className="w-3 h-3" />,   color: 'bg-emerald-100 text-emerald-700', text: 'تعيين' },
     schedule:         { icon: <Calendar className="w-3 h-3" />,     color: 'bg-sky-50 text-sky-600',       text: 'جدولة' },
+    appear:           { icon: <Eye className="w-3 h-3" />,          color: 'bg-cyan-50 text-cyan-600',     text: 'ظهور' },
     escalate:         { icon: <AlertCircle className="w-3 h-3" />,  color: 'bg-rose-50 text-rose-600',     text: 'تصعيد' },
     archive:          { icon: <FileText className="w-3 h-3" />,     color: 'bg-slate-100 text-slate-500',  text: 'أرشفة' },
     start:            { icon: <ToggleRight className="w-3 h-3" />,  color: 'bg-emerald-50 text-emerald-600', text: 'بدء' },

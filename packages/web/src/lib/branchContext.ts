@@ -6,8 +6,6 @@ const GLOBAL_ONLY_PATH_PREFIXES = [
 const GLOBAL_ONLY_PATHS = new Set([
   '/settings',
   '/system-lists',
-  '/geo',
-  '/routes',
 ]);
 
 export function isGlobalOnlyPath(pathname: string): boolean {

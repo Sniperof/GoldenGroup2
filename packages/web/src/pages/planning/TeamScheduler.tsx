@@ -15,7 +15,7 @@ export default function TeamScheduler() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        api.employees.list().then((data: Employee[]) => setEmployees(data)).catch(() => {});
+        api.employees.schedulePool().then((data: Employee[]) => setEmployees(data)).catch(() => {});
     }, []);
 
     useEffect(() => {
@@ -45,9 +45,10 @@ export default function TeamScheduler() {
         ...current.solos.map(s => s.technician),
     ].filter(Boolean) as number[];
 
-    const availableSups = employees.filter(e => e.role === 'supervisor' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTechs = employees.filter(e => e.role === 'technician' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTeles = employees.filter(e => e.role === 'telemarketer' && e.status === 'active' && !assignedIds.includes(e.id));
+    const canAppear = (employee: Employee) => employee.canAppearInSchedule === true;
+    const availableSups = employees.filter(e => canAppear(e) && e.role === 'supervisor' && e.status === 'active' && !assignedIds.includes(e.id));
+    const availableTechs = employees.filter(e => canAppear(e) && e.role === 'technician' && e.status === 'active' && !assignedIds.includes(e.id));
+    const availableTeles = employees.filter(e => canAppear(e) && e.role === 'telemarketer' && e.status === 'active' && !assignedIds.includes(e.id));
     const poolEmployees = [...availableSups, ...availableTechs, ...availableTeles];
 
     const selectSlot = (type: string, slotIdx: number, role: string) => {

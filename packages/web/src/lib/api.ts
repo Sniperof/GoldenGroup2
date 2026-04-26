@@ -79,6 +79,7 @@ export const api = {
   },
   employees: {
     list: () => request<any[]>('/employees'),
+    schedulePool: () => request<any[]>('/employees/schedule-pool'),
     get: (id: number) => request<any>(`/employees/${id}`),
     create: (data: any) => request<any>('/employees', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

@@ -18,12 +18,14 @@ import {
   RoleSchema,
   PermissionSchema,
   RolePermissionGrantSchema,
+  RoleJobTaskSchema,
   HrUserSchema,
   CreateRoleInputSchema,
   DeactivateUserBranchAssignmentInputSchema,
   UpdateRoleInputSchema,
   UpsertUserBranchAssignmentInputSchema,
   SetPermissionsInputSchema,
+  SetRoleJobTasksInputSchema,
   CreateHrUserInputSchema,
   SetPrimaryUserBranchInputSchema,
   UpdateHrUserInputSchema,
@@ -54,6 +56,7 @@ function toRole(r: Record<string, unknown>): z.infer<typeof RoleSchema> {
     isProtected: (r.is_protected as boolean) ?? false,
     isHidden: (r.is_hidden as boolean) ?? false,
     protectedReason: (r.protected_reason as string) ?? null,
+    jobTaskCount: Number(r.job_task_count ?? 0),
   };
 }
 
@@ -85,6 +88,17 @@ function toPermissionGrant(p: Record<string, unknown>): z.infer<typeof RolePermi
   return {
     ...toPermission(p),
     scopeType: p.scope_type as z.infer<typeof RolePermissionGrantSchema>['scopeType'],
+  };
+}
+
+function toRoleJobTask(task: Record<string, unknown>): z.infer<typeof RoleJobTaskSchema> {
+  return {
+    id: task.id as number,
+    roleId: task.role_id as number,
+    title: task.title as string,
+    description: (task.description as string) ?? null,
+    displayOrder: task.display_order as number,
+    isActive: task.is_active as boolean,
   };
 }
 
@@ -130,7 +144,8 @@ export const rolesRouter = router({
       const result = await pool.query(
         `SELECT r.*,
           (SELECT COUNT(*) FROM hr_users WHERE role_id = r.id) AS user_count,
-          (SELECT COUNT(*) FROM role_permission_grants WHERE role_id = r.id) AS permission_count
+          (SELECT COUNT(*) FROM role_permission_grants WHERE role_id = r.id) AS permission_count,
+          (SELECT COUNT(*) FROM role_job_tasks WHERE role_id = r.id AND is_active = TRUE) AS job_task_count
          FROM roles r
          WHERE r.is_template = TRUE
            AND r.name NOT LIKE 'job_title_%'
@@ -178,6 +193,74 @@ export const rolesRouter = router({
         [input.id]
       );
       return rows.map(toPermissionGrant);
+    }),
+
+  getRoleJobTasks: withPermission('admin.roles.view')
+    .input(z.object({ roleId: z.number() }))
+    .query(async ({ input }) => {
+      const { rows: roleRows } = await pool.query(
+        'SELECT id FROM roles WHERE id = $1', [input.roleId]
+      );
+      if (!roleRows[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
+
+      const { rows } = await pool.query(
+        `SELECT id, role_id, title, description, display_order, is_active
+         FROM role_job_tasks
+         WHERE role_id = $1
+         ORDER BY display_order ASC, id ASC`,
+        [input.roleId],
+      );
+      return rows.map(toRoleJobTask);
+    }),
+
+  setRoleJobTasks: withPermission('admin.roles.manage')
+    .input(SetRoleJobTasksInputSchema)
+    .mutation(async ({ input }) => {
+      const { rows: roleRows } = await pool.query(
+        'SELECT id, is_system, is_protected FROM roles WHERE id = $1', [input.roleId]
+      );
+      const role = roleRows[0];
+      if (!role) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
+      if (role.is_system || role.is_protected) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'لا يمكن تعديل المهام الوظيفية لدور نظامي أو محمي' });
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM role_job_tasks WHERE role_id = $1', [input.roleId]);
+
+        for (const [index, task] of input.tasks.entries()) {
+          const title = task.title.trim();
+          if (!title) continue;
+          await client.query(
+            `INSERT INTO role_job_tasks (role_id, title, description, display_order, is_active)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [
+              input.roleId,
+              title,
+              task.description?.trim() || null,
+              index + 1,
+              task.isActive ?? true,
+            ],
+          );
+        }
+
+        const { rows } = await client.query(
+          `SELECT id, role_id, title, description, display_order, is_active
+           FROM role_job_tasks
+           WHERE role_id = $1
+           ORDER BY display_order ASC, id ASC`,
+          [input.roleId],
+        );
+        await client.query('COMMIT');
+        return rows.map(toRoleJobTask);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
     }),
 
   create: withPermission('admin.roles.manage')

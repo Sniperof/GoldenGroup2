@@ -4,6 +4,7 @@ import { ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 
 interface Props {
     isOpen: boolean;
@@ -30,7 +31,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const currentUserDisplayName = authUser?.name?.trim() || '';
 
     const [allClients, setAllClients] = useState<Client[]>([]);
-    const [employees, setEmployees] = useState<Array<{ id: number; name: string }>>([]);
+    const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
     const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
     useEffect(() => {
@@ -48,7 +49,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                 setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
                 setEmployees(
                     employeesRes.status === 'fulfilled'
-                        ? employeesRes.value.map((e: any) => ({ id: e.id, name: e.name }))
+                        ? employeesRes.value.map(toMediatorEmployee)
                         : [],
                 );
                 setVisits(visitsRes.status === 'fulfilled' ? visitsRes.value : []);
@@ -68,7 +69,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const [error, setError] = useState('');
 
     const [employeeIdInput, setEmployeeIdInput] = useState('');
-    const [employeeFound, setEmployeeFound] = useState<{ name: string, id: number } | null>(null);
+    const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
     const [employeeSearchError, setEmployeeSearchError] = useState('');
 
     const [clientSearch, setClientSearch] = useState('');
@@ -127,9 +128,9 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             setEmployeeSearchError('');
             return;
         }
-        const loadedEmployee = employees.find(e => e.id.toString() === employeeIdInput.trim());
+        const loadedEmployee = findEmployeeByNumber(employees, employeeIdInput);
         if (loadedEmployee) {
-            setEmployeeFound({ name: loadedEmployee.name, id: loadedEmployee.id });
+            setEmployeeFound(loadedEmployee);
             setNameSnapshot(loadedEmployee.name);
             setEmployeeSearchError('');
             return;
@@ -141,10 +142,10 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             return;
         }
         try {
-            const employees = await api.employees.list();
-            const emp = employees.find((e: any) => e.id.toString() === employeeIdInput.trim() || e.employeeId === employeeIdInput.trim());
+            const employees = (await api.employees.list()).map(toMediatorEmployee);
+            const emp = findEmployeeByNumber(employees, employeeIdInput);
             if (emp) {
-                setEmployeeFound({ name: emp.name, id: emp.id });
+                setEmployeeFound(emp);
                 setNameSnapshot(emp.name);
                 setEmployeeSearchError('');
             } else {
@@ -313,10 +314,17 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                                     placeholder="أدخل رقم الموظف..."
                                     className="w-1/2 p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
                                 />
+                                <button
+                                    type="button"
+                                    onClick={handleEmployeeBlur}
+                                    className="px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold hover:bg-amber-100"
+                                >
+                                    اعتماد
+                                </button>
                                 {employeeFound && (
                                     <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 flex-1">
                                         <CheckCircle className="w-5 h-5" />
-                                        {employeeFound.name}
+                                        {formatEmployeeMediatorLabel(employeeFound)}
                                     </div>
                                 )}
                                 {employeeSearchError && (

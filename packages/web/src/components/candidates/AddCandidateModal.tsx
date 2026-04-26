@@ -8,6 +8,7 @@ import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 
 interface AddCandidateModalProps {
     isOpen: boolean;
@@ -114,7 +115,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     const [referralNameSnapshot, setReferralNameSnapshot] = useState('');
 
     const [employeeIdInput, setEmployeeIdInput] = useState('');
-    const [employeeFound, setEmployeeFound] = useState<{ name: string, id: number } | null>(null);
+    const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
     const [employeeSearchError, setEmployeeSearchError] = useState('');
 
     const [clientSearch, setClientSearch] = useState('');
@@ -215,10 +216,10 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             return;
         }
         try {
-            const employees = await api.employees.list();
-            const emp = employees.find((e: any) => e.id.toString() === employeeIdInput.trim() || e.employeeId === employeeIdInput.trim());
+            const employees = (await api.employees.list()).map(toMediatorEmployee);
+            const emp = findEmployeeByNumber(employees, employeeIdInput);
             if (emp) {
-                setEmployeeFound({ name: emp.name, id: emp.id });
+                setEmployeeFound(emp);
                 setReferralNameSnapshot(emp.name);
                 setEmployeeSearchError('');
             } else {
@@ -493,10 +494,17 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                     placeholder="أدخل رقم الموظف..."
                                                     className="w-1/2 p-2.5 rounded-xl border border-indigo-200 bg-white text-sm"
                                                 />
+                                                <button
+                                                    type="button"
+                                                    onClick={handleEmployeeBlur}
+                                                    className="px-3 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-100"
+                                                >
+                                                    اعتماد
+                                                </button>
                                                 {employeeFound && (
                                                     <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 flex-1 text-sm">
                                                         <CheckCircle className="w-5 h-5" />
-                                                        {employeeFound.name}
+                                                        {formatEmployeeMediatorLabel(employeeFound)}
                                                     </div>
                                                 )}
                                                 {employeeSearchError && (

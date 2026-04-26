@@ -6,9 +6,11 @@ import {
   HrUser,
   Permission,
   RolePermissionGrant,
+  RoleJobTask,
   Role,
   SetPrimaryUserBranchInput,
   SetPermissionsInput,
+  SetRoleJobTasksInput,
   UpsertUserBranchAssignmentInput,
   UpdateHrUserInput,
   UpdateRoleInput,
@@ -56,6 +58,8 @@ export interface AppRouterContract {
     update: MutationProcedure<UpdateRoleInput, Role>;
     delete: MutationProcedure<{ id: number }, DeleteRoleResult>;
     setPermissions: MutationProcedure<SetPermissionsInput, RolePermissionGrant[]>;
+    getRoleJobTasks: QueryProcedure<{ roleId: number }, RoleJobTask[]>;
+    setRoleJobTasks: MutationProcedure<SetRoleJobTasksInput, RoleJobTask[]>;
     allPermissions: QueryProcedure<void, Permission[]>;
     getRoleUsers: QueryProcedure<{ roleId: number }, RoleUser[]>;
     hrUsersList: QueryProcedure<void, HrUser[]>;

@@ -21,6 +21,7 @@ import Periodic from './pages/tasks/Periodic';
 import Returns from './pages/tasks/Returns';
 import FollowUp from './pages/tasks/FollowUp';
 import DeviceManagement from './pages/DeviceManagement';
+import DeviceDetail from './pages/DeviceDetail';
 import ContractList from './pages/contracts/ContractList';
 import ContractForm from './pages/contracts/ContractForm';
 import TelemarketerWorkspace from './pages/TelemarketerWorkspace';
@@ -58,6 +59,7 @@ export default function App() {
                     <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/devices" element={<DeviceManagement />} />
+                        <Route path="/devices/:id" element={<DeviceDetail />} />
                         <Route path="/geo" element={<GeoSettings />} />
                         <Route path="/routes" element={<RouteManager />} />
                         <Route path="/employees" element={<Employees />} />

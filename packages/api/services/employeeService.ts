@@ -3,6 +3,7 @@ import type { ContactEntry, ContactStatus, ContactType } from '@golden-crm/share
 import pool from '../db.js';
 import { clearPermissionCache } from '../middleware/permission.js';
 import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment } from './roleAssignmentGuard.js';
+import { upsertUserBranchAssignment } from './userBranchAssignmentService.js';
 import { deriveEmployeeRoleFromVacancyTitle, getEmployeeAvatar } from '../utils/recruitmentPolicy.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import {
@@ -85,6 +86,7 @@ type EmployeeWriteInput = {
   sourceChannel: string | null;
   referrerName: string | null;
   referralNotes: string | null;
+  referralEntityId: number | null;
 };
 
 function createServiceError(status: number, payload: Record<string, unknown>): ServiceError {
@@ -429,6 +431,7 @@ export async function prepareEmployeeWriteInput(
     sourceChannel: asOptionalText(body.sourceChannel),
     referrerName: asOptionalText(body.referrerName),
     referralNotes: asOptionalText(body.referralNotes),
+    referralEntityId: asOptionalNumber(body.referralEntityId),
   };
 }
 
@@ -442,7 +445,7 @@ export async function insertPreparedEmployeeProfile(db: Queryable, input: Employ
       specialization, years_of_experience, driving_license, job_skills, foreign_languages,
       hire_date, start_work_date, department_id, contract_type, work_type,
       previous_employment, direct_manager_id, referrer_type, source_channel,
-      referrer_name, referral_notes
+      referrer_name, referral_notes, referral_entity_id
     ) VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,
       $9,$10,$11,$12,
@@ -451,7 +454,7 @@ export async function insertPreparedEmployeeProfile(db: Queryable, input: Employ
       $24,$25,$26,$27,$28,
       $29,$30,$31,$32,$33,
       $34,$35,$36,$37,
-      $38,$39
+      $38,$39,$40
     )
     RETURNING id`,
     [
@@ -494,6 +497,7 @@ export async function insertPreparedEmployeeProfile(db: Queryable, input: Employ
       input.sourceChannel,
       input.referrerName,
       input.referralNotes,
+      input.referralEntityId,
     ],
   );
 
@@ -550,8 +554,9 @@ async function insertOrUpdatePreparedEmployeeProfile(
        referrer_type = $36,
        source_channel = $37,
        referrer_name = $38,
-       referral_notes = $39
-     WHERE id = $40`,
+       referral_notes = $39,
+       referral_entity_id = $40
+     WHERE id = $41`,
     [
       input.name,
       input.firstName,
@@ -592,6 +597,7 @@ async function insertOrUpdatePreparedEmployeeProfile(
       input.sourceChannel,
       input.referrerName,
       input.referralNotes,
+      input.referralEntityId,
       employeeId,
     ],
   );
@@ -634,14 +640,24 @@ function buildFallbackApplicantContacts(applicant: any): ContactEntry[] {
   return contacts;
 }
 
-export async function getEmployees(scope?: { isSuperAdmin: boolean; branchId: number | null }) {
+export async function getEmployees(scope?: {
+  isSuperAdmin: boolean;
+  branchId: number | null;
+  includeScheduleAppearanceFlag?: boolean;
+}) {
   if (scope && !scope.isSuperAdmin) {
-    return listEmployees({ branchId: scope.branchId });
+    return listEmployees({
+      branchId: scope.branchId,
+      includeScheduleAppearanceFlag: scope.includeScheduleAppearanceFlag,
+    });
   }
   if (scope?.isSuperAdmin && (scope as any).filterBranchId) {
-    return listEmployees({ branchId: (scope as any).filterBranchId });
+    return listEmployees({
+      branchId: (scope as any).filterBranchId,
+      includeScheduleAppearanceFlag: scope.includeScheduleAppearanceFlag,
+    });
   }
-  return listEmployees();
+  return listEmployees({ includeScheduleAppearanceFlag: scope?.includeScheduleAppearanceFlag });
 }
 
 export async function getEmployeeById(employeeId: number | string) {
@@ -678,6 +694,17 @@ export async function getEmployeeById(employeeId: number | string) {
   const foreignLanguages = Array.isArray(row.foreignLanguages)
     ? row.foreignLanguages
     : (applicant ? splitApplicantLanguages(applicant.foreignLanguages) : []);
+
+  const jobTasks = row.systemRoleId
+    ? (await pool.query(
+        `SELECT id, role_id AS "roleId", title, description,
+                display_order AS "displayOrder", is_active AS "isActive"
+           FROM role_job_tasks
+          WHERE role_id = $1 AND is_active = TRUE
+          ORDER BY display_order ASC, id ASC`,
+        [row.systemRoleId],
+      )).rows
+    : [];
 
   return {
     id: row.id,
@@ -736,6 +763,7 @@ export async function getEmployeeById(employeeId: number | string) {
       roleId: row.systemRoleId,
       roleDisplayName: row.systemRoleDisplayName,
     } : null,
+    jobTasks,
     hiringApplication,
   };
 }
@@ -838,6 +866,23 @@ export async function saveEmployeeSystemAccount(
       isActive: typeof isActive === 'boolean' ? isActive : undefined,
     });
     clearPermissionCache(account.id);
+  }
+
+  // Auto-assign employee's branch to the hr_user account (best-effort).
+  // For new accounts the branch becomes primary; for existing accounts it
+  // is added only if not already present (upsert handles duplicates).
+  if (employee.branchId != null) {
+    try {
+      await upsertUserBranchAssignment({
+        userId: savedRow.id,
+        branchId: employee.branchId,
+        isPrimary: !account, // primary for new accounts; let existing logic decide for updates
+        status: 'active',
+      });
+      clearPermissionCache(savedRow.id);
+    } catch {
+      // Non-fatal — branch assignment failure should not block account save
+    }
   }
 
   const roleDisplayName = await findRoleDisplayName(savedRow.roleId);

@@ -14,6 +14,8 @@ interface ManualSearchModalProps {
 const RESTRICTED_MESSAGE = 'الرقم موجود مسبقاً في النظام ولا يمكنك عرض تفاصيله. يرجى مراجعة الإدارة أو مدير الفرع.';
 const DEFAULT_ERROR_MESSAGE = 'حدث خطأ أثناء الفحص. أعد المحاولة بعد قليل.';
 
+const SYRIAN_MOBILE_PATTERN = /^09\d{8}$/;
+
 function extractSmartMatchErrorMessage(error: unknown): string {
     if (!(error instanceof Error) || !error.message) {
         return DEFAULT_ERROR_MESSAGE;
@@ -56,6 +58,8 @@ export default function ManualSearchModal({
         mobile: candidate.mobile || ''
     });
 
+    const isValidSyrianMobile = SYRIAN_MOBILE_PATTERN.test(inputs.mobile);
+
     useEffect(() => {
         if (!isOpen) {
             setMatchResult(null);
@@ -75,7 +79,7 @@ export default function ManualSearchModal({
             return;
         }
 
-        if (inputs.mobile.length !== 10) {
+        if (!isValidSyrianMobile) {
             setMatchResult(null);
             setIsSearching(false);
             setSearchError(null);
@@ -114,9 +118,9 @@ export default function ManualSearchModal({
         return () => {
             active = false;
         };
-    }, [inputs.mobile, inputs.name, isOpen]);
+    }, [inputs.mobile, inputs.name, isOpen, isValidSyrianMobile]);
 
-    const phoneVerified = inputs.mobile.length === 10 && matchResult?.status === 'NO_MATCH' && !isSearching;
+    const phoneVerified = isValidSyrianMobile && matchResult?.status === 'NO_MATCH' && !isSearching;
 
     const mobileInputState = useMemo(() => {
         if (phoneVerified) {
@@ -131,8 +135,8 @@ export default function ManualSearchModal({
             return 'duplicate';
         }
 
-        return inputs.mobile.length === 10 ? 'ready' : 'default';
-    }, [inputs.mobile.length, matchResult?.status, phoneVerified]);
+        return isValidSyrianMobile ? 'ready' : 'default';
+    }, [isValidSyrianMobile, matchResult?.status, phoneVerified]);
 
     const handleUnlockMobile = () => {
         setInputs(prev => ({ ...prev, mobile: '' }));
@@ -198,6 +202,8 @@ export default function ManualSearchModal({
                                         onChange={e => {
                                             if (phoneVerified) return;
                                             const v = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                            if (v.length === 1 && v !== '0') return;
+                                            if (v.length >= 2 && !v.startsWith('09')) return;
                                             setInputs(prev => ({ ...prev, mobile: v }));
                                         }}
                                         readOnly={phoneVerified}
@@ -227,11 +233,15 @@ export default function ManualSearchModal({
                                         </button>
                                     )}
                                 </div>
-                                {!phoneVerified && inputs.mobile.length > 0 && inputs.mobile.length < 10 && (
-                                    <p className="text-[10px] text-amber-500 mt-1 font-medium">{10 - inputs.mobile.length} خانة متبقية</p>
+                                {!phoneVerified && inputs.mobile.length > 0 && !isValidSyrianMobile && (
+                                    <p className="text-[10px] text-amber-500 mt-1 font-medium">
+                                        {inputs.mobile.length < 10
+                                            ? `${10 - inputs.mobile.length} خانة متبقية، ويجب أن يبدأ الرقم بـ 09`
+                                            : 'يجب أن يبدأ رقم الموبايل بـ 09'}
+                                    </p>
                                 )}
                                 {!phoneVerified && inputs.mobile.length === 0 && (
-                                    <p className="text-[10px] text-slate-400 mt-1 font-medium">10 أرقام بالضبط مطلوبة لإجراء الفحص</p>
+                                    <p className="text-[10px] text-slate-400 mt-1 font-medium">أدخل 10 أرقام تبدأ بـ 09 لإجراء الفحص</p>
                                 )}
                             </div>
                         </div>
@@ -247,13 +257,13 @@ export default function ManualSearchModal({
                                 <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-4" />
                                 <p className="text-slate-500 font-medium">جاري فحص الرقم على مستوى النظام...</p>
                             </div>
-                        ) : inputs.mobile.length < 10 ? (
+                        ) : !isValidSyrianMobile ? (
                             <div className="py-12 text-center bg-white rounded-2xl border border-slate-100">
                                 <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <Search className="w-8 h-8 text-slate-300" />
                                 </div>
                                 <h4 className="text-slate-800 font-bold mb-1">أدخل رقم الموبايل للمتابعة</h4>
-                                <p className="text-slate-500 text-sm">سيتم منع التكرار حتى لو كان الزبون موجوداً في فرع آخر</p>
+                                <p className="text-slate-500 text-sm">يجب أن يكون الرقم 10 خانات ويبدأ بـ 09</p>
                             </div>
                         ) : matchResult?.status === 'MATCH_VISIBLE' ? (
                             <div className="group bg-white p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all flex items-center justify-between gap-4">
