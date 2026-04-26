@@ -30,6 +30,25 @@ const selectFields = `
   branch_id AS "branchId"
 `;
 
+const selectFieldsList = `
+  c.id, c.first_name AS "firstName", c.last_name AS "lastName", c.nickname, c.mobile,
+  c.contacts, c.address_text AS "addressText", c.geo_unit_id AS "geoUnitId", c.owner_user_id AS "ownerUserId",
+  c.status, c.referral_sheet_id AS "referralSheetId",
+  c.referral_date AS "referralDate", c.referral_reason AS "referralReason",
+  c.referral_type AS "referralType", c.referral_origin_channel AS "referralOriginChannel",
+  c.referral_name_snapshot AS "referralNameSnapshot", c.referral_entity_id AS "referralEntityId",
+  c.referral_confirmation_status AS "referralConfirmationStatus",
+  c.occupation, c.candidate_notes AS "candidateNotes",
+  c.duplicate_flag AS "duplicateFlag", c.duplicate_type AS "duplicateType",
+  c.duplicate_reference_id AS "duplicateReferenceId",
+  c.converted_to_lead_id AS "convertedToLeadId",
+  c.created_at AS "createdAt", c.created_by AS "createdBy",
+  c.branch_id AS "branchId",
+  b.name AS "branchName",
+  rs.assigned_hr_user_id AS "assignedHrUserId",
+  hu.name AS "assignedHrUserName"
+`;
+
 type CandidateSubject = {
   branchId: number | null;
   ownerUserId: number | null;
@@ -106,24 +125,30 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
 
     if (requestedBranchId != null) {
       params.push(requestedBranchId);
-      conditions.push(`branch_id = $${params.length}`);
+      conditions.push(`c.branch_id = $${params.length}`);
     }
 
     if (listAccess.scope === 'BRANCH') {
       params.push(authContext.allowedBranchIds);
-      conditions.push(`branch_id = ANY($${params.length}::int[])`);
+      conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
     }
 
     if (listAccess.scope === 'ASSIGNED') {
       params.push(authContext.userId);
-      conditions.push(`owner_user_id = $${params.length}`);
+      conditions.push(`c.owner_user_id = $${params.length}`);
       params.push(authContext.allowedBranchIds);
-      conditions.push(`branch_id = ANY($${params.length}::int[])`);
+      conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
     }
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(
-      `SELECT ${selectFields} FROM candidates${where} ORDER BY id`,
+      `SELECT ${selectFieldsList}
+       FROM candidates c
+       LEFT JOIN branches b ON b.id = c.branch_id
+       LEFT JOIN referral_sheets rs ON rs.id = c.referral_sheet_id
+       LEFT JOIN hr_users hu ON hu.id = rs.assigned_hr_user_id
+       ${where}
+       ORDER BY c.id`,
       params,
     );
     res.json(rows);

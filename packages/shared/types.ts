@@ -41,6 +41,9 @@ export interface ReferralSheet {
     referralDate: string;
     ownerUserId: number;
     assignedHrUserId?: number | null;
+    assignedHrUserName?: string | null;
+    branchId?: number | null;
+    branchName?: string | null;
     status: 'New' | 'In-Progress' | 'Completed' | 'Archived';
     stats: ReferralSheetStats;
     createdAt: string;
@@ -76,6 +79,10 @@ export interface Candidate {
     duplicateType: DuplicateType | null;
     duplicateReferenceId: number | null;
     convertedToLeadId: number | null;
+    assignedHrUserId?: number | null;
+    assignedHrUserName?: string | null;
+    branchId?: number | null;
+    branchName?: string | null;
     createdAt: string;
     createdBy: number;
 }

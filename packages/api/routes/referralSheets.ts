@@ -24,6 +24,20 @@ const selectFields = `
   branch_id AS "branchId"
 `;
 
+const selectFieldsList = `
+  rs.id, rs.referral_type AS "referralType", rs.referral_entity_id AS "referralEntityId",
+  rs.referral_name_snapshot AS "referralNameSnapshot", rs.referral_address_text AS "referralAddressText",
+  rs.referral_origin_channel AS "referralOriginChannel", rs.referral_notes AS "referralNotes",
+  rs.referral_date AS "referralDate", rs.owner_user_id AS "ownerUserId", rs.status,
+  rs.assigned_hr_user_id AS "assignedHrUserId",
+  hu.name AS "assignedHrUserName",
+  rs.total_candidates AS "totalCandidates", rs.quality_percentage AS "qualityPercentage",
+  rs.conversion_percentage AS "conversionPercentage",
+  rs.created_at AS "createdAt", rs.created_by AS "createdBy",
+  rs.branch_id AS "branchId",
+  b.name AS "branchName"
+`;
+
 type ReferralSheetSubject = {
   branchId: number | null;
   ownerUserId: number | null;
@@ -42,6 +56,8 @@ function mapRow(r: any) {
       qualityPercentage: r.qualityPercentage,
       conversionPercentage: r.conversionPercentage,
     },
+    assignedHrUserName: r.assignedHrUserName ?? null,
+    branchName: r.branchName ?? null,
   };
 }
 
@@ -154,24 +170,29 @@ router.get('/', requirePermission('candidates.name_lists.view_list', 'referral_s
 
     if (requestedBranchId != null) {
       params.push(requestedBranchId);
-      conditions.push(`branch_id = $${params.length}`);
+      conditions.push(`rs.branch_id = $${params.length}`);
     }
 
     if (listAccess.scope === 'BRANCH') {
       params.push(authContext.allowedBranchIds);
-      conditions.push(`branch_id = ANY($${params.length}::int[])`);
+      conditions.push(`rs.branch_id = ANY($${params.length}::int[])`);
     }
 
     if (listAccess.scope === 'ASSIGNED') {
       params.push(authContext.userId);
-      conditions.push(`assigned_hr_user_id = $${params.length}`);
+      conditions.push(`rs.assigned_hr_user_id = $${params.length}`);
       params.push(authContext.allowedBranchIds);
-      conditions.push(`branch_id = ANY($${params.length}::int[])`);
+      conditions.push(`rs.branch_id = ANY($${params.length}::int[])`);
     }
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(
-      `SELECT ${selectFields} FROM referral_sheets${where} ORDER BY id DESC`,
+      `SELECT ${selectFieldsList}
+       FROM referral_sheets rs
+       LEFT JOIN hr_users hu ON hu.id = rs.assigned_hr_user_id
+       LEFT JOIN branches b ON b.id = rs.branch_id
+       ${where}
+       ORDER BY rs.id DESC`,
       params,
     );
     res.json(rows.map(mapRow));
