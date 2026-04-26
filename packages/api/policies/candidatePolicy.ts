@@ -6,6 +6,12 @@ export interface CandidatePolicySubject {
   ownerUserId?: number | null;
 }
 
+export interface CandidateListAccessPlan {
+  scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED' | 'NONE';
+  userId: number;
+  allowedBranchIds: number[];
+}
+
 function authorizeCandidatePermission(
   context: AuthContext,
   permission: string,
@@ -34,6 +40,31 @@ export function canListCandidates(context: AuthContext, branchId: number | null)
     permission: 'candidates.view_list',
     branchId,
   });
+}
+
+export function getCandidateListAccessPlan(context: AuthContext): CandidateListAccessPlan {
+  if (context.isSuperAdmin) {
+    return {
+      scope: 'GLOBAL',
+      userId: context.userId,
+      allowedBranchIds: context.allowedBranchIds,
+    };
+  }
+
+  const grant = context.grants.find(item => item.permission === 'candidates.view_list');
+  if (!grant) {
+    return {
+      scope: 'NONE',
+      userId: context.userId,
+      allowedBranchIds: context.allowedBranchIds,
+    };
+  }
+
+  return {
+    scope: grant.scope,
+    userId: context.userId,
+    allowedBranchIds: context.allowedBranchIds,
+  };
 }
 
 export function canViewCandidate(

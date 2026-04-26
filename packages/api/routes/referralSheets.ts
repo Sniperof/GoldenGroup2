@@ -6,7 +6,7 @@ import { resolveActingBranch } from '../services/authorizationService.js';
 import {
   canCreateReferralSheet,
   canEditReferralSheet,
-  canListReferralSheets,
+  getReferralSheetListAccessPlan,
 } from '../policies/referralSheetPolicy.js';
 
 const router = Router();
@@ -45,6 +45,22 @@ function mapRow(r: any) {
   };
 }
 
+function enforcePersonalReferralSheet<T extends Record<string, any>>(
+  payload: T,
+  currentUser: { name: string },
+): T {
+  if (payload.referralType !== 'Personal') {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    referralOriginChannel: 'Acquaintance',
+    referralNameSnapshot: currentUser.name,
+    referralEntityId: null,
+  };
+}
+
 function getRequiredAuthContext(req: any) {
   if (!req.authContext) {
     throw new Error('AuthContext is required after requirePermission');
@@ -70,6 +86,16 @@ function resolveReferralSheetTargetBranch(req: any, requestedBranchId?: number |
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
   });
+}
+
+function resolveReferralSheetListBranchFilter(req: any): number | null {
+  const requestedBranchId = req.header('x-branch-id');
+  if (requestedBranchId == null || requestedBranchId === '') {
+    return null;
+  }
+
+  const normalized = Number(requestedBranchId);
+  return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
 }
 
 async function loadReferralSheetSubject(referralSheetId: string | number): Promise<ReferralSheetSubject | null> {
@@ -105,30 +131,48 @@ async function assertAssignedHrUserExists(
   return { ok: true, assignedHrUserId: normalized };
 }
 
-router.get('/', requirePermission('referral_sheets.view_list'), async (req, res) => {
+router.get('/', requirePermission('candidates.name_lists.view_list', 'referral_sheets.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const targetBranchId = resolveReferralSheetTargetBranch(req);
+    const requestedBranchId = resolveReferralSheetListBranchFilter(req);
+    const listAccess = getReferralSheetListAccessPlan(authContext);
 
-    if (!authContext.isSuperAdmin && targetBranchId == null) {
+    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
       return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
     }
 
-    if (targetBranchId != null) {
-      const access = canListReferralSheets(authContext, targetBranchId);
-      if (!access.allowed) {
-        return forbidReferralSheetAccess(res, access.reason);
-      }
+    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+      return forbidReferralSheetAccess(res, 'BRANCH_FORBIDDEN');
     }
 
-    if (authContext.isSuperAdmin && targetBranchId == null) {
-      const { rows } = await pool.query(`SELECT ${selectFields} FROM referral_sheets ORDER BY id DESC`);
-      return res.json(rows.map(mapRow));
+    if (listAccess.scope === 'NONE') {
+      return forbidReferralSheetAccess(res, 'MISSING_PERMISSION');
     }
 
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (requestedBranchId != null) {
+      params.push(requestedBranchId);
+      conditions.push(`branch_id = $${params.length}`);
+    }
+
+    if (listAccess.scope === 'BRANCH') {
+      params.push(authContext.allowedBranchIds);
+      conditions.push(`branch_id = ANY($${params.length}::int[])`);
+    }
+
+    if (listAccess.scope === 'ASSIGNED') {
+      params.push(authContext.userId);
+      conditions.push(`assigned_hr_user_id = $${params.length}`);
+      params.push(authContext.allowedBranchIds);
+      conditions.push(`branch_id = ANY($${params.length}::int[])`);
+    }
+
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(
-      `SELECT ${selectFields} FROM referral_sheets WHERE branch_id = $1 ORDER BY id DESC`,
-      [targetBranchId],
+      `SELECT ${selectFields} FROM referral_sheets${where} ORDER BY id DESC`,
+      params,
     );
     res.json(rows.map(mapRow));
   } catch (err: any) {
@@ -136,7 +180,7 @@ router.get('/', requirePermission('referral_sheets.view_list'), async (req, res)
   }
 });
 
-router.post('/', requirePermission('referral_sheets.create'), async (req, res) => {
+router.post('/', requirePermission('candidates.name_lists.create', 'referral_sheets.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const targetBranchId = resolveReferralSheetTargetBranch(req, req.body?.branchId);
@@ -144,7 +188,10 @@ router.post('/', requirePermission('referral_sheets.create'), async (req, res) =
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
-    const assignedHrUserCheck = await assertAssignedHrUserExists(req.body?.assignedHrUserId);
+    const requestedAssignedHrUserId = req.body?.assignedHrUserId;
+    const assignedHrUserCheck = requestedAssignedHrUserId == null || requestedAssignedHrUserId === ''
+      ? { ok: true as const, assignedHrUserId: authContext.userId }
+      : await assertAssignedHrUserExists(requestedAssignedHrUserId);
     if ('error' in assignedHrUserCheck) {
       return res.status(400).json({ error: assignedHrUserCheck.error });
     }
@@ -157,7 +204,7 @@ router.post('/', requirePermission('referral_sheets.create'), async (req, res) =
       return forbidReferralSheetAccess(res, createAccess.reason);
     }
 
-    const s = req.body;
+    const s = enforcePersonalReferralSheet(req.body ?? {}, { name: req.user?.name || '' });
     const { rows } = await pool.query(
       `INSERT INTO referral_sheets (referral_type, referral_entity_id, referral_name_snapshot,
         referral_address_text, referral_origin_channel, referral_notes, referral_date,
@@ -166,10 +213,10 @@ router.post('/', requirePermission('referral_sheets.create'), async (req, res) =
       RETURNING ${selectFields}`,
       [s.referralType, s.referralEntityId || null, s.referralNameSnapshot || '',
        s.referralAddressText || '', s.referralOriginChannel || null, s.referralNotes || null,
-       s.referralDate || null, s.ownerUserId, s.status || 'New',
+       s.referralDate || null, s.ownerUserId ?? authContext.userId, s.status || 'New',
        assignedHrUserCheck.assignedHrUserId,
        s.stats?.totalCandidates || 0, s.stats?.qualityPercentage || 0,
-       s.stats?.conversionPercentage || 0, s.createdBy || null, targetBranchId],
+       s.stats?.conversionPercentage || 0, s.createdBy ?? authContext.userId, targetBranchId],
     );
     res.json(mapRow(rows[0]));
   } catch (err: any) {
@@ -177,7 +224,7 @@ router.post('/', requirePermission('referral_sheets.create'), async (req, res) =
   }
 });
 
-router.put('/:id', requirePermission('referral_sheets.edit'), async (req, res) => {
+router.put('/:id', requirePermission('candidates.name_lists.edit', 'referral_sheets.edit'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const referralSheetId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -223,7 +270,7 @@ router.put('/:id', requirePermission('referral_sheets.edit'), async (req, res) =
       return forbidReferralSheetAccess(res, targetAccess.reason);
     }
 
-    const s = req.body;
+    const s = enforcePersonalReferralSheet(req.body ?? {}, { name: req.user?.name || '' });
     const merged = {
       referralType: s.referralType ?? current.referralType,
       referralEntityId: s.referralEntityId !== undefined ? s.referralEntityId : current.referralEntityId,

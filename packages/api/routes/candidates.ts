@@ -7,7 +7,7 @@ import {
   canCreateCandidate,
   canDeleteCandidate,
   canEditCandidate,
-  canListCandidates,
+  getCandidateListAccessPlan,
   canViewCandidate,
 } from '../policies/candidatePolicy.js';
 
@@ -62,6 +62,16 @@ function resolveCandidateTargetBranch(req: any, requestedBranchId?: number | str
   });
 }
 
+function resolveCandidateListBranchFilter(req: any): number | null {
+  const requestedBranchId = req.header('x-branch-id');
+  if (requestedBranchId == null || requestedBranchId === '') {
+    return null;
+  }
+
+  const normalized = Number(requestedBranchId);
+  return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
+}
+
 async function loadCandidateSubject(candidateId: string | number): Promise<CandidateSubject | null> {
   const { rows } = await pool.query(
     `SELECT branch_id AS "branchId", owner_user_id AS "ownerUserId"
@@ -76,27 +86,45 @@ async function loadCandidateSubject(candidateId: string | number): Promise<Candi
 router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const targetBranchId = resolveCandidateTargetBranch(req);
+    const requestedBranchId = resolveCandidateListBranchFilter(req);
+    const listAccess = getCandidateListAccessPlan(authContext);
 
-    if (!authContext.isSuperAdmin && targetBranchId == null) {
+    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
       return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
     }
 
-    if (targetBranchId != null) {
-      const access = canListCandidates(authContext, targetBranchId);
-      if (!access.allowed) {
-        return forbidCandidateAccess(res, access.reason);
-      }
+    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+      return forbidCandidateAccess(res, 'BRANCH_FORBIDDEN');
     }
 
-    if (authContext.isSuperAdmin && targetBranchId == null) {
-      const { rows } = await pool.query(`SELECT ${selectFields} FROM candidates ORDER BY id`);
-      return res.json(rows);
+    if (listAccess.scope === 'NONE') {
+      return forbidCandidateAccess(res, 'MISSING_PERMISSION');
     }
 
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (requestedBranchId != null) {
+      params.push(requestedBranchId);
+      conditions.push(`branch_id = $${params.length}`);
+    }
+
+    if (listAccess.scope === 'BRANCH') {
+      params.push(authContext.allowedBranchIds);
+      conditions.push(`branch_id = ANY($${params.length}::int[])`);
+    }
+
+    if (listAccess.scope === 'ASSIGNED') {
+      params.push(authContext.userId);
+      conditions.push(`owner_user_id = $${params.length}`);
+      params.push(authContext.allowedBranchIds);
+      conditions.push(`branch_id = ANY($${params.length}::int[])`);
+    }
+
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(
-      `SELECT ${selectFields} FROM candidates WHERE branch_id = $1 ORDER BY id`,
-      [targetBranchId],
+      `SELECT ${selectFields} FROM candidates${where} ORDER BY id`,
+      params,
     );
     res.json(rows);
   } catch (err: any) {
@@ -112,9 +140,14 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
+    const requestedOwnerUserId = Number(req.body?.ownerUserId);
+    const ownerUserId = authContext.isSuperAdmin && Number.isInteger(requestedOwnerUserId) && requestedOwnerUserId > 0
+      ? requestedOwnerUserId
+      : authContext.userId;
+
     const createAccess = canCreateCandidate(authContext, {
       branchId: targetBranchId,
-      ownerUserId: req.body?.ownerUserId ?? null,
+      ownerUserId,
     });
     if (!createAccess.allowed) {
       return forbidCandidateAccess(res, createAccess.reason);
@@ -130,12 +163,12 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
       RETURNING ${selectFields}`,
       [c.firstName, c.lastName || null, c.nickname, c.mobile, JSON.stringify(c.contacts || []), c.addressText || '', c.geoUnitId || null,
-       c.ownerUserId || null, c.status || 'Suggested', c.referralSheetId || null,
+       ownerUserId, c.status || 'Suggested', c.referralSheetId || null,
        c.referralDate || null, c.referralReason || null, c.referralType || null,
        c.referralOriginChannel || null, c.referralNameSnapshot || null,
        c.referralEntityId || null, c.referralConfirmationStatus || 'Pending',
        c.occupation || null, c.candidateNotes || null, c.duplicateFlag || false, c.duplicateType || null,
-       c.duplicateReferenceId || null, c.convertedToLeadId || null, c.createdBy || null,
+       c.duplicateReferenceId || null, c.convertedToLeadId || null, c.createdBy ?? authContext.userId,
        targetBranchId]
     );
     res.json(rows[0]);

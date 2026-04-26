@@ -10,8 +10,26 @@ import QualificationModal from '../../components/candidates/QualificationModal';
 import ClientModal from '../../components/ClientModal';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
+import { usePermissions } from '../../hooks/usePermissions';
+
+const referralTypeLabels: Record<string, string> = {
+    Personal: 'شخصي',
+    Employee: 'موظف',
+    Client: 'زبون',
+    Unknown: 'غير معروف',
+};
+
+const getReferralTypeLabel = (type?: string | null) => {
+    if (!type) return '--';
+    return referralTypeLabels[type] || type;
+};
 
 export default function CandidatesEntry() {
+    const { hasAnyPermission, hasPermission } = usePermissions();
+    const canViewNameLists = hasAnyPermission('candidates.name_lists.view_list', 'referral_sheets.view_list');
+    const canCreateNameLists = hasAnyPermission('candidates.name_lists.create', 'referral_sheets.create');
+    const canCreateCandidates = hasPermission('candidates.create');
+
     // UI State
     const [activeTab, setActiveTab] = useState<'candidates' | 'sheets'>('candidates');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -160,12 +178,16 @@ export default function CandidatesEntry() {
                         <p className="text-sm text-slate-500 mt-1">فلترة، تدقيق، وتوجيه الأسماء الجديدة</p>
                     </div>
                     <div className="flex gap-2">
+                        {canCreateNameLists && (
                         <button onClick={() => setIsCreateSheetOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-bold shadow-sm transition-all text-sm">
                             <FilePlus2 className="w-4 h-4" /> لائحة جديدة
                         </button>
+                        )}
+                        {canCreateCandidates && (
                         <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all">
                             <UserPlus className="w-4 h-4" /> إضافة اسم
                         </button>
+                        )}
                     </div>
                 </div>
 
@@ -177,12 +199,14 @@ export default function CandidatesEntry() {
                     >
                         <List className="w-4 h-4" /> سجل الأسماء ({filteredCandidates.length})
                     </button>
+                    {canViewNameLists && (
                     <button
                         onClick={() => setActiveTab('sheets')}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'sheets' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         <LayoutGrid className="w-4 h-4" /> لوائح الأسماء ({referralSheets.length})
                     </button>
+                    )}
                 </div>
             </div>
 
@@ -322,7 +346,7 @@ export default function CandidatesEntry() {
             )}
 
             {/* TAB CONTENT: Sheets List */}
-            {activeTab === 'sheets' && (
+            {activeTab === 'sheets' && canViewNameLists && (
                 <div className="flex flex-col border rounded-2xl border-slate-200 bg-white shadow-sm overflow-hidden">
                     <div className="flex-1 overflow-y-auto custom-scroll" style={{ maxHeight: '480px' }}>
                         <table className="w-full text-sm text-right border-collapse">
@@ -349,7 +373,7 @@ export default function CandidatesEntry() {
                                                     </div>
                                                     <div>
                                                         <div className="font-bold text-slate-800 group-hover:text-amber-700 transition-colors">{sheet.referralNameSnapshot}</div>
-                                                        <div className="text-[10px] text-slate-400">{sheet.referralType}</div>
+                                                        <div className="text-[10px] text-slate-400">{getReferralTypeLabel(sheet.referralType)}</div>
                                                     </div>
                                                 </div>
                                             </td>
@@ -411,7 +435,7 @@ export default function CandidatesEntry() {
                 initialData={editingCandidate || undefined}
                 title="إضافة اسم مقترح جديد"
             />
-            <CreateReferralSheetModal isOpen={isCreateSheetOpen} onClose={() => setIsCreateSheetOpen(false)} onSheetCreated={() => setActiveTab('sheets')} />
+            <CreateReferralSheetModal isOpen={isCreateSheetOpen} onClose={() => setIsCreateSheetOpen(false)} onSheetCreated={() => { if (canViewNameLists) setActiveTab('sheets'); }} />
             <ImportCSVModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
             <ReferralSheetDetailsModal sheetId={sheetDetailsId} isOpen={sheetDetailsId !== null} onClose={() => setSheetDetailsId(null)} />
 

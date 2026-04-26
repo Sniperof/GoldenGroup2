@@ -80,6 +80,10 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'candidates.view_list': { label: 'عرض الأسماء المقترحة',   desc: 'الاطلاع على قائمة الأسماء المقترحة للتوظيف' },
   'candidates.create':    { label: 'إضافة اسم مقترح',        desc: 'إدخال اسم مقترح جديد يدوياً أو عبر الاستيراد' },
   'candidates.edit':      { label: 'تعديل الاسم المقترح',    desc: 'تحديث بيانات الاسم المقترح' },
+  'candidates.name_lists.view_list': { label: 'عرض لوائح الأسماء',  desc: 'الاطلاع على لوائح الأسماء ضمن سجل الأسماء المقترحة' },
+  'candidates.name_lists.create':    { label: 'إنشاء لائحة أسماء', desc: 'إنشاء لائحة أسماء جديدة وإسنادها للمتابعة' },
+  'candidates.name_lists.edit':      { label: 'تعديل لائحة أسماء', desc: 'تحديث بيانات لائحة الأسماء وحالتها' },
+  'candidates.name_lists.delete':    { label: 'حذف لائحة أسماء',   desc: 'حذف لائحة أسماء من سجل الأسماء المقترحة' },
 
   // Employees
   'employees.view_list':  { label: 'عرض قائمة الموظفين',     desc: 'الاطلاع على سجلات الموظفين الميدانيين' },
@@ -177,6 +181,8 @@ const SUB_MODULE_LABELS: Record<string, string> = {
   applications: 'طلبات التوظيف',
   interviews:   'المقابلات',
   training:     'الدورات التدريبية',
+  candidates:    'الأسماء المقترحة',
+  name_lists:    'لوائح الأسماء',
   roles:        'الأدوار والصلاحيات',
   system_lists: 'القوائم النظامية',
 };

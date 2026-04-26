@@ -8,7 +8,7 @@ interface CandidateState {
 
     fetchData: () => Promise<void>;
 
-    addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats'>) => Promise<number>;
+    addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats' | 'ownerUserId' | 'createdBy'> & { ownerUserId?: number; createdBy?: number }) => Promise<number>;
     closeReferralSheet: (sheetId: number) => Promise<void>;
 
     addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null }) => Promise<void>;
@@ -26,11 +26,19 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
     referralSheets: [],
 
     fetchData: async () => {
-        const [candidates, referralSheets] = await Promise.all([
+        const [candidatesResult, referralSheetsResult] = await Promise.allSettled([
             api.candidates.list(),
             api.referralSheets.list()
         ]);
-        set({ candidates, referralSheets });
+
+        if (candidatesResult.status === 'rejected') {
+            throw candidatesResult.reason;
+        }
+
+        set({
+            candidates: candidatesResult.value,
+            referralSheets: referralSheetsResult.status === 'fulfilled' ? referralSheetsResult.value : []
+        });
     },
 
     addReferralSheet: async (sheetData) => {

@@ -7,6 +7,7 @@ import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
+import { useAuthStore } from '../../hooks/useAuthStore';
 
 interface AddCandidateModalProps {
     isOpen: boolean;
@@ -56,6 +57,8 @@ const initialCandidateState: {
 };
 
 export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, initialData, title }: AddCandidateModalProps) {
+    const authUser = useAuthStore(state => state.user);
+    const currentUserDisplayName = authUser?.name?.trim() || '';
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
@@ -159,7 +162,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 setIsDirectMode(initialDirectMode || false);
                 setCandidateData(initialCandidateState);
                 setReferralType('Personal');
-                setReferralNameSnapshot('أحمد (مشرف)');
+                setReferralNameSnapshot(currentUserDisplayName);
                 setReferralDate(new Date().toISOString().split('T')[0]);
                 setSelectedSheetId('');
                 setEmployeeIdInput('');
@@ -179,7 +182,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
         if (referralType === 'Personal') {
             setOriginChannel('Acquaintance');
-            setReferralNameSnapshot('أحمد (مشرف)');
+            setReferralNameSnapshot(currentUserDisplayName);
         } else if (referralType === 'Unknown') {
             setReferralNameSnapshot('مجهول');
         } else {
@@ -189,7 +192,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setClientSearch('');
             setSelectedClientId(null);
         }
-    }, [referralType, isDirectMode, isOpen]);
+    }, [referralType, isDirectMode, isOpen, currentUserDisplayName]);
 
 
 
@@ -258,6 +261,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         setClientSuggestions([]);
     };
 
+    const selectedSheet = useMemo(
+        () => activeSheets.find((sheet: any) => sheet.id === selectedSheetId),
+        [activeSheets, selectedSheetId],
+    );
+
 
 
     const candidatesList = useCandidateStore((state: any) => state.candidates);
@@ -299,7 +307,15 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             const detailedAddress = candidateData.addressText;
 
             let entityId: number | null = null;
-            if (referralType === 'Employee' && employeeFound) {
+            let resolvedReferralType = referralType;
+            let resolvedOriginChannel = originChannel;
+            let resolvedReferralNameSnapshot = referralNameSnapshot;
+            if (!isDirectMode && selectedSheet) {
+                resolvedReferralType = selectedSheet.referralType;
+                resolvedOriginChannel = selectedSheet.referralOriginChannel;
+                resolvedReferralNameSnapshot = selectedSheet.referralNameSnapshot;
+                entityId = selectedSheet.referralEntityId ?? null;
+            } else if (referralType === 'Employee' && employeeFound) {
                 entityId = employeeFound.id;
             } else if (referralType === 'Client' && selectedClientId) {
                 entityId = selectedClientId;
@@ -314,16 +330,16 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 addressText: detailedAddress || neighborhood,
                 geoUnitId: Number(candidateUnitId) || null,
                 referralSheetId: isDirectMode ? null : (selectedSheetId as number),
-                referralType: referralType,
-                referralOriginChannel: originChannel,
-                referralNameSnapshot: referralNameSnapshot,
+                referralType: resolvedReferralType,
+                referralOriginChannel: resolvedOriginChannel,
+                referralNameSnapshot: resolvedReferralNameSnapshot,
                 referralEntityId: entityId,
                 referralDate: new Date(referralDate).toISOString(),
                 referralReason: isDirectMode ? 'Direct Referral' : 'Part of Sheet',
                 occupation: candidateData.occupation,
                 candidateNotes: candidateData.candidateNotes,
-                ownerUserId: 1,
-                createdBy: 1
+                ownerUserId: authUser?.id ?? 0,
+                createdBy: authUser?.id ?? 0
             };
             await addCandidate(newC as any);
             if (addAnother) {
@@ -342,7 +358,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         setSelectedSheetId('');
         setCandidateData(initialCandidateState);
         setReferralType('Personal');
-        setReferralNameSnapshot('أحمد (مشرف)');
+        setReferralNameSnapshot(currentUserDisplayName);
         setReferralDate(new Date().toISOString().split('T')[0]);
         setError('');
         setEmployeeIdInput('');

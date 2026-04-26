@@ -3,6 +3,7 @@ import { X, Save, PlusCircle, Building2, User, Handshake, Search, CheckCircle, A
 import { ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { api } from '../../lib/api';
+import { useAuthStore } from '../../hooks/useAuthStore';
 
 interface Props {
     isOpen: boolean;
@@ -25,40 +26,43 @@ const channels: { value: ReferralOriginChannel; label: string }[] = [
 
 export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreated }: Props) {
     const addReferralSheet = useCandidateStore(state => state.addReferralSheet); // Updated hook
+    const authUser = useAuthStore(state => state.user);
+    const currentUserDisplayName = authUser?.name?.trim() || '';
 
     const [allClients, setAllClients] = useState<Client[]>([]);
+    const [employees, setEmployees] = useState<Array<{ id: number; name: string }>>([]);
     const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
     useEffect(() => {
+        if (!isOpen) return;
         let active = true;
 
-        Promise.all([
+        Promise.allSettled([
             api.clients.list(),
+            api.employees.list(),
             api.visits.list(),
             api.contracts.list(),
         ])
-            .then(([clients, visitsData, contractsData]) => {
+            .then(([clientsRes, employeesRes, visitsRes, contractsRes]) => {
                 if (!active) return;
-                setAllClients(clients);
-                setVisits(visitsData);
-                setContracts(contractsData);
-            })
-            .catch((error) => {
-                console.error(error);
-                if (!active) return;
-                setAllClients([]);
-                setVisits([]);
-                setContracts([]);
+                setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
+                setEmployees(
+                    employeesRes.status === 'fulfilled'
+                        ? employeesRes.value.map((e: any) => ({ id: e.id, name: e.name }))
+                        : [],
+                );
+                setVisits(visitsRes.status === 'fulfilled' ? visitsRes.value : []);
+                setContracts(contractsRes.status === 'fulfilled' ? contractsRes.value : []);
             });
 
         return () => {
             active = false;
         };
-    }, []);
+    }, [isOpen]);
 
     const [referralType, setReferralType] = useState<ReferralType>('Personal');
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
-    const [nameSnapshot, setNameSnapshot] = useState('إبراهيم (مشرف)');
+    const [nameSnapshot, setNameSnapshot] = useState(currentUserDisplayName);
     const [referralDate, setReferralDate] = useState(new Date().toISOString().split('T')[0]);
     const [notes, setNotes] = useState('');
     const [error, setError] = useState('');
@@ -86,6 +90,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     useEffect(() => {
         setNameSnapshot('');
         setOriginChannel('Acquaintance');
+        setNameSnapshot(currentUserDisplayName);
         setEmployeeIdInput('');
         setEmployeeFound(null);
         setEmployeeSearchError('');
@@ -96,16 +101,43 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
 
         if (referralType === 'Personal') {
             setOriginChannel('Acquaintance');
-            setNameSnapshot('إبراهيم (مشرف)');
+            setNameSnapshot(currentUserDisplayName);
         } else if (referralType === 'Unknown') {
             setNameSnapshot('مجهول');
         }
     }, [referralType]);
 
+    useEffect(() => {
+        if (referralType === 'Personal') {
+            setOriginChannel('Acquaintance');
+            setNameSnapshot(currentUserDisplayName);
+        }
+    }, [referralType, currentUserDisplayName]);
+
+    useEffect(() => {
+        if (isOpen && referralType === 'Personal') {
+            setOriginChannel('Acquaintance');
+            setNameSnapshot(currentUserDisplayName);
+        }
+    }, [isOpen, referralType, currentUserDisplayName]);
+
     const handleEmployeeBlur = async () => {
         if (!employeeIdInput.trim()) {
             setEmployeeFound(null);
             setEmployeeSearchError('');
+            return;
+        }
+        const loadedEmployee = employees.find(e => e.id.toString() === employeeIdInput.trim());
+        if (loadedEmployee) {
+            setEmployeeFound({ name: loadedEmployee.name, id: loadedEmployee.id });
+            setNameSnapshot(loadedEmployee.name);
+            setEmployeeSearchError('');
+            return;
+        }
+        if (employees.length > 0) {
+            setEmployeeFound(null);
+            setNameSnapshot('');
+            setEmployeeSearchError('لم يتم العثور على الموظف');
             return;
         }
         try {
@@ -160,6 +192,15 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             setError('الرجاء تعبئة جميع الحقول الإلزامية (اسم الوسيط، وتاريخ الورقة).');
             return;
         }
+        if (referralType === 'Employee' && !employeeFound) {
+            setError('الرجاء اختيار موظف صالح كوسيط.');
+            return;
+        }
+        if (referralType === 'Client' && !selectedClientId) {
+            setError('الرجاء اختيار زبون صالح كوسيط.');
+            return;
+        }
+
         let entityId: number | null = null;
         if (referralType === 'Employee' && employeeFound) {
             entityId = employeeFound.id;
@@ -176,9 +217,9 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                 referralEntityId: entityId,
                 referralDate: new Date(referralDate).toISOString(),
                 referralNotes: notes,
-                ownerUserId: 1,
+                ownerUserId: authUser?.id,
                 status: 'New',
-                createdBy: 1
+                createdBy: authUser?.id
             });
 
             if (onSheetCreated) onSheetCreated(newId);
@@ -192,7 +233,8 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const resetState = () => {
         setReferralType('Personal');
         setOriginChannel('Acquaintance');
-        setNameSnapshot('إبراهيم (مشرف)');
+        setNameSnapshot(currentUserDisplayName);
+        setNameSnapshot(currentUserDisplayName);
         setEmployeeIdInput('');
         setEmployeeFound(null);
         setEmployeeSearchError('');
