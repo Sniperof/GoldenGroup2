@@ -20,7 +20,7 @@ CREATE INDEX IF NOT EXISTS idx_client_assignments_user   ON client_assignments(h
 INSERT INTO client_assignments (client_id, hr_user_id, assigned_by)
 SELECT id,
        assigned_hr_user_id,
-       CASE WHEN created_by IN (SELECT id FROM hr_users) THEN created_by ELSE NULL END
+       NULL  -- created_by backfill handled separately in migration 041
   FROM clients
  WHERE assigned_hr_user_id IS NOT NULL
    AND assigned_hr_user_id IN (SELECT id FROM hr_users)

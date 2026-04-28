@@ -33,8 +33,8 @@ INSERT INTO role_permission_grants (role_id, permission_id, scope_type)
 SELECT r.id, p.id, 'GLOBAL'
   FROM roles r
   JOIN permissions p ON p.key = 'clients.can_be_assigned'
- WHERE r.is_template = TRUE
-   AND r.name IN ('ADMIN', 'BRANCH_MANAGER', 'SALES', 'TELEMARKETER')
+ WHERE r.name IN ('ADMIN', 'BRANCH_MANAGER', 'SALES', 'TELEMARKETER')
+   AND r.branch_id IS NULL
 ON CONFLICT (role_id, permission_id) DO UPDATE
   SET scope_type = EXCLUDED.scope_type,
       updated_at  = NOW();
@@ -44,6 +44,6 @@ INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
   FROM roles r
   JOIN permissions p ON p.key = 'clients.can_be_assigned'
- WHERE r.is_template = TRUE
-   AND r.name IN ('ADMIN', 'BRANCH_MANAGER', 'SALES', 'TELEMARKETER')
+ WHERE r.name IN ('ADMIN', 'BRANCH_MANAGER', 'SALES', 'TELEMARKETER')
+   AND r.branch_id IS NULL
 ON CONFLICT (role_id, permission_id) DO NOTHING;
