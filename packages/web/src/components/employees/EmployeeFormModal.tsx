@@ -26,6 +26,8 @@ import type {
   Branch,
   Client,
   ContactEntry,
+  ContactStatus,
+  ContactType,
   Department,
   Employee,
   EmployeeManagerCandidate,
@@ -33,6 +35,15 @@ import type {
   SystemList,
 } from '../../lib/types';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
+import { useAuthStore } from '../../hooks/useAuthStore';
+import {
+  CONTACT_STATUS_CONFIG,
+  CONTACT_TYPE_CONFIG,
+  SYRIAN_MOBILE_HINT,
+  getContactValidationMessage,
+  isInvalidContactNumber,
+  normalizeContactNumberInput,
+} from '../../lib/contactRules';
 
 type GenderValue = '' | 'male' | 'female';
 type YesNoValue = '' | 'yes' | 'no';
@@ -106,11 +117,10 @@ const DEFAULT_CONTACT = (): ContactEntry => ({
   status: 'active',
 });
 
-// Matches the client form's referral types exactly
 const REFERRER_TYPE_OPTIONS = [
-  { value: 'Personal',  label: 'شخصي (أنا)',   autoName: 'المدير/المشرف المباشر' },
+  { value: 'Personal',  label: 'شخصي' },
   { value: 'Employee',  label: 'موظف',          autoName: null },
-  { value: 'Client',    label: 'زبون حالي',     autoName: null },
+  { value: 'Client',    label: 'زبون',          autoName: null },
   { value: 'Unknown',   label: 'مجهول',         autoName: 'مجهول' },
 ];
 
@@ -123,28 +133,18 @@ const SOURCE_CHANNEL_OPTIONS = [
 ];
 
 // Contact type config matching client form (with emojis)
-const CONTACT_TYPE_CONFIG: Record<string, { label: string; emoji: string }> = {
-  mobile:   { label: 'موبايل', emoji: '📱' },
-  landline: { label: 'أرضي',   emoji: '☎️' },
-  other:    { label: 'آخر',    emoji: '📞' },
-};
+const CONTACT_TYPES = CONTACT_TYPE_CONFIG;
+const CONTACT_STATUSES = CONTACT_STATUS_CONFIG;
 
-// Contact status config matching client form (colored)
-const CONTACT_STATUS_CONFIG: Record<string, { label: string; style: string }> = {
-  active:           { label: 'فعّال',         style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  preferred:        { label: 'مفضّل',         style: 'bg-sky-50 text-sky-700 border-sky-200' },
-  'out-of-coverage':{ label: 'خارج التغطية', style: 'bg-amber-50 text-amber-700 border-amber-200' },
-  unused:           { label: 'غير مستخدم',   style: 'bg-gray-50 text-gray-500 border-gray-200' },
-};
-
-// Returns auto-filled name for Personal/Unknown, null otherwise
-function getReferralAutoName(type: string): string | null {
-  return REFERRER_TYPE_OPTIONS.find((o) => o.value === type)?.autoName ?? null;
+function getReferralAutoName(type: string, currentUserDisplayName: string): string | null {
+  if (type === 'Personal') return currentUserDisplayName;
+  if (type === 'Unknown') return 'مجهول';
+  return null;
 }
 
-// Channel is free to pick only when type is Employee or Client
-function isChannelEnabled(type: string): boolean {
-  return type === 'Employee' || type === 'Client';
+function normalizeSourceChannel(value?: string | null): string {
+  if (value === 'App') return 'SocialMedia';
+  return value ? String(value) : '';
 }
 
 const STATUS_OPTIONS: Array<{ value: Employee['status']; label: string }> = [
@@ -232,7 +232,7 @@ function buildFormState(
     directManagerId: initialValues?.directManagerId ?? null,
     jobTitle: initialValues?.jobTitle ?? '',
     referrerType: initialValues?.referrerType ? String(initialValues.referrerType) : '',
-    sourceChannel: initialValues?.sourceChannel ? String(initialValues.sourceChannel) : '',
+    sourceChannel: normalizeSourceChannel(initialValues?.sourceChannel),
     referrerName: initialValues?.referrerName ?? '',
     referralNotes: initialValues?.referralNotes ?? '',
     referralEntityId: (initialValues as any)?.referralEntityId ?? null,
@@ -292,6 +292,8 @@ export default function EmployeeFormModal({
   onClose,
   onSubmit,
 }: EmployeeFormModalProps) {
+  const authUser = useAuthStore((state) => state.user);
+  const currentUserDisplayName = authUser?.name?.trim() || '';
   const [form, setForm] = useState<EmployeeFormValues>(() => buildFormState(initialValues, fixedBranchId));
   const [localError, setLocalError] = useState('');
   const [loadingLookups, setLoadingLookups] = useState(false);
@@ -495,11 +497,13 @@ export default function EmployeeFormModal({
         if (!form.militaryService) return 'الخدمة العسكرية مطلوبة.';
         return null;
       case 'contact': {
-        if (!form.geoSelection.govId || !form.geoSelection.regionId || !form.geoSelection.subId) {
-          return 'يجب تحديد المحافظة والمنطقة والناحية من البحث الجغرافي.';
+        if (!form.geoSelection.subId && !form.geoSelection.neighborhoodId) {
+          return 'يجب اختيار ناحية أو حي على الأقل في العنوان.';
         }
         const requestContacts = toRequestContacts(form.contacts);
         if (requestContacts.length === 0) return 'يجب إدخال وسيلة تواصل واحدة على الأقل.';
+        const invalidContact = requestContacts.find((contact) => getContactValidationMessage(contact));
+        if (invalidContact) return getContactValidationMessage(invalidContact);
         return null;
       }
       case 'qualifications':
@@ -660,7 +664,7 @@ export default function EmployeeFormModal({
   }
 
   function handleReferralTypeChange(value: string) {
-    const autoName = getReferralAutoName(value);
+    const autoName = getReferralAutoName(value, currentUserDisplayName);
     // Reset referral-section sub-state when type changes
     setEmployeeIdInput('');
     setEmployeeFound(null);
@@ -673,8 +677,7 @@ export default function EmployeeFormModal({
       referralEntityId: null,
       // Auto-fill name for Personal/Unknown; clear it when switching to Employee/Client
       referrerName: autoName ?? (current.referrerType === value ? current.referrerName : ''),
-      // Disable channel for Personal/Unknown — reset to Acquaintance as default
-      sourceChannel: isChannelEnabled(value) ? current.sourceChannel : '',
+      sourceChannel: value ? normalizeSourceChannel(current.sourceChannel) : '',
     }));
   }
 
@@ -813,17 +816,24 @@ export default function EmployeeFormModal({
             geoUnits={geoUnits}
             value={form.geoSelection}
             onChange={(geoSelection) => setForm((c) => ({ ...c, geoSelection }))}
-            label="العنوان الجغرافي"
+            label="العنوان"
             required
             placeholder="ابحث عن الناحية أو الحي"
+            minSelectableLevel={3}
           />
+          {!(form.geoSelection.subId || form.geoSelection.neighborhoodId) && (
+            <p className="mt-2 text-[11px] text-amber-600 font-medium flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              يجب اختيار ناحية أو حي على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
+            </p>
+          )}
           {addressHint && !form.geoSelection.subId && (
             <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
               العنوان القادم من الطلب محفوظ كنص مرجعي: {addressHint}
             </div>
           )}
           <label className="mt-4 block">
-            <FieldLabel>تفاصيل العنوان</FieldLabel>
+            <FieldLabel>العنوان التفصيلي</FieldLabel>
             <textarea
               rows={3}
               value={form.detailedAddress}
@@ -844,11 +854,12 @@ export default function EmployeeFormModal({
 
           <div className="space-y-3">
             {form.contacts.map((contact) => {
-              const statusCfg = CONTACT_STATUS_CONFIG[contact.status ?? 'active'] ?? CONTACT_STATUS_CONFIG.active;
+              const statusCfg = CONTACT_STATUSES[contact.status ?? 'active'] ?? CONTACT_STATUSES.active;
+              const hasInvalidNumber = isInvalidContactNumber(contact) || contact.status === 'invalid';
               return (
                 <div
                   key={contact.id}
-                  className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-2.5"
+                  className={`rounded-xl border p-3 space-y-2.5 ${hasInvalidNumber ? 'border-red-200 bg-red-50/40' : 'border-slate-100 bg-slate-50'}`}
                 >
                   {/* Row 1: type + prefix/areaCode + number + delete */}
                   <div className="flex items-center gap-2">
@@ -856,12 +867,13 @@ export default function EmployeeFormModal({
                     <select
                       value={contact.type}
                       onChange={(e) => updateContact(contact.id, {
-                        type: e.target.value as ContactEntry['type'],
+                        type: e.target.value as ContactType,
                         areaCode: e.target.value === 'mobile' ? '' : (contact.areaCode ?? ''),
+                        number: '',
                       })}
                       className="border border-gray-200 rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[110px] bg-white"
                     >
-                      {Object.entries(CONTACT_TYPE_CONFIG).map(([key, cfg]) => (
+                      {Object.entries(CONTACT_TYPES).map(([key, cfg]) => (
                         <option key={key} value={key}>{cfg.emoji} {cfg.label}</option>
                       ))}
                     </select>
@@ -891,18 +903,16 @@ export default function EmployeeFormModal({
                       type="text"
                       value={contact.number}
                       onChange={(e) => {
-                        let v = e.target.value.replace(/\D/g, '');
-                        if (contact.type === 'mobile') v = v.slice(0, 10);
-                        else if (contact.type === 'landline') v = v.slice(0, 7);
+                        const v = normalizeContactNumberInput(contact.type, contact.status, e.target.value, contact.number);
                         updateContact(contact.id, { number: v });
                       }}
                       placeholder={
-                        contact.type === 'mobile' ? '9XXXXXXXXX'
+                        contact.type === 'mobile' ? SYRIAN_MOBILE_HINT
                         : contact.type === 'landline' ? 'XXXXXXX'
                         : 'الرقم...'
                       }
                       dir="ltr"
-                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-gray-300 focus:outline-none bg-white focus:border-sky-500"
+                      className={`flex-1 border rounded-lg px-3 py-2 text-sm font-mono placeholder:text-gray-300 focus:outline-none bg-white ${hasInvalidNumber ? 'border-red-300 text-red-700 focus:border-red-400' : 'border-gray-200 text-slate-800 focus:border-sky-500'}`}
                     />
 
                     {/* Delete */}
@@ -928,10 +938,10 @@ export default function EmployeeFormModal({
 
                     <select
                       value={contact.status}
-                      onChange={(e) => updateContact(contact.id, { status: e.target.value as ContactEntry['status'] })}
+                      onChange={(e) => updateContact(contact.id, { status: e.target.value as ContactStatus })}
                       className={`border rounded-lg px-2 py-1.5 text-[11px] font-medium focus:outline-none min-w-[115px] ${statusCfg.style}`}
                     >
-                      {Object.entries(CONTACT_STATUS_CONFIG).map(([key, cfg]) => (
+                      {Object.entries(CONTACT_STATUSES).map(([key, cfg]) => (
                         <option key={key} value={key}>{cfg.label}</option>
                       ))}
                     </select>
@@ -950,6 +960,12 @@ export default function EmployeeFormModal({
                       <MessageCircle className="h-3.5 w-3.5" />
                     </button>
                   </div>
+                  {hasInvalidNumber && (
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg border w-fit bg-red-100 text-red-700 border-red-200">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      رقم موبايل غير مطابق للصيغة 09XXXXXXXX
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1235,8 +1251,7 @@ export default function EmployeeFormModal({
   }
 
   function renderReferralStep() {
-    const autoName       = getReferralAutoName(form.referrerType);
-    const channelEnabled = isChannelEnabled(form.referrerType);
+    const autoName = getReferralAutoName(form.referrerType, currentUserDisplayName);
 
     return (
       <div className="space-y-4">
@@ -1261,18 +1276,13 @@ export default function EmployeeFormModal({
             </select>
           </div>
 
-          {/* Origin channel — disabled for Personal/Unknown */}
+          {/* Origin channel */}
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">طريقة التواصل</label>
             <select
               value={form.sourceChannel}
               onChange={(e) => setForm((c) => ({ ...c, sourceChannel: e.target.value }))}
-              disabled={!channelEnabled}
-              className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${
-                !channelEnabled
-                  ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'border-gray-200 bg-white focus:border-sky-500'
-              }`}
+              className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:border-sky-500"
             >
               <option value="">بدون تحديد</option>
               {SOURCE_CHANNEL_OPTIONS.map((item) => (
@@ -1287,14 +1297,14 @@ export default function EmployeeFormModal({
         {/* Employee — lookup by employee number */}
         {form.referrerType === 'Employee' && (
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">الرقم الوظيفي للوسيط</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">الرقم الوظيفي</label>
             <div className="flex items-center gap-3">
               <input
                 type="text"
                 value={employeeIdInput}
                 onChange={(e) => setEmployeeIdInput(e.target.value)}
                 onBlur={handleEmployeeBlur}
-                placeholder="أدخل الرقم الوظيفي للموظف الوسيط..."
+                placeholder="أدخل الرقم الوظيفي..."
                 className="w-1/2 p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
               />
               <button
@@ -1323,7 +1333,7 @@ export default function EmployeeFormModal({
         {/* Client — search autocomplete */}
         {form.referrerType === 'Client' && (
           <div ref={clientSearchRef} className="relative">
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الزبون الوسيط</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الوسيط</label>
             {allClients.length === 0 ? (
               <p className="text-xs text-slate-400 italic py-2 px-1">لا يوجد زبائن متاحون ضمن صلاحياتك.</p>
             ) : (
@@ -1369,7 +1379,7 @@ export default function EmployeeFormModal({
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الوسيط</label>
             <div className="flex items-center gap-2">
               <input
-                value={autoName ?? ''}
+                value={form.referrerName || autoName || ''}
                 readOnly
                 className="flex-1 p-2.5 rounded-xl border border-gray-200 bg-slate-50 text-slate-500 font-bold cursor-not-allowed text-sm focus:outline-none"
               />

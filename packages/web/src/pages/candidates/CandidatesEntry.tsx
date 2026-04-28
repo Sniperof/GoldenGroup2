@@ -11,6 +11,7 @@ import ClientModal from '../../components/ClientModal';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
+import { formatGeoUnitLastLevels } from '../../components/GeoSmartSearch';
 
 const referralTypeLabels: Record<string, string> = {
     Personal: 'شخصي',
@@ -74,7 +75,7 @@ export default function CandidatesEntry() {
 
     // Derived: unique supervisors and branches for filter dropdowns
     const candidateSupervisors = useMemo(() =>
-        [...new Set(candidates.map(c => c.assignedHrUserName).filter(Boolean) as string[])].sort(),
+        [...new Set(candidates.flatMap(c => (c.assignments || []).map(a => a.userName)))].sort(),
         [candidates]
     );
     const candidateBranches = useMemo(() =>
@@ -97,7 +98,7 @@ export default function CandidatesEntry() {
                 const fullStr = `${c.firstName || ''} ${c.nickname || ''} ${c.lastName || ''} ${c.mobile}`.toLowerCase();
                 if (searchQuery && !fullStr.includes(searchQuery.toLowerCase())) return false;
                 if (candidateStatusFilter && c.status !== candidateStatusFilter) return false;
-                if (candidateSupervisorFilter && c.assignedHrUserName !== candidateSupervisorFilter) return false;
+                if (candidateSupervisorFilter && !(c.assignments || []).some(a => a.userName === candidateSupervisorFilter)) return false;
                 if (candidateBranchFilter && c.branchName !== candidateBranchFilter) return false;
                 return true;
             })
@@ -207,6 +208,11 @@ export default function CandidatesEntry() {
         return `${subArea.name} > ${neighborhood.name}`;
     };
 
+    const getCandidateAddressDisplay = (candidate: Candidate) => {
+        const savedText = candidate.addressText && candidate.addressText !== 'غير محدد' ? candidate.addressText : '';
+        return formatGeoUnitLastLevels(geoUnits, candidate.geoUnitId) || savedText || '--';
+    };
+
     return (
         <div className="p-8 space-y-6" dir="rtl">
             {/* Error Message Modal */}
@@ -293,7 +299,7 @@ export default function CandidatesEntry() {
                                 onChange={(e) => { setCandidateSupervisorFilter(e.target.value); setCandidatePage(1); }}
                                 className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
                             >
-                                <option value="">كل المشرفات</option>
+                                <option value="">كل المسؤولين</option>
                                 {candidateSupervisors.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
                         )}
@@ -324,9 +330,11 @@ export default function CandidatesEntry() {
                                     <th className="px-5 h-12">ID</th>
                                     <th className="px-5 h-12">الاسم المقترح</th>
                                     <th className="px-5 h-12">أرقام التواصل</th>
+                                    <th className="px-5 h-12">العنوان</th>
                                     <th className="px-5 h-12">اسم الوسيط</th>
                                     <th className="px-5 h-12">نوع الترشيح</th>
-                                    <th className="px-5 h-12">المشرفة</th>
+                                    <th className="px-5 h-12">أضيف بواسطة</th>
+                                    <th className="px-5 h-12">المسؤولون</th>
                                     <th className="px-5 h-12">الفرع</th>
                                     <th className="px-5 h-12">الحالة</th>
                                     <th className="px-5 h-12 text-center">الإجراءات</th>
@@ -334,7 +342,7 @@ export default function CandidatesEntry() {
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {paginatedCandidates.length === 0 ? (
-                                    <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400 font-medium">لا توجد بيانات</td></tr>
+                                    <tr><td colSpan={11} className="px-6 py-12 text-center text-slate-400 font-medium">لا توجد بيانات</td></tr>
                                 ) : (
                                     paginatedCandidates.map(c => {
                                         const nameStr = c.firstName
@@ -361,6 +369,12 @@ export default function CandidatesEntry() {
                                                         )}
                                                     </div>
                                                 </td>
+                                                <td className="px-5 py-2 text-xs text-slate-600">
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        <MapPin className="w-3 h-3 text-slate-400" />
+                                                        {getCandidateAddressDisplay(c)}
+                                                    </span>
+                                                </td>
                                                 <td className="px-5 py-2 text-xs font-medium text-slate-700">
                                                     {c.referralType === 'Client' && c.referralEntityId ? (
                                                         <Link to={`/clients/${c.referralEntityId}`} className="text-sky-600 hover:text-sky-800 hover:underline">
@@ -380,13 +394,35 @@ export default function CandidatesEntry() {
                                                     )}
                                                 </td>
                                                 <td className="px-5 py-2 text-xs">
-                                                    {c.assignedHrUserName ? (
-                                                        <span className="flex items-center gap-1 text-violet-700 font-medium">
-                                                            <User className="w-3 h-3" />{c.assignedHrUserName}
-                                                        </span>
+                                                    {c.createdByUserName ? (
+                                                        <div className="leading-5">
+                                                            <div className="font-bold text-slate-700">{c.createdByUserName}</div>
+                                                            {c.createdByRoleDisplayName && (
+                                                                <div className="text-slate-400">{c.createdByRoleDisplayName}</div>
+                                                            )}
+                                                        </div>
                                                     ) : (
                                                         <span className="text-slate-400">--</span>
                                                     )}
+                                                </td>
+                                                <td className="px-5 py-2 text-xs">
+                                                    {(() => {
+                                                        const list = c.assignments || [];
+                                                        if (list.length === 0) return <span className="text-slate-400">--</span>;
+                                                        const visible = list.slice(0, 2);
+                                                        const extra = list.length - visible.length;
+                                                        return (
+                                                            <div className="flex flex-col gap-0.5">
+                                                                {visible.map((a, i) => (
+                                                                    <div key={i} className="leading-4">
+                                                                        <span className="font-bold text-slate-700">{a.userName}</span>
+                                                                        {a.roleDisplayName && <span className="text-slate-400"> · {a.roleDisplayName}</span>}
+                                                                    </div>
+                                                                ))}
+                                                                {extra > 0 && <span className="text-[10px] text-sky-500 font-bold">+{extra} آخرين</span>}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
                                                 <td className="px-5 py-2 text-xs">
                                                     {c.branchName ? (

@@ -16,14 +16,14 @@ declare global {
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­: ÙŠØ¬Ø¨ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø£ÙˆÙ„Ø§Ù‹' });
+    return res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول أولاً' });
   }
 
   try {
     req.user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
     next();
   } catch {
-    return res.status(401).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­: Ø±Ù…Ø² Ø§Ù„ØªØ­Ù‚Ù‚ ØºÙŠØ± ØµØ§Ù„Ø­ Ø£Ùˆ Ù…Ù†ØªÙ‡ÙŠ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©' });
+    return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
   }
 }
 
@@ -33,18 +33,18 @@ export function requireRole(...roles: string[]) {
     if (!req.user) {
       const authHeader = req.headers.authorization;
       if (!authHeader?.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­: ÙŠØ¬Ø¨ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø£ÙˆÙ„Ø§Ù‹' });
+        return res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول أولاً' });
       }
 
       try {
         req.user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
       } catch {
-        return res.status(401).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­: Ø±Ù…Ø² Ø§Ù„ØªØ­Ù‚Ù‚ ØºÙŠØ± ØµØ§Ù„Ø­ Ø£Ùˆ Ù…Ù†ØªÙ‡ÙŠ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©' });
+        return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
       }
     }
 
     if (req.user.isSuperAdmin !== true && !roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'ØºÙŠØ± Ù…Ø³Ù…ÙˆØ­: ØµÙ„Ø§Ø­ÙŠØ§ØªÙƒ Ù„Ø§ ØªØ³Ù…Ø­ Ø¨Ù‡Ø°Ø§ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡' });
+      return res.status(403).json({ error: 'غير مسموح: صلاحياتك لا تسمح بهذا الإجراء' });
     }
 
     next();

@@ -54,6 +54,21 @@ function newContact(): BranchContact {
   };
 }
 
+function buildGeoSelectionFromId(geoUnits: GeoUnit[], id?: number | null): GeoSelection {
+  const path: GeoUnit[] = [];
+  let cursor = id ? geoUnits.find(unit => unit.id === id) : undefined;
+  while (cursor) {
+    path.unshift(cursor);
+    cursor = cursor.parentId ? geoUnits.find(unit => unit.id === cursor!.parentId) : undefined;
+  }
+  return {
+    govId: path[0]?.id.toString() || '',
+    regionId: path[1]?.id.toString() || '',
+    subId: path[2]?.id.toString() || '',
+    neighborhoodId: path[3]?.id.toString() || '',
+  };
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function Branches() {
   const navigate = useNavigate();
@@ -66,6 +81,7 @@ export default function Branches() {
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
 
   const [name, setName] = useState('');
+  const [detailedAddress, setDetailedAddress] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [locationSelection, setLocationSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
   const [coveredSelections, setCoveredSelections] = useState<GeoSelection[]>([]);
@@ -84,13 +100,10 @@ export default function Branches() {
     if (branch) {
       setEditingBranch(branch);
       setName(branch.name);
+      setDetailedAddress(branch.detailedAddress || '');
       setStatus(branch.status);
       setContacts(branch.contactInfo || []);
-      if (branch.locationGeoId) {
-        setLocationSelection({ govId: '', regionId: '', subId: '', neighborhoodId: branch.locationGeoId.toString() });
-      } else {
-        setLocationSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
-      }
+      setLocationSelection(buildGeoSelectionFromId(geoUnits, branch.locationGeoId));
       const covered: GeoSelection[] = (branch.coveredGeoIds || []).map(id => ({
         govId: '', regionId: '', subId: '', neighborhoodId: id.toString()
       }));
@@ -98,6 +111,7 @@ export default function Branches() {
     } else {
       setEditingBranch(null);
       setName('');
+      setDetailedAddress('');
       setStatus('active');
       setLocationSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
       setCoveredSelections([]);
@@ -116,10 +130,14 @@ export default function Branches() {
     if (!canManageBranches) return;
     const locationGeoId = getDeepestId(locationSelection);
     const coveredGeoIds = coveredSelections.map(getDeepestId).filter(Boolean) as number[];
+    if (!locationSelection.subId && !locationSelection.neighborhoodId) {
+      alert('يجب اختيار ناحية أو حي على الأقل في العنوان.');
+      return;
+    }
     // Validate contacts have values
     const validContacts = contacts.filter(c => c.value.trim());
 
-    const payload = { name, status, locationGeoId, coveredGeoIds, contactInfo: validContacts };
+    const payload = { name, status, locationGeoId, detailedAddress: detailedAddress.trim() || null, coveredGeoIds, contactInfo: validContacts };
     try {
       if (editingBranch) {
         await updateBranch(editingBranch.id, payload);
@@ -282,11 +300,28 @@ export default function Branches() {
                 {/* Location */}
                 <div className="border border-slate-100 bg-slate-50/50 rounded-2xl p-5 space-y-4">
                   <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2 border-b border-slate-200 pb-3">
-                    <MapPin className="w-4 h-4 text-emerald-500" /> الموقع الجغرافي الأساسي
+                    <MapPin className="w-4 h-4 text-emerald-500" /> العنوان
                   </h4>
-                  <GeoSmartSearch label="موقع الفرع" geoUnits={geoUnits} required
+                  <GeoSmartSearch label="العنوان" geoUnits={geoUnits} required
                     value={locationSelection} onChange={setLocationSelection}
-                    placeholder="ابحث عن موقع الفرع الجغرافي..." />
+                    placeholder="ابحث عن ناحية أو حي..."
+                    minSelectableLevel={3} />
+                  {!locationSelection.subId && !locationSelection.neighborhoodId && (
+                    <p className="text-[11px] text-amber-600 font-medium">
+                      يجب اختيار ناحية أو حي على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
+                    </p>
+                  )}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-slate-700">العنوان التفصيلي</label>
+                    <textarea
+                      value={detailedAddress}
+                      onChange={e => setDetailedAddress(e.target.value)}
+                      disabled={!canManageBranches}
+                      rows={3}
+                      placeholder="مثال: الشارع، البناء، الطابق، أقرب نقطة دالة..."
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none resize-none disabled:bg-gray-50"
+                    />
+                  </div>
                 </div>
 
                 {/* ── Contact Info ── */}

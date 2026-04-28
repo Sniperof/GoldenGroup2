@@ -11,6 +11,7 @@ import ManualSearchModal from '../components/candidates/ManualSearchModal';
 import QualificationModal from '../components/candidates/QualificationModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import { useCandidateStore } from '../hooks/useCandidateStore';
+import { useAuthStore } from '../hooks/useAuthStore';
 
 function extractApiPayload(error: unknown): any | null {
     if (!(error instanceof Error)) {
@@ -30,6 +31,11 @@ function extractApiPayload(error: unknown): any | null {
 }
 
 export default function Clients() {
+    const getPermissionScope = useAuthStore(s => s.getPermissionScope);
+    // Show assignments only for GLOBAL or BRANCH scope — ASSIGNED scope users must not see who else is assigned
+    const clientsViewScope = getPermissionScope('clients.view_list');
+    const canSeeAssignments = clientsViewScope === 'GLOBAL' || clientsViewScope === 'BRANCH';
+
     const [clients, setClients] = useState<Client[]>([]);
     const [visits, setVisits] = useState<Visit[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
@@ -114,7 +120,7 @@ export default function Clients() {
                     c.id.toString().includes(q) ||
                     (c.referrerName || '').toLowerCase().includes(q) ||
                     (c.branchName || '').toLowerCase().includes(q) ||
-                    (c.assignedHrUserName || '').toLowerCase().includes(q);
+                    (c.assignments || []).some(a => a.userName.toLowerCase().includes(q));
             });
         }
 
@@ -291,21 +297,35 @@ export default function Clients() {
             ),
             getValue: (c) => c.branchName || '',
         },
-        {
-            key: 'assignedHrUserName',
-            label: 'المشرفة',
-            sortable: true,
-            render: (c) => (
-                <div className="text-xs leading-5">
-                    <div className="font-bold text-slate-700">{c.assignedHrUserName || '--'}</div>
-                    {c.assignedHrUsername && (
-                        <div className="font-mono text-slate-400" dir="ltr">@{c.assignedHrUsername}</div>
-                    )}
-                </div>
-            ),
-            getValue: (c) => c.assignedHrUserName || c.assignedHrUsername || '',
-        },
-        ...clientColumns.slice(3),
+        // Only GLOBAL and BRANCH scope users may see assignment info
+        ...(canSeeAssignments ? [{
+            key: 'assignments' as const,
+            label: 'المسؤولون',
+            sortable: false,
+            render: (c: Client & { lifecycleStage: string }) => {
+                const list = c.assignments || [];
+                if (list.length === 0) return <span className="text-xs text-slate-400">--</span>;
+                const visible = list.slice(0, 2);
+                const extra = list.length - visible.length;
+                return (
+                    <div className="flex flex-col gap-0.5">
+                        {visible.map((a, i) => (
+                            <div key={i} className="text-xs leading-4">
+                                <span className="font-bold text-slate-700">{a.userName}</span>
+                                {a.roleDisplayName && (
+                                    <span className="text-slate-400"> · {a.roleDisplayName}</span>
+                                )}
+                            </div>
+                        ))}
+                        {extra > 0 && (
+                            <span className="text-[10px] text-sky-500 font-bold">+{extra} آخرين</span>
+                        )}
+                    </div>
+                );
+            },
+            getValue: (c: Client & { lifecycleStage: string }) => (c.assignments || []).map(a => a.userName).join(', '),
+        }] : []),
+        ...clientColumns.slice(4),
     ];
 
     const candidateColumns: ColumnDef<Client>[] = [

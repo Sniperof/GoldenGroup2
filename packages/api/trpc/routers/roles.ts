@@ -34,7 +34,7 @@ import {
 
 const VALID_SCOPE_TYPES = new Set(['GLOBAL', 'BRANCH', 'ASSIGNED']);
 
-// â”€â”€ DB row â†’ typed camelCase helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── DB row → typed camelCase helpers ──────────────────────────────────────
 // These replace the normalizeRole/normalizeHrUser functions in useRoleStore.
 
 function toRole(r: Record<string, unknown>): z.infer<typeof RoleSchema> {
@@ -118,7 +118,7 @@ function toUserBranchAssignmentError(err: unknown): TRPCError {
   }
 
   if (!(err instanceof UserBranchAssignmentError)) {
-    return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'تعذر تحديث فروع المستخدم' });
+    return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '???? ????? ???? ????????' });
   }
 
   switch (err.code) {
@@ -133,11 +133,11 @@ function toUserBranchAssignmentError(err: unknown): TRPCError {
   }
 }
 
-// â”€â”€ Roles tRPC router â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Roles tRPC router ──────────────────────────────────────────────────────
 
 export const rolesRouter = router({
 
-  // â”€â”€ Roles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Roles ────────────────────────────────────────────────────────────────
 
   list: withPermission('admin.roles.view')
     .query(async () => {
@@ -165,7 +165,7 @@ export const rolesRouter = router({
       const { rows: roleRows } = await pool.query(
         'SELECT * FROM roles WHERE id = $1', [input.id]
       );
-      if (!roleRows[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ø§Ù„Ø¯ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
+      if (!roleRows[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
 
       const { rows: permRows } = await pool.query(
         `SELECT p.*, rpg.scope_type
@@ -183,7 +183,7 @@ export const rolesRouter = router({
       const { rows: check } = await pool.query(
         'SELECT id FROM roles WHERE id = $1', [input.id]
       );
-      if (!check[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ø§Ù„Ø¯ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
+      if (!check[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
 
       const { rows } = await pool.query(
         `SELECT p.*, rpg.scope_type
@@ -201,7 +201,7 @@ export const rolesRouter = router({
       const { rows: roleRows } = await pool.query(
         'SELECT id FROM roles WHERE id = $1', [input.roleId]
       );
-      if (!roleRows[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
+      if (!roleRows[0]) throw new TRPCError({ code: 'NOT_FOUND', message: '????? ??? ?????' });
 
       const { rows } = await pool.query(
         `SELECT id, role_id, title, description, display_order, is_active
@@ -220,9 +220,9 @@ export const rolesRouter = router({
         'SELECT id, is_system, is_protected FROM roles WHERE id = $1', [input.roleId]
       );
       const role = roleRows[0];
-      if (!role) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
+      if (!role) throw new TRPCError({ code: 'NOT_FOUND', message: '????? ??? ?????' });
       if (role.is_system || role.is_protected) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'لا يمكن تعديل المهام الوظيفية لدور نظامي أو محمي' });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '?? ???? ????? ?????? ???????? ???? ????? ?? ????' });
       }
 
       const client = await pool.connect();
@@ -282,7 +282,7 @@ export const rolesRouter = router({
       } catch (err: unknown) {
         const pg = err as { code?: string };
         if (pg.code === '23505') {
-          throw new TRPCError({ code: 'CONFLICT', message: 'ÙŠÙˆØ¬Ø¯ Ø¯ÙˆØ± Ø¨Ù†ÙØ³ Ø§Ù„Ø§Ø³Ù… Ø¨Ø§Ù„ÙØ¹Ù„' });
+          throw new TRPCError({ code: 'CONFLICT', message: 'يوجد دور بنفس الاسم بالفعل' });
         }
         throw err;
       }
@@ -293,14 +293,14 @@ export const rolesRouter = router({
     .mutation(async ({ input }) => {
       const { id, displayName, description, isActive } = input;
       const { rows: cur } = await pool.query('SELECT * FROM roles WHERE id = $1', [id]);
-      if (!cur[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ø§Ù„Ø¯ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
+      if (!cur[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
       if (cur[0].is_system || cur[0].is_protected) {
         const reason = (cur[0].protected_reason as string | null) ?? '';
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: reason
-            ? `لا يمكن تعديل هذا الدور — ${reason}`
-            : 'لا يمكن تعديل هذا الدور — دور نظامي أو محمي',
+            ? `?? ???? ????? ??? ????? � ${reason}`
+            : '?? ???? ????? ??? ????? � ??? ????? ?? ????',
         });
       }
 
@@ -325,15 +325,15 @@ export const rolesRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const { rows } = await pool.query('SELECT * FROM roles WHERE id = $1', [input.id]);
-      if (!rows[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ø§Ù„Ø¯ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
+      if (!rows[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
       // Guard: system or explicitly protected roles cannot be deleted by anyone
       if (rows[0].is_system || rows[0].is_protected) {
         const reason = (rows[0].protected_reason as string | null) ?? '';
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: reason
-            ? `لا يمكن حذف هذا الدور — ${reason}`
-            : 'لا يمكن حذف هذا الدور — دور نظامي أو محمي',
+            ? `?? ???? ??? ??? ????? � ${reason}`
+            : '?? ???? ??? ??? ????? � ??? ????? ?? ????',
         });
       }
 
@@ -344,7 +344,7 @@ export const rolesRouter = router({
       if (parseInt(uc[0].count as string) > 0) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: 'لا يمكن حذف دور مرتبط بمستخدمين — قم بإعادة إسناد المستخدمين أولاً',
+          message: '?? ???? ??? ??? ????? ????????? � ?? ?????? ????? ?????????? ?????',
         });
       }
 
@@ -360,18 +360,18 @@ export const rolesRouter = router({
         const { rows: check } = await client.query(
           'SELECT id, is_system, is_protected, protected_reason FROM roles WHERE id = $1', [input.roleId]
         );
-        if (!check[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ø§Ù„Ø¯ÙˆØ± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
+        if (!check[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
         if (check[0].is_system || check[0].is_protected) {
           const reason = (check[0].protected_reason as string | null) ?? '';
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: reason
-              ? `لا يمكن تعديل صلاحيات هذا الدور — ${reason}`
-              : 'لا يمكن تعديل صلاحيات هذا الدور — دور نظامي أو محمي',
+              ? `?? ???? ????? ??????? ??? ????? � ${reason}`
+              : '?? ???? ????? ??????? ??? ????? � ??? ????? ?? ????',
           });
         }
         if (input.grants.some(grant => !VALID_SCOPE_TYPES.has(grant.scopeType))) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'نطاق صلاحية غير صالح' });
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '???? ?????? ??? ????' });
         }
 
         await client.query('BEGIN');
@@ -419,7 +419,7 @@ export const rolesRouter = router({
       }
     }),
 
-  // â”€â”€ Permissions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Permissions ───────────────────────────────────────────────────────────
 
   allPermissions: withPermission('admin.roles.view')
     .query(async () => {
@@ -427,9 +427,9 @@ export const rolesRouter = router({
       return rows.map(toPermission);
     }),
 
-  // â”€â”€ HR Users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── HR Users ──────────────────────────────────────────────────────────────
 
-  // ── Role → Users (filtered by role_id, with branch assignments) ──────────
+  // -- Role ? Users (filtered by role_id, with branch assignments) ----------
 
   getRoleUsers: withPermission('admin.roles.view')
     .input(z.object({ roleId: z.number() }))
@@ -495,7 +495,7 @@ export const rolesRouter = router({
         if (roleCheck.ok === false) {
           throw new TRPCError({
             code: roleCheck.reason === 'NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
-            message: roleCheck.reason === 'NOT_FOUND' ? 'الدور غير موجود' : TEMPLATE_ROLE_ASSIGNMENT_ERROR,
+            message: roleCheck.reason === 'NOT_FOUND' ? '????? ??? ?????' : TEMPLATE_ROLE_ASSIGNMENT_ERROR,
           });
         }
         const passwordHash = await bcrypt.hash(input.password, 10);
@@ -509,7 +509,7 @@ export const rolesRouter = router({
       } catch (err: unknown) {
         const pg = err as { code?: string };
         if (pg.code === '23505') {
-          throw new TRPCError({ code: 'CONFLICT', message: 'Ø§Ø³Ù… Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù…Ø³ØªØ®Ø¯Ù… Ø¨Ø§Ù„ÙØ¹Ù„' });
+          throw new TRPCError({ code: 'CONFLICT', message: 'اسم الدخول مستخدم بالفعل' });
         }
         throw err;
       }
@@ -520,7 +520,7 @@ export const rolesRouter = router({
     .mutation(async ({ input }) => {
       const { id, name, username, password, roleId, isActive } = input;
       const { rows: cur } = await pool.query('SELECT * FROM hr_users WHERE id = $1', [id]);
-      if (!cur[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
+      if (!cur[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'المستخدم غير موجود' });
 
       const updates: string[] = [];
       const params: unknown[] = [];
@@ -538,7 +538,7 @@ export const rolesRouter = router({
         if (roleCheck.ok === false) {
           throw new TRPCError({
             code: roleCheck.reason === 'NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
-            message: roleCheck.reason === 'NOT_FOUND' ? 'الدور غير موجود' : TEMPLATE_ROLE_ASSIGNMENT_ERROR,
+            message: roleCheck.reason === 'NOT_FOUND' ? '????? ??? ?????' : TEMPLATE_ROLE_ASSIGNMENT_ERROR,
           });
         }
         updates.push(`role_id = $${idx++}`); params.push(roleId);
@@ -547,7 +547,7 @@ export const rolesRouter = router({
       if (isActive !== undefined) { updates.push(`is_active = $${idx++}`); params.push(isActive); }
 
       if (!updates.length) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ù„Ù„ØªØ­Ø¯ÙŠØ«' });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'لا توجد بيانات للتحديث' });
       }
 
       params.push(id);

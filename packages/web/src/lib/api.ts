@@ -75,6 +75,7 @@ export const api = {
   admin: {
     hrUsers: {
       list: () => request<any[]>('/admin/hr-users'),
+      assignable: () => request<any[]>('/admin/hr-users/assignable'),
     },
   },
   employees: {

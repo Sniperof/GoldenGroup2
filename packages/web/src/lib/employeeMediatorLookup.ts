@@ -5,6 +5,7 @@ export type MediatorEmployee = {
   employeeNumber: number | string | null;
   name: string;
   jobTitle: string | null;
+  branchName: string | null;
 };
 
 export function toMediatorEmployee(employee: Partial<Employee> & Record<string, any>): MediatorEmployee {
@@ -13,6 +14,7 @@ export function toMediatorEmployee(employee: Partial<Employee> & Record<string, 
     employeeNumber: employee.employeeNumber ?? employee.employee_number ?? null,
     name: String(employee.name ?? ''),
     jobTitle: employee.jobTitle ?? employee.job_title ?? null,
+    branchName: employee.branchName ?? employee.branch_name ?? employee.branch ?? null,
   };
 }
 
@@ -27,5 +29,5 @@ export function findEmployeeByNumber(employees: MediatorEmployee[], input: strin
 }
 
 export function formatEmployeeMediatorLabel(employee: MediatorEmployee): string {
-  return employee.jobTitle ? `${employee.name} - ${employee.jobTitle}` : employee.name;
+  return [employee.name, employee.branchName, employee.jobTitle].filter(Boolean).join(' - ');
 }

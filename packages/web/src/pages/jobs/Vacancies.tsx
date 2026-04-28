@@ -52,6 +52,21 @@ const emptyVacancy: Partial<JobVacancy> = {
   startDate: '', endDate: '',
 };
 
+function buildGeoSelectionFromId(geoUnits: GeoUnit[], id?: number | null): GeoSelection {
+  const path: GeoUnit[] = [];
+  let cursor = id ? geoUnits.find(unit => unit.id === id) : undefined;
+  while (cursor) {
+    path.unshift(cursor);
+    cursor = cursor.parentId ? geoUnits.find(unit => unit.id === cursor!.parentId) : undefined;
+  }
+  return {
+    govId: path[0]?.id.toString() || '',
+    regionId: path[1]?.id.toString() || '',
+    subId: path[2]?.id.toString() || '',
+    neighborhoodId: path[3]?.id.toString() || '',
+  };
+}
+
 export default function Vacancies() {
   const navigate = useNavigate();
   const {
@@ -132,25 +147,14 @@ export default function Vacancies() {
       departmentId: null,
       departmentName: null,
       contactMethods: [],
+      detailedAddress: branch?.detailedAddress ?? null,
     }));
     if (branch) {
       setBranchContacts(branch.contactInfo || []);
       if (branch.locationGeoId) {
-        const geoUnit = geoUnits.find(g => g.id === branch.locationGeoId);
-        if (geoUnit) {
-          const chain: Record<number, number> = {};
-          let cur = geoUnit as typeof geoUnit | undefined;
-          while (cur) {
-            chain[cur.level] = cur.id;
-            cur = cur.parentId ? geoUnits.find(g => g.id === cur!.parentId) : undefined;
-          }
-          setGeoSelection({
-            govId: chain[1]?.toString() || '',
-            regionId: chain[2]?.toString() || '',
-            subId: chain[3]?.toString() || '',
-            neighborhoodId: chain[4]?.toString() || '',
-          });
-        }
+        setGeoSelection(buildGeoSelectionFromId(geoUnits, branch.locationGeoId));
+      } else {
+        setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
       }
     } else {
       setDepartments([]);
@@ -167,23 +171,12 @@ export default function Vacancies() {
     if (effectiveBranchId != null) {
       const contextBranch = branches.find(b => b.id === effectiveBranchId);
       const contextBranchName = contextBranch?.name ?? '';
-      setFormData({ ...emptyVacancy, branch: contextBranchName, branchId: effectiveBranchId } as any);
+      setFormData({ ...emptyVacancy, branch: contextBranchName, branchId: effectiveBranchId, detailedAddress: contextBranch?.detailedAddress ?? null } as any);
       if (contextBranch) {
         setBranchContacts(contextBranch.contactInfo || []);
         // Auto-fill geo from branch's locationGeoId if available
         if (contextBranch.locationGeoId) {
-          const chain: Record<number, number> = {};
-          let cur = geoUnits.find(g => g.id === contextBranch.locationGeoId) as (typeof geoUnits[0]) | undefined;
-          while (cur) {
-            chain[cur.level] = cur.id;
-            cur = cur.parentId ? geoUnits.find(g => g.id === cur!.parentId) : undefined;
-          }
-          setGeoSelection({
-            govId: chain[1]?.toString() || '',
-            regionId: chain[2]?.toString() || '',
-            subId: chain[3]?.toString() || '',
-            neighborhoodId: chain[4]?.toString() || '',
-          });
+          setGeoSelection(buildGeoSelectionFromId(geoUnits, contextBranch.locationGeoId));
         } else {
           setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
         }
@@ -223,6 +216,7 @@ export default function Vacancies() {
     if (!formData.title?.trim()) { setFormError('عنوان الوظيفة مطلوب'); return; }
     if (!formData.branch?.trim()) { setFormError('الفرع مطلوب'); return; }
     if (!formData.departmentId) { setFormError('القسم مطلوب'); return; }
+    if (!geoSelection.subId && !geoSelection.neighborhoodId) { setFormError('يجب اختيار ناحية أو حي على الأقل في العنوان.'); return; }
     if (!formData.vacancyCount || formData.vacancyCount <= 0) { setFormError('عدد الشواغر يجب أن يكون أكبر من 0'); return; }
     if (!formData.startDate) { setFormError('تاريخ البداية مطلوب'); return; }
     if (!formData.endDate) { setFormError('تاريخ النهاية مطلوب'); return; }
@@ -339,8 +333,21 @@ export default function Vacancies() {
 
       {/* Location */}
       <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> الموقع</p>
-        <GeoSmartSearch label="الموقع الجغرافي" geoUnits={geoUnits} value={geoSelection} onChange={setGeoSelection} placeholder="يتم تعبئته تلقائياً عند اختيار الفرع..." disabled={isFieldLocked('full')} />
+        <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> العنوان</p>
+        <GeoSmartSearch
+          label="العنوان"
+          geoUnits={geoUnits}
+          value={geoSelection}
+          onChange={setGeoSelection}
+          placeholder="يتم تعبئته تلقائياً عند اختيار الفرع..."
+          disabled={isFieldLocked('full')}
+          minSelectableLevel={3}
+        />
+        {!geoSelection.subId && !geoSelection.neighborhoodId && (
+          <p className="text-[11px] text-amber-600 font-medium">
+            يجب اختيار ناحية أو حي على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
+          </p>
+        )}
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1.5">العنوان التفصيلي</label>
           <input value={formData.detailedAddress || ''} onChange={e => setField('detailedAddress', e.target.value || null)} placeholder="مثال: شارع الرشيد، بجانب مطعم..." disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))} />

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { uploadFile } from '../../lib/uploadFile';
 import type { JobVacancy, GeoUnit } from '../../lib/types';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
+import { authFetch } from '../../lib/authFetch';
 import GeoSmartSearch, { GeoSelection } from '../../components/GeoSmartSearch';
 import {
   ChevronRight, Search, Briefcase, MapPin, Users, GraduationCap,
@@ -134,7 +135,7 @@ export default function PublicJobs() {
       .then(data => { if (Array.isArray(data)) setVacancies(data); setLoading(false); })
       .catch((e) => { console.error(e); setLoading(false); });
 
-    fetch('/api/geo-units')
+    authFetch('/api/geo-units')
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setGeoUnits(data); })
       .catch(console.error);

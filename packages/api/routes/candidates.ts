@@ -10,6 +10,11 @@ import {
   getCandidateListAccessPlan,
   canViewCandidate,
 } from '../policies/candidatePolicy.js';
+import {
+  getCanonicalContactNumber,
+  normalizeContactsForWrite,
+  normalizePhone,
+} from '../utils/contactValidation.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -45,14 +50,57 @@ const selectFieldsList = `
   c.created_at AS "createdAt", c.created_by AS "createdBy",
   c.branch_id AS "branchId",
   b.name AS "branchName",
-  rs.assigned_hr_user_id AS "assignedHrUserId",
-  hu.name AS "assignedHrUserName"
+  c.created_by AS "createdByUserId",
+  cb.name AS "createdByUserName",
+  COALESCE(r.display_name, cb.role) AS "createdByRoleDisplayName",
+  COALESCE(
+    (SELECT json_agg(json_build_object(
+         'userId',          u2.id,
+         'userName',        u2.name,
+         'roleDisplayName', COALESCE(r2.display_name, u2.role)
+       ) ORDER BY ca.assigned_at)
+     FROM candidate_assignments ca
+     JOIN hr_users u2  ON u2.id  = ca.hr_user_id
+     LEFT JOIN roles r2 ON r2.id = u2.role_id
+     WHERE ca.candidate_id = c.id),
+    '[]'::json
+  ) AS "assignments"
 `;
 
 type CandidateSubject = {
   branchId: number | null;
-  ownerUserId: number | null;
+  assignedUserIds: number[];
 };
+
+async function insertCandidateAssignments(
+  candidateId: number,
+  userIds: number[],
+  assignedBy: number,
+): Promise<void> {
+  if (userIds.length === 0) return;
+  const values = userIds
+    .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`)
+    .join(', ');
+  const params = userIds.flatMap(uid => [candidateId, uid, assignedBy]);
+  await pool.query(
+    `INSERT INTO candidate_assignments (candidate_id, hr_user_id, assigned_by)
+     VALUES ${values}
+     ON CONFLICT (candidate_id, hr_user_id) DO NOTHING`,
+    params,
+  );
+}
+
+function normalizeCandidatePayload<T extends Record<string, any>>(payload: T): T & {
+  mobile: string;
+  contacts: any[];
+} {
+  const contacts = normalizeContactsForWrite(payload.contacts, { requireOne: true });
+  return {
+    ...payload,
+    contacts,
+    mobile: contacts.length > 0 ? getCanonicalContactNumber(contacts) : normalizePhone(payload.mobile),
+  };
+}
 
 function getRequiredAuthContext(req: any) {
   if (!req.authContext) {
@@ -93,9 +141,16 @@ function resolveCandidateListBranchFilter(req: any): number | null {
 
 async function loadCandidateSubject(candidateId: string | number): Promise<CandidateSubject | null> {
   const { rows } = await pool.query(
-    `SELECT branch_id AS "branchId", owner_user_id AS "ownerUserId"
-       FROM candidates
-      WHERE id = $1`,
+    `SELECT
+       c.branch_id AS "branchId",
+       COALESCE(
+         (SELECT array_agg(hr_user_id)
+            FROM candidate_assignments
+           WHERE candidate_id = c.id),
+         '{}'::int[]
+       ) AS "assignedUserIds"
+     FROM candidates c
+    WHERE c.id = $1`,
     [candidateId],
   );
 
@@ -135,7 +190,7 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
 
     if (listAccess.scope === 'ASSIGNED') {
       params.push(authContext.userId);
-      conditions.push(`c.owner_user_id = $${params.length}`);
+      conditions.push(`EXISTS (SELECT 1 FROM candidate_assignments WHERE candidate_id = c.id AND hr_user_id = $${params.length})`);
       params.push(authContext.allowedBranchIds);
       conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
     }
@@ -146,7 +201,8 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
        FROM candidates c
        LEFT JOIN branches b ON b.id = c.branch_id
        LEFT JOIN referral_sheets rs ON rs.id = c.referral_sheet_id
-       LEFT JOIN hr_users hu ON hu.id = rs.assigned_hr_user_id
+       LEFT JOIN hr_users cb ON cb.id = c.created_by
+       LEFT JOIN roles r ON r.id = cb.role_id
        ${where}
        ORDER BY c.id`,
       params,
@@ -165,20 +221,22 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
-    const requestedOwnerUserId = Number(req.body?.ownerUserId);
-    const ownerUserId = authContext.isSuperAdmin && Number.isInteger(requestedOwnerUserId) && requestedOwnerUserId > 0
-      ? requestedOwnerUserId
-      : authContext.userId;
-
     const createAccess = canCreateCandidate(authContext, {
       branchId: targetBranchId,
-      ownerUserId,
+      assignedUserIds: [],
     });
     if (!createAccess.allowed) {
       return forbidCandidateAccess(res, createAccess.reason);
     }
 
-    const c = req.body;
+    const c = normalizeCandidatePayload(req.body ?? {});
+
+    // Resolve owner_user_id for the legacy column (single owner still stored)
+    const requestedOwnerUserId = Number(req.body?.ownerUserId);
+    const ownerUserId = authContext.isSuperAdmin && Number.isInteger(requestedOwnerUserId) && requestedOwnerUserId > 0
+      ? requestedOwnerUserId
+      : authContext.userId;
+
     const { rows } = await pool.query(
       `INSERT INTO candidates (first_name, last_name, nickname, mobile, contacts, address_text, geo_unit_id,
         owner_user_id, status, referral_sheet_id, referral_date, referral_reason,
@@ -186,19 +244,42 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
         referral_confirmation_status, occupation, candidate_notes, duplicate_flag, duplicate_type,
         duplicate_reference_id, converted_to_lead_id, created_by, branch_id)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
-      RETURNING ${selectFields}`,
+      RETURNING id`,
       [c.firstName, c.lastName || null, c.nickname, c.mobile, JSON.stringify(c.contacts || []), c.addressText || '', c.geoUnitId || null,
        ownerUserId, c.status || 'Suggested', c.referralSheetId || null,
        c.referralDate || null, c.referralReason || null, c.referralType || null,
        c.referralOriginChannel || null, c.referralNameSnapshot || null,
        c.referralEntityId || null, c.referralConfirmationStatus || 'Pending',
        c.occupation || null, c.candidateNotes || null, c.duplicateFlag || false, c.duplicateType || null,
-       c.duplicateReferenceId || null, c.convertedToLeadId || null, c.createdBy ?? authContext.userId,
+       c.duplicateReferenceId || null, c.convertedToLeadId || null, authContext.userId,
        targetBranchId]
     );
-    res.json(rows[0]);
+
+    const candidateId = rows[0].id;
+
+    // Build assignment list: always include creator; merge any explicitly provided IDs
+    const rawUserIds: number[] = Array.isArray(req.body?.assignmentUserIds)
+      ? (req.body.assignmentUserIds as any[]).map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
+      : [];
+    const assignmentUserIds = rawUserIds.includes(authContext.userId)
+      ? rawUserIds
+      : [authContext.userId, ...rawUserIds];
+
+    await insertCandidateAssignments(candidateId, assignmentUserIds, authContext.userId);
+
+    // Return full record with assignments and branch/user enrichment
+    const { rows: full } = await pool.query(
+      `SELECT ${selectFieldsList}
+       FROM candidates c
+       LEFT JOIN branches b ON b.id = c.branch_id
+       LEFT JOIN hr_users cb ON cb.id = c.created_by
+       LEFT JOIN roles r ON r.id = cb.role_id
+       WHERE c.id = $1`,
+      [candidateId],
+    );
+    res.json(full[0]);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -216,15 +297,15 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
       return forbidCandidateAccess(res, editAccess.reason);
     }
 
-    const c = req.body;
-    const { rows } = await pool.query(
+    const c = normalizeCandidatePayload(req.body ?? {});
+    await pool.query(
       `UPDATE candidates SET first_name=$1, last_name=$2, nickname=$3, mobile=$4,
         contacts=$5, address_text=$6, geo_unit_id=$7, owner_user_id=$8, status=$9, referral_sheet_id=$10,
         referral_date=$11, referral_reason=$12, referral_type=$13, referral_origin_channel=$14,
         referral_name_snapshot=$15, referral_entity_id=$16, referral_confirmation_status=$17,
         occupation=$18, candidate_notes=$19, duplicate_flag=$20, duplicate_type=$21,
         duplicate_reference_id=$22, converted_to_lead_id=$23, created_by=$24
-      WHERE id=$25 RETURNING ${selectFields}`,
+      WHERE id=$25`,
       [c.firstName, c.lastName || null, c.nickname, c.mobile, JSON.stringify(c.contacts || []), c.addressText || '', c.geoUnitId || null,
        c.ownerUserId || null, c.status || 'Suggested', c.referralSheetId || null,
        c.referralDate || null, c.referralReason || null, c.referralType || null,
@@ -234,9 +315,34 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
        c.duplicateReferenceId || null, c.convertedToLeadId || null, c.createdBy || null,
        candidateId]
     );
-    res.json(rows[0]);
+
+    // Optionally replace assignments if caller provided a new list
+    if (Array.isArray(req.body?.assignmentUserIds)) {
+      const rawUserIds: number[] = (req.body.assignmentUserIds as any[])
+        .map(Number)
+        .filter((n: number) => Number.isFinite(n) && n > 0);
+      // Always keep the current user in the assignment list
+      const assignmentUserIds = rawUserIds.includes(authContext.userId)
+        ? rawUserIds
+        : [authContext.userId, ...rawUserIds];
+
+      await pool.query('DELETE FROM candidate_assignments WHERE candidate_id = $1', [candidateId]);
+      await insertCandidateAssignments(Number(candidateId), assignmentUserIds, authContext.userId);
+    }
+
+    // Return full record with assignments and branch/user enrichment
+    const { rows: full } = await pool.query(
+      `SELECT ${selectFieldsList}
+       FROM candidates c
+       LEFT JOIN branches b ON b.id = c.branch_id
+       LEFT JOIN hr_users cb ON cb.id = c.created_by
+       LEFT JOIN roles r ON r.id = cb.role_id
+       WHERE c.id = $1`,
+      [candidateId],
+    );
+    res.json(full[0]);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

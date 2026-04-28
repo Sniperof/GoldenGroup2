@@ -9,6 +9,14 @@ import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
+import {
+    CONTACT_STATUS_CONFIG,
+    CONTACT_TYPE_CONFIG,
+    SYRIAN_MOBILE_HINT,
+    getContactValidationMessage,
+    isInvalidContactNumber,
+    normalizeContactNumberInput,
+} from '../../lib/contactRules';
 
 interface AddCandidateModalProps {
     isOpen: boolean;
@@ -24,17 +32,17 @@ function simpleUUID() {
     });
 }
 
-const contactTypeConfig = {
-    mobile: { label: 'موبايل', emoji: '📱', color: 'text-indigo-600' },
-    landline: { label: 'هاتف أرضي', emoji: '☎️', color: 'text-blue-600' },
-    other: { label: 'أخرى', emoji: '🔗', color: 'text-slate-600' }
-};
+const contactTypeConfig = CONTACT_TYPE_CONFIG;
+const contactStatusConfig = CONTACT_STATUS_CONFIG;
 
-const contactStatusConfig: Record<ContactStatus, { label: string; style: string }> = {
-    active:            { label: 'فعّال',          style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    preferred:         { label: 'مفضّل',           style: 'bg-sky-50 text-sky-700 border-sky-200'           },
-    'out-of-coverage': { label: 'خارج التغطية',   style: 'bg-amber-50 text-amber-700 border-amber-200'     },
-    unused:            { label: 'غير مستخدم',     style: 'bg-gray-50 text-gray-500 border-gray-200'        },
+const normalizeOriginChannel = (value?: string | null): ReferralOriginChannel => {
+    if (value === 'PhoneCall' || value === 'SocialMedia' || value === 'Campaign' || value === 'Acquaintance') {
+        return value;
+    }
+    if (value === 'App') {
+        return 'SocialMedia';
+    }
+    return 'Acquaintance';
 };
 
 const initialCandidateState: {
@@ -146,7 +154,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
                 if (sheetId === null) {
                     setReferralType(initialData.referralType);
-                    setOriginChannel(initialData.referralOriginChannel);
+                    setOriginChannel(normalizeOriginChannel(initialData.referralOriginChannel));
                     setReferralNameSnapshot(initialData.referralNameSnapshot);
                     setReferralDate(initialData.referralDate?.split('T')[0] || new Date().toISOString().split('T')[0]);
 
@@ -182,16 +190,33 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         if (!isOpen || isInitialSync.current || !isDirectMode) return;
 
         if (referralType === 'Personal') {
-            setOriginChannel('Acquaintance');
             setReferralNameSnapshot(currentUserDisplayName);
-        } else if (referralType === 'Unknown') {
-            setReferralNameSnapshot('مجهول');
-        } else {
-            setReferralNameSnapshot('');
             setEmployeeIdInput('');
             setEmployeeFound(null);
+            setEmployeeSearchError('');
             setClientSearch('');
             setSelectedClientId(null);
+            setClientSuggestions([]);
+        } else if (referralType === 'Unknown') {
+            setReferralNameSnapshot('مجهول');
+            setEmployeeIdInput('');
+            setEmployeeFound(null);
+            setEmployeeSearchError('');
+            setClientSearch('');
+            setSelectedClientId(null);
+            setClientSuggestions([]);
+        } else {
+            setReferralNameSnapshot('');
+            if (referralType === 'Employee') {
+                setClientSearch('');
+                setSelectedClientId(null);
+                setClientSuggestions([]);
+            }
+            if (referralType === 'Client') {
+                setEmployeeIdInput('');
+                setEmployeeFound(null);
+                setEmployeeSearchError('');
+            }
         }
     }, [referralType, isDirectMode, isOpen, currentUserDisplayName]);
 
@@ -288,6 +313,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setError('يجب إدخال رقم هاتف واحد أساسي على الأقل.');
             return false;
         }
+        const invalidContact = candidateData.contacts.find(contact => getContactValidationMessage(contact));
+        if (invalidContact) {
+            setError(getContactValidationMessage(invalidContact)!);
+            return false;
+        }
         setError('');
         return true;
     };
@@ -359,6 +389,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         setSelectedSheetId('');
         setCandidateData(initialCandidateState);
         setReferralType('Personal');
+        setOriginChannel('Acquaintance');
         setReferralNameSnapshot(currentUserDisplayName);
         setReferralDate(new Date().toISOString().split('T')[0]);
         setError('');
@@ -461,22 +492,22 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                             <label className="block text-xs font-semibold text-slate-600 mb-1.5">نوع الوسيط *</label>
                                             <select value={referralType} onChange={e => setReferralType(e.target.value as ReferralType)} className="w-full p-2.5 rounded-xl border border-indigo-200 bg-white text-sm">
                                                 <option value="Personal">شخصي</option>
-                                                <option value="Client">زبون حالي</option>
+                                                <option value="Client">زبون</option>
                                                 <option value="Employee">موظف</option>
                                                 <option value="Unknown">مجهول</option>
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">طريقة الوصول *</label>
+                                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">طريقة التواصل *</label>
                                             <select
                                                 value={originChannel}
                                                 onChange={e => setOriginChannel(e.target.value as ReferralOriginChannel)}
-                                                disabled={referralType === 'Personal' || referralType === 'Unknown'}
-                                                className="w-full p-2.5 rounded-xl border border-indigo-200 bg-white text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                                                className="w-full p-2.5 rounded-xl border border-indigo-200 bg-white text-sm"
                                             >
-                                                <option value="App">سوشال ميديا</option>
-                                                <option value="Campaign">حملة إعلانية</option>
                                                 <option value="Acquaintance">معرفة شخصية</option>
+                                                <option value="PhoneCall">مكالمة هاتفية</option>
+                                                <option value="SocialMedia">سوشال ميديا</option>
+                                                <option value="Campaign">حملة إعلانية</option>
                                             </select>
                                         </div>
                                     </div>
@@ -519,7 +550,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
                                     {referralType === 'Client' && (
                                         <div ref={clientSearchRef} className="relative">
-                                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الزبون *</label>
+                                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الوسيط *</label>
                                             <input
                                                 type="text"
                                                 value={clientSearch}
@@ -595,13 +626,15 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                 <label className="block text-xs font-semibold text-slate-500">أرقام التواصل <span className="text-red-500">*</span></label>
 
                                 <AnimatePresence initial={false}>
-                                    {candidateData.contacts.map((contact, index) => (
+                                    {candidateData.contacts.map((contact, index) => {
+                                        const hasInvalidNumber = isInvalidContactNumber(contact) || contact.status === 'invalid';
+                                        return (
                                         <motion.div
                                             key={contact.id}
                                             initial={{ opacity: 0, height: 0 }}
                                             animate={{ opacity: 1, height: 'auto' }}
                                             exit={{ opacity: 0, height: 0 }}
-                                            className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-2.5"
+                                            className={`rounded-xl p-3 border space-y-2.5 ${hasInvalidNumber ? 'bg-red-50/40 border-red-200' : 'bg-gray-50 border-gray-100'}`}
                                         >
                                             {/* Row 1: Type + Country code / Area code + Number + Delete */}
                                             <div className="flex items-center gap-2">
@@ -646,21 +679,19 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                     type="text"
                                                     value={contact.number}
                                                     onChange={e => {
-                                                        let v = e.target.value.replace(/\D/g, '');
-                                                        if (contact.type === 'mobile')   v = v.slice(0, 10);
-                                                        else if (contact.type === 'landline') v = v.slice(0, 7);
+                                                        const v = normalizeContactNumberInput(contact.type, contact.status, e.target.value, contact.number);
                                                         const newContacts = [...candidateData.contacts];
                                                         newContacts[index] = { ...contact, number: v };
                                                         setCandidateData({ ...candidateData, contacts: newContacts });
                                                         setError('');
                                                     }}
                                                     placeholder={
-                                                        contact.type === 'mobile'   ? '9XXXXXXXXX' :
+                                                        contact.type === 'mobile'   ? SYRIAN_MOBILE_HINT :
                                                         contact.type === 'landline' ? 'XXXXXXX'    : 'الرقم...'
                                                     }
                                                     dir="ltr"
                                                     maxLength={contact.type === 'mobile' ? 10 : contact.type === 'landline' ? 7 : 15}
-                                                    className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none"
+                                                    className={`flex-1 bg-white border rounded-lg px-3 py-2 text-sm font-mono placeholder:text-gray-300 focus:outline-none ${hasInvalidNumber ? 'border-red-300 text-red-700 focus:border-red-400' : 'border-gray-200 text-slate-800 focus:border-sky-500'}`}
                                                 />
 
                                                 <button
@@ -732,8 +763,16 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                     </div>
                                                 </button>
                                             </div>
+
+                                            {hasInvalidNumber && (
+                                                <div className="flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg border w-fit bg-red-100 text-red-700 border-red-200">
+                                                    <AlertCircle className="w-3 h-3 shrink-0" />
+                                                    رقم موبايل غير مطابق للصيغة 09XXXXXXXX
+                                                </div>
+                                            )}
                                         </motion.div>
-                                    ))}
+                                    );
+                                    })}
                                 </AnimatePresence>
 
                                 {/* Add button — full-width dashed */}
@@ -753,15 +792,18 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                             <div className="grid grid-cols-1 gap-4">
                                 <div>
                                     <GeoSmartSearch label="العنوان" geoUnits={geoUnits} value={candidateData.locationSelection} onChange={loc => setCandidateData({ ...candidateData, locationSelection: loc })} />
+                                    <p className="mt-1.5 text-[11px] text-slate-500 font-medium">
+                                        يمكن اختيار أي مستوى متاح للاسم المقترح، لكن عند تحويله إلى زبون يجب تحديد ناحية على الأقل.
+                                    </p>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />تفاصيل العنوان</label>
-                                    <input
-                                        type="text"
+                                    <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />العنوان التفصيلي</label>
+                                    <textarea
+                                        rows={3}
                                         placeholder="الشارع، البناية، الطابق..."
                                         value={candidateData.addressText}
                                         onChange={e => setCandidateData({ ...candidateData, addressText: e.target.value })}
-                                        className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/10 text-sm"
+                                        className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/10 text-sm resize-none"
                                     />
                                 </div>
                             </div>

@@ -71,7 +71,6 @@ function enforcePersonalReferralSheet<T extends Record<string, any>>(
 
   return {
     ...payload,
-    referralOriginChannel: 'Acquaintance',
     referralNameSnapshot: currentUser.name,
     referralEntityId: null,
   };

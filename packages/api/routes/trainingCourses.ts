@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
 import {
   addTrainingCourseTrainees,
@@ -13,6 +14,47 @@ import {
 } from '../services/trainingCourseService.js';
 
 const router = Router();
+
+// GET /training-courses/trainers?branchId=X
+// Returns users who have the jobs.training.be_trainer permission and are assigned to the given branch
+router.get('/trainers', requirePermission('jobs.training.create'), async (req, res) => {
+  try {
+    const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+    if (!branchId || isNaN(branchId)) {
+      return res.status(400).json({ error: 'branchId is required' });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT DISTINCT u.id, u.name,
+              r.display_name AS "roleDisplayName",
+              b.name AS "branchName"
+         FROM hr_users u
+         JOIN roles r ON r.id = u.role_id
+         JOIN user_branch_assignments uba ON uba.user_id = u.id
+           AND uba.branch_id = $1
+           AND uba.status = 'active'
+         JOIN branches b ON b.id = uba.branch_id
+        WHERE u.is_active = TRUE
+          AND COALESCE(r.is_system, FALSE) = FALSE
+          AND COALESCE(r.is_hidden, FALSE) = FALSE
+          AND EXISTS (
+            SELECT 1
+              FROM role_permission_grants rpg
+              JOIN permissions p ON p.id = rpg.permission_id
+             WHERE rpg.role_id = u.role_id
+               AND p.key = 'jobs.training.be_trainer'
+               AND rpg.scope_type IN ('BRANCH', 'GLOBAL')
+          )
+        ORDER BY u.name ASC`,
+      [branchId],
+    );
+
+    res.json(rows);
+  } catch (err: any) {
+    console.error('Error fetching eligible trainers:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.get('/eligible/:jobVacancyId', requirePermission('jobs.training.view_eligible'), async (req, res) => {
   try {

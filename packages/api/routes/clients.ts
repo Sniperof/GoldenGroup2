@@ -10,6 +10,11 @@ import {
   canViewClient,
   getClientListAccessPlan,
 } from '../policies/clientPolicy.js';
+import {
+  getCanonicalContactNumber,
+  normalizeContactsForWrite,
+  normalizePhone as normalizeContactPhone,
+} from '../utils/contactValidation.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -55,14 +60,25 @@ const CLIENT_SELECT = `
     c.candidate_status AS "candidateStatus",
     c.branch_id AS "branchId",
     b.name AS "branchName",
-    c.assigned_hr_user_id AS "assignedHrUserId",
-    u.name AS "assignedHrUserName",
-    u.username AS "assignedHrUsername"
+    c.created_by AS "createdByUserId",
+    cb.name AS "createdByUserName",
+    COALESCE(rcb.display_name, cb.role) AS "createdByRoleDisplayName",
+    COALESCE(
+      (SELECT json_agg(json_build_object(
+           'userId',          u2.id,
+           'userName',        u2.name,
+           'roleDisplayName', COALESCE(r2.display_name, u2.role)
+         ) ORDER BY ca.assigned_at)
+       FROM client_assignments ca
+       JOIN hr_users u2  ON u2.id  = ca.hr_user_id
+       LEFT JOIN roles r2 ON r2.id = u2.role_id
+       WHERE ca.client_id = c.id),
+      '[]'::json
+    ) AS "assignments"
   FROM clients c
-  LEFT JOIN branches b
-    ON b.id = c.branch_id
-  LEFT JOIN hr_users u
-    ON u.id = c.assigned_hr_user_id
+  LEFT JOIN branches b   ON b.id  = c.branch_id
+  LEFT JOIN hr_users cb  ON cb.id = c.created_by
+  LEFT JOIN roles    rcb ON rcb.id = cb.role_id
 `;
 
 const CLIENT_MUTATION_RETURNING = `
@@ -105,19 +121,15 @@ const CLIENT_MUTATION_RETURNING = `
     target_client AS "targetClient",
     candidate_status AS "candidateStatus",
     branch_id AS "branchId",
-    assigned_hr_user_id AS "assignedHrUserId"
+    created_by AS "createdByUserId"
 `;
 
 const toJson = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fallback);
 
 type ClientSubject = {
   branchId: number | null;
-  assignedHrUserId: number | null;
+  assignedUserIds: number[];
 };
-
-type AssignedHrUserCheckResult =
-  | { ok: true; assignedHrUserId: number | null }
-  | { ok: false; error: string };
 
 type SmartMatchResponse =
   | {
@@ -137,7 +149,6 @@ type SmartMatchResponse =
         name: string;
         phone: string;
         branchName: string | null;
-        assignedUserName: string | null;
       };
     }
   | {
@@ -160,56 +171,27 @@ const RESTRICTED_SMART_MATCH_MESSAGE =
 const NO_MATCH_SMART_MATCH_MESSAGE = 'لا توجد نتائج مطابقة';
 
 function normalizePhone(value: unknown): string {
-  if (typeof value !== 'string' && typeof value !== 'number') {
-    return '';
-  }
-
-  const digits = String(value).replace(/\D/g, '');
-  if (!digits) {
-    return '';
-  }
-
-  if (/^009639\d{8}$/.test(digits)) {
-    return `0${digits.slice(5)}`;
-  }
-
-  if (/^9639\d{8}$/.test(digits)) {
-    return `0${digits.slice(3)}`;
-  }
-
-  if (/^9\d{8}$/.test(digits)) {
-    return `0${digits}`;
-  }
-
-  return digits;
+  return normalizeContactPhone(value);
 }
 
 function normalizeClientContacts(rawContacts: unknown): ClientContactInput[] {
-  if (!Array.isArray(rawContacts)) {
-    return [];
-  }
-
-  return rawContacts.map(contact => {
-    if (!contact || typeof contact !== 'object') {
-      return { number: '' };
-    }
-
-    const typedContact = contact as ClientContactInput;
-    return {
-      ...typedContact,
-      number: normalizePhone(typedContact.number),
-    };
-  });
+  return normalizeContactsForWrite(rawContacts) as unknown as ClientContactInput[];
 }
 
 function normalizeClientPayload<T extends Record<string, any>>(payload: T): T & {
   mobile: string;
   contacts: ClientContactInput[];
 } {
+  const contacts = normalizeClientContacts(payload.contacts);
+  const effectiveContacts: ClientContactInput[] = (contacts.length > 0
+    ? contacts
+    : normalizeContactsForWrite(payload.mobile
+        ? [{ id: 'client-contact-1', type: 'mobile', number: payload.mobile, isPrimary: true, status: 'active' }]
+        : [])) as unknown as ClientContactInput[];
   return {
     ...payload,
-    mobile: normalizePhone(payload.mobile),
-    contacts: normalizeClientContacts(payload.contacts),
+    mobile: effectiveContacts.length > 0 ? getCanonicalContactNumber(effectiveContacts as any) : normalizePhone(payload.mobile),
+    contacts: effectiveContacts,
   };
 }
 
@@ -224,7 +206,6 @@ function enforcePersonalReferrer<T extends Record<string, any>>(
 
   return {
     ...payload,
-    sourceChannel: 'Acquaintance',
     referrerName: currentUser.name,
     referrerId: null,
     referralEntityId: null,
@@ -252,8 +233,7 @@ async function findDuplicateClientByPhone(
   phone: string;
   branchId: number | null;
   branchName: string | null;
-  assignedHrUserId: number | null;
-  assignedUserName: string | null;
+  assignedUserIds: number[];
 } | null> {
   if (!normalizedPhone) {
     return null;
@@ -267,13 +247,14 @@ async function findDuplicateClientByPhone(
         c.mobile AS phone,
         c.branch_id AS "branchId",
         b.name AS "branchName",
-        c.assigned_hr_user_id AS "assignedHrUserId",
-        u.name AS "assignedUserName"
+        COALESCE(
+          (SELECT array_agg(hr_user_id)
+             FROM client_assignments
+            WHERE client_id = c.id),
+          '{}'::int[]
+        ) AS "assignedUserIds"
       FROM clients c
-      LEFT JOIN branches b
-        ON b.id = c.branch_id
-      LEFT JOIN hr_users u
-        ON u.id = c.assigned_hr_user_id
+      LEFT JOIN branches b ON b.id = c.branch_id
       WHERE c.is_candidate = FALSE
         AND ($2::int IS NULL OR c.id <> $2)
         AND (
@@ -306,7 +287,7 @@ function buildSmartMatchResponse(authContext: any, duplicate: Awaited<ReturnType
 
   const access = canViewClient(authContext, {
     branchId: duplicate.branchId,
-    assignedHrUserId: duplicate.assignedHrUserId,
+    assignedUserIds: duplicate.assignedUserIds,
   });
 
   if (!access.allowed) {
@@ -330,7 +311,6 @@ function buildSmartMatchResponse(authContext: any, duplicate: Awaited<ReturnType
       name: duplicate.name,
       phone: duplicate.phone,
       branchName: duplicate.branchName,
-      assignedUserName: duplicate.assignedUserName,
     },
   };
 }
@@ -374,50 +354,67 @@ function resolveClientListBranchFilter(req: any): number | null {
 
 async function loadClientSubject(clientId: string | number): Promise<ClientSubject | null> {
   const { rows } = await pool.query(
-    `SELECT branch_id AS "branchId",
-            assigned_hr_user_id AS "assignedHrUserId"
-       FROM clients
-      WHERE id = $1`,
+    `SELECT
+       c.branch_id AS "branchId",
+       COALESCE(
+         (SELECT array_agg(hr_user_id)
+            FROM client_assignments
+           WHERE client_id = c.id),
+         '{}'::int[]
+       ) AS "assignedUserIds"
+     FROM clients c
+    WHERE c.id = $1`,
     [clientId],
   );
 
   return rows[0] ?? null;
 }
 
-async function assertAssignedHrUserExists(
-  assignedHrUserId: unknown,
-): Promise<AssignedHrUserCheckResult> {
-  if (assignedHrUserId == null || assignedHrUserId === '') {
-    return { ok: true, assignedHrUserId: null };
+async function resolveAssignmentUserIds(
+  rawIds: unknown,
+  selfId: number,
+  isSuperAdmin: boolean,
+): Promise<number[] | { error: string }> {
+  const ids: number[] = Array.isArray(rawIds)
+    ? rawIds.map(Number).filter(n => Number.isInteger(n) && n > 0)
+    : [];
+
+  // Non-super-admin must always be in their own client's assignments
+  if (!isSuperAdmin && !ids.includes(selfId)) {
+    ids.push(selfId);
   }
 
-  const normalized = Number(assignedHrUserId);
-  if (!Number.isInteger(normalized) || normalized <= 0) {
-    return { ok: false, error: 'يجب تحديد assigned_hr_user_id صالح' };
-  }
+  if (ids.length === 0) return [];
 
   const { rows } = await pool.query(
-    'SELECT id FROM hr_users WHERE id = $1',
-    [normalized],
+    'SELECT id FROM hr_users WHERE id = ANY($1)',
+    [ids],
   );
-
-  if (!rows[0]) {
-    return { ok: false, error: 'assigned_hr_user_id لا يشير إلى مستخدم HR صالح' };
+  const validIds = new Set<number>(rows.map((r: any) => r.id));
+  const invalid = ids.find(id => !validIds.has(id));
+  if (invalid != null) {
+    return { error: `المستخدم رقم ${invalid} غير موجود في النظام` };
   }
 
-  return { ok: true, assignedHrUserId: normalized };
+  return ids;
 }
 
-function getPermissionScope(
-  req: any,
-  permission: string,
-): 'GLOBAL' | 'BRANCH' | 'ASSIGNED' | null {
-  const authContext = getRequiredAuthContext(req);
-  if (authContext.isSuperAdmin) {
-    return 'GLOBAL';
-  }
-
-  return authContext.grants.find((grant: any) => grant.permission === permission)?.scope ?? null;
+async function insertClientAssignments(
+  clientId: number,
+  userIds: number[],
+  assignedBy: number,
+): Promise<void> {
+  if (userIds.length === 0) return;
+  const values = userIds
+    .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`)
+    .join(', ');
+  const params = userIds.flatMap(uid => [clientId, uid, assignedBy]);
+  await pool.query(
+    `INSERT INTO client_assignments (client_id, hr_user_id, assigned_by)
+     VALUES ${values}
+     ON CONFLICT (client_id, hr_user_id) DO NOTHING`,
+    params,
+  );
 }
 
 router.get('/', requirePermission('clients.view_list'), async (req, res) => {
@@ -453,16 +450,23 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
 
     if (listAccess.scope === 'ASSIGNED') {
       params.push(authContext.userId);
-      conditions.push(`c.assigned_hr_user_id = $${params.length}`);
+      conditions.push(`EXISTS (SELECT 1 FROM client_assignments WHERE client_id = c.id AND hr_user_id = $${params.length})`);
       params.push(authContext.allowedBranchIds);
       conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
     }
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(`${CLIENT_SELECT}${where} ORDER BY c.id`, params);
-    res.json(rows);
+
+    // Defense-in-depth: ASSIGNED-scope users must not see who else is assigned to a client.
+    // The column is already hidden on the frontend, but we strip it on the backend too.
+    const responseRows = listAccess.scope === 'ASSIGNED'
+      ? rows.map((r: any) => ({ ...r, assignments: [] }))
+      : rows;
+
+    res.json(responseRows);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -504,7 +508,7 @@ router.get('/:id', requirePermission('clients.view'), async (req, res) => {
     const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
     res.json(rows[0]);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -516,45 +520,20 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
-    const createScope = getPermissionScope(req, 'clients.create');
-
-    // ── X3.3: Assigned-owner defaulting ───────────────────────────────────
-    // Only a true super-admin may create a client with no assigned owner
-    // (assigned_hr_user_id = NULL). Every other user — including those whose
-    // role grant carries GLOBAL scope — self-assigns by default so that the
-    // ASSIGNED list filter returns their own clients.
-    //
-    // If the caller is not a super-admin and sends null / '' / undefined for
-    // assignedHrUserId, we treat it as "self" and ignore the provided value.
-    // ─────────────────────────────────────────────────────────────────────
-    let assignedHrUserCheck: Awaited<ReturnType<typeof assertAssignedHrUserExists>>;
-
-    if (req.body?.assignedHrUserId !== undefined) {
-      const raw = req.body.assignedHrUserId;
-
-      if (!authContext.isSuperAdmin && (raw == null || raw === '')) {
-        // Non-super-admin sent null/empty → self-assign regardless of scope
-        assignedHrUserCheck = { ok: true, assignedHrUserId: authContext.userId };
-      } else {
-        // Super-admin, or non-empty explicit value → validate as usual
-        assignedHrUserCheck = await assertAssignedHrUserExists(raw);
-      }
-    } else {
-      // Not provided at all:
-      //   • super-admin  → null  (intentionally unassigned, e.g. HQ entry)
-      //   • everyone else → self (branch-operational user always owns their entry)
-      assignedHrUserCheck = {
-        ok: true,
-        assignedHrUserId: authContext.isSuperAdmin ? null : authContext.userId,
-      };
-    }
-    if ('error' in assignedHrUserCheck) {
-      return res.status(400).json({ error: assignedHrUserCheck.error });
+    // Resolve the list of users this client will be assigned to.
+    // Non-super-admin is always included in their own assignments (self-assign).
+    const resolvedAssignees = await resolveAssignmentUserIds(
+      req.body?.assignmentUserIds,
+      authContext.userId,
+      authContext.isSuperAdmin,
+    );
+    if ('error' in resolvedAssignees) {
+      return res.status(400).json({ error: resolvedAssignees.error });
     }
 
     const createAccess = canCreateClient(authContext, {
       branchId: targetBranchId,
-      assignedHrUserId: assignedHrUserCheck.assignedHrUserId,
+      assignedUserIds: resolvedAssignees,
     });
     if (!createAccess.allowed) {
       return forbidClientAccess(res, createAccess.reason);
@@ -575,7 +554,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       });
     }
 
-    const { rows } = await pool.query(
+    const { rows: [inserted] } = await pool.query(
       `INSERT INTO clients (
         first_name, father_name, last_name, nickname,
         name, mobile, contacts, governorate, district, neighborhood,
@@ -583,7 +562,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         source_channel, referrer_type, referrer_id, referrer_name, referral_notes, referrers, referral_entity_id,
         referral_date, referral_reason, referral_sheet_id, referral_address_text,
         is_candidate, target_client, candidate_status,
-        branch_id, assigned_hr_user_id
+        branch_id, created_by
       )
       VALUES (
         $1,$2,$3,$4,
@@ -594,50 +573,27 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         $33,$34,$35,
         $36,$37
       )
-      ${CLIENT_MUTATION_RETURNING}`,
+      RETURNING id`,
       [
-        c.firstName || null,
-        c.fatherName || null,
-        c.lastName || null,
-        c.nickname || null,
-        c.name,
-        c.mobile,
-        toJson(c.contacts, []),
-        c.governorate || '',
-        c.district || '',
-        c.neighborhood || '',
-        c.detailedAddress || null,
-        c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
-        c.gender || null,
-        c.nationalId || null,
-        c.birthDate || null,
-        c.occupation || null,
-        c.spouseOccupation || null,
-        c.dataQuality || null,
-        c.waterSource || null,
-        c.notes || null,
-        c.rating || null,
-        c.sourceChannel || null,
-        c.referrerType || null,
-        c.referrerId || null,
-        c.referrerName || null,
-        c.referralNotes || null,
-        toJson(c.referrers, []),
-        c.referralEntityId || null,
-        c.referralDate || null,
-        c.referralReason || null,
-        c.referralSheetId || null,
-        c.referralAddressText || null,
-        c.isCandidate || false,
-        c.targetClient || null,
-        c.candidateStatus || null,
-        targetBranchId,
-        assignedHrUserCheck.assignedHrUserId,
+        c.firstName || null, c.fatherName || null, c.lastName || null, c.nickname || null,
+        c.name, c.mobile, toJson(c.contacts, []), c.governorate || '', c.district || '', c.neighborhood || '',
+        c.detailedAddress || null, c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
+        c.gender || null, c.nationalId || null, c.birthDate || null, c.occupation || null,
+        c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null, c.rating || null,
+        c.sourceChannel || null, c.referrerType || null, c.referrerId || null, c.referrerName || null,
+        c.referralNotes || null, toJson(c.referrers, []), c.referralEntityId || null,
+        c.referralDate || null, c.referralReason || null, c.referralSheetId || null, c.referralAddressText || null,
+        c.isCandidate || false, c.targetClient || null, c.candidateStatus || null,
+        targetBranchId, authContext.userId,
       ],
     );
+
+    await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId);
+
+    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
     res.json(rows[0]);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -662,20 +618,6 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
     if (!c.mobile) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     }
-    const assignedHrUserCheck = c.assignedHrUserId !== undefined
-      ? await assertAssignedHrUserExists(c.assignedHrUserId)
-      : { ok: true as const, assignedHrUserId: subject.assignedHrUserId };
-    if ('error' in assignedHrUserCheck) {
-      return res.status(400).json({ error: assignedHrUserCheck.error });
-    }
-
-    const targetAccess = canEditClient(authContext, {
-      branchId: subject.branchId,
-      assignedHrUserId: assignedHrUserCheck.assignedHrUserId,
-    });
-    if (!targetAccess.allowed) {
-      return forbidClientAccess(res, targetAccess.reason);
-    }
 
     const duplicate = await findDuplicateClientByPhone(c.mobile, Number(clientId));
     if (duplicate) {
@@ -685,59 +627,52 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
       });
     }
 
-    const { rows } = await pool.query(
+    // Resolve assignment changes only if the caller explicitly provided a new list
+    let newAssigneeIds: number[] | null = null;
+    if (Array.isArray(req.body?.assignmentUserIds)) {
+      const resolved = await resolveAssignmentUserIds(
+        req.body.assignmentUserIds,
+        authContext.userId,
+        authContext.isSuperAdmin,
+      );
+      if ('error' in resolved) {
+        return res.status(400).json({ error: resolved.error });
+      }
+      newAssigneeIds = resolved;
+    }
+
+    await pool.query(
       `UPDATE clients SET
         first_name=$1, father_name=$2, last_name=$3, nickname=$4,
         name=$5, mobile=$6, contacts=$7, governorate=$8, district=$9, neighborhood=$10,
         detailed_address=$11, gps_coordinates=$12, gender=$13, national_id=$14, birth_date=$15, occupation=$16, spouse_occupation=$17, data_quality=$18, water_source=$19, notes=$20, rating=$21,
         source_channel=$22, referrer_type=$23, referrer_id=$24, referrer_name=$25, referral_notes=$26, referrers=$27, referral_entity_id=$28,
         referral_date=$29, referral_reason=$30, referral_sheet_id=$31, referral_address_text=$32,
-        is_candidate=$33, target_client=$34, candidate_status=$35, assigned_hr_user_id=$36
-      WHERE id=$37
-      ${CLIENT_MUTATION_RETURNING}`,
+        is_candidate=$33, target_client=$34, candidate_status=$35
+      WHERE id=$36`,
       [
-        c.firstName || null,
-        c.fatherName || null,
-        c.lastName || null,
-        c.nickname || null,
-        c.name,
-        c.mobile,
-        toJson(c.contacts, []),
-        c.governorate || '',
-        c.district || '',
-        c.neighborhood || '',
-        c.detailedAddress || null,
-        c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
-        c.gender || null,
-        c.nationalId || null,
-        c.birthDate || null,
-        c.occupation || null,
-        c.spouseOccupation || null,
-        c.dataQuality || null,
-        c.waterSource || null,
-        c.notes || null,
-        c.rating || null,
-        c.sourceChannel || null,
-        c.referrerType || null,
-        c.referrerId || null,
-        c.referrerName || null,
-        c.referralNotes || null,
-        toJson(c.referrers, []),
-        c.referralEntityId || null,
-        c.referralDate || null,
-        c.referralReason || null,
-        c.referralSheetId || null,
-        c.referralAddressText || null,
-        c.isCandidate || false,
-        c.targetClient || null,
-        c.candidateStatus || null,
-        assignedHrUserCheck.assignedHrUserId,
+        c.firstName || null, c.fatherName || null, c.lastName || null, c.nickname || null,
+        c.name, c.mobile, toJson(c.contacts, []), c.governorate || '', c.district || '', c.neighborhood || '',
+        c.detailedAddress || null, c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
+        c.gender || null, c.nationalId || null, c.birthDate || null, c.occupation || null,
+        c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null, c.rating || null,
+        c.sourceChannel || null, c.referrerType || null, c.referrerId || null, c.referrerName || null,
+        c.referralNotes || null, toJson(c.referrers, []), c.referralEntityId || null,
+        c.referralDate || null, c.referralReason || null, c.referralSheetId || null, c.referralAddressText || null,
+        c.isCandidate || false, c.targetClient || null, c.candidateStatus || null,
         clientId,
       ],
     );
+
+    if (newAssigneeIds !== null) {
+      await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+      await insertClientAssignments(Number(clientId), newAssigneeIds, authContext.userId);
+    }
+
+    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
     res.json(rows[0]);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -771,18 +706,24 @@ router.post('/bulk-delete', requirePermission('clients.delete'), async (req, res
     }
 
     const { rows } = await pool.query(
-      `SELECT id,
-              branch_id AS "branchId",
-              assigned_hr_user_id AS "assignedHrUserId"
-         FROM clients
-        WHERE id = ANY($1)`,
+      `SELECT
+         c.id,
+         c.branch_id AS "branchId",
+         COALESCE(
+           (SELECT array_agg(hr_user_id)
+              FROM client_assignments
+             WHERE client_id = c.id),
+           '{}'::int[]
+         ) AS "assignedUserIds"
+       FROM clients c
+      WHERE c.id = ANY($1)`,
       [ids],
     );
 
     for (const row of rows) {
       const access = canDeleteClient(authContext, {
         branchId: row.branchId,
-        assignedHrUserId: row.assignedHrUserId,
+        assignedUserIds: row.assignedUserIds,
       });
       if (!access.allowed) {
         return forbidClientAccess(res, access.reason);

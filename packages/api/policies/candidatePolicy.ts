@@ -3,7 +3,7 @@ import { authorize } from '../services/authorizationService.js';
 
 export interface CandidatePolicySubject {
   branchId: number | null;
-  ownerUserId?: number | null;
+  assignedUserIds: number[];
 }
 
 export interface CandidateListAccessPlan {
@@ -20,7 +20,8 @@ function authorizeCandidatePermission(
   return authorize(context, {
     permission,
     branchId: candidate.branchId,
-    assignedUserId: candidate.ownerUserId ?? null,
+    // ASSIGNED scope: allowed only if the current user is in the assignments list
+    assignedUserId: candidate.assignedUserIds.includes(context.userId) ? context.userId : null,
   });
 }
 

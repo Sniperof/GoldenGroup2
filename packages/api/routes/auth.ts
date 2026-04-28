@@ -8,7 +8,7 @@ router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username?.trim() || !password?.trim()) {
-      return res.status(400).json({ error: 'Ø§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ÙˆÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ù…Ø·Ù„ÙˆØ¨Ø§Ù†' });
+      return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبان' });
     }
 
     const result = await loginUser(username, password);

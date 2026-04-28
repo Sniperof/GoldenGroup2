@@ -18,7 +18,9 @@
       "Bash(node fix-rest2.mjs)",
       "Bash(pnpm --filter @golden-crm/shared build)",
       "Bash(pnpm --filter @golden-crm/web build)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx tsx *)",
+      "Bash(pnpm --filter api migrate)"
     ]
   }
 }

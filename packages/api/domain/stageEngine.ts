@@ -1,4 +1,4 @@
-import type { ApplicationStage } from '@golden-crm/shared';
+﻿import type { ApplicationStage } from '@golden-crm/shared';
 
 export type { ApplicationStage };
 
@@ -10,14 +10,14 @@ export const STAGE_ORDER = [
   'Final Decision',
 ] as const satisfies readonly ApplicationStage[];
 
-// â”€â”€ Terminal decisions â€” no further actions allowed â”€â”
+// ── Terminal decisions — no further actions allowed ─�
 export const TERMINAL_DECISIONS = ['Rejected', 'Failed', 'Hired', 'Retreated'];
 
 export function isTerminalDecision(decision: string | null): boolean {
   return decision != null && TERMINAL_DECISIONS.includes(decision);
 }
 
-// Backward compat â€” old code still references these
+// Backward compat — old code still references these
 export const TERMINAL_STATUSES = [
   'Rejected', 'Interview Failed', 'Final Hired', 'Final Rejected', 'Retreated',
 ];
@@ -48,17 +48,17 @@ export function isInterviewManagedTransition(
   );
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════════════════════════
 // Stage-status transitions (automated / operational)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════════════════════════
 
 // Valid automated stage_status transitions per stage
 const VALID_STAGE_STATUS_TRANSITIONS: Record<string, Record<string, string[]>> = {
   Submitted:       { Pending: ['Under Review'] },
-  Shortlisted:     {}, // no internal transitions â€” enters as 'Ready'
+  Shortlisted:     {}, // no internal transitions — enters as 'Ready'
   Interview:       { Scheduled: ['Completed'] },
   Training:        { Scheduled: ['In Progress'], 'In Progress': ['Completed'] },
-  'Final Decision': {}, // no internal transitions â€” enters as 'Awaiting Decision'
+  'Final Decision': {}, // no internal transitions — enters as 'Awaiting Decision'
 };
 
 export function validateStageStatusTransition(
@@ -67,17 +67,17 @@ export function validateStageStatusTransition(
   newStageStatus: string,
 ): string | null {
   const stageMap = VALID_STAGE_STATUS_TRANSITIONS[stage];
-  if (!stageMap) return `Ù…Ø±Ø­Ù„Ø© ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙØ©: ${stage}`;
+  if (!stageMap) return `مرحلة غير معروفة: ${stage}`;
   const allowed = stageMap[currentStageStatus];
   if (!allowed || !allowed.includes(newStageStatus)) {
-    return `Ø§Ù†ØªÙ‚Ø§Ù„ Ø­Ø§Ù„Ø© ØªØ´ØºÙŠÙ„ÙŠØ© ØºÙŠØ± ØµØ§Ù„Ø­: ${stage}/${currentStageStatus} â†’ ${newStageStatus}`;
+    return `انتقال حالة تشغيلية غير صالح: ${stage}/${currentStageStatus} → ${newStageStatus}`;
   }
   return null;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════════════════════════
 // Decision validation (HR / manual)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════════════════════════
 
 // Which decisions are allowed at each stage + stage_status
 const VALID_DECISIONS: Record<string, Record<string, string[]>> = {
@@ -115,14 +115,14 @@ export function validateDecision(
 ): string | null {
   // Cannot make a new decision if already terminal
   if (isTerminalDecision(currentDecision)) {
-    return `Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§ØªØ®Ø§Ø° Ù‚Ø±Ø§Ø± Ø¬Ø¯ÙŠØ¯ â€” Ø§Ù„Ù‚Ø±Ø§Ø± Ø§Ù„Ø­Ø§Ù„ÙŠ Ù†Ù‡Ø§Ø¦ÙŠ: ${currentDecision}`;
+    return `لا يمكن اتخاذ قرار جديد — القرار الحالي نهائي: ${currentDecision}`;
   }
 
   const stageMap = VALID_DECISIONS[stage];
-  if (!stageMap) return `Ù…Ø±Ø­Ù„Ø© ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙØ©: ${stage}`;
+  if (!stageMap) return `مرحلة غير معروفة: ${stage}`;
   const allowed = stageMap[stageStatus];
   if (!allowed || !allowed.includes(decision)) {
-    return `Ù‚Ø±Ø§Ø± ØºÙŠØ± ØµØ§Ù„Ø­ "${decision}" ÙÙŠ ${stage}/${stageStatus}`;
+    return `قرار غير صالح "${decision}" في ${stage}/${stageStatus}`;
   }
 
   // Retraining limit
@@ -130,16 +130,16 @@ export function validateDecision(
     const count = options.retrainingCount ?? 0;
     const max = options.maxRetrainingCount ?? 1;
     if (count >= max) {
-      return `ØªÙ… Ø§Ø³ØªÙ†ÙØ§Ø¯ Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¯Ø±ÙŠØ¨ (${max})`;
+      return `تم استنفاد الحد الأقصى لإعادة التدريب (${max})`;
     }
   }
 
   return null;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// Decision effects â€” what happens to stage/stageStatus after a decision
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════════════════════════
+// Decision effects — what happens to stage/stageStatus after a decision
+// ════════════════════════════════════════════════════════════
 
 export interface DecisionEffect {
   newStage: string;
@@ -160,16 +160,16 @@ export function getDecisionEffect(currentStage: string, decision: string): Decis
     case 'Rejected':
     case 'Failed':
     case 'Retreated':
-      // Terminal decisions â€” stage stays the same, stageStatus stays the same
+      // Terminal decisions — stage stays the same, stageStatus stays the same
       return { newStage: currentStage, newStageStatus: 'current' }; // 'current' = don't change
     default:
       return { newStage: currentStage, newStageStatus: 'current' };
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════════════════════════
 // Backward compatibility: derive old application_status
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════════════════════════
 
 export function deriveApplicationStatus(
   stage: string,
@@ -208,9 +208,9 @@ export function deriveApplicationStatus(
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════════════════════════
 // Legacy: validateStageTransition (for backward compat with old endpoint)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════════════════════════
 
 export interface StageTransitionOptions {
   retrainingCount?: number;
@@ -237,11 +237,11 @@ export function validateStageTransition(
   options?: StageTransitionOptions,
 ): string | null {
   if (isTerminalStatus(currentStatus)) {
-    return `Ù„Ø§ ÙŠÙ…ÙƒÙ† ØªØºÙŠÙŠØ± Ø­Ø§Ù„Ø© Ø·Ù„Ø¨ ÙÙŠ Ø­Ø§Ù„Ø© Ù†Ù‡Ø§Ø¦ÙŠØ©: ${currentStatus}`;
+    return `لا يمكن تغيير حالة طلب في حالة نهائية: ${currentStatus}`;
   }
   if (newStatus === 'Retreated') {
     if (newStage !== currentStage) {
-      return 'ÙŠØ¬Ø¨ Ø£Ù† ØªØ¨Ù‚Ù‰ Ø§Ù„Ù…Ø±Ø­Ù„Ø© ÙƒÙ…Ø§ Ù‡ÙŠ Ø¹Ù†Ø¯ ØªØ¹ÙŠÙŠÙ† Ø­Ø§Ù„Ø© "Ø§Ù†Ø³Ø­Ø§Ø¨"';
+      return 'يجب أن تبقى المرحلة كما هي عند تعيين حالة "انسحاب"';
     }
     return null;
   }
@@ -249,12 +249,12 @@ export function validateStageTransition(
     const count = options.retrainingCount ?? 0;
     const max = options.maxRetrainingCount ?? 1;
     if (count >= max) {
-      return `ØªÙ… Ø§Ø³ØªÙ†ÙØ§Ø¯ Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¯Ø±ÙŠØ¨ (${max})`;
+      return `تم استنفاد الحد الأقصى لإعادة التدريب (${max})`;
     }
   }
   const key = `${currentStage}:${currentStatus}:${newStage}:${newStatus}`;
   if (!VALID_TRANSITIONS.has(key)) {
-    return `Ø§Ù†ØªÙ‚Ø§Ù„ ØºÙŠØ± ØµØ§Ù„Ø­: ${currentStage}/${currentStatus} â†’ ${newStage}/${newStatus}`;
+    return `انتقال غير صالح: ${currentStage}/${currentStatus} → ${newStage}/${newStatus}`;
   }
   return null;
 }

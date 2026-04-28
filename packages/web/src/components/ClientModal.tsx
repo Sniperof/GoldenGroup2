@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock } from 'lucide-react';
+import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock, ChevronDown } from 'lucide-react';
 import type { Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel, ClientRating } from '../lib/types';
-import { useRef } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import MapPicker from './MapPicker';
@@ -14,6 +13,14 @@ import { useAuthStore } from '../hooks/useAuthStore';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../lib/employeeMediatorLookup';
+import {
+    CONTACT_STATUS_CONFIG,
+    CONTACT_TYPE_CONFIG,
+    SYRIAN_MOBILE_HINT,
+    getContactValidationMessage,
+    isInvalidContactNumber,
+    normalizeContactNumberInput,
+} from '../lib/contactRules';
 
 interface ClientModalProps {
     isOpen: boolean;
@@ -37,6 +44,7 @@ interface HrUserOption {
     id: number;
     name: string;
     branchId?: number | null;
+    role_display_name?: string | null;
 }
 
 const tabsDef: { id: Tab; label: string; icon: any }[] = [
@@ -48,18 +56,8 @@ const tabsDef: { id: Tab; label: string; icon: any }[] = [
     { id: 'additional',  label: 'معلومات إضافية',  icon: Plus          },
 ];
 
-const contactTypeConfig: Record<ContactType, { label: string; emoji: string }> = {
-    mobile: { label: 'موبايل', emoji: '📱' },
-    landline: { label: 'أرضي', emoji: '☎️' },
-    other: { label: 'آخر', emoji: '📞' },
-};
-
-const contactStatusConfig: Record<ContactStatus, { label: string; style: string }> = {
-    active: { label: 'فعّال', style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    preferred: { label: 'مفضّل', style: 'bg-sky-50 text-sky-700 border-sky-200' },
-    'out-of-coverage': { label: 'خارج التغطية', style: 'bg-amber-50 text-amber-700 border-amber-200' },
-    unused: { label: 'غير مستخدم', style: 'bg-gray-50 text-gray-500 border-gray-200' },
-};
+const contactTypeConfig = CONTACT_TYPE_CONFIG;
+const contactStatusConfig = CONTACT_STATUS_CONFIG;
 
 const makeId = () => Math.random().toString(36).slice(2, 10);
 
@@ -67,6 +65,14 @@ const emptyContact = (isPrimary = false): ContactEntry => ({
     id: makeId(), type: 'mobile', number: '', areaCode: '', label: '',
     hasWhatsApp: false, isPrimary, status: 'active',
 });
+
+const normalizeOriginChannel = (value?: string | null): ReferralOriginChannel => {
+    if (value === 'PhoneCall' || value === 'SocialMedia' || value === 'Campaign' || value === 'Acquaintance') {
+        return value;
+    }
+    if (value === 'App') return 'SocialMedia';
+    return 'Acquaintance';
+};
 
 export default function ClientModal({ isOpen, onClose, onSave, initialData, geoUnits, lockedPhone, fromCandidate }: ClientModalProps) {
     const isEditMode = Boolean(initialData?.id);
@@ -87,7 +93,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
-    const [assignedHrUserId, setAssignedHrUserId] = useState<number | ''>('');
+    const [assignmentUserIds, setAssignmentUserIds] = useState<number[]>([]);
+    const [assignDropdownOpen, setAssignDropdownOpen] = useState(false);
+    const assignDropdownRef = useRef<HTMLDivElement>(null);
 
     // Identity fields
     const [firstName, setFirstName] = useState('');
@@ -106,7 +114,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
     // Mediator states
     const [referralType, setReferralType] = useState<ReferralType>('Personal');
-    const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('App');
+    const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
     const [referralNameSnapshot, setReferralNameSnapshot] = useState('');
     const [employeeIdInput, setEmployeeIdInput] = useState('');
     const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
@@ -130,6 +138,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         function handleClickOutside(event: MouseEvent) {
             if (clientSearchRef.current && !clientSearchRef.current.contains(event.target as Node)) {
                 setClientSuggestions([]);
+            }
+            if (assignDropdownRef.current && !assignDropdownRef.current.contains(event.target as Node)) {
+                setAssignDropdownOpen(false);
             }
         }
         document.addEventListener("mousedown", handleClickOutside);
@@ -160,7 +171,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 api.contracts.list(),
                 api.systemLists.list({ category: 'occupation', activeOnly: true }),
                 canChooseBranch ? api.branches.list() : Promise.resolve([]),
-                canChooseAssignedOwner ? api.admin.hrUsers.list() : Promise.resolve([]),
+                canChooseAssignedOwner ? api.admin.hrUsers.assignable() : Promise.resolve([]),
             ]);
 
             if (!active) return;
@@ -191,6 +202,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                           id: u.id,
                           name: u.name,
                           branchId: u.branch_id ?? u.branchId ?? null,
+                          role_display_name: u.role_display_name ?? null,
                       }))
                     : [],
             );
@@ -205,7 +217,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
     useEffect(() => {
         if (referralType === 'Personal') {
-            setOriginChannel('Acquaintance');
             setReferralNameSnapshot(currentUserDisplayName);
             setEmployeeIdInput('');
             setEmployeeFound(null);
@@ -278,7 +289,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             if (initialData) {
                 setFormData(initialData);
                 setSelectedBranchId(initialData.branchId ?? '');
-                setAssignedHrUserId(initialData.assignedHrUserId ?? '');
+                setAssignmentUserIds((initialData.assignments || []).map(a => a.userId));
                 setFirstName(initialData.firstName || '');
                 setNickname(initialData.nickname || '');
                 setLastName(initialData.lastName || '');
@@ -294,7 +305,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                     setMapPosition(null);
                 }
                 setReferralType((initialData.referrerType as ReferralType) || 'Personal');
-                setOriginChannel((initialData.sourceChannel as ReferralOriginChannel) || 'App');
+                setOriginChannel(normalizeOriginChannel(initialData.sourceChannel as string | undefined));
                 setReferralNameSnapshot(initialData.referrerName || '');
                 setClientSearch(initialData.referrerType === 'Client' ? (initialData.referrerName || '') : '');
                 setSelectedClientId(initialData.referrerType === 'Client' ? (initialData.referralEntityId || null) : null);
@@ -309,21 +320,20 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setRating(initialData.rating || 'Undefined');
             } else {
                 setFormData({
-                    sourceChannel: 'App',
+                    sourceChannel: 'Acquaintance',
                     referrerType: 'Other',
                     governorate: '1',
                     branchId: canChooseBranch ? (contextBranchId ?? undefined) : undefined,
-                    assignedHrUserId: undefined,
                 });
                 setSelectedBranchId(canChooseBranch ? (contextBranchId ?? '') : '');
-                setAssignedHrUserId('');
+                setAssignmentUserIds([]);
                 setFirstName(''); setNickname(''); setLastName(''); setFatherName('');
                 setContacts(lockedPhone
                     ? [{ ...emptyContact(true), number: lockedPhone, type: 'mobile' }]
                     : [emptyContact(true)]);
                 setMapPosition(null);
                 setReferralType('Personal');
-                setOriginChannel('App');
+                setOriginChannel('Acquaintance');
                 setReferralNameSnapshot(currentUserDisplayName);
                 setGender('');
                 setNationalId('');
@@ -339,27 +349,20 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setSelectedClientId(null);
             }
             setActiveTab('identity');
-            // Reconstruct geoSelection: stored neighborhood may be level 3 (ناحية) or level 4 (حي)
+            // Reconstruct geoSelection from any stored level. Candidates may carry only governorate/region.
             const storedNeighId = initialData?.neighborhood?.toString() || '';
             const storedUnit = storedNeighId ? geoUnits.find(u => u.id.toString() === storedNeighId) : null;
-            const storedSubArea = storedUnit?.level === 4 && storedUnit.parentId != null
-                ? geoUnits.find(u => u.id === storedUnit.parentId) || null
-                : storedUnit?.level === 3
-                    ? storedUnit
-                    : null;
-            const storedRegion = storedSubArea?.parentId != null
-                ? geoUnits.find(u => u.id === storedSubArea.parentId) || null
-                : null;
-            const storedGovernorate = storedRegion?.parentId != null
-                ? geoUnits.find(u => u.id === storedRegion.parentId) || null
-                : initialData?.governorate
-                    ? geoUnits.find(u => u.id.toString() === initialData.governorate.toString()) || null
-                    : null;
+            const path: GeoUnit[] = [];
+            let cursor = storedUnit;
+            while (cursor) {
+                path.unshift(cursor);
+                cursor = cursor.parentId != null ? geoUnits.find(u => u.id === cursor!.parentId) || null : null;
+            }
             setGeoSelection({
-                govId: storedGovernorate?.id?.toString() || initialData?.governorate?.toString() || '',
-                regionId: storedRegion?.id?.toString() || '',
-                subId: storedSubArea?.id?.toString() || '',
-                neighborhoodId: storedUnit?.level === 4 ? storedNeighId : '',
+                govId: path[0]?.id?.toString() || initialData?.governorate?.toString() || '',
+                regionId: path[1]?.id?.toString() || '',
+                subId: path[2]?.id?.toString() || '',
+                neighborhoodId: path[3]?.id?.toString() || '',
             });
         }
     }, [isOpen, initialData, geoUnits, canChooseBranch, contextBranchId, currentUserDisplayName]);
@@ -503,6 +506,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const fl = (val: string | undefined | null): boolean =>
         Boolean(fromCandidate && val !== '' && val !== null && val !== undefined);
 
+    const candidateGeoNeedsUpgrade = Boolean(fromCandidate && (geoSelection.govId || geoSelection.regionId) && !(geoSelection.subId || geoSelection.neighborhoodId));
+
     // Locked field style (amber = from candidate, distinct from emerald = verified phone)
     const lockedCls = 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed focus:ring-0';
 
@@ -536,8 +541,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             return;
         }
 
+        const invalidContact = contacts.find(contact => getContactValidationMessage(contact));
+        if (invalidContact) {
+            alert(getContactValidationMessage(invalidContact)!);
+            return;
+        }
+
         // Geo validation: skip when fromCandidate (geo is locked from candidate data)
-        if (!fromCandidate && !(geoSelection.subId || geoSelection.neighborhoodId)) {
+        if ((!fromCandidate || candidateGeoNeedsUpgrade) && !(geoSelection.subId || geoSelection.neighborhoodId)) {
             alert('يجب اختيار ناحية على الأقل في العنوان — لا يمكن الاكتفاء بمحافظة أو منطقة');
             return;
         }
@@ -591,7 +602,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             dataQuality: (dataQuality as any) || undefined,
             notes: notes.trim() || undefined,
             branchId: selectedBranchId === '' ? undefined : Number(selectedBranchId),
-            assignedHrUserId: assignedHrUserId === '' ? undefined : Number(assignedHrUserId),
+            assignmentUserIds: assignmentUserIds.length > 0 ? assignmentUserIds : undefined,
             ...(isEditMode ? { rating } : {}),
         } as Client);
     };
@@ -675,20 +686,82 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             )}
 
                                             {canChooseAssignedOwner && (
-                                                <div className="space-y-1">
-                                                    <label className="text-xs font-semibold text-slate-500">المسؤول عن العميل</label>
-                                                    <select
-                                                        value={assignedHrUserId}
-                                                        onChange={e => setAssignedHrUserId(e.target.value ? Number(e.target.value) : '')}
-                                                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
+                                                <div className="space-y-1.5" ref={assignDropdownRef}>
+                                                    <label className="text-xs font-semibold text-slate-500">المسؤولون عن العميل</label>
+
+                                                    {/* Trigger button */}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setAssignDropdownOpen(prev => !prev)}
+                                                        className="w-full flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white hover:border-sky-400 focus:outline-none focus:border-sky-500 transition-colors"
                                                     >
-                                                        <option value="">غير مسند حالياً</option>
-                                                        {assignableHrUsers.map(user => (
-                                                            <option key={user.id} value={user.id}>{user.name}</option>
-                                                        ))}
-                                                    </select>
+                                                        <span className={assignmentUserIds.length === 0 ? 'text-slate-400' : 'text-slate-700 font-medium'}>
+                                                            {assignmentUserIds.length === 0
+                                                                ? 'اختر المسؤولين...'
+                                                                : `${assignmentUserIds.length} مسؤول مختار`}
+                                                        </span>
+                                                        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-150 ${assignDropdownOpen ? 'rotate-180' : ''}`} />
+                                                    </button>
+
+                                                    {/* Dropdown list */}
+                                                    {assignDropdownOpen && (
+                                                        <div className="w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto divide-y divide-slate-50">
+                                                            {assignableHrUsers.length === 0 ? (
+                                                                <p className="px-3 py-4 text-xs text-slate-400 text-center">لا يوجد مستخدمون مؤهلون للإسناد في هذا الفرع</p>
+                                                            ) : (
+                                                                assignableHrUsers.map(user => {
+                                                                    const checked = assignmentUserIds.includes(user.id);
+                                                                    return (
+                                                                        <label key={user.id} className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors select-none">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={checked}
+                                                                                onChange={e => {
+                                                                                    if (e.target.checked) {
+                                                                                        setAssignmentUserIds(prev => [...prev, user.id]);
+                                                                                    } else {
+                                                                                        setAssignmentUserIds(prev => prev.filter(id => id !== user.id));
+                                                                                    }
+                                                                                }}
+                                                                                className="w-4 h-4 rounded accent-sky-500 shrink-0"
+                                                                            />
+                                                                            <div>
+                                                                                <div className="text-sm text-slate-700 font-medium">{user.name}</div>
+                                                                                {user.role_display_name && (
+                                                                                    <div className="text-[10px] text-slate-400">{user.role_display_name}</div>
+                                                                                )}
+                                                                            </div>
+                                                                        </label>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Selected chips */}
+                                                    {assignmentUserIds.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                                            {assignmentUserIds.map(uid => {
+                                                                const user = assignableHrUsers.find(u => u.id === uid);
+                                                                if (!user) return null;
+                                                                return (
+                                                                    <span key={uid} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-xs font-bold border border-sky-200">
+                                                                        {user.name}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setAssignmentUserIds(prev => prev.filter(id => id !== uid))}
+                                                                            className="hover:text-sky-900 ml-0.5"
+                                                                        >
+                                                                            <X className="w-2.5 h-2.5" />
+                                                                        </button>
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+
                                                     <p className="text-[11px] text-slate-400">
-                                                        هذا الحقل يحدد المسؤول الأمني عن العميل، وليس المُحيل أو الواسطة.
+                                                        القائمة تعرض فقط الأدوار المصرح لها بالإسناد (clients.can_be_assigned).
                                                     </p>
                                                 </div>
                                             )}
@@ -769,6 +842,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             // Locked = verified phone (smart search) OR candidate phone
                                             const isLocked = Boolean(effectiveLockedPhone && c.number === effectiveLockedPhone && c.isPrimary);
                                             const lockSource = lockedPhone ? 'smart' : 'candidate'; // to differentiate badge text
+                                            const hasInvalidNumber = isInvalidContactNumber(c) || c.status === 'invalid';
 
                                             return (
                                             <motion.div
@@ -779,6 +853,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 className={`rounded-xl p-3 border space-y-2.5 ${
                                                     isLocked
                                                         ? lockSource === 'smart' ? 'bg-emerald-50/40 border-emerald-200' : 'bg-amber-50/40 border-amber-200'
+                                                        : hasInvalidNumber
+                                                        ? 'bg-red-50/40 border-red-200'
                                                         : c.isPrimary && dup
                                                         ? 'bg-red-50/40 border-red-300'
                                                         : dup
@@ -843,11 +919,10 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         onChange={e => {
                                                             if (isLocked) return;
                                                             let v = e.target.value.replace(/\D/g, '');
-                                                            if (c.type === 'mobile') v = v.slice(0, 10);
-                                                            else if (c.type === 'landline') v = v.slice(0, 7);
+                                                            v = normalizeContactNumberInput(c.type, c.status, v, c.number);
                                                             updateContact(c.id, 'number', v);
                                                         }}
-                                                        placeholder={c.type === 'mobile' ? '9XXXXXXXXX' : c.type === 'landline' ? 'XXXXXXX' : 'الرقم...'}
+                                                        placeholder={c.type === 'mobile' ? SYRIAN_MOBILE_HINT : c.type === 'landline' ? 'XXXXXXX' : 'الرقم...'}
                                                         dir="ltr"
                                                         maxLength={c.type === 'mobile' ? 10 : c.type === 'landline' ? 7 : 15}
                                                         className={`flex-1 border rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-gray-300 focus:outline-none ${
@@ -855,6 +930,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                 ? lockSource === 'smart'
                                                                     ? 'bg-emerald-50 border-emerald-300 text-emerald-800 cursor-default focus:ring-0'
                                                                     : 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed focus:ring-0'
+                                                                : hasInvalidNumber
+                                                                ? 'bg-white border-red-300 text-red-700 focus:border-red-400'
                                                                 : dup
                                                                 ? 'bg-white border-amber-300 focus:border-amber-400'
                                                                 : 'bg-white border-gray-200 focus:border-sky-500'
@@ -888,6 +965,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     </div>
                                                 )}
 
+                                                {hasInvalidNumber && (
+                                                    <div className="flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg border w-fit bg-red-100 text-red-700 border-red-200">
+                                                        <AlertCircle className="w-3 h-3 shrink-0" />
+                                                        رقم موبايل غير مطابق للصيغة 09XXXXXXXX
+                                                    </div>
+                                                )}
+
                                                 {/* Row 2: Label + Status + WhatsApp + Primary */}
                                                 <div className="flex items-center gap-2">
                                                     <input
@@ -901,7 +985,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     <select
                                                         value={c.status}
                                                         onChange={e => updateContact(c.id, 'status', e.target.value as ContactStatus)}
-                                                        className={`border rounded-lg px-2 py-1.5 text-[11px] font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[c.status].style}`}
+                                                        className={`border rounded-lg px-2 py-1.5 text-[11px] font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[c.status]?.style || contactStatusConfig.active.style}`}
                                                     >
                                                         {Object.entries(contactStatusConfig).map(([key, cfg]) => (
                                                             <option key={key} value={key}>{cfg.label}</option>
@@ -972,9 +1056,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         label="العنوان"
                                         required
                                         placeholder="ابحث عن ناحية أو حي..."
-                                        disabled={fl(initialData?.neighborhood)}
+                                        disabled={fl(initialData?.neighborhood) && !candidateGeoNeedsUpgrade}
+                                        minSelectableLevel={3}
+                                        invalid={candidateGeoNeedsUpgrade}
                                     />
-                                    {fl(initialData?.neighborhood) && (
+                                    {fl(initialData?.neighborhood) && !candidateGeoNeedsUpgrade && (
                                         <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1.5 -mt-2">
                                             <Lock className="w-3.5 h-3.5 shrink-0" />
                                             العنوان منقول من الاسم المقترح — لا يمكن تعديله
@@ -986,9 +1072,15 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             يجب اختيار ناحية على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
                                         </p>
                                     )}
+                                    {candidateGeoNeedsUpgrade && (
+                                        <p className="text-[11px] text-red-600 font-medium flex items-center gap-1.5 -mt-2">
+                                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                            عنوان الاسم المقترح غير كاف لإنشاء زبون — يجب تحديد ناحية على الأقل.
+                                        </p>
+                                    )}
                                     <div className="space-y-1">
                                         <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
-                                            أقرب نقطة دالة / تفاصيل العنوان
+                                            العنوان التفصيلي
                                             {fl(formData.detailedAddress) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                         </label>
                                         <textarea
@@ -1034,9 +1126,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     disabled={fromCandidate}
                                                     className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${fromCandidate ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'border-gray-200 bg-gray-50 focus:border-sky-500'}`}
                                                 >
-                                                    <option value="Personal">شخصي (أنا)</option>
+                                                    <option value="Personal">شخصي</option>
                                                     <option value="Employee">موظف</option>
-                                                    <option value="Client">زبون حالي</option>
+                                                    <option value="Client">زبون</option>
                                                     <option value="Unknown">مجهول</option>
                                                 </select>
                                             </div>
@@ -1048,13 +1140,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 <select
                                                     value={originChannel}
                                                     onChange={(e) => !fromCandidate && setOriginChannel(e.target.value as ReferralOriginChannel)}
-                                                    disabled={fromCandidate || referralType === 'Personal' || referralType === 'Unknown'}
-                                                    className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${fromCandidate ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'border-gray-200 bg-white focus:border-sky-500 disabled:bg-gray-100 disabled:text-gray-400'}`}
+                                                    disabled={fromCandidate}
+                                                    className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${fromCandidate ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'border-gray-200 bg-white focus:border-sky-500'}`}
                                                 >
                                                     <option value="Acquaintance">معرفة شخصية</option>
                                                     <option value="PhoneCall">مكالمة هاتفية</option>
                                                     <option value="SocialMedia">سوشال ميديا</option>
-                                                    <option value="App">سوشال ميديا</option>
                                                     <option value="Campaign">حملة إعلانية</option>
                                                 </select>
                                             </div>
@@ -1113,7 +1204,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
                                                 {referralType === 'Client' && (
                                                     <div ref={clientSearchRef} className="relative">
-                                                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الزبون *</label>
+                                                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الوسيط *</label>
                                                         {allClients.filter(c => !c.isCandidate).length === 0 ? (
                                                             <p className="text-xs text-slate-400 italic py-2 px-1">
                                                                 لا يوجد زبائن متاحون كوسيط ضمن صلاحياتك.

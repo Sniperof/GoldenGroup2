@@ -1,4 +1,4 @@
-import { initTRPC, TRPCError } from '@trpc/server';
+﻿import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateExpressContextOptions } from '@trpc/server/adapters/express';
 import jwt from 'jsonwebtoken';
 import type { AuthContext, AuthUser } from '@golden-crm/shared';
@@ -34,7 +34,7 @@ export const router = t.router;
 
 const isAuthed = t.middleware(({ ctx, next }) => {
   if (!ctx.user) {
-    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'ØºÙŠØ± Ù…ØµØ±Ø­: ÙŠØ¬Ø¨ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø£ÙˆÙ„Ø§Ù‹' });
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'غير مصرح: يجب تسجيل الدخول أولاً' });
   }
 
   return next({ ctx: { user: ctx.user, authContext: ctx.authContext, xBranchId: ctx.xBranchId } });
@@ -52,7 +52,7 @@ export function withPermission(...keys: string[]) {
     if (!keys.some(key => authorize(authContext, { permission: key }).allowed)) {
       throw new TRPCError({
         code: 'FORBIDDEN',
-        message: 'ØºÙŠØ± Ù…Ø³Ù…ÙˆØ­: ØµÙ„Ø§Ø­ÙŠØ§ØªÙƒ Ù„Ø§ ØªØ³Ù…Ø­ Ø¨Ù‡Ø°Ø§ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡',
+        message: 'غير مسموح: صلاحياتك لا تسمح بهذا الإجراء',
       });
     }
 

@@ -14,15 +14,16 @@ interface Props {
 
 const referralTypes: { value: ReferralType; label: string; icon: any }[] = [
     { value: 'Personal', label: 'شخصي', icon: User },
-    { value: 'Client', label: 'زبون حالي', icon: Handshake },
+    { value: 'Client', label: 'زبون', icon: Handshake },
     { value: 'Employee', label: 'موظف', icon: Building2 },
     { value: 'Unknown', label: 'مجهول', icon: Search }
 ];
 
 const channels: { value: ReferralOriginChannel; label: string }[] = [
-    { value: 'App', label: 'سوشال ميديا' },
+    { value: 'Acquaintance', label: 'معرفة شخصية' },
+    { value: 'PhoneCall', label: 'مكالمة هاتفية' },
+    { value: 'SocialMedia', label: 'سوشال ميديا' },
     { value: 'Campaign', label: 'حملة إعلانية' },
-    { value: 'Acquaintance', label: 'معرفة شخصية' }
 ];
 
 export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreated }: Props) {
@@ -89,9 +90,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     }, []);
 
     useEffect(() => {
-        setNameSnapshot('');
-        setOriginChannel('Acquaintance');
-        setNameSnapshot(currentUserDisplayName);
         setEmployeeIdInput('');
         setEmployeeFound(null);
         setEmployeeSearchError('');
@@ -101,23 +99,22 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         setError('');
 
         if (referralType === 'Personal') {
-            setOriginChannel('Acquaintance');
             setNameSnapshot(currentUserDisplayName);
         } else if (referralType === 'Unknown') {
             setNameSnapshot('مجهول');
+        } else {
+            setNameSnapshot('');
         }
     }, [referralType]);
 
     useEffect(() => {
         if (referralType === 'Personal') {
-            setOriginChannel('Acquaintance');
             setNameSnapshot(currentUserDisplayName);
         }
     }, [referralType, currentUserDisplayName]);
 
     useEffect(() => {
         if (isOpen && referralType === 'Personal') {
-            setOriginChannel('Acquaintance');
             setNameSnapshot(currentUserDisplayName);
         }
     }, [isOpen, referralType, currentUserDisplayName]);
@@ -289,12 +286,11 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-2">طريقة الوصول</label>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">طريقة التواصل</label>
                             <select
                                 value={originChannel}
                                 onChange={(e) => setOriginChannel(e.target.value as ReferralOriginChannel)}
-                                disabled={referralType === 'Personal' || referralType === 'Unknown'}
-                                className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                                className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm"
                             >
                                 {channels.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                             </select>
@@ -339,7 +335,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
 
                     {referralType === 'Client' && (
                         <div ref={clientSearchRef} className="relative">
-                            <label className="block text-sm font-bold text-slate-700 mb-2">اسم الزبون <span className="text-red-500">*</span></label>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">اسم الوسيط <span className="text-red-500">*</span></label>
                             <input
                                 type="text"
                                 value={clientSearch}

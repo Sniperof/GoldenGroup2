@@ -35,11 +35,12 @@ const emptyForm = {
   trainee_application_ids: [] as number[],
 };
 
-interface Vacancy { id: number; title: string; branch: string; }
+interface Vacancy { id: number; title: string; branch: string; branchId: number | null; }
 interface EligibleTrainee {
   applicationId: number; firstName: string; lastName: string;
   mobileNumber: string; applicationStatus: string;
 }
+interface EligibleTrainer { id: number; name: string; roleDisplayName: string; branchName: string; }
 
 export default function TrainingCourses() {
   const navigate = useNavigate();
@@ -54,7 +55,9 @@ export default function TrainingCourses() {
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
   const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([]);
   const [eligibleTrainees, setEligibleTrainees] = useState<EligibleTrainee[]>([]);
+  const [eligibleTrainers, setEligibleTrainers] = useState<EligibleTrainer[]>([]);
   const [loadingTrainees, setLoadingTrainees] = useState(false);
+  const [loadingTrainers, setLoadingTrainers] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
@@ -79,13 +82,24 @@ export default function TrainingCourses() {
 
   async function onVacancyChange(vacId: number) {
     const vac = vacancies.find(v => v.id === vacId);
-    setForm(f => ({ ...f, job_vacancy_id: vacId, branch: vac?.branch || '', trainee_application_ids: [] }));
+    setForm(f => ({ ...f, job_vacancy_id: vacId, branch: vac?.branch || '', trainer: '', trainee_application_ids: [] }));
     setEligibleTrainees([]);
+    setEligibleTrainers([]);
     if (vacId) {
       setLoadingTrainees(true);
       try { setEligibleTrainees(await fetchEligibleTrainees(vacId)); }
       catch { setEligibleTrainees([]); }
       finally { setLoadingTrainees(false); }
+
+      if (vac?.branchId) {
+        setLoadingTrainers(true);
+        try {
+          const r = await authFetch(`/api/training-courses/trainers?branchId=${vac.branchId}`);
+          const data = await r.json();
+          setEligibleTrainers(Array.isArray(data) ? data : []);
+        } catch { setEligibleTrainers([]); }
+        finally { setLoadingTrainers(false); }
+      }
     }
   }
 
@@ -133,6 +147,7 @@ export default function TrainingCourses() {
     setShowModal(false);
     setForm({ ...emptyForm });
     setEligibleTrainees([]);
+    setEligibleTrainers([]);
     setSubmitError('');
   }
 
@@ -372,9 +387,30 @@ export default function TrainingCourses() {
                   <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
                     <User className="w-3 h-3" /> المدرب *
                   </label>
-                  <input type="text" value={form.trainer}
-                    onChange={e => setForm(f => ({ ...f, trainer: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500" />
+                  {!form.job_vacancy_id ? (
+                    <p className="text-xs text-slate-400 py-2 px-3 bg-slate-50 rounded-lg border border-slate-200">اختر الشاغر الوظيفي أولاً لعرض المدربين المتاحين.</p>
+                  ) : loadingTrainers ? (
+                    <div className="flex items-center gap-2 text-slate-400 text-xs py-2.5 px-3 border border-slate-200 rounded-lg">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> جاري التحميل...
+                    </div>
+                  ) : eligibleTrainers.length === 0 ? (
+                    <p className="text-xs text-amber-600 py-2 px-3 bg-amber-50 rounded-lg border border-amber-200">
+                      لا يوجد مدربون مؤهلون في هذا الفرع. تأكد من منح صلاحية "التدريب كمدرب" للأدوار المناسبة.
+                    </p>
+                  ) : (
+                    <select
+                      value={form.trainer}
+                      onChange={e => setForm(f => ({ ...f, trainer: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 bg-white"
+                    >
+                      <option value="">اختر المدرب...</option>
+                      {eligibleTrainers.map(t => (
+                        <option key={t.id} value={t.name}>
+                          {t.name} — {t.roleDisplayName}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>

@@ -12,6 +12,7 @@ router.get('/', requireAuth, async (_req, res) => {
     const { rows } = await pool.query(`
       SELECT b.id, b.name,
              b.location_geo_id AS "locationGeoId",
+             b.detailed_address AS "detailedAddress",
              b.covered_geo_ids AS "coveredGeoIds",
              COALESCE(b.contact_info, '[]'::jsonb) AS "contactInfo",
              b.status,
@@ -34,6 +35,7 @@ router.get('/:id', requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT b.id, b.name,
               b.location_geo_id AS "locationGeoId",
+              b.detailed_address AS "detailedAddress",
               b.covered_geo_ids AS "coveredGeoIds",
               COALESCE(b.contact_info, '[]'::jsonb) AS "contactInfo",
               b.status,
@@ -58,13 +60,14 @@ router.get('/:id', requireAuth, async (req, res) => {
 router.post('/', requirePermission('branches.manage'), async (req, res) => {
   const client = await pool.connect();
   try {
-    const { name, locationGeoId, coveredGeoIds, contactInfo, status } = req.body;
+    const { name, locationGeoId, detailedAddress, coveredGeoIds, contactInfo, status } = req.body;
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `INSERT INTO branches (name, location_geo_id, covered_geo_ids, contact_info, status)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO branches (name, location_geo_id, detailed_address, covered_geo_ids, contact_info, status)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, name,
                  location_geo_id AS "locationGeoId",
+                 detailed_address AS "detailedAddress",
                  covered_geo_ids AS "coveredGeoIds",
                  COALESCE(contact_info, '[]'::jsonb) AS "contactInfo",
                  status,
@@ -72,6 +75,7 @@ router.post('/', requirePermission('branches.manage'), async (req, res) => {
       [
         name,
         locationGeoId || null,
+        detailedAddress || null,
         JSON.stringify(coveredGeoIds || []),
         JSON.stringify(contactInfo || []),
         status || 'active',
@@ -93,17 +97,19 @@ router.post('/', requirePermission('branches.manage'), async (req, res) => {
 router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, locationGeoId, coveredGeoIds, contactInfo, status } = req.body;
+    const { name, locationGeoId, detailedAddress, coveredGeoIds, contactInfo, status } = req.body;
     const { rows } = await pool.query(
       `UPDATE branches SET
          name            = $1,
          location_geo_id = $2,
-         covered_geo_ids = $3,
-         contact_info    = $4,
-         status          = $5
-       WHERE id = $6
+         detailed_address = $3,
+         covered_geo_ids = $4,
+         contact_info    = $5,
+         status          = $6
+       WHERE id = $7
        RETURNING id, name,
                  location_geo_id AS "locationGeoId",
+                 detailed_address AS "detailedAddress",
                  covered_geo_ids AS "coveredGeoIds",
                  COALESCE(contact_info, '[]'::jsonb) AS "contactInfo",
                  status,
@@ -111,6 +117,7 @@ router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
       [
         name,
         locationGeoId || null,
+        detailedAddress || null,
         JSON.stringify(coveredGeoIds || []),
         JSON.stringify(contactInfo || []),
         status || 'active',

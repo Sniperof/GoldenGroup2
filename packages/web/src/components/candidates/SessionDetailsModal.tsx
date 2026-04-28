@@ -5,6 +5,7 @@ import QualificationModal from './QualificationModal';
 import ClientModal from '../ClientModal';
 import { Candidate, Client, GeoUnit } from '../../lib/types';
 import { api } from '../../lib/api';
+import { formatGeoUnitLastLevels } from '../GeoSmartSearch';
 
 interface Props {
     isOpen: boolean;
@@ -86,7 +87,13 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     const sheet = referralSheets.find(s => s.id === sheetId);
     if (!sheet) return null;
 
-    const sheetCandidates = candidates.filter(c => c.referralSheetId === sheetId); // Updated
+    const sheetCandidates = candidates
+        .filter(c => c.referralSheetId === sheetId)
+        .sort((a, b) => b.id - a.id);
+    const getCandidateAddressDisplay = (candidate: Candidate) => {
+        const savedText = candidate.addressText && candidate.addressText !== 'غير محدد' ? candidate.addressText : '';
+        return formatGeoUnitLastLevels(geoUnits, candidate.geoUnitId) || savedText || '--';
+    };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" dir="rtl">
@@ -171,10 +178,10 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                         </td>
                                         {/* العنوان */}
                                         <td className="px-4 py-3">
-                                            {c.addressText ? (
+                                            {getCandidateAddressDisplay(c) !== '--' ? (
                                                 <div className="flex items-center gap-1.5 text-slate-600 text-sm">
                                                     <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                    <span>{c.addressText}</span>
+                                                    <span>{getCandidateAddressDisplay(c)}</span>
                                                 </div>
                                             ) : (
                                                 <span className="text-slate-300 text-sm">--</span>

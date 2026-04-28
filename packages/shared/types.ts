@@ -21,7 +21,7 @@ export interface Route {
 }
 
 export type ReferralType = 'Personal' | 'Client' | 'Employee' | 'Unknown';
-export type ReferralOriginChannel = 'App' | 'Campaign' | 'Acquaintance';
+export type ReferralOriginChannel = 'Acquaintance' | 'PhoneCall' | 'SocialMedia' | 'Campaign' | 'App';
 export type ClientRating = 'Committed' | 'NotCommitted' | 'Undefined';
 
 export interface ReferralSheetStats {
@@ -79,8 +79,10 @@ export interface Candidate {
     duplicateType: DuplicateType | null;
     duplicateReferenceId: number | null;
     convertedToLeadId: number | null;
-    assignedHrUserId?: number | null;
-    assignedHrUserName?: string | null;
+    assignments?: CandidateAssignment[];
+    createdByUserId?: number | null;
+    createdByUserName?: string | null;
+    createdByRoleDisplayName?: string | null;
     branchId?: number | null;
     branchName?: string | null;
     createdAt: string;
@@ -191,6 +193,7 @@ export interface Branch {
     name: string;
     locationGeoId?: number | null;
     locationGeoName?: string;
+    detailedAddress?: string | null;
     coveredGeoIds: number[];
     contactInfo: BranchContact[];
     status: 'active' | 'inactive';
@@ -198,7 +201,7 @@ export interface Branch {
 }
 
 export type ContactType = 'mobile' | 'landline' | 'other';
-export type ContactStatus = 'active' | 'preferred' | 'out-of-coverage' | 'unused';
+export type ContactStatus = 'active' | 'preferred' | 'out-of-coverage' | 'unused' | 'invalid';
 
 export interface ContactEntry {
     id: string;
@@ -220,6 +223,18 @@ export interface ClientReferrer {
     referralDate: string;
     referralReason: string;
     referralSheetId?: number | null;
+}
+
+export interface ClientAssignment {
+    userId: number;
+    userName: string;
+    roleDisplayName: string | null;
+}
+
+export interface CandidateAssignment {
+    userId: number;
+    userName: string;
+    roleDisplayName: string | null;
 }
 
 export interface Client {
@@ -257,9 +272,10 @@ export interface Client {
     referralAddressText?: string;
     branchId?: number | null;
     branchName?: string | null;
-    assignedHrUserId?: number | null;
-    assignedHrUserName?: string | null;
-    assignedHrUsername?: string | null;
+    assignments?: ClientAssignment[];
+    createdByUserId?: number | null;
+    createdByUserName?: string | null;
+    createdByRoleDisplayName?: string | null;
     referrers?: ClientReferrer[];
     createdAt: string;
     isCandidate?: boolean;
