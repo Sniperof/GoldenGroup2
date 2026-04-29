@@ -10,5 +10,5 @@
     "declarationMap": true,
     "outDir": "./dist"
   },
-  "include": ["types.ts", "types/auth.ts", "types/authorization.ts", "contracts/roles.ts", "index.ts"]
+  "include": ["types.ts", "workCoverage.ts", "types/auth.ts", "types/authorization.ts", "contracts/roles.ts", "index.ts"]
 }
