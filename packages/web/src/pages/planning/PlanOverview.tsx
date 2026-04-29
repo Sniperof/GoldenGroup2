@@ -3,13 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     ChevronLeft, ChevronRight, Calendar, Users, User, Route as RouteIcon,
-    AlertTriangle, ArrowRight, ArrowLeft, ClipboardList, MapPin, Briefcase, Eye, PhoneCall, Loader2
+    AlertTriangle, ArrowRight, ArrowLeft, ClipboardList, MapPin, Briefcase, Eye, Loader2
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { levelNames } from '../../lib/geoConstants';
-import type { Route, GeoUnit, DaySchedule, RouteAssignmentData, Contract, Visit } from '../../lib/types';
-import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { useClientStore } from '../../hooks/useClientStore';
+import type { Route, GeoUnit, DaySchedule, RouteAssignmentData, Client } from '../../lib/types';
 import { useTelemarketingStore } from '../../hooks/useTelemarketingStore';
 import TeamDetailsModal from '../../components/planning/TeamDetailsModal';
 
@@ -42,6 +40,29 @@ const shiftDate = (dateStr: string, days: number) => {
 
 const getToday = () => new Date().toISOString().split('T')[0];
 
+type MarketingTargetsResponse = {
+    teamKey: string;
+    leads: Client[];
+    candidates: [];
+    counts: {
+        leads: number;
+        candidates: number;
+        total: number;
+    };
+    zoneIds: number[];
+    targetStationsCount: number;
+    hasSupervisor: boolean;
+    supervisorEmployeeId: number | null;
+    supervisorHrUserId: number | null;
+    reason?: string | null;
+};
+
+const emptyMarketingLoad = {
+    total: 0,
+    candidates: [] as any[],
+    leads: [] as Client[],
+};
+
 export default function PlanOverview() {
     const navigate = useNavigate();
     const [date, setDate] = useState(getToday);
@@ -51,13 +72,9 @@ export default function PlanOverview() {
     const [savedRoutes, setSavedRoutes] = useState<Route[]>([]);
     const [currentSchedule, setCurrentSchedule] = useState<DaySchedule>({ teams: [], solos: [] });
     const [routeAssignments, setRouteAssignments] = useState<Record<string, RouteAssignmentData>>({});
-    const [clients, setClients] = useState<any[]>([]);
     const [employees, setEmployees] = useState<any[]>([]);
-    const [contracts, setContracts] = useState<Contract[]>([]);
-    const [visits, setVisits] = useState<Visit[]>([]);
+    const [marketingTargets, setMarketingTargets] = useState<Record<string, MarketingTargetsResponse>>({});
 
-    const candidates = useCandidateStore(state => state.candidates);
-    const { getLeads } = useClientStore();
     const generateTaskList = useTelemarketingStore(state => state.generateTaskList);
 
     const [selectedModalTeam, setSelectedModalTeam] = useState<{
@@ -71,26 +88,21 @@ export default function PlanOverview() {
         let cancelled = false;
         const loadAll = async () => {
             setLoading(true);
+            setMarketingTargets({});
             try {
-                const [geo, routes, schedule, assignments, cls, emps, cts, vis] = await Promise.all([
+                const [geo, routes, schedule, assignments, emps] = await Promise.all([
                     api.geoUnits.list(),
                     api.routes.list(),
                     api.schedules.get(date),
                     api.routeAssignments.list(),
-                    api.clients.list(),
                     api.employees.list(),
-                    api.contracts.list(),
-                    api.visits.list(),
                 ]);
                 if (cancelled) return;
                 setGeoUnits(geo);
                 setSavedRoutes(routes);
                 setCurrentSchedule(schedule || { teams: [], solos: [] });
                 setRouteAssignments(assignments || {});
-                setClients(cls);
                 setEmployees(emps);
-                setContracts(cts);
-                setVisits(vis);
             } catch (err) {
                 console.error('Failed to load plan overview data:', err);
             } finally {
@@ -100,8 +112,6 @@ export default function PlanOverview() {
         loadAll();
         return () => { cancelled = true; };
     }, [date]);
-
-    const activeLeads = useMemo(() => getLeads(contracts, visits), [getLeads, contracts, visits, clients]);
 
     const isToday = date === getToday();
 
@@ -155,7 +165,53 @@ export default function PlanOverview() {
         return cards;
     };
 
-    const teamCards = buildTeamCards();
+    const teamCards = useMemo(
+        () => buildTeamCards(),
+        [currentSchedule, date, employees, routeAssignments]
+    );
+
+    useEffect(() => {
+        let cancelled = false;
+        const cardsWithAssignments = teamCards.filter(card => card.assignment && card.assignment.routes.length > 0);
+
+        if (cardsWithAssignments.length === 0) {
+            setMarketingTargets({});
+            return () => { cancelled = true; };
+        }
+
+        const loadMarketingTargets = async () => {
+            const entries = await Promise.all(cardsWithAssignments.map(async (card) => {
+                try {
+                    const result = await api.planning.marketingTargets(date, card.key);
+                    if (result?.reason) {
+                        console.warn(`Marketing targets for ${card.key} returned empty: ${result.reason}`);
+                    }
+                    return [card.key, result as MarketingTargetsResponse] as const;
+                } catch (err) {
+                    console.warn(`Failed to load marketing targets for ${card.key}; using empty load only.`, err);
+                    return [card.key, {
+                        teamKey: card.key,
+                        leads: [],
+                        candidates: [],
+                        counts: { leads: 0, candidates: 0, total: 0 },
+                        zoneIds: [],
+                        targetStationsCount: 0,
+                        hasSupervisor: false,
+                        supervisorEmployeeId: null,
+                        supervisorHrUserId: null,
+                        reason: 'REQUEST_FAILED',
+                    } satisfies MarketingTargetsResponse] as const;
+                }
+            }));
+
+            if (!cancelled) {
+                setMarketingTargets(Object.fromEntries(entries));
+            }
+        };
+
+        loadMarketingTargets();
+        return () => { cancelled = true; };
+    }, [date, teamCards]);
 
     const getAssignmentDetails = (assignment: RouteAssignmentData) => {
         const results: {
@@ -184,42 +240,10 @@ export default function PlanOverview() {
         return results;
     };
 
-    const getMarketingLoad = (assignment: RouteAssignmentData) => {
-        const zoneIds = new Set<number>();
-        assignment.routes.forEach(comp => {
-            const route = savedRoutes.find(r => r.id === comp.routeId);
-            if (!route) return;
-            const stations = getRouteStations(route);
-            stations.slice(comp.startIdx, comp.endIdx + 1).forEach(s => zoneIds.add(s.id));
-        });
-        assignment.extraZones.forEach(id => zoneIds.add(id));
-
-        const matchedCandidates = candidates.filter(c =>
-            c.status === 'FollowUp' && c.geoUnitId && zoneIds.has(c.geoUnitId)
-        );
-        const matchedLeads = activeLeads.filter(c =>
-            c.neighborhood && zoneIds.has(parseInt(c.neighborhood))
-        );
-
-        return {
-            total: matchedCandidates.length + matchedLeads.length,
-            candidates: matchedCandidates,
-            leads: matchedLeads
-        };
-    };
-
-    const handleGenerateList = (teamKey: string, candList: any[], leadList: any[]) => {
-        if (!confirm(`هل أنت متأكد من توليد قائمة اتصال بـ ${candList.length + leadList.length} زبون لهذا الفريق؟`)) return;
+    const handleGenerateList = (teamKey: string, _candList: any[], leadList: any[]) => {
+        if (!confirm(`هل أنت متأكد من توليد قائمة اتصال بـ ${leadList.length} زبون لهذا الفريق؟`)) return;
 
         const items = [
-            ...candList.map(c => ({
-                entityType: 'candidate' as const,
-                entityId: c.id,
-                name: `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.nickname || 'بدون اسم',
-                mobile: c.mobile,
-                addressText: c.addressText,
-                geoUnitId: c.geoUnitId
-            })),
             ...leadList.map(l => ({
                 entityType: 'client' as const,
                 entityId: l.id,
@@ -353,7 +377,12 @@ export default function PlanOverview() {
                     {teamCards.map((card, cardIdx) => {
                         const hasAssignment = card.assignment && card.assignment.routes.length > 0;
                         const routeDetails = hasAssignment ? getAssignmentDetails(card.assignment!) : [];
-                        const loadData = hasAssignment ? getMarketingLoad(card.assignment!) : { total: 0, candidates: [], leads: [] };
+                        const targetData = hasAssignment ? marketingTargets[card.key] : null;
+                        const loadData = targetData ? {
+                            total: targetData.counts.total,
+                            candidates: [],
+                            leads: targetData.leads || [],
+                        } : emptyMarketingLoad;
                         const extraZoneCount = card.assignment?.extraZones?.length || 0;
 
                         return (
@@ -395,7 +424,7 @@ export default function PlanOverview() {
                                             <div className="flex items-center gap-1.5 text-xs">
                                                 <Briefcase className="w-3.5 h-3.5 text-emerald-600" />
                                                 <span className="text-emerald-600 font-bold">{loadData.total} مهمة</span>
-                                                <span className="text-slate-400">({loadData.candidates.length} متابعة + {loadData.leads.length} محتمل)</span>
+                                                <span className="text-slate-400">({loadData.leads.length} Lead)</span>
                                             </div>
                                             {/* Button moved to modal */}
                                             <button

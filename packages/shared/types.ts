@@ -89,7 +89,7 @@ export interface Candidate {
     createdBy: number;
 }
 
-export type EmployeeRole = 'supervisor' | 'technician' | 'telemarketer';
+export type EmployeeRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
 
 export interface Employee {
     id: number;
@@ -329,6 +329,7 @@ export interface TeamSlot {
     supervisor: number | null;
     technician: number | null;
     telemarketers?: number[];
+    trainee?: number | null;
 }
 
 export interface SoloSlot {

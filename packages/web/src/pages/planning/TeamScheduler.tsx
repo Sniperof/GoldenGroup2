@@ -1,16 +1,26 @@
 import { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Users, UserCheck, Plus, User, Copy, Save, X, PhoneCall } from 'lucide-react';
+import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { DaySchedule, Employee } from '../../lib/types';
 
 const getToday = () => new Date().toISOString().split('T')[0];
-const getYesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]; };
+
+type SlotType = 'team' | 'solo';
+type TeamRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
+type SlotRole = TeamRole;
+
+const roleLabels: Record<TeamRole, string> = {
+    supervisor: 'مشرف',
+    technician: 'فني',
+    telemarketer: 'مسوق هاتفي',
+    trainee: 'متدرب',
+};
 
 export default function TeamScheduler() {
     const [current, setCurrent] = useState<DaySchedule>({ teams: [], solos: [] });
     const [date, setDate] = useState(getToday);
-    const [selectedSlot, setSelectedSlot] = useState<{ type: string; slotIdx: number; role: string } | null>(null);
+    const [selectedSlot, setSelectedSlot] = useState<{ type: SlotType; slotIdx: number; role: SlotRole } | null>(null);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -41,7 +51,7 @@ export default function TeamScheduler() {
     const removeSoloSlot = (idx: number) => updateCurrent({ ...current, solos: current.solos.filter((_, i) => i !== idx) });
 
     const assignedIds = [
-        ...current.teams.flatMap(t => [t.supervisor, t.technician, ...(t.telemarketers || [])]),
+        ...current.teams.flatMap(t => [t.supervisor, t.technician, ...(t.telemarketers || []), t.trainee]),
         ...current.solos.map(s => s.technician),
     ].filter(Boolean) as number[];
 
@@ -49,9 +59,10 @@ export default function TeamScheduler() {
     const availableSups = employees.filter(e => canAppear(e) && e.role === 'supervisor' && e.status === 'active' && !assignedIds.includes(e.id));
     const availableTechs = employees.filter(e => canAppear(e) && e.role === 'technician' && e.status === 'active' && !assignedIds.includes(e.id));
     const availableTeles = employees.filter(e => canAppear(e) && e.role === 'telemarketer' && e.status === 'active' && !assignedIds.includes(e.id));
-    const poolEmployees = [...availableSups, ...availableTechs, ...availableTeles];
+    const availableTrainees = employees.filter(e => canAppear(e) && e.role === 'trainee' && e.status === 'active' && !assignedIds.includes(e.id));
+    const poolEmployees = [...availableSups, ...availableTechs, ...availableTeles, ...availableTrainees];
 
-    const selectSlot = (type: string, slotIdx: number, role: string) => {
+    const selectSlot = (type: SlotType, slotIdx: number, role: SlotRole) => {
         setSelectedSlot(s => s && s.type === type && s.slotIdx === slotIdx && s.role === role ? null : { type, slotIdx, role });
     };
 
@@ -71,6 +82,7 @@ export default function TeamScheduler() {
             } else {
                 if (role === 'supervisor' && emp.role !== 'supervisor') return;
                 if (role === 'technician' && emp.role !== 'technician') return;
+                if (role === 'trainee' && emp.role !== 'trainee') return;
                 teams[slotIdx] = { ...teams[slotIdx], [role]: empId };
             }
             updateCurrent({ ...current, teams });
@@ -85,7 +97,7 @@ export default function TeamScheduler() {
         }
     };
 
-    const unassign = (type: string, slotIdx: number, role: string, empId?: number) => {
+    const unassign = (type: SlotType, slotIdx: number, role: SlotRole, empId?: number) => {
         if (type === 'team') {
             const teams = [...current.teams];
             if (role === 'telemarketer') {
@@ -99,23 +111,6 @@ export default function TeamScheduler() {
             const solos = [...current.solos];
             solos[slotIdx] = { technician: null };
             updateCurrent({ ...current, solos });
-        }
-    };
-
-    const copyFromYesterday = async () => {
-        const yest = getYesterday();
-        try {
-            const yesterdaySchedule: DaySchedule = await api.schedules.get(yest);
-            if (!yesterdaySchedule || (!yesterdaySchedule.teams?.length && !yesterdaySchedule.solos?.length)) {
-                alert('لا يوجد جدول محفوظ ليوم ' + yest);
-                return;
-            }
-            if (current.teams.length > 0 || current.solos.length > 0) {
-                if (!confirm('سيتم استبدال الجدول الحالي. متابعة؟')) return;
-            }
-            updateCurrent(JSON.parse(JSON.stringify(yesterdaySchedule)));
-        } catch {
-            alert('لا يوجد جدول محفوظ ليوم ' + yest);
         }
     };
 
@@ -160,9 +155,9 @@ export default function TeamScheduler() {
                     <div className="flex items-center gap-1.5 text-sm"><UserCheck className="w-4 h-4 text-indigo-500" /><span className="text-slate-500">مشرفون:</span><span className="text-slate-900 font-bold">{availableSups.length}</span></div>
                     <div className="flex items-center gap-1.5 text-sm"><Users className="w-4 h-4 text-emerald-500" /><span className="text-slate-500">فنيون:</span><span className="text-slate-900 font-bold">{availableTechs.length}</span></div>
                     <div className="flex items-center gap-1.5 text-sm"><PhoneCall className="w-4 h-4 text-violet-500" /><span className="text-slate-500">مسوقون:</span><span className="text-slate-900 font-bold">{availableTeles.length}</span></div>
+                    <div className="flex items-center gap-1.5 text-sm"><GraduationCap className="w-4 h-4 text-amber-500" /><span className="text-slate-500">متدربون:</span><span className="text-slate-900 font-bold">{availableTrainees.length}</span></div>
                 </div>
                 <div className="mr-auto flex items-center gap-2">
-                    <button onClick={copyFromYesterday} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm transition-colors"><Copy className="w-4 h-4" /><span>نسخ من الأمس</span></button>
                     <button onClick={saveSchedule} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all"><Save className="w-4 h-4" /><span>حفظ الجدول</span></button>
                 </div>
             </div>
@@ -185,6 +180,7 @@ export default function TeamScheduler() {
                                         ? ((selectedSlot.role === 'supervisor' && e.role === 'supervisor') ||
                                             (selectedSlot.role === 'technician' && e.role === 'technician') ||
                                             (selectedSlot.role === 'telemarketer' && e.role === 'telemarketer') ||
+                                            (selectedSlot.role === 'trainee' && selectedSlot.type === 'team' && e.role === 'trainee') ||
                                             (selectedSlot.type === 'solo' && e.role === 'technician'))
                                             ? 'hover:bg-sky-50'
                                             : 'opacity-40 grayscale cursor-not-allowed'
@@ -197,12 +193,14 @@ export default function TeamScheduler() {
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-medium text-slate-700 truncate">{e.name}</p>
-                                        <p className="text-xs text-gray-500">{e.role === 'supervisor' ? 'مشرف' : e.role === 'telemarketer' ? 'مسوق هاتفي' : 'فني'}</p>
+                                        <p className="text-xs text-gray-500">{e.role ? roleLabels[e.role] : ''}</p>
                                     </div>
                                     {e.role === 'supervisor' ? (
                                         <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold">مشرف</span>
                                     ) : e.role === 'telemarketer' ? (
                                         <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 text-[10px] font-bold">مسوق</span>
+                                    ) : e.role === 'trainee' ? (
+                                        <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 text-[10px] font-bold">متدرب</span>
                                     ) : (
                                         <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold">فني</span>
                                     )}
@@ -228,6 +226,7 @@ export default function TeamScheduler() {
                                 const isSup = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'supervisor';
                                 const isTech = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'technician';
                                 const isTele = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'telemarketer';
+                                const isTrainee = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'trainee';
                                 const teamTeles = t.telemarketers || [];
 
                                 return (
@@ -263,6 +262,18 @@ export default function TeamScheduler() {
                                                     </div>
                                                 ) : (
                                                     <div className="text-center py-2"><User className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">فني</p></div>
+                                                )}
+                                            </div>
+                                            {/* Trainee Slot */}
+                                            <div onClick={() => selectSlot('team', idx, 'trainee')} className={`col-span-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${isTrainee ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
+                                                {t.trainee ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <img src={employees.find(e => e.id === t.trainee)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
+                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(t.trainee)}</p><p className="text-xs text-amber-500">متدرب</p></div>
+                                                        <button onClick={e => { e.stopPropagation(); unassign('team', idx, 'trainee'); }} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-center py-2"><GraduationCap className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">متدرب (اختياري)</p></div>
                                                 )}
                                             </div>
                                         </div>

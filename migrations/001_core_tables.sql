@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS geo_units (
 CREATE TABLE IF NOT EXISTS employees (
   id         SERIAL PRIMARY KEY,
   name       VARCHAR(255) NOT NULL,
-  role       VARCHAR(50)  NOT NULL CHECK (role IN ('supervisor', 'technician', 'telemarketer')),
+  role       VARCHAR(50)  NOT NULL CHECK (role IN ('supervisor', 'technician', 'telemarketer', 'trainee')),
   mobile     VARCHAR(50)  NOT NULL,
   branch     VARCHAR(255),
   residence  VARCHAR(255),

@@ -15,6 +15,7 @@ const ROLE_LABELS: Record<string, string> = {
   supervisor: 'مشرف',
   technician: 'فني',
   telemarketer: 'تيلماركتر',
+  trainee: 'متدرب',
 };
 
 const STATUS_META: Record<Employee['status'], { label: string; className: string }> = {

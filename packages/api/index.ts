@@ -29,6 +29,7 @@ import emergencyTicketsRouter from './routes/emergencyTickets.js';
 import visitsRouter from './routes/visits.js';
 import schedulesRouter from './routes/schedules.js';
 import routeAssignmentsRouter from './routes/routeAssignments.js';
+import planningRouter from './routes/planning.js';
 import telemarketingRouter from './routes/telemarketing.js';
 import dashboardRouter from './routes/dashboard.js';
 import vacanciesRouter from './routes/vacancies.js';
@@ -78,6 +79,7 @@ app.use('/api/emergency-tickets', ...branchOnly, emergencyTicketsRouter);
 app.use('/api/visits', ...branchOnly, visitsRouter);
 app.use('/api/schedules', ...branchOnly, schedulesRouter);
 app.use('/api/route-assignments', ...branchOnly, routeAssignmentsRouter);
+app.use('/api/planning', ...branchOnly, planningRouter);
 app.use('/api/telemarketing', ...branchOnly, telemarketingRouter);
 
 // ── Shared routes (HQ + branch) ───────────────────────────────────────────────

@@ -111,7 +111,7 @@ router.get('/schedule-pool', requirePermission('planning.manage'), async (req, r
     const authContext = getRequiredAuthContext(req);
     const targetBranchId = resolveEmployeeTargetBranch(req, req.header('x-branch-id'));
 
-    if (!authContext.isSuperAdmin && targetBranchId == null) {
+    if (targetBranchId == null) {
       return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
     }
 
@@ -125,11 +125,17 @@ router.get('/schedule-pool', requirePermission('planning.manage'), async (req, r
       }
     }
 
-    res.json(await getEmployees({
-      isSuperAdmin: authContext.isSuperAdmin && targetBranchId == null,
+    const employees = await getEmployees({
+      isSuperAdmin: false,
       branchId: targetBranchId,
       includeScheduleAppearanceFlag: true,
-    }));
+    });
+
+    res.json(employees.filter(employee =>
+      employee.canAppearInSchedule === true &&
+      employee.status === 'active' &&
+      ['supervisor', 'technician', 'telemarketer', 'trainee'].includes(String(employee.role ?? '')),
+    ));
   } catch (err: any) {
     if (err?.status) {
       return res.status(err.status).json(err.payload ?? { error: err.message });

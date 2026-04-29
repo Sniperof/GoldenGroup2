@@ -6,6 +6,7 @@
   "exports": {
     ".": "./index.ts",
     "./types.js": "./types.ts",
+    "./workCoverage.js": "./workCoverage.ts",
     "./types/auth.js": "./types/auth.ts",
     "./contracts/roles.js": "./contracts/roles.ts"
   },

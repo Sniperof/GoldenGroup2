@@ -44,6 +44,13 @@ export function deriveEmployeeRoleFromVacancyTitle(title: string | null | undefi
   if (!normalized) return null;
 
   if (
+    normalized.includes('\u0645\u062a\u062f\u0631\u0628') ||
+    normalized.includes('trainee')
+  ) {
+    return 'trainee';
+  }
+
+  if (
     normalized.includes('مشرفة') ||
     normalized.includes('مشرف') ||
     normalized.includes('supervisor')

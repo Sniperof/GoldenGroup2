@@ -246,7 +246,7 @@ export default function Clients() {
             }
         },
         { key: 'neighborhood', label: 'العنوان', sortable: true, render: (c) => <span className="text-sm text-slate-600 font-medium">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
-        { key: 'occupation', label: 'المهنة', sortable: true, render: (c) => <span className="text-sm text-slate-600">{c.occupation || '--'}</span> },
+        { key: 'occupation', label: 'العنوان', sortable: true, render: (c) => <span className="text-sm text-slate-600">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
         {
             key: 'status', label: 'التصنيف', sortable: true,
             render: (c) => {

@@ -171,6 +171,12 @@ export const api = {
     get: (key: string) => request<any>(`/route-assignments/${key}`),
     save: (key: string, data: any) => request<any>(`/route-assignments/${key}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
+  planning: {
+    marketingTargets: (date: string, teamKey: string) => {
+      const query = new URLSearchParams({ date, teamKey });
+      return request<any>(`/planning/marketing-targets?${query.toString()}`);
+    },
+  },
   telemarketing: {
     snapshot: () => request<{ taskLists: any[]; appointments: any[]; callLogs: any[] }>('/telemarketing/snapshot'),
     upsertTaskList: (data: any) => request<any>('/telemarketing/task-lists/upsert', { method: 'POST', body: JSON.stringify(data) }),
