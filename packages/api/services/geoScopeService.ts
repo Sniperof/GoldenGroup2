@@ -43,7 +43,7 @@ export async function resolveGeoScope(
   }
 
   const check = authorize(authContext, { permission });
-  if (!check.allowed || check.grant?.scope === 'GLOBAL') {
+  if (!check.allowed || check.grant?.scope === 'GLOBAL' || check.reason === 'SUPER_ADMIN') {
     return null;
   }
 
