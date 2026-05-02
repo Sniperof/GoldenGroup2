@@ -7,9 +7,71 @@ type RouteCompositionInput = {
   direction: 'forward' | 'reverse';
 };
 
+export interface PlanningLead {
+  id: number;
+  firstName: string;
+  fatherName: string | null;
+  lastName: string | null;
+  nickname: string | null;
+  name: string;
+  mobile: string | null;
+  contacts: any;
+  governorate: string | null;
+  district: string | null;
+  neighborhood: string | null;
+  detailedAddress: string | null;
+  gpsCoordinates: any;
+  gender: string | null;
+  nationalId: string | null;
+  birthDate: string | null;
+  occupation: string | null;
+  spouseOccupation: string | null;
+  dataQuality: string | null;
+  waterSource: string | null;
+  notes: string | null;
+  rating: string | null;
+  sourceChannel: string | null;
+  referrerType: string | null;
+  referrerId: number | null;
+  referrerName: string | null;
+  referralNotes: string | null;
+  referrers: any;
+  referralEntityId: number | null;
+  referralDate: string | null;
+  referralReason: string | null;
+  referralSheetId: number | null;
+  referralAddressText: string | null;
+  createdAt: string;
+  isCandidate: boolean;
+  targetClient: boolean | null;
+  candidateStatus: string | null;
+  branchId: number;
+  branchName: string;
+  contactTargetId: number | null;
+  contactTargetStatus: string | null;
+  latestCallOutcome: string | null;
+  latestAppointment: any;
+  dailyTaskListItemId: number | null;
+  dailyTaskListId: number | null;
+  dailyItemStatus: string | null;
+  dailyCallOutcome: string | null;
+  queuedInCurrentTeamToday: boolean;
+  queuedInAnotherTeamToday: boolean | null;
+  queuedTeamKeyToday: string | null;
+  assignments: any;
+  openTaskId: number | null;
+  openTaskType: string | null;
+  openTaskFamily: string | null;
+  openTaskReason: string | null;
+  openTaskStatus: string | null;
+  openTaskDueDate: string | null;
+  openTaskPriority: string | null;
+  openTaskNotes: string | null;
+}
+
 export type PlanningMarketingTargetsResponse = {
   teamKey: string;
-  leads: any[];
+  leads: PlanningLead[];
   candidates: [];
   countsByZone: { zoneId: number; count: number }[];
   counts: {
@@ -318,7 +380,15 @@ export async function getPlanningMarketingTargets(params: {
            LEFT JOIN roles r2 ON r2.id = u2.role_id
            WHERE ca.client_id = c.id),
           '[]'::json
-        ) AS "assignments"
+        ) AS "assignments",
+        ot.id AS "openTaskId",
+        ot.task_type AS "openTaskType",
+        ot.task_family AS "openTaskFamily",
+        ot.reason AS "openTaskReason",
+        ot.status AS "openTaskStatus",
+        ot.due_date AS "openTaskDueDate",
+        ot.priority AS "openTaskPriority",
+        ot.notes AS "openTaskNotes"
       FROM clients c
       LEFT JOIN branches b ON b.id = c.branch_id
       LEFT JOIN contact_targets contact_target
@@ -361,6 +431,15 @@ export async function getPlanningMarketingTargets(params: {
           AND other_item.entity_id = c.id
         LIMIT 1
       ) other_queued ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT id, task_type, task_family, reason, status, due_date, priority, notes
+        FROM open_tasks
+        WHERE open_tasks.client_id = c.id
+          AND open_tasks.task_type = 'device_demo'
+          AND open_tasks.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+        ORDER BY open_tasks.created_at DESC
+        LIMIT 1
+      ) ot ON TRUE
       WHERE c.is_candidate = FALSE
         AND c.branch_id = $1
         AND NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
