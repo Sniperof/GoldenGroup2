@@ -118,6 +118,7 @@ function mapVisitRows(rows: any[]) {
         completedAt: row.taskCompletedAt,
         createdAt: row.taskCreatedAt,
         updatedAt: row.taskUpdatedAt,
+        sourceOpenTaskId: row.sourceOpenTaskId ?? null,
       };
       const visit = visits.get(row.id);
       visit.task = task;
@@ -186,7 +187,8 @@ function buildVisitSelect(whereClause: string) {
       mvt.contract_id AS "contractId",
       mvt.completed_at AS "taskCompletedAt",
       mvt.created_at AS "taskCreatedAt",
-      mvt.updated_at AS "taskUpdatedAt"
+      mvt.updated_at AS "taskUpdatedAt",
+      mvt.source_open_task_id AS "sourceOpenTaskId"
     FROM marketing_visits mv
     LEFT JOIN clients c ON c.id = mv.client_id
     LEFT JOIN branches b ON b.id = mv.branch_id
@@ -386,6 +388,31 @@ router.patch('/:id/result', requirePermission('marketing_visits.update_result'),
             AND task_type = 'device_demo'
         `,
         [notes, visit.id],
+      );
+    }
+
+    // Update linked open_task status based on visit result
+    const { rows: taskRows } = await pgClient.query(
+      'SELECT source_open_task_id FROM marketing_visit_tasks WHERE visit_id = $1 AND task_type = \'device_demo\'',
+      [visit.id],
+    );
+    const openTaskId = taskRows[0]?.source_open_task_id;
+    if (openTaskId != null) {
+      let newOpenTaskStatus: string;
+      if (status === 'cancelled') {
+        newOpenTaskStatus = 'cancelled';
+      } else if (status === 'completed') {
+        if (taskResult === 'cash_offer_closed' || taskResult === 'installment_offer_closed') {
+          newOpenTaskStatus = 'completed';
+        } else {
+          newOpenTaskStatus = 'needs_reschedule';
+        }
+      } else {
+        newOpenTaskStatus = 'needs_reschedule';
+      }
+      await pgClient.query(
+        'UPDATE open_tasks SET status = $1, updated_at = NOW() WHERE id = $2 AND status IN (\'in_visit\', \'scheduled\', \'in_contact_list\')',
+        [newOpenTaskStatus, openTaskId],
       );
     }
 
