@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
 router.use(requireAuth);
 
-// Helper: extract branch-scoped auth context
+const VALID_TASK_STATUSES = ['open', 'in_contact_list', 'scheduled', 'in_visit', 'completed', 'cancelled', 'needs_reschedule'] as const;
+
 function getAuthContext(req: any) {
   if (!req.authContext) {
     throw new Error('AuthContext is required');
@@ -13,25 +15,30 @@ function getAuthContext(req: any) {
   return req.authContext as {
     userId: number;
     isSuperAdmin: boolean;
+    actingBranchId: number | null;
     grants: Array<{ key: string; scope: string }>;
     [key: string]: any;
   };
 }
 
-function getBranchId(req: any): number | null {
-  const raw = req.header('x-branch-id');
-  if (!raw) return null;
-  const num = Number(raw);
-  return Number.isFinite(num) ? num : null;
-}
-
 // GET /open-tasks — list open tasks filtered by branch_id (required), status, task_type
-router.get('/', async (req, res) => {
+// TODO: replace with dedicated open_tasks permissions when created
+router.get('/', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
-    const branchId = Number(req.query.branchId);
-    if (!branchId || !Number.isFinite(branchId)) {
-      return res.status(400).json({ error: 'يجب تحديد الفرع' });
+
+    let branchId: number;
+    if (authContext.isSuperAdmin) {
+      const qb = Number(req.query.branchId);
+      if (!qb || !Number.isFinite(qb)) {
+        return res.status(400).json({ error: 'يجب تحديد الفرع' });
+      }
+      branchId = qb;
+    } else {
+      if (!authContext.actingBranchId) {
+        return res.status(400).json({ error: 'يجب تحديد الفرع' });
+      }
+      branchId = authContext.actingBranchId;
     }
 
     const statusFilter = req.query.status as string | undefined;
@@ -123,8 +130,10 @@ router.get('/', async (req, res) => {
 });
 
 // GET /open-tasks/:id — single task
-router.get('/:id', async (req, res) => {
+// TODO: replace with dedicated open_tasks permissions when created
+router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
+    const authContext = getAuthContext(req);
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
       return res.status(400).json({ error: 'معرف المهمة غير صالح' });
@@ -164,6 +173,10 @@ router.get('/:id', async (req, res) => {
     }
 
     const row = rows[0];
+    if (!authContext.isSuperAdmin && row.branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
+    }
+
     const task = {
       id: row.id,
       clientId: row.client_id,
@@ -198,22 +211,52 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PATCH /open-tasks/:id — update status, notes, due_date, priority
-router.patch('/:id', async (req, res) => {
+// PATCH /open-tasks/:id — update status, notes, dueDate, priority
+// TODO: replace with dedicated open_tasks permissions when created
+router.patch('/:id', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
+    const authContext = getAuthContext(req);
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
       return res.status(400).json({ error: 'معرف المهمة غير صالح' });
     }
 
-    const allowedFields = ['status', 'notes', 'due_date', 'priority'];
+    // Validate status if provided
+    if (req.body.status !== undefined && !(VALID_TASK_STATUSES as readonly string[]).includes(req.body.status)) {
+      return res.status(400).json({ error: 'حالة المهمة غير صالحة' });
+    }
+
+    // Validate dueDate if provided
+    if (req.body.dueDate !== undefined) {
+      if (!/^\d{4}-\d{2}-\d{2}/.test(String(req.body.dueDate)) || isNaN(Date.parse(req.body.dueDate))) {
+        return res.status(400).json({ error: 'تاريخ الاستحقاق غير صالح' });
+      }
+    }
+
+    // Fetch task to verify branch ownership
+    const { rows: existing } = await pool.query('SELECT branch_id FROM open_tasks WHERE id = $1', [id]);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'المهمة غير موجودة' });
+    }
+    if (!authContext.isSuperAdmin && existing[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
+    }
+
+    const fieldMap: Record<string, string> = {
+      status: 'status',
+      notes: 'notes',
+      dueDate: 'due_date',
+      priority: 'priority',
+    };
+    const allowedFields = ['status', 'notes', 'dueDate', 'priority'];
+
     const updates: string[] = [];
     const values: any[] = [];
     let paramIdx = 1;
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
-        updates.push(`${field} = $${paramIdx}`);
+        updates.push(`${fieldMap[field]} = $${paramIdx}`);
         values.push(req.body[field]);
         paramIdx++;
       }

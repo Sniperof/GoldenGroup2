@@ -957,7 +957,7 @@ export interface OpenTask {
   reason: OpenTaskReason;
   status: OpenTaskStatus;
   dueDate: string | null;
-  priority: string | null;
+  priority: 'high' | 'medium' | 'low' | null;
   source: string;
   marketingVisitTaskId: string | null;
   contactTargetId: number | null;
@@ -973,7 +973,7 @@ export interface OpenTask {
   clientDistrict?: string;
   branchName?: string;
   createdByName?: string;
-  assignments?: Array<{ userId: number; userName: string; roleDisplayName: string }>;
+  assignments: Array<{ userId: number; userName: string; roleDisplayName: string }>;
 }
 
 export const OPEN_TASK_STATUS_LABELS: Record<OpenTaskStatus, string> = {
@@ -996,6 +996,12 @@ export const OPEN_TASK_REASON_LABELS: Record<OpenTaskReason, string> = {
   renewal: 'تجديد',
   service_request: 'طلب خدمة',
   other: 'أخرى',
+};
+
+export const OPEN_TASK_FAMILY_LABELS: Record<OpenTaskFamily, string> = {
+  marketing: 'تسويق',
+  service: 'خدمة',
+  maintenance: 'صيانة',
 };
 
 export interface CreateTrainingCourseRequest {

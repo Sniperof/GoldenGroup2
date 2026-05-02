@@ -98,7 +98,7 @@ export default function OpenTasks() {
       )}
 
       {/* Tasks table */}
-      {!loading && tasks.length === 0 && (
+      {!loading && !error && tasks.length === 0 && (
         <div className="text-center py-16 text-slate-400">
           <Target className="w-16 h-16 mx-auto mb-4 opacity-30" />
           <p className="text-lg">لا توجد مهام مفتوحة</p>
