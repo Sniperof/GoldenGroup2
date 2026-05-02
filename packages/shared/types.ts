@@ -627,6 +627,10 @@ export interface TaskListItem {
     status: 'pending' | 'called' | 'booked';
     callOutcome?: CallOutcome;
     contactTargetId?: number;
+    openTaskId: number | null;
+    openTaskReason: string | null;
+    openTaskType: string | null;
+    openTaskStatus: string | null;
 }
 
 export interface TaskList {

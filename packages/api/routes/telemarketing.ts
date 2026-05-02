@@ -451,6 +451,10 @@ const mapTaskListRows = (rows: any[]) => {
         status: row.itemStatus,
         callOutcome: row.callOutcome,
         contactTargetId: row.contactTargetId ?? null,
+        openTaskId: row.itemOpenTaskId ?? null,
+        openTaskReason: row.itemOpenTaskReason ?? null,
+        openTaskType: row.itemOpenTaskType ?? null,
+        openTaskStatus: row.itemOpenTaskStatus ?? null,
       });
     }
   });
@@ -553,9 +557,14 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         i.geo_unit_id AS "geoUnitId",
         i.status AS "itemStatus",
         i.call_outcome AS "callOutcome",
-        i.contact_target_id AS "contactTargetId"
+        i.contact_target_id AS "contactTargetId",
+        ot.id AS "itemOpenTaskId",
+        ot.reason AS "itemOpenTaskReason",
+        ot.task_type AS "itemOpenTaskType",
+        ot.status AS "itemOpenTaskStatus"
       FROM telemarketing_task_lists tl
       LEFT JOIN telemarketing_task_list_items i ON i.task_list_id = tl.id
+      LEFT JOIN open_tasks ot ON ot.id = i.open_task_id
       ${taskListWhere}
       ORDER BY tl.date DESC, tl.created_at DESC, i.id
     `,
@@ -956,6 +965,8 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
         continue;
       }
 
+      const openTaskId = lead.openTaskId ?? null;
+
       if (existingItem) {
         await pgClient.query(
           `
@@ -967,10 +978,11 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
               contact_label = $4,
               address_text = $5,
               geo_unit_id = $6,
-              contact_target_id = $7
-            WHERE id = $8
+              contact_target_id = $7,
+              open_task_id = $8
+            WHERE id = $9
           `,
-          [name, phone, phone, 'primary', addressText, geoUnitId, contactTargetId, itemId],
+          [name, phone, phone, 'primary', addressText, geoUnitId, contactTargetId, openTaskId, itemId],
         );
         updated += 1;
       } else {
@@ -978,13 +990,20 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
           `
             INSERT INTO telemarketing_task_list_items (
               id, task_list_id, entity_type, entity_id, name, mobile, contact_number,
-              contact_label, address_text, geo_unit_id, status, call_outcome, contact_target_id
+              contact_label, address_text, geo_unit_id, status, call_outcome, contact_target_id, open_task_id
             )
-            VALUES ($1,$2,'client',$3,$4,$5,$6,$7,$8,$9,'pending',NULL,$10)
+            VALUES ($1,$2,'client',$3,$4,$5,$6,$7,$8,$9,'pending',NULL,$10,$11)
           `,
-          [itemId, taskListId, entityId, name, phone, phone, 'primary', addressText, geoUnitId, contactTargetId],
+          [itemId, taskListId, entityId, name, phone, phone, 'primary', addressText, geoUnitId, contactTargetId, openTaskId],
         );
         added += 1;
+      }
+
+      if (openTaskId != null) {
+        await pgClient.query(
+          `UPDATE open_tasks SET status = 'in_contact_list', updated_at = NOW() WHERE id = $1 AND status = 'open'`,
+          [openTaskId],
+        );
       }
 
       lifecycleUpdates.push({ contactTargetId, itemId });

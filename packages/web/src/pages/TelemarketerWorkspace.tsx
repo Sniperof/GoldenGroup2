@@ -8,6 +8,8 @@ import {
 import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useClientStore } from '../hooks/useClientStore';
+import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS } from '@golden-crm/shared';
+import type { OpenTaskType, OpenTaskReason } from '@golden-crm/shared';
 import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
 import TeamAgendaPanel from '../components/telemarketing/TeamAgendaPanel';
 import OutcomeRecorderModal from '../components/telemarketing/OutcomeRecorderModal';
@@ -699,6 +701,11 @@ export default function TelemarketerWorkspace() {
                                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${task.entityType === 'client' ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
                                                 {task.entityType === 'client' ? 'زبون' : 'مقترح'}
                                             </span>
+                                            {task.openTaskType && (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold border bg-emerald-50 text-emerald-700 border-emerald-100">
+                                                    {(OPEN_TASK_TYPE_LABELS[task.openTaskType as OpenTaskType] ?? task.openTaskType)} • {(OPEN_TASK_REASON_LABELS[task.openTaskReason as OpenTaskReason] ?? task.openTaskReason)}
+                                                </span>
+                                            )}
                                             {isBooked ? (
                                                 <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
                                                     <CheckCircle2 className="w-3 h-3" /> تم الحجز{taskAppointment ? ` ${taskAppointment.timeSlot}` : ''}
