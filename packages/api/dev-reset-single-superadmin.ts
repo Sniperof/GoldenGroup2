@@ -241,6 +241,19 @@ async function main() {
       log(`Created new branch: "${DAMASCUS_BRANCH_NAME}" (id=${damascusBranchId})`);
     }
 
+    // Link Damascus branch to its governorate geo unit
+    const { rows: govRows } = await client.query(
+      `SELECT id FROM geo_units WHERE name = $1 AND level = 1 LIMIT 1`,
+      ['دمشق'],
+    );
+    if (govRows[0]) {
+      await client.query(
+        `UPDATE branches SET location_geo_id = $1 WHERE id = $2`,
+        [govRows[0].id, damascusBranchId],
+      );
+      log(`Linked branch "${DAMASCUS_BRANCH_NAME}" to geo unit id=${govRows[0].id}`);
+    }
+
     // ── 6. Deactivate all other branches (safe — not deleting) ────────────
 
     const { rows: deactivatedBranches } = await client.query(

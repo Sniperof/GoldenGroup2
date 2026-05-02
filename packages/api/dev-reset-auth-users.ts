@@ -112,6 +112,19 @@ async function main() {
       }
     }
 
+    // Link test branch to Damascus governorate geo unit if not already set
+    const { rows: geoRows } = await client.query(
+      `SELECT id FROM geo_units WHERE name = $1 AND level = 1 LIMIT 1`,
+      ['دمشق'],
+    );
+    if (geoRows[0]) {
+      await client.query(
+        `UPDATE branches SET location_geo_id = $1 WHERE id = $2 AND location_geo_id IS NULL`,
+        [geoRows[0].id, branchId],
+      );
+      log(`Linked branch (id=${branchId}) to geo unit id=${geoRows[0].id}`);
+    }
+
     // ── 2. Ensure template roles ───────────────────────────────────────────
     section('Template Roles');
 
