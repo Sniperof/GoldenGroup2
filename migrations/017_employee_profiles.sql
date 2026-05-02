@@ -62,7 +62,7 @@ WHERE employee_number IS NULL;
 
 SELECT setval(
   'employee_number_seq',
-  COALESCE((SELECT MAX(employee_number)::BIGINT FROM employees), 0::BIGINT),
+  GREATEST(1, COALESCE((SELECT MAX(employee_number)::BIGINT FROM employees), 0::BIGINT)),
   true
 );
 

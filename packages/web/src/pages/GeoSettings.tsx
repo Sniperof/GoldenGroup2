@@ -28,6 +28,7 @@ export default function GeoSettings() {
     const [modalRegion, setModalRegion] = useState('');
     const [modalSubDistrict, setModalSubDistrict] = useState('');
     const [modalName, setModalName] = useState('');
+    const [addError, setAddError] = useState('');
 
     if (!hasPermission('geo.view')) {
         return <Navigate to="/" replace />;
@@ -94,19 +95,30 @@ export default function GeoSettings() {
 
     const handleAdd = async () => {
         if (!canManageGeo) return;
+        setAddError('');
         const name = modalName.trim();
-        if (!name) return;
+        if (!name) { setAddError('يرجى إدخال الاسم'); return; }
         const level = activeTab;
         let parentId: number | null = null;
-        if (level === 2) { if (!modalGov) return; parentId = Number(modalGov); }
-        if (level === 3) { if (!modalRegion) return; parentId = Number(modalRegion); }
-        if (level === 4) { if (!modalSubDistrict) return; parentId = Number(modalSubDistrict); }
+        if (level === 2) { if (!modalGov) { setAddError('يرجى اختيار المحافظة'); return; } parentId = Number(modalGov); }
+        if (level === 3) { if (!modalRegion) { setAddError('يرجى اختيار المنطقة'); return; } parentId = Number(modalRegion); }
+        if (level === 4) { if (!modalSubDistrict) { setAddError('يرجى اختيار الناحية'); return; } parentId = Number(modalSubDistrict); }
+        // Check for duplicate name at same level and parent
+        const isDuplicate = geoUnits.some(
+            u => u.level === level && u.parentId === parentId && u.name.trim().toLowerCase() === name.toLowerCase()
+        );
+        if (isDuplicate) {
+            setAddError(`يوجد ${levelNames[level]} بنفس الاسم "${name}" في هذا المستوى بالفعل`);
+            return;
+        }
         try {
             await api.geoUnits.create({ name, level, parentId });
             await fetchGeoUnits();
             setIsModalOpen(false);
         } catch (err) {
-            console.error('Failed to create geo unit:', err);
+            const msg = (err instanceof Error ? err.message : '');
+            const isDupe = msg.includes('409') || msg.includes('مكرر');
+            setAddError(isDupe ? `يوجد ${levelNames[level]} بنفس الاسم "${name}" في هذا المستوى بالفعل` : 'حدث خطأ أثناء الإضافة. يرجى المحاولة مرة أخرى.');
         }
     };
 
@@ -292,13 +304,19 @@ export default function GeoSettings() {
                                     <input
                                         type="text"
                                         value={modalName}
-                                        onChange={e => setModalName(e.target.value)}
+                                        onChange={e => { setModalName(e.target.value); setAddError(''); }}
                                         onKeyDown={e => e.key === 'Enter' && handleAdd()}
                                         placeholder={`أدخل اسم ${levelNames[activeTab]}...`}
-                                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 placeholder:text-gray-400 focus:border-sky-500 focus:outline-none transition-colors"
+                                        className={`w-full bg-gray-50 border rounded-lg px-3 py-2.5 text-sm text-slate-900 placeholder:text-gray-400 focus:outline-none transition-colors ${addError ? 'border-red-300 focus:border-red-500' : 'border-gray-200 focus:border-sky-500'}`}
                                         autoFocus
                                     />
                                 </div>
+                                {addError && (
+                                    <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        {addError}
+                                    </div>
+                                )}
                             </div>
 
                             {/* Modal Footer */}
