@@ -237,27 +237,35 @@ router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), as
       : Array.isArray(permissionIds)
         ? permissionIds.map((permissionId: unknown) => ({
             permissionId: Number(permissionId),
-            scopeType: 'BRANCH',
+            scopeType: 'GLOBAL',
           }))
         : null;
 
     if (!normalizedGrants) {
       return res.status(400).json({ error: 'قائمة الصلاحيات مطلوبة' });
     }
-    if (normalizedGrants.some(grant => !Number.isInteger(grant.permissionId) || !VALID_SCOPE_TYPES.has(grant.scopeType))) {
+
+    // Deduplicate: keep last occurrence of each permissionId
+    const grantMap = new Map<number, { permissionId: number; scopeType: string }>();
+    for (const grant of normalizedGrants) {
+      grantMap.set(grant.permissionId, grant);
+    }
+    const deduplicatedGrants = Array.from(grantMap.values());
+
+    if (deduplicatedGrants.some(grant => !Number.isInteger(grant.permissionId) || !VALID_SCOPE_TYPES.has(grant.scopeType))) {
       return res.status(400).json({ error: 'صلاحيات أو نطاقات غير صالحة' });
     }
 
     // Validate that each scopeType is allowed for the given permission
-    if (normalizedGrants.length > 0) {
-      const permIds = normalizedGrants.map(g => g.permissionId);
+    if (deduplicatedGrants.length > 0) {
+      const permIds = deduplicatedGrants.map(g => g.permissionId);
       const { rows: permRows } = await pool.query(
         'SELECT id, allowed_scopes FROM permissions WHERE id = ANY($1)',
         [permIds]
       );
       const permScopeMap = new Map<number, string[]>(permRows.map((p: any) => [p.id as number, (p.allowed_scopes ?? []) as string[]]));
 
-      for (const grant of normalizedGrants) {
+      for (const grant of deduplicatedGrants) {
         const allowed: string[] | undefined = permScopeMap.get(grant.permissionId);
         if (!allowed) {
           return res.status(400).json({ error: `الصلاحية رقم ${grant.permissionId} غير موجودة` });
@@ -287,20 +295,20 @@ router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), as
     await client.query('BEGIN');
     await client.query('DELETE FROM role_permission_grants WHERE role_id = $1', [roleId]);
     await client.query('DELETE FROM role_permissions WHERE role_id = $1', [roleId]);
-    if (normalizedGrants.length > 0) {
-      const grantValues = normalizedGrants
+    if (deduplicatedGrants.length > 0) {
+      const grantValues = deduplicatedGrants
         .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
         .join(', ');
       await client.query(
         `INSERT INTO role_permission_grants (role_id, permission_id, scope_type) VALUES ${grantValues}`,
-        [roleId, ...normalizedGrants.flatMap(grant => [grant.permissionId, grant.scopeType])]
+        [roleId, ...deduplicatedGrants.flatMap(grant => [grant.permissionId, grant.scopeType])]
       );
 
-      const legacyValues = normalizedGrants.map((_, i) => `($1, $${i + 2})`).join(', ');
+      const legacyValues = deduplicatedGrants.map((_, i) => `($1, $${i + 2})`).join(', ');
       await client.query(
         `INSERT INTO role_permissions (role_id, permission_id) VALUES ${legacyValues}
          ON CONFLICT (role_id, permission_id) DO NOTHING`,
-        [roleId, ...normalizedGrants.map(grant => grant.permissionId)]
+        [roleId, ...deduplicatedGrants.map(grant => grant.permissionId)]
       );
     }
     await client.query('COMMIT');

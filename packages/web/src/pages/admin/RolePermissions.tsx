@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { useRoleStore } from '../../hooks/useRoleStore';
 import type { Permission, RolePermissionGrant } from '../../hooks/useRoleStore';
@@ -22,14 +22,14 @@ const ALL_SCOPE_OPTIONS: Array<{ value: ScopeType; label: string }> = [
 
 /** Return the allowed scope options for a given permission, filtering by allowed_scopes if present. */
 function getScopeOptions(perm: Permission): Array<{ value: ScopeType; label: string }> {
-  const allowedScopes: string[] | undefined = (perm as any).allowedScopes;
+  const allowedScopes = perm.allowedScopes;
   if (!allowedScopes || allowedScopes.length === 0) return ALL_SCOPE_OPTIONS;
   return ALL_SCOPE_OPTIONS.filter(opt => allowedScopes.includes(opt.value));
 }
 
 /** Return the default scope for a permission — the first allowed scope, preferring BRANCH if available. */
 function getDefaultScope(perm: Permission): ScopeType {
-  const allowedScopes: string[] | undefined = (perm as any).allowedScopes;
+  const allowedScopes = perm.allowedScopes;
   if (!allowedScopes || allowedScopes.length === 0) return 'BRANCH';
   // Prefer BRANCH if allowed, otherwise GLOBAL, otherwise first in list
   if (allowedScopes.includes('BRANCH')) return 'BRANCH';
@@ -231,6 +231,7 @@ export default function RolePermissions() {
   const isProtectedRole = role?.isSystem || role?.isProtected;
 
   const [assigned, setAssigned] = useState<Map<number, ScopeType>>(new Map());
+  const previousScopes = useRef(new Map<number, ScopeType>());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -245,7 +246,7 @@ export default function RolePermissions() {
     if (!roleId) return;
     trpc.roles.getPermissions.query({ id: roleId })
       .then((perms: RolePermissionGrant[]) => {
-        setAssigned(new Map(perms.map(p => [p.id, p.scopeType ?? 'GLOBAL'])));
+        setAssigned(new Map(perms.map(p => [p.id, p.scopeType ?? getDefaultScope(p)])));
       })
       .catch(() => {});
   }, [roleId]);
@@ -274,7 +275,13 @@ export default function RolePermissions() {
     if (!canManageRolePermissions || isProtectedRole) return;
     setAssigned(prev => {
       const next = new Map(prev);
-      next.has(perm.id) ? next.delete(perm.id) : next.set(perm.id, getDefaultScope(perm));
+      if (next.has(perm.id)) {
+        previousScopes.current.set(perm.id, next.get(perm.id)!);
+        next.delete(perm.id);
+      } else {
+        const prevScope = previousScopes.current.get(perm.id);
+        next.set(perm.id, prevScope ?? getDefaultScope(perm));
+      }
       return next;
     });
   }

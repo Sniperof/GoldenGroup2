@@ -39,6 +39,8 @@ export const RoleJobTaskSchema = z.object({
   isActive: z.boolean(),
 });
 
+export const ScopeTypeSchema = z.enum(['GLOBAL', 'BRANCH', 'ASSIGNED']);
+
 export const PermissionSchema = z.object({
   id: z.number(),
   key: z.string(),
@@ -47,10 +49,8 @@ export const PermissionSchema = z.object({
   action: z.string(),
   displayName: z.string(),
   displayOrder: z.number(),
-  allowedScopes: z.array(z.string()),
+  allowedScopes: z.array(ScopeTypeSchema),
 });
-
-export const ScopeTypeSchema = z.enum(['GLOBAL', 'BRANCH', 'ASSIGNED']);
 
 export const RolePermissionGrantSchema = PermissionSchema.extend({
   scopeType: ScopeTypeSchema,

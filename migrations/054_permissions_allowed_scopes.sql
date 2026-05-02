@@ -55,3 +55,9 @@ UPDATE permissions SET allowed_scopes = ARRAY['GLOBAL', 'BRANCH'] WHERE key IN (
 
 -- Add comment
 COMMENT ON COLUMN permissions.allowed_scopes IS 'Scopes allowed for this permission. Super admin configures this. GLOBAL-only for admin functions, GLOBAL+BRANCH for operational, GLOBAL+BRANCH+ASSIGNED for personal.';
+
+-- Clean up any existing grants that violate the new allowed_scopes constraints
+DELETE FROM role_permission_grants rpg
+USING permissions p
+WHERE rpg.permission_id = p.id
+  AND NOT (rpg.scope_type = ANY(p.allowed_scopes));

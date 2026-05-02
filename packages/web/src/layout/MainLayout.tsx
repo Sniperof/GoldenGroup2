@@ -86,7 +86,9 @@ export default function MainLayout() {
     // OR if they are a super admin who has selected a branch context.
     // Super admins without a branch context still see branch modules if they have non-global grants.
     const hasBranchScopedPermission = grants.some(g => g.scope === 'BRANCH' || g.scope === 'ASSIGNED');
-    const canSeeBranchModules = hasBranchScopedPermission || (isSuperAdmin && selectedBranchId != null);
+    const canSeeBranchModules = hasBranchScopedPermission
+      || (isSuperAdmin && selectedBranchId != null)
+      || isPrivilegedUser;
 
     const jobsViewPermMap: Record<string, string> = {
       '/jobs/applications': 'jobs.applications.view_list',
