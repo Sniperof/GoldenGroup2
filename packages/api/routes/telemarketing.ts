@@ -278,6 +278,7 @@ async function createMarketingVisitForAppointment(
     taskListId: string;
     taskListItemId: string;
     createdBy: number | null;
+    openTaskId: number | null;
   },
 ): Promise<string | null> {
   if (params.entityType !== 'client') {
@@ -374,13 +375,21 @@ async function createMarketingVisitForAppointment(
         closed_by_employee_id,
         result_notes,
         contract_id,
-        completed_at
+        completed_at,
+        source_open_task_id
       )
-      VALUES ($1,$2,'device_demo','pending',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)
+      VALUES ($1,$2,'device_demo','pending',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,$3)
       ON CONFLICT (visit_id, task_type) DO NOTHING
     `,
-    [`${marketingVisitId}_device_demo`, marketingVisitId],
+    [`${marketingVisitId}_device_demo`, marketingVisitId, params.openTaskId ?? null],
   );
+
+  if (params.openTaskId != null) {
+    await db.query(
+      `UPDATE open_tasks SET status = 'in_visit', updated_at = NOW() WHERE id = $1 AND status IN ('scheduled', 'in_contact_list')`,
+      [params.openTaskId],
+    );
+  }
 
   return marketingVisitId;
 }
@@ -616,7 +625,8 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         requested_device_name AS "requestedDeviceName",
         created_at AS "createdAt",
         created_by AS "createdBy",
-        contact_target_id AS "contactTargetId"
+        contact_target_id AS "contactTargetId",
+        open_task_id AS "openTaskId"
       FROM telemarketing_appointments
       ${appointmentWhere}
       ORDER BY created_at DESC
@@ -1287,15 +1297,17 @@ router.post('/appointments', requirePermission('telemarketing.appointments.creat
   try {
     await pgClient.query('BEGIN');
 
+    const openTaskId: number | null = taskListItem.open_task_id ?? null;
+
     const { rows } = await pgClient.query(
       `
         INSERT INTO telemarketing_appointments (
           id, entity_type, entity_id, customer_name, customer_address, customer_mobile,
           team_key, date, time_slot, occupation, water_source, notes,
           visit_tasks, requested_device_model_id, requested_device_name,
-          created_at, created_by, branch_id, contact_target_id
+          created_at, created_by, branch_id, contact_target_id, open_task_id
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
         RETURNING
           id,
           entity_type AS "entityType",
@@ -1314,7 +1326,8 @@ router.post('/appointments', requirePermission('telemarketing.appointments.creat
           requested_device_name AS "requestedDeviceName",
           created_at AS "createdAt",
           created_by AS "createdBy",
-          contact_target_id AS "contactTargetId"
+          contact_target_id AS "contactTargetId",
+          open_task_id AS "openTaskId"
       `,
       [
         appointment.id,
@@ -1336,6 +1349,7 @@ router.post('/appointments', requirePermission('telemarketing.appointments.creat
         createdBy,
         branchId,
         contactTargetId,
+        openTaskId,
       ],
     );
 
@@ -1351,6 +1365,13 @@ router.post('/appointments', requirePermission('telemarketing.appointments.creat
       `,
       [appointment.taskListId, appointment.taskListItemId],
     );
+
+    if (openTaskId != null) {
+      await pgClient.query(
+        `UPDATE open_tasks SET status = 'scheduled', updated_at = NOW() WHERE id = $1 AND status = 'in_contact_list'`,
+        [openTaskId],
+      );
+    }
 
     if (contactTargetId != null) {
       await updateContactTargetLifecycle(pgClient, contactTargetId, {
@@ -1378,6 +1399,7 @@ router.post('/appointments', requirePermission('telemarketing.appointments.creat
       taskListId: appointment.taskListId,
       taskListItemId: appointment.taskListItemId,
       createdBy,
+      openTaskId,
     });
 
     await pgClient.query('COMMIT');

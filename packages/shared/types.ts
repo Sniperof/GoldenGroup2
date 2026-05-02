@@ -680,6 +680,7 @@ export interface Appointment {
     taskListItemId?: string;
     taskListId?: string;
     marketingVisitId?: string | null;
+    openTaskId?: number | null;
 }
 
 export const WORKING_HOURS = { start: 9, end: 17, slotMinutes: 60 };
