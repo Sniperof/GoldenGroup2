@@ -46,6 +46,7 @@ import TrainingCourseDetail from './pages/jobs/TrainingCourseDetail';
 import SystemLists from './pages/admin/SystemLists';
 import Roles from './pages/admin/Roles';
 import RolePermissions from './pages/admin/RolePermissions';
+import PermissionSettings from './pages/admin/PermissionSettings';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -109,6 +110,7 @@ export default function App() {
                         {/* Admin */}
                         <Route path="/admin/roles" element={<Roles />} />
                         <Route path="/admin/roles/:id/permissions" element={<RolePermissions />} />
+                        <Route path="/admin/permissions-settings" element={<PermissionSettings />} />
                     </Route>
                 </Routes>
             </ErrorBoundary>

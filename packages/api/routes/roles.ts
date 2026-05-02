@@ -353,6 +353,58 @@ router.get('/permissions', requirePermission('admin.roles.view'), async (_req, r
   }
 });
 
+// ── PUT /permissions/scopes — Update allowed scopes for permissions (super admin only)
+router.put('/permissions/scopes', requireSuperAdmin, async (req, res) => {
+  try {
+    const { updates } = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ error: 'قائمة التحديثات مطلوبة' });
+    }
+
+    for (const update of updates) {
+      if (!Number.isInteger(update.id)) {
+        return res.status(400).json({ error: 'معرّف الصلاحية غير صالح' });
+      }
+      if (!Array.isArray(update.allowedScopes) || update.allowedScopes.length === 0) {
+        return res.status(400).json({ error: `يجب تحديد نطاق واحد على الأقل للصلاحية رقم ${update.id}` });
+      }
+      if (!update.allowedScopes.every((s: string) => VALID_SCOPE_TYPES.has(s))) {
+        return res.status(400).json({ error: `نطاق غير صالح للصلاحية رقم ${update.id}` });
+      }
+      if (!update.allowedScopes.includes('GLOBAL')) {
+        return res.status(400).json({ error: `يجب أن يتضمن النطاق GLOBAL للصلاحية رقم ${update.id}` });
+      }
+    }
+
+    const ids = updates.map((u: any) => u.id);
+    const { rows: existing } = await pool.query(
+      'SELECT id FROM permissions WHERE id = ANY($1)',
+      [ids]
+    );
+    const existingIds = new Set(existing.map((r: any) => r.id));
+    const invalidId = ids.find((id: number) => !existingIds.has(id));
+    if (invalidId !== undefined) {
+      return res.status(400).json({ error: `الصلاحية رقم ${invalidId} غير موجودة` });
+    }
+
+    for (const update of updates) {
+      await pool.query(
+        'UPDATE permissions SET allowed_scopes = $1 WHERE id = $2',
+        [update.allowedScopes, update.id]
+      );
+    }
+
+    clearPermissionCache();
+
+    const { rows } = await pool.query('SELECT * FROM permissions ORDER BY display_order');
+    res.json(rows);
+  } catch (err: any) {
+    console.error('Error updating permission scopes:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /hr-users/assignable — Users eligible to be assigned to clients ──────
 // Returns active HR users whose role has the 'clients.can_be_assigned' grant.
 // Branch-scoped: non-super-admins see only users from their own branch.
