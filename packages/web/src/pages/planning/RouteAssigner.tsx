@@ -39,6 +39,9 @@ export default function RouteAssigner() {
     const [routeAssignments, setRouteAssignments] = useState<Record<string, RouteAssignmentData>>({});
     const [stationLeadCounts, setStationLeadCounts] = useState<Record<number, number> | null>(null);
     const [stationLeadCountsLoading, setStationLeadCountsLoading] = useState(false);
+    const [stationLeadCountsError, setStationLeadCountsError] = useState(false);
+    const [stationLeadCountsRefreshKey, setStationLeadCountsRefreshKey] = useState(0);
+    const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const [date, setDate] = useState(getToday);
     const [selectedTeam, setSelectedTeam] = useState('');
@@ -128,6 +131,8 @@ export default function RouteAssigner() {
         setComposition([]);
         setExtraZones([]);
         setStationLeadCounts(null);
+        setStationLeadCountsError(false);
+        setSaveMessage(null);
     };
 
     const onTeamChange = (val: string) => {
@@ -142,6 +147,8 @@ export default function RouteAssigner() {
             setExtraZones([]);
         }
         setStationLeadCounts(null);
+        setStationLeadCountsError(false);
+        setSaveMessage(null);
     };
 
     const getRouteStations = useCallback((route: Route) => {
@@ -201,11 +208,20 @@ export default function RouteAssigner() {
     }, [composition, extraZones, savedRoutes, geoUnits, getRouteStations]);
 
     const finalZoneIds = useMemo(() => new Set(finalZones.map(zone => zone.id)), [finalZones]);
+    const selectableExtraZones = useMemo(() => {
+        return allGeoUnits.filter(unit => {
+            const hasChildren = allGeoUnits.some(child => child.parentId === unit.id);
+            return unit.level === 4 || !hasChildren;
+        });
+    }, [allGeoUnits]);
     const workCoverageLabel = getWorkCoverageLabel({
         routes: composition,
         extraZones,
         finalZones,
     });
+    const hasWorkCoverage = selectedTeam !== '' && finalZones.length > 0;
+    const hasUnsavedChanges = hasWorkCoverage && !hasPersistedAssignmentMatch;
+    const canSaveAssignment = hasWorkCoverage && hasUnsavedChanges && !saving;
 
     useEffect(() => {
         let cancelled = false;
@@ -213,10 +229,12 @@ export default function RouteAssigner() {
         if (!selectedTeam || finalZones.length === 0 || !hasPersistedAssignmentMatch) {
             setStationLeadCounts(null);
             setStationLeadCountsLoading(false);
+            setStationLeadCountsError(false);
             return () => { cancelled = true; };
         }
 
         setStationLeadCountsLoading(true);
+        setStationLeadCountsError(false);
         const loadStationLeadCounts = async () => {
             try {
                 const result = await api.planning.marketingTargets(date, selectedTeam) as MarketingTargetsResponse;
@@ -234,6 +252,7 @@ export default function RouteAssigner() {
                 console.warn(`Failed to load station lead counts for ${selectedTeam}; showing no fallback counts.`, err);
                 if (!cancelled) {
                     setStationLeadCounts(null);
+                    setStationLeadCountsError(true);
                 }
             } finally {
                 if (!cancelled) {
@@ -244,29 +263,58 @@ export default function RouteAssigner() {
 
         loadStationLeadCounts();
         return () => { cancelled = true; };
-    }, [date, finalZones, hasPersistedAssignmentMatch, selectedTeam]);
+    }, [date, finalZones, hasPersistedAssignmentMatch, selectedTeam, stationLeadCountsRefreshKey]);
+
+    useEffect(() => {
+        if (hasUnsavedChanges) {
+            setSaveMessage(null);
+        }
+    }, [hasUnsavedChanges]);
 
     const totalPotentialLeads = useMemo(() => {
         if (!stationLeadCounts) return null;
         return finalZones.reduce((sum, zone) => sum + (stationLeadCounts[zone.id] ?? 0), 0);
     }, [finalZones, stationLeadCounts]);
 
+    const getStationLeadCountLabel = (zoneId: number) => {
+        if (saving) return 'جاري الحفظ...';
+        if (stationLeadCountsLoading) return 'جاري الحساب...';
+        if (stationLeadCountsError) return 'تعذر الحساب';
+        if (!hasPersistedAssignmentMatch) return null;
+        if (stationLeadCounts) return String(stationLeadCounts[zoneId] ?? 0);
+        return 'جاري الحساب...';
+    };
+
     const saveAssignment = async () => {
-        if (!selectedTeam) { alert('اختر الفريق أولاً'); return; }
+        if (!hasWorkCoverage) {
+            setSaveMessage({ type: 'error', text: 'اختر الفريق ونطاق العمل أولاً' });
+            return;
+        }
+        if (!hasUnsavedChanges) return;
+
         setSaving(true);
+        setSaveMessage(null);
         try {
             const data = { routes: JSON.parse(JSON.stringify(composition)), extraZones: [...extraZones] };
             await api.routeAssignments.save(currentKey, data);
             setRouteAssignments(prev => ({ ...prev, [currentKey]: data }));
             setStationLeadCounts(null);
-            alert('تم حفظ نطاق عمل الفريق!');
+            setStationLeadCountsError(false);
+            setStationLeadCountsRefreshKey(key => key + 1);
+            setSaveMessage({ type: 'success', text: 'تم حفظ نطاق عمل الفريق' });
         } catch (err) {
             console.error('Failed to save assignment:', err);
-            alert('حدث خطأ أثناء الحفظ');
+            setSaveMessage({ type: 'error', text: 'تعذر حفظ نطاق عمل الفريق' });
         } finally {
             setSaving(false);
         }
     };
+
+    const saveButtonText = saving
+        ? 'جاري الحفظ...'
+        : hasWorkCoverage && !hasUnsavedChanges
+            ? 'تم الحفظ'
+            : 'حفظ نطاق العمل';
 
     if (loading) {
         return (
@@ -303,10 +351,15 @@ export default function RouteAssigner() {
                     </select>
                 </div>
                 <div className="mr-auto">
-                    <button onClick={saveAssignment} disabled={saving} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all">
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>حفظ نطاق العمل</span>
+                    <button onClick={saveAssignment} disabled={!canSaveAssignment} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all">
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>{saveButtonText}</span>
                     </button>
                 </div>
+                {saveMessage && (
+                    <div className={`basis-full rounded-lg border px-3 py-2 text-sm font-bold ${saveMessage.type === 'success' ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-red-100 bg-red-50 text-red-700'}`}>
+                        {saveMessage.text}
+                    </div>
+                )}
                 <div className="basis-full rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-700">
                     {workCoverageLabel}
                 </div>
@@ -319,12 +372,12 @@ export default function RouteAssigner() {
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                         <div className="flex items-center justify-between mb-3">
                             <h3 className="text-slate-900 font-bold text-sm flex items-center gap-2"><RouteIcon className="w-4 h-4 text-sky-600" />تركيب نطاق العمل</h3>
-                            <button onClick={addRouteToComposition} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all">
+                            <button onClick={addRouteToComposition} disabled={!selectedTeam} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all">
                                 <Plus className="w-3.5 h-3.5" /><span>إضافة مسار</span>
                             </button>
                         </div>
-                        <select value={selectedRouteId} onChange={e => setSelectedRouteId(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none">
-                            <option value="">اختر مساراً محدداً مسبقاً...</option>
+                        <select value={selectedRouteId} onChange={e => setSelectedRouteId(e.target.value)} disabled={!selectedTeam} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 disabled:opacity-60 disabled:cursor-not-allowed focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none">
+                            <option value="">{selectedTeam ? 'اختر مساراً محدداً مسبقاً...' : 'اختر الفريق أولاً...'}</option>
                             {availableRoutes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                         </select>
                     </div>
@@ -389,7 +442,7 @@ export default function RouteAssigner() {
                         <div className="flex gap-2 mb-3">
                             <select onChange={e => { addExtraZone(e.target.value); e.target.value = ''; }} className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none">
                                 <option value="">اختر منطقة...</option>
-                                {allGeoUnits.filter(n => !finalZoneIds.has(n.id)).map(n => <option key={n.id} value={n.id}>{n.name} ({levelNames[n.level]})</option>)}
+                                {selectableExtraZones.filter(n => !finalZoneIds.has(n.id)).map(n => <option key={n.id} value={n.id}>{n.name} ({levelNames[n.level]})</option>)}
                             </select>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -412,28 +465,34 @@ export default function RouteAssigner() {
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden sticky top-0">
                         <div className="p-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
                             <h3 className="text-slate-900 font-bold text-sm flex items-center gap-2"><ListOrdered className="w-4 h-4 text-emerald-500" />محطات نطاق العمل</h3>
-                            <div className="text-xs font-bold text-slate-500">Leads مسندة للمشرفة</div>
+                            <div className="text-xs font-bold text-slate-500">عدد العملاء</div>
                         </div>
                         <div className="p-3 space-y-1 max-h-96 overflow-y-auto custom-scroll">
                             {finalZones.length === 0 ? (
                                 <p className="text-center text-slate-500 text-sm py-6">لا توجد مناطق بعد</p>
                             ) : finalZones.map((z, i) => {
                                 const colors = levelColors[z.level] || levelColors[4];
-                                const stationLeadCount = stationLeadCounts ? (stationLeadCounts[z.id] ?? 0) : null;
+                                const stationLeadCountLabel = getStationLeadCountLabel(z.id);
                                 return (
                                     <div key={z.id} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 hover:bg-sky-50 transition-colors">
                                         <span className="w-6 h-6 rounded-full bg-sky-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
                                         <span className="text-slate-800 text-sm">{z.name}</span>
                                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${colors.bg} ${colors.text} ${colors.border}`}>{levelNames[z.level]}</span>
-                                        <span className="mr-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                                            <span>محتملون</span>
-                                            <span>{stationLeadCountsLoading && stationLeadCounts === null ? '...' : stationLeadCount ?? '-'}</span>
-                                        </span>
+                                        {stationLeadCountLabel && (
+                                            <span className="mr-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                                <span>{stationLeadCountLabel}</span>
+                                            </span>
+                                        )}
                                         {i < finalZones.length - 1 && <ArrowLeft className="w-3 h-3 text-slate-400" />}
                                     </div>
                                 );
                             })}
                         </div>
+                        {hasUnsavedChanges && (
+                            <div className="p-3 border-t border-amber-100 bg-amber-50 text-xs font-bold text-amber-700">
+                                سيظهر عدد العملاء لكل محطة بعد حفظ نطاق العمل.
+                            </div>
+                        )}
                         {totalPotentialLeads !== null && (
                             <div className="p-3 border-t border-gray-200 bg-gray-50">
                                 <div className="flex items-center justify-between">

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { TaskList, TaskListItem, Appointment, CallLog, CallOutcome } from '../lib/types';
+import { TaskList, TaskListItem, Appointment, CallLog } from '../lib/types';
+import type { TelemarketingOutcomeCode } from '@golden-crm/shared';
 import { api } from '../lib/api';
 
 function simpleUUID() {
@@ -14,11 +15,11 @@ interface TelemarketingStore {
     taskLists: TaskList[];
     appointments: Appointment[];
     callLogs: CallLog[];
-    loadData: () => Promise<void>;
+    loadData: (date?: string) => Promise<void>;
     generateTaskList: (teamKey: string, date: string, items: Omit<TaskListItem, 'id' | 'status'>[]) => Promise<void>;
     addCallLog: (log: Omit<CallLog, 'id' | 'timestamp'>) => Promise<void>;
     addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>) => Promise<void>;
-    updateTaskListItemStatus: (taskListId: string, itemId: string, status: TaskListItem['status'], outcome?: CallOutcome) => Promise<void>;
+    updateTaskListItemStatus: (taskListId: string, itemId: string, status: TaskListItem['status'], outcome?: TelemarketingOutcomeCode) => Promise<void>;
     getTaskList: (teamKey: string, date: string) => TaskList | undefined;
     getAppointmentsForTeamDate: (teamKey: string, date: string) => Appointment[];
     getBookedSlots: (teamKey: string, date: string) => Set<string>;
@@ -30,9 +31,9 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
     appointments: [],
     callLogs: [],
 
-    loadData: async () => {
+    loadData: async (date?: string) => {
         try {
-            const snapshot = await api.telemarketing.snapshot();
+            const snapshot = await api.telemarketing.snapshot(date);
             set({
                 taskLists: snapshot.taskLists,
                 appointments: snapshot.appointments,

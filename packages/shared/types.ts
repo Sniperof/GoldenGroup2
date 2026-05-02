@@ -325,6 +325,123 @@ export interface Visit {
     notes?: string;
 }
 
+export type MarketingVisitType = 'marketing';
+
+export type MarketingVisitStatus =
+    | 'scheduled'
+    | 'completed'
+    | 'not_completed'
+    | 'postponed_by_company'
+    | 'postponed_by_customer'
+    | 'cancelled'
+    | 'needs_reschedule';
+
+export type MarketingVisitTaskType = 'device_demo';
+
+export type MarketingVisitTaskStatus = 'pending' | 'completed' | 'not_completed';
+
+export type MarketingVisitTaskResult =
+    | 'cash_offer_closed'
+    | 'installment_offer_closed'
+    | 'cash_offer_not_closed'
+    | 'installment_offer_not_closed'
+    | 'demo_not_completed';
+
+export type MarketingVisitSourceType = 'telemarketing_appointment';
+
+export type MarketingVisitNonCompletionReason =
+    | 'no_entry_to_home'
+    | 'customer_unavailable'
+    | 'wrong_address'
+    | 'customer_refused_visit'
+    | 'financial_not_ready'
+    | 'company_reason'
+    | 'other';
+
+export interface MarketingVisitTeamSnapshot {
+    supervisorEmployeeId?: number | null;
+    technicianEmployeeId?: number | null;
+    traineeEmployeeId?: number | null;
+    telemarketerEmployeeIds?: number[];
+}
+
+export interface MarketingVisitTask {
+    id: string;
+    visitId: string;
+    taskType: MarketingVisitTaskType;
+    status: MarketingVisitTaskStatus;
+    result?: MarketingVisitTaskResult | null;
+    cashOfferAmount?: number | null;
+    installmentAmount?: number | null;
+    installmentMonths?: number | null;
+    closedByEmployeeId?: number | null;
+    resultNotes?: string | null;
+    contractId?: number | null;
+    completedAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface MarketingVisit {
+    id: string;
+    branchId: number;
+    clientId: number;
+    visitType: MarketingVisitType;
+    status: MarketingVisitStatus;
+    scheduledDate: string;
+    scheduledTime: string;
+    sourceType: MarketingVisitSourceType;
+    sourceId: string;
+    contactTargetId?: number | null;
+    taskListId?: string | null;
+    taskListItemId?: string | null;
+    teamKey?: string | null;
+    requestedDeviceModelId?: number | null;
+    requestedDeviceName?: string | null;
+    waterSource?: string | null;
+    technicianNotes?: string | null;
+    customerName?: string | null;
+    customerAddress?: string | null;
+    customerMobile?: string | null;
+    clientNickname?: string | null;
+    clientOccupation?: string | null;
+    clientGender?: 'male' | 'female' | null;
+    clientDataQuality?: 'correct' | 'incorrect' | 'needs_edit' | null;
+    clientRating?: 'Committed' | 'NotCommitted' | 'Undefined' | null;
+    clientContacts?: ContactEntry[] | null;
+    clientGovernorate?: string | null;
+    clientDistrict?: string | null;
+    clientNeighborhood?: string | null;
+    clientDetailedAddress?: string | null;
+    clientGpsCoordinates?: { lat: number; lng: number } | null;
+    branchName?: string | null;
+    referrerName?: string | null;
+    supervisorEmployeeId?: number | null;
+    technicianEmployeeId?: number | null;
+    traineeEmployeeId?: number | null;
+    teamSnapshot?: MarketingVisitTeamSnapshot | null;
+    workRouteCount?: number | null;
+    additionalAreaCount?: number | null;
+    task?: MarketingVisitTask | null;
+    tasks?: MarketingVisitTask[];
+    createdBy?: number | null;
+    completedBy?: number | null;
+    completedAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface MarketingVisitResultUpdateRequest {
+    status: MarketingVisitStatus;
+    taskResult?: MarketingVisitTaskResult | null;
+    cashOfferAmount?: number | null;
+    installmentAmount?: number | null;
+    installmentMonths?: number | null;
+    closedByEmployeeId?: number | null;
+    nonCompletionReason?: MarketingVisitNonCompletionReason | null;
+    notes?: string | null;
+}
+
 export interface TeamSlot {
     supervisor: number | null;
     technician: number | null;
@@ -470,7 +587,32 @@ export interface MaintenanceRequest {
     };
 }
 
-export type CallOutcome = 'no_answer' | 'busy' | 'rejected' | 'booked';
+export type CallOutcome =
+  // Legacy (kept for backward compatibility)
+  | 'no_answer'
+  | 'busy'
+  | 'rejected'
+  | 'booked'
+  // Group 1: Not reached
+  | 'out_of_coverage'
+  | 'not_in_service'
+  | 'wrong_number'
+  | 'auto_disconnected'
+  // Group 2: Reached — no appointment
+  | 'currently_busy'
+  | 'interrupted'
+  | 'not_interested'
+  | 'other_company_not_interested'
+  | 'seen_offer_not_interested'
+  | 'address_updated'
+  // Group 3: Reached — follow-up
+  | 'other_company_callback'
+  | 'seen_offer_callback'
+  // Group 4: Reached — service / transfer
+  | 'service_request'
+  | 'company_customer_missing_phone'
+  // Group 5: Appointment booking
+  | 'booked_marketing_appointment';
 
 export interface TaskListItem {
     id: string;
@@ -484,6 +626,7 @@ export interface TaskListItem {
     geoUnitId: number | null;
     status: 'pending' | 'called' | 'booked';
     callOutcome?: CallOutcome;
+    contactTargetId?: number;
 }
 
 export interface TaskList {
@@ -505,8 +648,10 @@ export interface CallLog {
     contactNumber?: string;
     notes: string;
     timestamp: string;
-    calledBy: number;
+    calledBy?: number;
     communicationMethod?: 'phone' | 'whatsapp_text' | 'whatsapp_voice';
+    contactTargetId?: number;
+    taskListItemId?: string;
 }
 
 export interface Appointment {
@@ -522,8 +667,15 @@ export interface Appointment {
     occupation: string;
     waterSource: string;
     notes: string;
+    visitTasks: string[];
+    requestedDeviceModelId?: number | null;
+    requestedDeviceName?: string;
     createdAt: string;
-    createdBy: number;
+    createdBy?: number;
+    contactTargetId?: number;
+    taskListItemId?: string;
+    taskListId?: string;
+    marketingVisitId?: string | null;
 }
 
 export const WORKING_HOURS = { start: 9, end: 17, slotMinutes: 60 };

@@ -30,7 +30,9 @@ import visitsRouter from './routes/visits.js';
 import schedulesRouter from './routes/schedules.js';
 import routeAssignmentsRouter from './routes/routeAssignments.js';
 import planningRouter from './routes/planning.js';
+import contactTargetsRouter from './routes/contactTargets.js';
 import telemarketingRouter from './routes/telemarketing.js';
+import marketingVisitsRouter from './routes/marketingVisits.js';
 import dashboardRouter from './routes/dashboard.js';
 import vacanciesRouter from './routes/vacancies.js';
 import publicVacanciesRouter from './routes/publicVacancies.js';
@@ -80,7 +82,9 @@ app.use('/api/visits', ...branchOnly, visitsRouter);
 app.use('/api/schedules', ...branchOnly, schedulesRouter);
 app.use('/api/route-assignments', ...branchOnly, routeAssignmentsRouter);
 app.use('/api/planning', ...branchOnly, planningRouter);
+app.use('/api/contact-targets', ...branchOnly, contactTargetsRouter);
 app.use('/api/telemarketing', ...branchOnly, telemarketingRouter);
+app.use('/api/marketing-visits', ...branchOnly, marketingVisitsRouter);
 
 // ── Shared routes (HQ + branch) ───────────────────────────────────────────────
 app.use('/api/contracts', contractsRouter);

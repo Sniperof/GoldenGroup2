@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
     Headset, Phone, FileText, CheckCircle2, History, CreditCard,
     AlertTriangle, Calendar, Send, Zap, User, Clock, CheckCircle,
-    MapPin, PlusCircle, MessageSquare, ThumbsUp, Wrench, Activity, Briefcase
+    MapPin, PlusCircle, MessageSquare, ThumbsUp, Wrench, Activity, Briefcase,
+    Search, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
@@ -11,22 +12,95 @@ import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
 import TeamAgendaPanel from '../components/telemarketing/TeamAgendaPanel';
 import OutcomeRecorderModal from '../components/telemarketing/OutcomeRecorderModal';
 import AppointmentSchedulerModal from '../components/telemarketing/AppointmentSchedulerModal';
-import type { DaySchedule, CallOutcome, Contract, Visit, Employee } from '../lib/types';
+import type { DaySchedule, Contract, Visit, Employee, TaskListItem, Appointment } from '../lib/types';
+import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
+import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY } from '@golden-crm/shared';
+import { buildGeoHierarchyLabel } from '../utils/addressUtils';
 import { getEntityContacts } from '../lib/contactUtils';
 
-const getToday = () => new Date().toISOString().split('T')[0];
+const formatDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 
-const outcomeConfig: Record<CallOutcome, { label: string; color: string; bg: string }> = {
-    booked: { label: 'تم الحجز', color: 'text-emerald-700', bg: 'bg-emerald-100' },
-    busy: { label: 'مشغول', color: 'text-amber-700', bg: 'bg-amber-100' },
-    no_answer: { label: 'لا يرد', color: 'text-orange-700', bg: 'bg-orange-100' },
-    rejected: { label: 'مرفوض', color: 'text-red-700', bg: 'bg-red-100' },
+const parseDateKey = (value: string) => {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day);
+};
+
+const getToday = () => formatDateKey(new Date());
+
+const shiftDate = (dateStr: string, days: number) => {
+    const d = parseDateKey(dateStr);
+    d.setDate(d.getDate() + days);
+    return formatDateKey(d);
+};
+
+const formatDateArabic = (dateStr: string) => {
+    const d = parseDateKey(dateStr);
+    return d.toLocaleDateString('ar-SY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+};
+
+type StatusFilter = 'all' | 'remaining' | 'booked' | 'contacted' | 'rejected';
+
+const statusFilterConfig: Record<StatusFilter, { label: string; activeBg: string; activeText: string; inactiveBg: string; inactiveText: string }> = {
+    all: { label: 'الكل', activeBg: 'bg-slate-700', activeText: 'text-white', inactiveBg: 'bg-slate-100', inactiveText: 'text-slate-600' },
+    remaining: { label: 'معلق', activeBg: 'bg-violet-600', activeText: 'text-white', inactiveBg: 'bg-violet-50', inactiveText: 'text-violet-700' },
+    booked: { label: 'محجوز', activeBg: 'bg-emerald-600', activeText: 'text-white', inactiveBg: 'bg-emerald-50', inactiveText: 'text-emerald-700' },
+    contacted: { label: 'تم التواصل', activeBg: 'bg-sky-600', activeText: 'text-white', inactiveBg: 'bg-sky-50', inactiveText: 'text-sky-700' },
+    rejected: { label: 'مرفوض', activeBg: 'bg-red-600', activeText: 'text-white', inactiveBg: 'bg-red-50', inactiveText: 'text-red-700' },
+};
+
+const getStatusGroup = (task: TaskListItem, hasAppointment?: boolean): StatusFilter => {
+    if (task.status === 'booked' || hasAppointment) return 'booked';
+    if (task.callOutcome) {
+        const meta = getOutcomeMeta(task.callOutcome);
+        if (meta.closesContactTarget) return 'rejected';
+    }
+    if (task.status === 'called') return 'contacted';
+    return 'remaining';
+};
+
+const getOutcomeDisplay = (code: string): { label: string; color: string; bg: string } => {
+    const meta = getOutcomeMeta(code);
+    const colors: Record<string, { color: string; bg: string }> = {
+        no_answer: { color: 'text-orange-700', bg: 'bg-orange-100' },
+        busy: { color: 'text-amber-700', bg: 'bg-amber-100' },
+        out_of_coverage: { color: 'text-orange-600', bg: 'bg-orange-100' },
+        not_in_service: { color: 'text-red-600', bg: 'bg-red-100' },
+        wrong_number: { color: 'text-red-700', bg: 'bg-red-100' },
+        auto_disconnected: { color: 'text-orange-600', bg: 'bg-orange-100' },
+        currently_busy: { color: 'text-amber-700', bg: 'bg-amber-100' },
+        interrupted: { color: 'text-amber-600', bg: 'bg-amber-100' },
+        not_interested: { color: 'text-red-700', bg: 'bg-red-100' },
+        other_company_not_interested: { color: 'text-red-700', bg: 'bg-red-100' },
+        seen_offer_not_interested: { color: 'text-red-700', bg: 'bg-red-100' },
+        address_updated: { color: 'text-sky-700', bg: 'bg-sky-100' },
+        other_company_callback: { color: 'text-violet-700', bg: 'bg-violet-100' },
+        seen_offer_callback: { color: 'text-violet-700', bg: 'bg-violet-100' },
+        service_request: { color: 'text-indigo-700', bg: 'bg-indigo-100' },
+        company_customer_missing_phone: { color: 'text-indigo-700', bg: 'bg-indigo-100' },
+        booked_marketing_appointment: { color: 'text-emerald-700', bg: 'bg-emerald-100' },
+        rejected: { color: 'text-red-700', bg: 'bg-red-100' },
+        booked: { color: 'text-emerald-700', bg: 'bg-emerald-100' },
+    };
+    return { label: meta.label, ...(colors[code] ?? { color: 'text-slate-700', bg: 'bg-slate-100' }) };
 };
 
 const getInitials = (name: string) => name.trim().split(' ').map(n => n[0]).slice(0, 2).join('') || 'U';
 
+const getAppointmentForTask = (task: TaskListItem, appointments: Appointment[], teamKey: string, date: string): Appointment | undefined => {
+    return appointments.find(appt =>
+        appt.entityType === task.entityType &&
+        appt.entityId === task.entityId &&
+        appt.teamKey === teamKey &&
+        appt.date === date
+    );
+};
+
 export default function TelemarketerWorkspace() {
-    // Stores & Data Load
     const candidates = useCandidateStore(state => state.candidates);
     const { clients, loadClients, updateClient } = useClientStore();
     const { taskLists, appointments, callLogs, loadData, addCallLog, addAppointment, updateTaskListItemStatus, getTaskList, getAppointmentsForTeamDate } = useTelemarketingStore();
@@ -35,36 +109,65 @@ export default function TelemarketerWorkspace() {
     const [visits, setVisits] = useState<Visit[]>([]);
     const [maintenanceRequests, setMaintenanceRequests] = useState<any[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
+    const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [currentSchedule, setCurrentSchedule] = useState<DaySchedule>({ teams: [], solos: [] });
-    const [date] = useState(getToday());
+    const [date, setDate] = useState(getToday());
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+
+    const changeDateBy = useCallback((days: number) => {
+        setDate(prevDate => shiftDate(prevDate, days));
+    }, []);
+
+    const goToToday = useCallback(() => {
+        setDate(getToday());
+    }, []);
+
+    const previousDayButton = useCallback(() => {
+        changeDateBy(-1);
+    }, [changeDateBy]);
+
+    const nextDayButton = useCallback(() => {
+        changeDateBy(1);
+    }, [changeDateBy]);
 
     useEffect(() => {
         loadClients();
-        loadData();
+        loadData(date);
+
+        // Clear stale selection while new date data loads
+        setSelectedTaskId(null);
 
         Promise.all([
             api.contracts.list(),
             api.visits.list(),
             api.maintenanceRequests.list(),
             api.employees.list(),
-            api.schedules.get(date),
+            api.geoUnits.list(),
         ])
-            .then(([contractsData, visitsData, maintenanceData, employeesData, scheduleData]) => {
+            .then(([contractsData, visitsData, maintenanceData, employeesData, geoUnitsData]) => {
                 setContracts(contractsData);
                 setVisits(visitsData);
                 setMaintenanceRequests(maintenanceData);
                 setEmployees(employeesData);
-                setCurrentSchedule(scheduleData || { teams: [], solos: [] });
+                setGeoUnits(geoUnitsData);
             })
-            .catch((error) => {
-                console.error('Failed to load telemarketer workspace data:', error);
+            .catch(() => {
                 setContracts([]);
                 setVisits([]);
                 setMaintenanceRequests([]);
                 setEmployees([]);
-                setCurrentSchedule({ teams: [], solos: [] });
+                setGeoUnits([]);
             });
-    }, [date, loadClients, loadData]);
+    }, [loadClients, loadData, date]);
+
+    useEffect(() => {
+        // Clear old schedule immediately so stale team names don't display
+        setCurrentSchedule({ teams: [], solos: [] });
+        api.schedules.get(date)
+            .then(data => setCurrentSchedule(data || { teams: [], solos: [] }))
+            .catch(() => setCurrentSchedule({ teams: [], solos: [] }));
+    }, [date]);
 
     const getEmp = (id: number | null) => employees.find(e => e.id === id) || null;
 
@@ -81,18 +184,19 @@ export default function TelemarketerWorkspace() {
             teams.push({ key: `solo_${idx}`, label: tech ? `فردي ${tech.name}` : `فردي #${idx + 1}`, type: 'solo', count: 1 });
         });
         return teams;
-    }, [currentSchedule]);
+    }, [currentSchedule, employees]);
 
-    const [selectedTeamKey, setSelectedTeamKey] = useState<string>(availableTeams[0]?.key || '');
+    const [selectedTeamKey, setSelectedTeamKey] = useState<string>('');
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!selectedTeamKey && availableTeams[0]?.key) {
-            setSelectedTeamKey(availableTeams[0].key);
+        const validKeys = availableTeams.map(t => t.key);
+        if (!validKeys.includes(selectedTeamKey)) {
+            setSelectedTeamKey(validKeys[0] || '');
+            setSelectedTaskId(null);
         }
     }, [availableTeams, selectedTeamKey]);
 
-    // Active Task List
     const activeTaskList = useMemo(() => {
         if (!selectedTeamKey) return null;
         return getTaskList(selectedTeamKey, date);
@@ -103,28 +207,63 @@ export default function TelemarketerWorkspace() {
         return [...raw].sort((a, b) => {
             if (a.status === 'pending' && b.status !== 'pending') return -1;
             if (a.status !== 'pending' && b.status === 'pending') return 1;
-            return 0; // Maintain original order (creation) for same status
+            return 0;
         });
     }, [activeTaskList]);
 
-    const remainingCount = tasks.filter(t => t.status === 'pending').length;
-    const completedCount = tasks.filter(t => t.status !== 'pending').length;
     const teamAppointments = useMemo(() => getAppointmentsForTeamDate(selectedTeamKey, date), [getAppointmentsForTeamDate, selectedTeamKey, date, appointments]);
 
-    // Auto-select first pending task
+    const getTaskAppointment = useCallback((task: TaskListItem) => getAppointmentForTask(task, teamAppointments, selectedTeamKey, date), [teamAppointments, selectedTeamKey, date]);
+
+    const counts = useMemo(() => ({
+        remaining: tasks.filter(t => getStatusGroup(t, !!getAppointmentForTask(t, teamAppointments, selectedTeamKey, date)) === 'remaining').length,
+        booked: tasks.filter(t => getStatusGroup(t, !!getAppointmentForTask(t, teamAppointments, selectedTeamKey, date)) === 'booked').length,
+        contacted: tasks.filter(t => getStatusGroup(t, !!getAppointmentForTask(t, teamAppointments, selectedTeamKey, date)) === 'contacted').length,
+        rejected: tasks.filter(t => getStatusGroup(t, !!getAppointmentForTask(t, teamAppointments, selectedTeamKey, date)) === 'rejected').length,
+    }), [tasks, teamAppointments, selectedTeamKey, date]);
+
+    const filteredTasks = useMemo(() => {
+        let result = tasks;
+        if (statusFilter !== 'all') {
+            result = result.filter(t => getStatusGroup(t, !!getTaskAppointment(t)) === statusFilter);
+        }
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            result = result.filter(t =>
+                t.name.toLowerCase().includes(q) ||
+                (t.mobile && t.mobile.toLowerCase().includes(q)) ||
+                (t.contactNumber && t.contactNumber.toLowerCase().includes(q))
+            );
+        }
+        return result;
+    }, [tasks, statusFilter, searchQuery, getTaskAppointment]);
+
     useEffect(() => {
-        if (!selectedTaskId && tasks.length > 0) {
-            const firstPending = tasks.find(t => t.status === 'pending') || tasks[0];
+        if (selectedTaskId && !filteredTasks.some(t => t.id === selectedTaskId)) {
+            setSelectedTaskId(filteredTasks[0]?.id || null);
+            return;
+        }
+        if (!selectedTaskId && filteredTasks.length > 0) {
+            const firstPending = filteredTasks.find(t => t.status === 'pending') || filteredTasks[0];
             setSelectedTaskId(firstPending.id);
         }
-    }, [tasks, selectedTaskId]);
+    }, [filteredTasks, selectedTaskId]);
 
-    // Workspace UI State
-    const [activeTab, setActiveTab] = useState<'journey' | 'calls' | 'contracts' | 'visits'>('journey');
+    const [activeTab, setActiveTab] = useState<'journey' | 'contracts' | 'visits'>('journey');
     const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
     const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
 
     const selectedTask = useMemo(() => tasks.find(t => t.id === selectedTaskId) || null, [tasks, selectedTaskId]);
+
+    const selectedTaskAppointment = useMemo(() => {
+        if (!selectedTask) return null;
+        return getAppointmentForTask(selectedTask, teamAppointments, selectedTeamKey, date);
+    }, [selectedTask, teamAppointments, selectedTeamKey, date]);
+
+    const isBookedForSelected = useMemo(() => {
+        if (!selectedTask) return false;
+        return selectedTask.status === 'booked' || selectedTask.callOutcome === 'booked_marketing_appointment' || !!selectedTaskAppointment;
+    }, [selectedTask, selectedTaskAppointment]);
 
     const entityDetails = useMemo(() => {
         if (!selectedTask) return null;
@@ -134,8 +273,10 @@ export default function TelemarketerWorkspace() {
         return clients.find(c => c.id === selectedTask.entityId);
     }, [selectedTask, candidates, clients]);
 
-    const handleSaveOutcome = async (contactId: string, outcome: CallOutcome, notes: string, newContactStatus?: string, communicationMethod?: 'phone' | 'whatsapp_text' | 'whatsapp_voice') => {
+    const handleSaveOutcome = async (contactId: string, outcome: TelemarketingOutcomeCode, notes: string, newContactStatus?: string, communicationMethod?: 'phone' | 'whatsapp_text' | 'whatsapp_voice') => {
         if (!selectedTask) return;
+
+        const meta = OUTCOME_MAP[outcome] ?? OUTCOME_MAP['no_answer'];
 
         const entityContacts = getEntityContacts(entityDetails as any);
         const selectedContact = entityContacts.find(c => c.id === contactId) || entityContacts[0];
@@ -144,39 +285,41 @@ export default function TelemarketerWorkspace() {
             entityType: selectedTask.entityType,
             entityId: selectedTask.entityId,
             taskListId: activeTaskList!.id,
+            taskListItemId: selectedTask.id,
             teamKey: selectedTeamKey,
             outcome,
             contactLabel: selectedContact.label,
             contactNumber: selectedContact.number,
             notes,
-            calledBy: 1, // mock user
             communicationMethod
         });
 
-        // Determine if we need to auto-set preferred status
-        const finalContactStatus = (outcome === 'booked') ? 'مفضل' : newContactStatus;
-
-        // Update contact status if requested or booked
-        if (finalContactStatus && selectedTask.entityType === 'client') {
+        // Phone status update: only update the specific selected contact
+        if (newContactStatus && selectedTask.entityType === 'client') {
             const client = clients.find(c => c.id === selectedTask.entityId);
-            if (client) {
-                const updatedContacts = client.contacts.map((c: any) =>
-                    c.id === contactId ? { ...c, status: finalContactStatus } : c
-                );
-                await updateClient(client.id, { contacts: updatedContacts });
+            if (client && contactId !== 'legacy-fallback') {
+                const contactEntry = client.contacts?.find((c: any) => c.id === contactId);
+                if (contactEntry) {
+                    const updatedContacts = client.contacts.map((c: any) =>
+                        c.id === contactId ? { ...c, status: newContactStatus } : c
+                    );
+                    await updateClient(client.id, { contacts: updatedContacts });
+                }
             }
         }
 
-        const currentTaskLogs = callLogs.filter(log => log.entityId === selectedTask.entityId && log.entityType === selectedTask.entityType);
-        const attempts = currentTaskLogs.length + 1;
-
-        const newStatus = (outcome === 'booked') ? 'booked'
-            : (outcome === 'rejected' || attempts >= 3) ? 'called'
-                : 'pending';
+        // Determine item status from outcome mapping
+        const newStatus = meta.itemStatusAfterSave;
         await updateTaskListItemStatus(activeTaskList!.id, selectedTask.id, newStatus, outcome);
 
-        if (newStatus !== 'pending') {
-            // Auto move to next pending task after small delay
+        // Close outcome recorder modal
+        setIsOutcomeModalOpen(false);
+
+        // If the outcome opens appointment flow, show appointment modal
+        if (meta.opensAppointment) {
+            setIsAppointmentModalOpen(true);
+        } else if (newStatus !== 'pending') {
+            // Auto-advance to next pending task for non-pending outcomes (unless booking appointment)
             setTimeout(() => {
                 const pendingTasks = tasks.filter(t => t.status === 'pending' && t.id !== selectedTask.id);
                 if (pendingTasks.length > 0) {
@@ -186,7 +329,7 @@ export default function TelemarketerWorkspace() {
         }
     };
 
-    const handleSaveAppointment = async (visitTime: string, duration: string, occupation: string, waterSource: string, notes: string) => {
+    const handleSaveAppointment = async (data: { visitTime: string; visitTasks: string[]; waterSource: string; requestedDeviceModelId: number | null; requestedDeviceName: string; technicianNotes: string }) => {
         if (!selectedTask) return;
         await addAppointment({
             entityType: selectedTask.entityType,
@@ -195,21 +338,25 @@ export default function TelemarketerWorkspace() {
             customerAddress: selectedTask.addressText,
             customerMobile: selectedTask.mobile,
             teamKey: selectedTeamKey,
+            taskListItemId: selectedTask.id,
+            taskListId: activeTaskList!.id,
             date,
-            timeSlot: visitTime,
-            occupation,
-            waterSource,
-            notes,
-            createdBy: 1
+            timeSlot: data.visitTime,
+            occupation: '',
+            waterSource: data.waterSource,
+            notes: data.technicianNotes,
+            visitTasks: data.visitTasks,
+            requestedDeviceModelId: data.requestedDeviceModelId,
+            requestedDeviceName: data.requestedDeviceName,
         });
 
         if (selectedTask.entityType === 'client') {
-            await updateClient(selectedTask.entityId, { occupation, waterSource });
+            await updateClient(selectedTask.entityId, { waterSource: data.waterSource });
         }
 
-        if (selectedTask.status === 'pending') {
-            await updateTaskListItemStatus(activeTaskList!.id, selectedTask.id, 'booked', 'booked');
-        }
+        await updateTaskListItemStatus(activeTaskList!.id, selectedTask.id, 'booked', 'booked_marketing_appointment');
+
+        await loadData(date);
     };
 
     const getEntityCallLogs = () => {
@@ -222,7 +369,6 @@ export default function TelemarketerWorkspace() {
         if (!selectedTask) return [];
         const events: any[] = [];
 
-        // 1. Suggestion / Candidate creation
         if (selectedTask.entityType === 'candidate') {
             const cand = candidates.find(c => c.id === selectedTask.entityId);
             if (cand) {
@@ -244,7 +390,6 @@ export default function TelemarketerWorkspace() {
             }
         }
 
-        // 2. Client Creation
         if (selectedTask.entityType === 'client') {
             const client = clients.find(c => c.id === selectedTask.entityId);
             if (client) {
@@ -266,7 +411,6 @@ export default function TelemarketerWorkspace() {
             }
         }
 
-        // 3. Contracts
         if (selectedTask.entityType === 'client') {
             const taskContracts = contracts.filter(c => c.customerId === selectedTask.entityId);
             taskContracts.forEach(c => {
@@ -279,7 +423,7 @@ export default function TelemarketerWorkspace() {
                     bg: 'bg-emerald-100',
                     content: (
                         <>
-                            <p className="text-sm font-bold text-slate-800">⭐ تم شراء جهاز <span className="text-emerald-700">"{c.deviceModelName}"</span> بعقد رقم #{c.contractNumber}</p>
+                            <p className="text-sm font-bold text-slate-800">تم شراء جهاز <span className="text-emerald-700">"{c.deviceModelName}"</span> بعقد رقم #{c.contractNumber}</p>
                             <p className="text-xs text-slate-600 mt-1">القيمة: {c.finalPrice.toLocaleString()} ل.س | {c.paymentType === 'cash' ? 'نقدي' : 'أقساط'}</p>
                         </>
                     )
@@ -287,7 +431,6 @@ export default function TelemarketerWorkspace() {
             });
         }
 
-        // 4. Visits
         const taskVisits = visits.filter(v => v.customerId === selectedTask.entityId);
         taskVisits.forEach(v => {
             events.push({
@@ -299,7 +442,7 @@ export default function TelemarketerWorkspace() {
                 bg: 'bg-sky-100',
                 content: (
                     <>
-                        <p className="text-sm font-bold text-slate-800">📍 تم تنفيذ زيارة {v.outcome === 'Completed' ? 'ناجحة' : 'بالحالة: ' + v.outcome}</p>
+                        <p className="text-sm font-bold text-slate-800">تم تنفيذ زيارة {v.outcome === 'Completed' ? 'ناجحة' : 'بالحالة: ' + v.outcome}</p>
                         <p className="text-xs text-slate-600 mt-1">بواسطة الفني: {v.employeeName}</p>
                         {v.notes && <p className="text-xs text-slate-500 mt-1 border border-slate-200 bg-slate-50 p-1.5 rounded">ملاحظات: {v.notes}</p>}
                     </>
@@ -307,7 +450,6 @@ export default function TelemarketerWorkspace() {
             });
         });
 
-        // 5. Maintenance Requests
         if (selectedTask.entityType === 'client') {
             const taskMaintenance = maintenanceRequests.filter(m => m.customerId === selectedTask.entityId);
             taskMaintenance.forEach(m => {
@@ -320,7 +462,7 @@ export default function TelemarketerWorkspace() {
                     bg: 'bg-orange-100',
                     content: (
                         <>
-                            <p className="text-sm font-bold text-slate-800">🛠️ تم تنفيذ زيارة صيانة <span className="text-orange-700">"{m.visitType}"</span></p>
+                            <p className="text-sm font-bold text-slate-800">تم تنفيذ زيارة صيانة <span className="text-orange-700">"{m.visitType}"</span></p>
                             <p className="text-xs text-slate-600 mt-1">وصف المشكلة: {m.problemDescription}</p>
                             <p className="text-xs text-slate-600">الحالة: {m.resolutionStatus}</p>
                         </>
@@ -329,9 +471,8 @@ export default function TelemarketerWorkspace() {
             });
         }
 
-        // 6. Call Logs
         const taskCalls = callLogs.filter(log => log.entityId === selectedTask.entityId && log.entityType === selectedTask.entityType)
-            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // sort ascending by date for attempt counting
+            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
         taskCalls.forEach((log, index) => {
             const isWhatsApp = log.communicationMethod?.startsWith('whatsapp');
@@ -347,19 +488,19 @@ export default function TelemarketerWorkspace() {
                 content: (
                     <>
                         <p className="text-sm font-bold text-slate-800 flex items-center justify-between">
-                            <span>محاولة تواصل <span className={`px-1.5 py-0.5 rounded text-[10px] mr-1 ${outcomeConfig[log.outcome]?.bg} ${outcomeConfig[log.outcome]?.color}`}>{outcomeConfig[log.outcome]?.label || log.outcome}</span></span>
+                            <span>محاولة تواصل <span className={`px-1.5 py-0.5 rounded text-[10px] mr-1 ${getOutcomeDisplay(log.outcome).bg} ${getOutcomeDisplay(log.outcome).color}`}>{getOutcomeDisplay(log.outcome).label}</span></span>
                             <span className="text-xs text-slate-500 font-bold bg-slate-100 rounded px-2 py-0.5" dir="ltr">المحاولة {index + 1}</span>
                         </p>
                         <p className="text-xs text-slate-600 mt-2" dir="ltr">{log.contactNumber} ({log.contactLabel})</p>
                         {log.notes && <p className="text-xs text-slate-500 mt-2 border border-slate-200 bg-slate-50 p-2.5 rounded shadow-sm">ملاحظات: {log.notes}</p>}
 
-                        {isLatest && !['booked', 'rejected'].includes(log.outcome) && taskCalls.length < 3 && (
+                        {isLatest && !getOutcomeMeta(log.outcome).closesContactTarget && !getOutcomeMeta(log.outcome).opensAppointment && taskCalls.length < 3 && (
                             <button onClick={() => setIsOutcomeModalOpen(true)} className="mt-3 text-xs flex items-center gap-1 text-violet-600 font-bold bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-lg border border-violet-200 transition-colors w-full justify-center shadow-sm">
                                 <Phone className="w-3.5 h-3.5" /> محاولة مرة أخرى
                             </button>
                         )}
 
-                        {isLatest && taskCalls.length >= 3 && !['booked', 'rejected'].includes(log.outcome) && (
+                        {isLatest && taskCalls.length >= 3 && !getOutcomeMeta(log.outcome).closesContactTarget && !getOutcomeMeta(log.outcome).opensAppointment && (
                             <div className="mt-3 text-xs font-bold text-amber-700 bg-amber-50 rounded-lg p-3 border border-amber-200 shadow-sm flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                                 <div>
@@ -373,20 +514,30 @@ export default function TelemarketerWorkspace() {
             });
         });
 
-        // Sort new to old
         return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     };
 
     const journeyEvents = useMemo(() => generateJourneyEvents(), [selectedTask, candidates, clients, contracts, visits, maintenanceRequests, callLogs]);
 
-    // Metrics for Col 3
+    const remainingCount = tasks.filter(t => getStatusGroup(t, !!getTaskAppointment(t)) === 'remaining').length;
+    const completedCount = tasks.filter(t => getStatusGroup(t, !!getTaskAppointment(t)) !== 'remaining').length;
     const totalScheduled = teamAppointments.length;
-    const bookingRate = completedCount > 0 ? Math.round((tasks.filter(t => t.status === 'booked').length / completedCount) * 100) : 0;
+    const bookedCount = tasks.filter(t => t.status === 'booked' || t.callOutcome === 'booked_marketing_appointment' || !!getTaskAppointment(t)).length;
+    const bookingRate = completedCount > 0 ? Math.round((bookedCount / completedCount) * 100) : 0;
+
+    const isToday = date === getToday();
+
+    const renderEmptyState = (icon: React.ReactNode, message: string) => (
+        <div className="flex-1 flex items-center justify-center flex-col text-slate-400 bg-slate-50 relative overflow-hidden p-6">
+            {icon}
+            <p className="font-bold text-slate-500 text-center mt-3 text-sm">{message}</p>
+        </div>
+    );
 
     return (
         <div className="h-full flex flex-col overflow-hidden bg-slate-100" dir="rtl">
             {/* ─── TOP BAR ─── */}
-            <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between shadow-sm z-10 shrink-0">
+            <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm z-10 shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-xl bg-violet-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
                         <Headset className="w-5 h-5 text-white" />
@@ -395,6 +546,38 @@ export default function TelemarketerWorkspace() {
                         <h1 className="text-base font-bold text-slate-800">إدارة المواعيد <span className="text-slate-400 font-normal text-sm">| Telemarketing</span></h1>
                     </div>
                 </div>
+                <div className="flex items-center gap-2" dir="rtl">
+                    <button
+                        type="button"
+                        onClick={previousDayButton}
+                        title="اليوم السابق"
+                        aria-label="اليوم السابق"
+                        className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200"
+                    >
+                        <ChevronRight className="w-4 h-4 text-slate-600" />
+                        <span className="sr-only">اليوم السابق</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={goToToday}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${isToday ? 'bg-violet-600 text-white border-violet-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                        title="العودة إلى اليوم"
+                        aria-label="العودة إلى اليوم"
+                    >
+                        {formatDateArabic(date)}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={nextDayButton}
+                        title="اليوم التالي"
+                        aria-label="اليوم التالي"
+                        className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200"
+                    >
+                        <ChevronLeft className="w-4 h-4 text-slate-600" />
+                        <span className="sr-only">اليوم التالي</span>
+                    </button>
+                    <span className="text-[10px] font-bold text-slate-400">اليوم السابق / اليوم / اليوم التالي</span>
+                </div>
             </div>
 
             {/* ─── 3-COLUMN LAYOUT ─── */}
@@ -402,38 +585,92 @@ export default function TelemarketerWorkspace() {
 
                 {/* COLUMN 1: Mission Control (20%) */}
                 <div className="w-1/5 min-w-[280px] bg-white border border-gray-200 rounded-xl flex flex-col shadow-sm overflow-hidden">
-                    {/* Team Selector Topsheet */}
+                    {/* Team Selector */}
                     <div className="p-3 border-b border-gray-100 bg-slate-50">
                         <label className="text-xs font-bold text-slate-500 mb-1.5 block">اختر أحد الفرق النشطة</label>
                         <select
                             value={selectedTeamKey}
-                            onChange={e => setSelectedTeamKey(e.target.value)}
+                            onChange={e => { setSelectedTeamKey(e.target.value); setSelectedTaskId(null); }}
                             className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none"
                         >
+                            {availableTeams.length === 0 && <option value="">لا يوجد فرق</option>}
                             {availableTeams.map(t => (
                                 <option key={t.key} value={t.key}>{t.label}</option>
                             ))}
                         </select>
                     </div>
 
+                    {/* Status Filter Tabs with Counts */}
+                    <div className="px-2 py-2 border-b border-gray-100 flex flex-wrap gap-1">
+                        {(Object.keys(statusFilterConfig) as StatusFilter[]).map(filter => {
+                            const config = statusFilterConfig[filter];
+                            const count = filter === 'all' ? tasks.length : counts[filter];
+                            const isActive = statusFilter === filter;
+                            return (
+                                <button
+                                    key={filter}
+                                    onClick={() => setStatusFilter(filter)}
+                                    className={`px-2 py-1 rounded-md text-[11px] font-bold transition-all ${isActive ? `${config.activeBg} ${config.activeText} shadow-sm` : `${config.inactiveBg} ${config.inactiveText} hover:opacity-80`}`}
+                                >
+                                    {config.label} ({count ?? 0})
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="px-2 py-2 border-b border-gray-100">
+                        <div className="relative">
+                            <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                            <input
+                                type="text"
+                                placeholder="بحث بالاسم أو الرقم..."
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                                className="w-full pr-8 pl-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:border-violet-400 focus:outline-none bg-white"
+                            />
+                        </div>
+                    </div>
+
                     {/* Priority Queue Header - Sticky */}
-                    <div className="sticky top-0 z-10 px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
+                    <div className="sticky top-0 z-10 px-4 py-2.5 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
                         <h2 className="text-sm font-black text-slate-700">قائمة المهام</h2>
                         <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-violet-100 text-violet-700 border border-violet-200">{remainingCount} معلق</span>
                     </div>
 
-                    {/* Task Queue List - Scrollable Body */}
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scroll" style={{ maxHeight: 'calc(100vh - 250px)' }}>
-                        {tasks.length === 0 && (
-                            <div className="text-center p-6 mt-10 opacity-50">
-                                <AlertTriangle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                                <p className="text-xs font-bold">لا توجد مهام اتصال</p>
-                            </div>
+                    {/* Task Queue List */}
+                    <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scroll" style={{ maxHeight: 'calc(100vh - 380px)' }}>
+                        {availableTeams.length === 0 && (
+                            renderEmptyState(
+                                <AlertTriangle className="w-10 h-10 text-slate-300" />,
+                                'لا يوجد جدول فرق لهذا التاريخ'
+                            )
                         )}
-                        {tasks.map(task => {
+                        {availableTeams.length > 0 && !activeTaskList && (
+                            renderEmptyState(
+                                <Calendar className="w-10 h-10 text-slate-300" />,
+                                'لم يتم توليد قائمة الاتصال لهذا الفريق بعد'
+                            )
+                        )}
+                        {activeTaskList && filteredTasks.length === 0 && tasks.length > 0 && (
+                            renderEmptyState(
+                                <Search className="w-10 h-10 text-slate-300" />,
+                                'لا توجد نتائج مطابقة للبحث أو الفلتر'
+                            )
+                        )}
+                        {activeTaskList && tasks.length === 0 && (
+                            renderEmptyState(
+                                <AlertTriangle className="w-10 h-10 text-slate-300" />,
+                                'لا يوجد عملاء في قائمة الاتصال'
+                            )
+                        )}
+                        {filteredTasks.map(task => {
                             const isActive = task.id === selectedTaskId;
                             const isProcessed = task.status !== 'pending';
                             const taskLogs = callLogs.filter(l => l.entityId === task.entityId && l.entityType === task.entityType);
+                            const taskAppointment = getTaskAppointment(task);
+                            const isBooked = task.status === 'booked' || task.callOutcome === 'booked_marketing_appointment' || !!taskAppointment;
+                            const statusGroup = getStatusGroup(task, isBooked);
 
                             return (
                                 <button
@@ -441,29 +678,35 @@ export default function TelemarketerWorkspace() {
                                     onClick={() => setSelectedTaskId(task.id)}
                                     className={`w-full text-right p-2.5 rounded-xl border transition-all flex items-start gap-3 outline-none ${isActive
                                         ? 'bg-violet-50 border-violet-300 ring-2 ring-violet-500/10 shadow-sm'
-                                        : task.status === 'booked'
-                                            ? 'bg-slate-50 border-transparent opacity-60' // grayed out for booked
+                                        : isBooked
+                                            ? 'bg-emerald-50 border-emerald-200'
                                             : isProcessed
                                                 ? 'bg-slate-50 border-transparent'
                                                 : 'bg-white border-gray-100 hover:border-violet-200 hover:bg-slate-50 hover:shadow-sm'
-                                        }`}
+                                    }`}
                                 >
-                                    <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-sm font-black text-slate-600 shrink-0 border-2 border-slate-200 overflow-hidden relative shadow-sm">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shrink-0 border-2 overflow-hidden relative shadow-sm ${isBooked ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-white text-slate-600 border-slate-200'}`}>
                                         {getInitials(task.name)}
                                         {task.entityType === 'client' && <div className="absolute bottom-0 w-full h-1.5 bg-sky-500" />}
                                         {task.entityType === 'candidate' && <div className="absolute bottom-0 w-full h-1.5 bg-amber-500" />}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center justify-between">
-                                            <p className={`text-sm font-bold truncate ${isProcessed ? 'text-slate-500' : 'text-slate-800'}`}>{task.name}</p>
-                                            {task.status === 'booked' ? <Calendar className="w-4 h-4 text-slate-400 shrink-0" /> : isProcessed ? <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> : <Phone className="w-4 h-4 text-slate-400 shrink-0" />}
+                                            <p className={`text-sm font-bold truncate ${isBooked ? 'text-emerald-800' : isProcessed ? 'text-slate-500' : 'text-slate-800'}`}>{task.name}</p>
+                                            {isBooked ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> : isProcessed ? <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> : <Phone className="w-4 h-4 text-slate-400 shrink-0" />}
                                         </div>
                                         <div className="flex items-center justify-between mt-1">
                                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${task.entityType === 'client' ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
                                                 {task.entityType === 'client' ? 'زبون' : 'مقترح'}
                                             </span>
-                                            {task.status === 'booked' ? (
-                                                <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">✅ تم حجز موعد</span>
+                                            {isBooked ? (
+                                                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                                                    <CheckCircle2 className="w-3 h-3" /> تم الحجز{taskAppointment ? ` ${taskAppointment.timeSlot}` : ''}
+                                                </span>
+                                            ) : statusGroup === 'rejected' ? (
+                                                <span className="text-[10px] text-red-600 font-bold bg-red-50 px-1.5 py-0.5 rounded border border-red-100">مرفوض</span>
+                                            ) : statusGroup === 'contacted' ? (
+                                                <span className="text-[10px] text-sky-600 font-bold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100">تم التواصل</span>
                                             ) : taskLogs.length > 0 ? (
                                                 <span className="text-[10px] text-slate-500 flex items-center gap-1 font-bold">
                                                     <History className="w-3 h-3" /> {taskLogs.length} محاولات
@@ -515,7 +758,13 @@ export default function TelemarketerWorkspace() {
                                             <MapPin className="w-4 h-4 shrink-0" />
                                             <span>العنوان الكامل:</span>
                                         </div>
-                                        <p className="text-slate-800 leading-relaxed mr-5">{selectedTask.addressText || 'لا يوجد عنوان تفصيلي'}</p>
+                                        <p className="text-slate-800 leading-relaxed mr-5">
+                                          {buildGeoHierarchyLabel({
+                                            geoUnits,
+                                            neighborhoodId: selectedTask?.geoUnitId,
+                                            fallback: selectedTask?.addressText,
+                                          })}
+                                        </p>
                                     </div>
 
                                     {/* Contact Arsenal */}
@@ -536,8 +785,7 @@ export default function TelemarketerWorkspace() {
                             {/* Tabs Header */}
                             <div className="px-6 flex gap-6 border-b border-gray-100 shrink-0 bg-white shadow-sm z-10 transition-colors">
                                 {[
-                                    { id: 'journey', label: 'سجل الرحلة', icon: Activity },
-                                    { id: 'calls', label: 'سجل التواصل', icon: History },
+                                    { id: 'journey', label: 'سجل الاتصالات', icon: Activity },
                                     { id: 'contracts', label: 'العقود', icon: FileText },
                                     { id: 'visits', label: 'الزيارات', icon: Wrench }
                                 ].map(tab => (
@@ -584,40 +832,6 @@ export default function TelemarketerWorkspace() {
                                         </div>
                                     </>
                                 )}
-                                {activeTab === 'calls' && (
-                                    <div className="flex flex-col border rounded-xl border-gray-200 bg-white shadow-sm overflow-hidden min-h-[400px]">
-                                        <div className="flex-1 overflow-y-auto custom-scroll" style={{ maxHeight: '480px' }}>
-                                            <table className="w-full text-right border-collapse">
-                                                <thead className="sticky top-0 z-10 bg-slate-50 border-b border-gray-200 shadow-sm">
-                                                    <tr>
-                                                        <th className="px-4 h-12 text-xs font-bold text-slate-600">التاريخ</th>
-                                                        <th className="px-4 h-12 text-xs font-bold text-slate-600">القناة</th>
-                                                        <th className="px-4 h-12 text-xs font-bold text-slate-600">الرقم</th>
-                                                        <th className="px-4 h-12 text-xs font-bold text-slate-600">النتيجة</th>
-                                                        <th className="px-4 h-12 text-xs font-bold text-slate-600">ملاحظات</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-gray-100">
-                                                    {getEntityCallLogs().map(log => (
-                                                        <tr key={log.id} className="hover:bg-slate-50 transition-colors h-12 group">
-                                                            <td className="px-4 py-2 text-sm font-bold text-slate-700" dir="ltr">{new Date(log.timestamp).toLocaleString('ar-SY', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                                                            <td className="px-4 py-2 text-sm text-slate-600">{log.communicationMethod?.startsWith('whatsapp') ? 'واتساب' : 'هاتف'}</td>
-                                                            <td className="px-4 py-2 text-sm text-slate-600" dir="ltr">{log.contactNumber}</td>
-                                                            <td className="px-4 py-2">
-                                                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${outcomeConfig[log.outcome]?.bg} ${outcomeConfig[log.outcome]?.color} ${outcomeConfig[log.outcome]?.bg.replace('bg-', 'border-').replace('100', '200')}`}>{outcomeConfig[log.outcome]?.label || log.outcome}</span>
-                                                            </td>
-                                                            <td className="px-4 py-2 text-sm text-slate-500 truncate max-w-[150px]">{log.notes || '-'}</td>
-                                                        </tr>
-                                                    ))}
-                                                    {getEntityCallLogs().length === 0 && (
-                                                        <tr><td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-400 font-bold">لا يوجد سجل تواصل</td></tr>
-                                                    )}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        {/* Optional pagination can be added here if needed, but per-entity logs are usually small */}
-                                    </div>
-                                )}
                                 {activeTab === 'contracts' && (
                                     <div className="text-center p-8"><p className="text-sm font-bold text-slate-500">سجل العقود (قريباً)</p></div>
                                 )}
@@ -630,32 +844,35 @@ export default function TelemarketerWorkspace() {
                             <div className="p-2 bg-white border-t border-gray-200 flex gap-2 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05),_0_-4px_6px_-2px_rgba(0,0,0,0.02)] z-20">
                                 <button
                                     onClick={() => setIsOutcomeModalOpen(true)}
-                                    disabled={selectedTask.status === 'booked'}
-                                    className={`flex-1 py-1.5 px-3 flex items-center justify-center gap-2 border-none rounded-xl transition-all shadow-sm group active:scale-[0.98] ${selectedTask.status === 'booked' ? 'bg-slate-100 border border-slate-200 text-slate-400 grayscale cursor-not-allowed shadow-none' : 'bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 shadow-violet-500/10'}`}
+                                    disabled={isBookedForSelected}
+                                    className={`flex-1 py-1.5 px-3 flex items-center justify-center gap-2 border-none rounded-xl transition-all shadow-sm group active:scale-[0.98] ${isBookedForSelected ? 'bg-slate-100 border border-slate-200 text-slate-400 grayscale cursor-not-allowed shadow-none' : 'bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 shadow-violet-500/10'}`}
                                 >
-                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${selectedTask.status === 'booked' ? 'bg-slate-200' : 'bg-white/20'}`}>
-                                        <Send className={`w-3.5 h-3.5 ${selectedTask.status === 'booked' ? 'text-slate-400' : 'text-white'}`} />
+                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isBookedForSelected ? 'bg-slate-200' : 'bg-white/20'}`}>
+                                        <Send className={`w-3.5 h-3.5 ${isBookedForSelected ? 'text-slate-400' : 'text-white'}`} />
                                     </div>
                                     <div className="text-right overflow-hidden">
-                                        <p className={`font-black text-[11px] leading-tight truncate ${selectedTask.status === 'booked' ? 'text-slate-500' : 'text-white'}`}>تسجيل نتيجة التواصل</p>
-                                        <p className={`text-[8px] font-bold opacity-70 truncate ${selectedTask.status === 'booked' ? 'text-slate-400' : 'text-violet-100'}`}>تحديث الحالة</p>
+                                        <p className={`font-black text-[11px] leading-tight truncate ${isBookedForSelected ? 'text-slate-500' : 'text-white'}`}>{isBookedForSelected ? 'تم الحجز' : 'تسجيل نتيجة التواصل'}</p>
+                                        <p className={`text-[8px] font-bold opacity-70 truncate ${isBookedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isBookedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
                                     </div>
                                 </button>
 
                                 <button
-                                    onClick={() => setIsAppointmentModalOpen(true)}
-                                    disabled={selectedTask.status !== 'booked'}
-                                    className={`flex-1 py-1.5 px-3 flex items-center justify-center gap-2 border-none rounded-xl transition-all group active:scale-[0.98] ${selectedTask.status !== 'booked'
+                                    onClick={() => {
+                                        if (selectedTaskAppointment) return;
+                                        setIsAppointmentModalOpen(true);
+                                    }}
+                                    disabled={!isBookedForSelected || !!selectedTaskAppointment}
+                                    className={`flex-1 py-1.5 px-3 flex items-center justify-center gap-2 border-none rounded-xl transition-all group active:scale-[0.98] ${(!isBookedForSelected || !!selectedTaskAppointment)
                                         ? 'bg-slate-100 border border-slate-200 text-slate-400 grayscale cursor-not-allowed shadow-none'
                                         : 'bg-gradient-to-br from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/10 text-white'
-                                        }`}
+                                    }`}
                                 >
-                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${selectedTask.status !== 'booked' ? 'bg-slate-200' : 'bg-white/20'}`}>
-                                        <Calendar className={`w-3.5 h-3.5 ${selectedTask.status !== 'booked' ? 'text-slate-400' : ''}`} />
+                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${(!isBookedForSelected || !!selectedTaskAppointment) ? 'bg-slate-200' : 'bg-white/20'}`}>
+                                        <Calendar className={`w-3.5 h-3.5 ${(!isBookedForSelected || !!selectedTaskAppointment) ? 'text-slate-400' : ''}`} />
                                     </div>
                                     <div className="text-right overflow-hidden">
-                                        <p className="font-black text-[11px] leading-tight truncate">جدولة زيارة التسويق</p>
-                                        <p className={`text-[8px] font-bold opacity-70 truncate ${selectedTask.status !== 'booked' ? 'text-slate-400' : 'text-emerald-50'}`}>موعد جديد</p>
+                                        <p className="font-black text-[11px] leading-tight truncate">{selectedTaskAppointment ? 'تم حجز الموعد' : 'جدولة زيارة التسويق'}</p>
+                                        <p className={`text-[8px] font-bold opacity-70 truncate ${(!isBookedForSelected || !!selectedTaskAppointment) ? 'text-slate-400' : 'text-emerald-50'}`}>{selectedTaskAppointment ? selectedTaskAppointment.timeSlot : 'موعد جديد'}</p>
                                     </div>
                                 </button>
                             </div>

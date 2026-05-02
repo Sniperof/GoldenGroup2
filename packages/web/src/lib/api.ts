@@ -177,9 +177,22 @@ export const api = {
       return request<any>(`/planning/marketing-targets?${query.toString()}`);
     },
   },
-  telemarketing: {
-    snapshot: () => request<{ taskLists: any[]; appointments: any[]; callLogs: any[] }>('/telemarketing/snapshot'),
+  contactTargets: {
+    listMarketing: () => request<any[]>('/contact-targets/marketing'),
+    syncMarketing: () => request<{ targets: any[]; count: number }>('/contact-targets/marketing/sync', { method: 'POST' }),
+  },
+  marketingVisits: {
+    list: (date: string) => request<any[]>(`/marketing-visits?date=${encodeURIComponent(date)}`),
+    get: (id: string) => request<any>(`/marketing-visits/${id}`),
+    updateResult: (id: string, data: any) => request<any>(`/marketing-visits/${id}/result`, { method: 'PATCH', body: JSON.stringify(data) }),
+  },
+telemarketing: {
+    snapshot: (date?: string) => {
+      const qs = date ? `?date=${encodeURIComponent(date)}` : '';
+      return request<{ taskLists: any[]; appointments: any[]; callLogs: any[] }>(`/telemarketing/snapshot${qs}`);
+    },
     upsertTaskList: (data: any) => request<any>('/telemarketing/task-lists/upsert', { method: 'POST', body: JSON.stringify(data) }),
+    generateTaskListFromPlan: (data: { date: string; teamKey: string }) => request<any>('/telemarketing/task-lists/generate-from-plan', { method: 'POST', body: JSON.stringify(data) }),
     updateTaskListItem: (taskListId: string, itemId: string, data: any) => request<any>(`/telemarketing/task-lists/${taskListId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     createCallLog: (data: any) => request<any>('/telemarketing/call-logs', { method: 'POST', body: JSON.stringify(data) }),
     createAppointment: (data: any) => request<any>('/telemarketing/appointments', { method: 'POST', body: JSON.stringify(data) }),

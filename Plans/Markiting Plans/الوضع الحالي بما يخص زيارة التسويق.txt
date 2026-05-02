@@ -1,0 +1,433 @@
+**1. الوضع الحالي**
+
+**الزيارات الحالية**
+- يوجد جدول `visits` فعلاً في [migrations/001_core_tables.sql](</D:/OneDrive/سطح المكتب/golden-crm-clean/migrations/001_core_tables.sql>).
+- لا يوجد `visit_tasks` حالياً.
+- جدول `visits` الحالي بسيط جداً:
+  - `id`
+  - `date`
+  - `customer_id`
+  - `employee_id`
+  - `employee_name`
+  - `outcome`
+  - `notes`
+- API الحالي في [packages/api/routes/visits.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/visits.ts>) بدائي أيضاً:
+  - `GET /api/visits`
+  - `POST /api/visits`
+  - `PUT /api/visits/:id`
+- الـ shared/web types الحالية للزيارة في [packages/shared/types.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/shared/types.ts>) و[packages/web/src/lib/types.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/lib/types.ts>) ما زالت بنفس البنية البسيطة.
+
+**النتيجة**
+- الزيارات الحالية ليست generic visit engine جاهز.
+- لا يوجد دعم لـ:
+  - `visit_type`
+  - `source_type/source_id`
+  - `scheduled_time`
+  - `status` بالشكل المنتج المطلوب
+  - `task/result model`
+  - `device demo result`
+  - `offer close data`
+- لذلك إعادة استخدام `visits` الحالية مباشرة سيتطلب توسيعاً كبيراً ومخاطره عالية.
+
+**2. العقود الحالية**
+
+في [packages/api/routes/contracts.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/contracts.ts>) وبنية `contracts` في [migrations/001_core_tables.sql](</D:/OneDrive/سطح المكتب/golden-crm-clean/migrations/001_core_tables.sql>):
+
+- العقود موجودة وجدية وليست مجرد placeholder.
+- تتطلب حقولاً كثيرة:
+  - `contract_number`
+  - `customer_id`
+  - `contract_date`
+  - `device_model_id`
+  - `serial_number`
+  - `maintenance_plan`
+  - `base_price`
+  - `final_price`
+  - `payment_type`
+  - `down_payment`
+  - `installments_count`
+  - `delivery_date`
+  - `installation_date`
+  - `status`
+  - `branch_id`
+  - plus dues
+- يوجد أيضاً `source_visit`, لكن الصفحة نفسها فيها آثار mock/placeholder لزيارات التسويق.
+
+**التوصية**
+- لا ننشئ عقداً في هذا الـ MVP.
+- نحفظ فقط بيانات الإغلاق اللازمة لاحقاً:
+  - `cashOfferAmount`
+  - `installmentAmount`
+  - `installmentMonths`
+  - `closedByEmployeeId`
+  - `contractId = null`
+  - أو `contractCreated = false`
+
+هذا متسق جداً مع قرار المنتج.
+
+**3. مسار المواعيد الحالي**
+
+في [packages/api/routes/telemarketing.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/telemarketing.ts>) و[AppointmentSchedulerModal.tsx](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/components/telemarketing/AppointmentSchedulerModal.tsx>):
+
+عند حجز الموعد، النظام يحفظ الآن:
+- `contactTargetId`
+- `taskListId`
+- `taskListItemId`
+- `teamKey`
+- `date`
+- `timeSlot`
+- `visitTasks`
+- `requestedDeviceModelId`
+- `requestedDeviceName`
+- `waterSource`
+- `notes` كـ technician notes فعلياً
+- `branch_id`
+- client/entity info
+
+ومعها:
+- task list item يصير `booked`
+- contact target يصير `booked`
+
+**أفضل نقطة لإنشاء Marketing Visit**
+- الأفضل تقنياً أن يتم إنشاء Marketing Visit داخل نفس transaction الخاصة بـ `POST /telemarketing/appointments`.
+- السبب:
+  - لدينا كل data المطلوبة هنا أصلاً.
+  - نضمن أن appointment + visit يتحركان معاً.
+  - نمنع حالات booked appointment بلا visit.
+- لمنع التكرار عند retry:
+  - يجب أن يكون هناك `source_type = telemarketing_appointment`
+  - و `source_id = appointment.id`
+  - مع unique مناسب على هذا المصدر.
+
+**4. أهم ملاحظة معمارية**
+
+هذه النقطة هي الأهم في التحليل:
+
+المنطق الحالي للـ Lead يعتمد على:
+- client بلا contracts
+- وبلا visits
+
+وهذا ظاهر في أكثر من مكان مثل:
+- [packages/web/src/hooks/useClientStore.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/hooks/useClientStore.ts>)
+- [packages/api/services/planningMarketingTargets.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/services/planningMarketingTargets.ts>)
+
+إذا استخدمنا جدول `visits` الحالي مباشرة لإنشاء Marketing Visit عند الحجز، فهذا سيجعل العميل “ليس Lead” فوراً بمجرد وجود visit record، حتى لو الزيارة ما زالت `scheduled`.
+
+هذا خطر كبير على:
+- PlanOverview
+- contact target generation
+- تعريف Lead الحالي
+- أي منطق FOP/lead مشتق من visits
+
+**لذلك أوصي بوضوح:**
+- لا نبني Marketing Visit فوق جدول `visits` الحالي في هذه المرحلة.
+- الأفضل في MVP إنشاء جداول/طبقة مستقلة:
+  - `marketing_visits`
+  - `marketing_visit_tasks`
+- وبعدها لاحقاً يمكن التفكير في توحيد الزيارة العامة.
+
+**5. التوصية البنيوية**
+
+**الخيار A: Generic visits + visit_tasks**
+- المزايا:
+  - مستقبلياً أنظف لو أردنا توحيد كل الزيارات.
+- المخاطر:
+  - يفرض refactor كبير على جدول `visits` الحالي.
+  - قد يكسر تعريف Lead/FOP الحالي.
+  - يحتاج تعديل واسع على shared types وAPIs الحالية.
+- النتيجة:
+  - ليس أسرع MVP.
+
+**الخيار B: marketing_visits + marketing_visit_tasks**
+- المزايا:
+  - معزول وآمن.
+  - لا يلمس `visits` الحالية.
+  - لا يكسر Lead/FOP logic الحالي.
+  - يبني marketing path فقط كما طلب المنتج.
+- المخاطر:
+  - يوجد duplication مؤقت مع مفهوم visits العام.
+- النتيجة:
+  - هذا هو الخيار الأسرع والأكثر أماناً الآن.
+
+**التوصية النهائية للبنية**
+- اعتمد `marketing_visits + marketing_visit_tasks` في MVP.
+- لا نستخدم جدول `visits` الحالي لهذا المسار حالياً.
+
+**6. schema المقترح**
+
+**marketing_visits**
+- `id`
+- `branch_id`
+- `client_id`
+- `visit_type = 'marketing'`
+- `status`
+- `scheduled_date`
+- `scheduled_time`
+- `source_type = 'telemarketing_appointment'`
+- `source_id = appointment.id`
+- `contact_target_id`
+- `task_list_id`
+- `task_list_item_id`
+- `team_key`
+- `requested_device_model_id`
+- `requested_device_name`
+- `water_source`
+- `technician_notes`
+- `customer_name`
+- `customer_address`
+- `customer_mobile`
+- `supervisor_employee_id?`
+- `technician_employee_id?`
+- `telemarketer_employee_ids?`
+- `trainee_employee_id?`
+- `team_snapshot json?`
+- `created_by`
+- `completed_by`
+- `completed_at`
+- `created_at`
+- `updated_at`
+
+**marketing_visit_tasks**
+- `id`
+- `visit_id`
+- `task_type = 'device_demo'`
+- `status`
+- `result`
+- `cash_offer_amount`
+- `installment_amount`
+- `installment_months`
+- `closed_by_employee_id`
+- `result_notes`
+- `contract_id nullable`
+- `completed_at`
+- `created_at`
+- `updated_at`
+
+**visit statuses**
+- `scheduled`
+- `completed`
+- `not_completed`
+- `postponed_by_company`
+- `postponed_by_customer`
+- `cancelled`
+- `needs_reschedule`
+
+**non-completion reasons**
+- `no_entry_to_home`
+- `customer_unavailable`
+- `wrong_address`
+- `customer_refused_visit`
+- `financial_not_ready`
+- `company_reason`
+- `other`
+
+**device demo results**
+- `cash_offer_closed`
+- `installment_offer_closed`
+- `cash_offer_not_closed`
+- `installment_offer_not_closed`
+- `demo_not_completed`
+
+**7. team snapshot**
+
+المتاح حالياً:
+- من `appointment` لدينا `teamKey + date`.
+- ومن `day_schedules` يمكن استعادة:
+  - `supervisor`
+  - `technician`
+  - `telemarketers[]`
+  - `trainee`
+- لذلك team snapshot ممكن تقنياً وقت إنشاء الزيارة.
+- لكنه ليس blocker.
+- إن تعسّر حفظه كحقول منفصلة، فيكفي `team_snapshot JSON` في MVP.
+
+**8. تصميم الـ API المقترح**
+
+**GET /api/marketing-visits?date=YYYY-MM-DD**
+- permission:
+  - `marketing_visits.view_list` أو permission مخصصة مشابهة
+- scope:
+  - acting branch فقط
+- response:
+  - list visits for selected date
+- يعرض:
+  - time
+  - customer
+  - phone
+  - address
+  - requested device
+  - water source
+  - team
+  - supervisor/technician if available
+  - status
+
+**GET /api/marketing-visits/:id**
+- permission:
+  - `marketing_visits.view_detail`
+- scope:
+  - acting branch فقط
+- response:
+  - full visit + task result payload
+
+**PATCH /api/marketing-visits/:id/result**
+- permission:
+  - `marketing_visits.update_result`
+- scope:
+  - acting branch فقط
+- validation:
+  - إذا `status = completed`:
+    - `device_demo` result required
+  - إذا `cash_offer_closed` أو `cash_offer_not_closed`:
+    - `cashOfferAmount` required
+  - إذا `installment_offer_closed` أو `installment_offer_not_closed`:
+    - `installmentAmount` و `installmentMonths` required
+  - إذا result is closed:
+    - `closedByEmployeeId` required
+  - إذا `status != completed`:
+    - `reason/notes` required
+
+**9. صفحة الواجهة المقترحة**
+
+**المسار**
+- `/marketing-visits`
+
+**اسم القائمة**
+- `زيارات التسويق`
+
+**المحتوى**
+- فلتر تاريخ
+- جدول أو cards
+- action لفتح modal تسجيل النتيجة
+
+**أعمدة الجدول**
+- الوقت
+- الزبون
+- رقم الموبايل
+- العنوان
+- الجهاز المطلوب
+- مصدر المياه
+- الفريق
+- المشرفة / الفني إن توفر
+- الحالة
+- إجراء
+
+**Result Modal**
+- `visit status`
+- إذا `completed`:
+  - `task result` required
+- إذا cash:
+  - `cash offer amount`
+- إذا installment:
+  - `installment amount`
+  - `installment months`
+- إذا closed:
+  - `closedByEmployeeId`
+- إذا not completed / postponed / cancelled:
+  - `reason/notes`
+
+**10. الصلاحيات**
+
+لـ MVP فقط:
+- `SYSTEM_ADMIN`
+- `ADMIN`
+- `BRANCH_MANAGER`
+
+يمكنهم:
+- view list
+- view detail
+- update result
+
+ولا ننفذ الآن:
+- technician scoped execution
+- supervisor scoped execution
+- telemarketer handling inside marketing visits
+
+**11. مراحل التنفيذ المقترحة**
+
+**Phase 2 — Schema + Types**
+- الهدف:
+  - إضافة `marketing_visits` و `marketing_visit_tasks`
+  - shared types
+- الملفات المتوقعة:
+  - migrations جديدة
+  - `packages/shared/types.ts`
+  - `packages/web/src/lib/types.ts`
+- القبول:
+  - schema جاهزة وتمثل كل الحقول الأساسية
+- المخاطر:
+  - low-medium
+
+**Phase 3 — Appointment creates marketing visit**
+- الهدف:
+  - عند `POST /telemarketing/appointments` يتم إنشاء Marketing Visit + task
+- الملفات:
+  - [packages/api/routes/telemarketing.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/telemarketing.ts>)
+  - service/helper جديد إن لزم
+- القبول:
+  - كل booked appointment ينشئ marketing visit واحدة فقط
+  - retry لا يكرر الزيارة
+- المخاطر:
+  - medium
+  - أهمها idempotency
+
+**Phase 4 — API list/detail/update result**
+- الهدف:
+  - list/detail/result endpoints
+- الملفات:
+  - route جديد مثل `packages/api/routes/marketingVisits.ts`
+  - `packages/web/src/lib/api.ts`
+- القبول:
+  - branch-scoped
+  - validation صحيحة
+- المخاطر:
+  - medium
+
+**Phase 5 — Frontend page + result modal**
+- الهدف:
+  - صفحة `زيارات التسويق`
+  - modal لتسجيل النتيجة
+- الملفات:
+  - صفحة جديدة في `packages/web/src/pages`
+  - route/menu wiring
+  - components للمودال
+- القبول:
+  - يعرض الزيارات المجدولة بتاريخ محدد
+  - يسمح بإدخال النتيجة وفق الشروط
+- المخاطر:
+  - low-medium
+
+**Phase 6 — End-to-End validation**
+- الهدف:
+  - التأكد من المسار:
+    - booked appointment
+    - scheduled marketing visit
+    - result recording
+- القبول:
+  - لا يتم إنشاء عقد
+  - لا تتأثر telemarketing flow الحالية
+  - لا ينكسر lead logic الحالي
+- المخاطر:
+  - medium
+
+**12. المخاطر الرئيسية**
+
+- أكبر خطر هو استخدام جدول `visits` الحالي وإفساد تعريف `Lead`.
+- ثاني خطر هو duplicate creation إذا كان إنشاء الزيارة غير idempotent داخل حجز الموعد.
+- ثالث خطر هو إدخال صلاحيات معقدة مبكراً. لهذا MVP الأفضل إبقاؤها branch-level فقط.
+
+**13. الأسئلة المفتوحة**
+
+- هل نريد `closedByEmployeeId` أن يكون من employees فقط أم من hr_users؟
+- هل team snapshot نحفظه JSON أم حقولاً منفصلة؟
+- هل `customerAddress` تؤخذ snapshot كما هي من appointment أم من client وقت القراءة؟
+- هل “لم يتم تقديم العرض” تعتبر `status=completed` مع task result `demo_not_completed`؟ أم نعدّها `not_completed`؟  
+  المنتج الحالي يوحي أنها ضمن completed flow task-level، لكن تحتاج تثبيت نهائي.
+
+**14. التوصية النهائية**
+
+- أوصي بوضوح بـ `marketing_visits + marketing_visit_tasks`.
+- أوصي بتأجيل إنشاء العقد بالكامل.
+- أوصي أن يبدأ الإنشاء من `POST /telemarketing/appointments` داخل نفس transaction.
+- أوصي ألا نستخدم جدول `visits` الحالي في هذا الـ MVP حتى لا نكسر تعريف Lead الحالي.
+
+إذا أردت، الخطوة التالية المنطقية هي أن نبدأ **Phase 2 فقط**: تصميم وتنفيذ schema + shared types وفق هذا التحليل.

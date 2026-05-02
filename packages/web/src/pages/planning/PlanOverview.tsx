@@ -6,17 +6,7 @@ import {
     AlertTriangle, ArrowRight, ArrowLeft, ClipboardList, MapPin, Briefcase, Eye, Loader2
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { levelNames } from '../../lib/geoConstants';
 import type { Route, GeoUnit, DaySchedule, RouteAssignmentData, Client } from '../../lib/types';
-import { useTelemarketingStore } from '../../hooks/useTelemarketingStore';
-import TeamDetailsModal from '../../components/planning/TeamDetailsModal';
-
-const levelColors: Record<number, { bg: string; text: string }> = {
-    1: { bg: 'bg-purple-50', text: 'text-purple-700' },
-    2: { bg: 'bg-blue-50', text: 'text-blue-700' },
-    3: { bg: 'bg-amber-50', text: 'text-amber-700' },
-    4: { bg: 'bg-emerald-50', text: 'text-emerald-700' },
-};
 
 const formatDateArabic = (dateStr: string) => {
     const d = new Date(dateStr + 'T00:00:00');
@@ -74,15 +64,6 @@ export default function PlanOverview() {
     const [routeAssignments, setRouteAssignments] = useState<Record<string, RouteAssignmentData>>({});
     const [employees, setEmployees] = useState<any[]>([]);
     const [marketingTargets, setMarketingTargets] = useState<Record<string, MarketingTargetsResponse>>({});
-
-    const generateTaskList = useTelemarketingStore(state => state.generateTaskList);
-
-    const [selectedModalTeam, setSelectedModalTeam] = useState<{
-        key: string;
-        label: string;
-        candidates: any[];
-        leads: any[];
-    } | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -240,23 +221,9 @@ export default function PlanOverview() {
         return results;
     };
 
-    const handleGenerateList = (teamKey: string, _candList: any[], leadList: any[]) => {
-        if (!confirm(`هل أنت متأكد من توليد قائمة اتصال بـ ${leadList.length} زبون لهذا الفريق؟`)) return;
-
-        const items = [
-            ...leadList.map(l => ({
-                entityType: 'client' as const,
-                entityId: l.id,
-                name: l.name,
-                mobile: l.mobile,
-                addressText: getUnitName(parseInt(l.neighborhood)) || l.neighborhood,
-                geoUnitId: parseInt(l.neighborhood) || null
-            }))
-        ];
-
-        generateTaskList(teamKey, date, items);
-        alert('تم توليد قائمة التسويق الهاتفي بنجاح!');
-        setSelectedModalTeam(null);
+    const openContactTargetsPage = (team: { key: string; label: string }) => {
+        const query = new URLSearchParams({ date, label: team.label });
+        navigate(`/planning/contact-targets/${team.key}?${query.toString()}`);
     };
 
     const totalTeams = teamCards.length;
@@ -392,11 +359,9 @@ export default function PlanOverview() {
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: cardIdx * 0.05 }}
                                 onClick={() => {
-                                    if (hasAssignment) setSelectedModalTeam({
+                                    if (hasAssignment) openContactTargetsPage({
                                         key: card.key,
                                         label: card.label,
-                                        candidates: loadData.candidates,
-                                        leads: loadData.leads
                                     });
                                 }}
                                 className={`bg-white rounded-xl shadow-sm overflow-hidden border cursor-pointer hover:border-gray-300 transition-colors ${hasAssignment
@@ -428,11 +393,17 @@ export default function PlanOverview() {
                                             </div>
                                             {/* Button moved to modal */}
                                             <button
-                                                onClick={() => navigate(`/planning/team-tasks/${card.key}`)}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    openContactTargetsPage({
+                                                        key: card.key,
+                                                        label: card.label,
+                                                    });
+                                                }}
                                                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[11px] font-bold transition-colors"
                                             >
                                                 <Eye className="w-3 h-3" />
-                                                <span>عرض المهام</span>
+                                                <span>أهداف الاتصال</span>
                                             </button>
                                         </div>
                                     )}
@@ -534,16 +505,6 @@ export default function PlanOverview() {
                 </div>
             )}
 
-            <TeamDetailsModal
-                isOpen={!!selectedModalTeam}
-                onClose={() => setSelectedModalTeam(null)}
-                teamKey={selectedModalTeam?.key || ''}
-                teamLabel={selectedModalTeam?.label || ''}
-                candidates={selectedModalTeam?.candidates || []}
-                leads={selectedModalTeam?.leads || []}
-                geoUnits={geoUnits}
-                onGenerate={handleGenerateList}
-            />
         </div>
     );
 }

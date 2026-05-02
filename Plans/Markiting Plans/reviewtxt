@@ -1,0 +1,48 @@
+**PASS WITH WARNINGS**
+
+تم تنفيذ Phase 6 كتحقق نهائي، وظهرت مشكلتان حرجتان وتم إصلاحهما ضمن نطاق التحقق فقط:
+
+- [migrations/052_marketing_visits_permissions.sql](</D:/OneDrive/سطح المكتب/golden-crm-clean/migrations/052_marketing_visits_permissions.sql>): صلاحيات `marketing_visits.*` كانت تبحث عن `BRANCH_MANAGER` uppercase، بينما الدور المحلي اسمه `branch_manager`. جعلت المطابقة case-insensitive عبر `UPPER(r.name)`.
+- [migrations/048_telemarketing_outcome_expand.sql](</D:/OneDrive/سطح المكتب/golden-crm-clean/migrations/048_telemarketing_outcome_expand.sql>): أعمدة `telemarketing_call_logs.outcome` و`telemarketing_task_list_items.call_outcome` كانت `varchar(20)` ولا تقبل `booked_marketing_appointment`. وسعتها إلى `varchar(50)`.
+- [telemarketing.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/telemarketing.ts>): حجز الموعد الآن يحدث `telemarketing_task_list_items` داخل نفس transaction إلى `status = booked` و`call_outcome = booked_marketing_appointment`.
+
+**ما تم اختباره**
+- API وWeb يعملان على `localhost:3000` و`localhost:5000`.
+- Branch Manager استطاع تنفيذ `generate-from-plan` بنجاح: رجع `200` مع `updated: 3`.
+- تم التحقق من وجود:
+  - `telemarketing_appointments` row
+  - `marketing_visits` row
+  - `marketing_visit_tasks` row واحدة من نوع `device_demo`
+- تم التحقق أن نفس appointment لديه Marketing Visit واحدة فقط و`device_demo` task واحدة فقط.
+- `telemarketing/snapshot?date=2026-04-30` يرجع item بحالة `booked` و`callOutcome = booked_marketing_appointment`.
+- `/api/marketing-visits?date=2026-04-30` يرجع الزيارة مع الجهاز، مصدر المياه، task، وبيانات الفريق.
+- اختبارات validation على `PATCH /marketing-visits/:id/result`:
+  - `completed` بدون `taskResult` فشل 400.
+  - cash بدون amount فشل 400.
+  - installment بدون amount/months فشل 400.
+  - closed بدون `closedByEmployeeId` فشل 400.
+  - postponed بدون notes فشل 400.
+  - `postponed_by_customer` مع notes نجح.
+  - `completed + cash_offer_closed + amount + closedByEmployeeId` نجح.
+- Vite حمّل `/marketing-visits` وملفات الصفحة والمودال بدون import/runtime transform error.
+
+**النتيجة النهائية**
+- appointment → `marketing_visit` → `device_demo task` يعمل.
+- `/marketing-visits` قابلة للتحميل من Vite وتقرأ API الصحيح.
+- result update يعمل ويحفظ:
+  - `marketing_visits.status = completed`
+  - `marketing_visit_tasks.status = completed`
+  - `cash_offer_amount = 100000`
+  - `closed_by_employee_id = 21`
+  - `contract_id = null`
+- لم يتم إنشاء أي عقد: `contracts = 0`.
+- جدول `visits` القديم لم يُستخدم ولم يتغير: `old_visits = 0`.
+
+**TypeScript**
+- `packages/shared`: ناجح
+- `packages/api`: ناجح
+- `packages/web`: ناجح
+
+**Remaining Risks**
+- لم أستطع تنفيذ click-by-click داخل المتصفح الداخلي لأن runtime الخاص بالـ Browser plugin غير متاح مع نسخة Node الحالية في هذه الجلسة. عوّضت ذلك بفحص Vite route/module + API/DB end-to-end.
+- قبل الديمو، أنصح بمرور يدوي سريع في المتصفح على نفس الخطوات: فتح `/marketing-visits`، فتح المودال، وتجربة رسائل validation من الواجهة نفسها.

@@ -1,0 +1,247 @@
+**Findings**
+
+أغلب مسار التاريخ نفسه مربوط بشكل صحيح، لكن يوجد خلط بين نوعين مختلفين من الحالة:
+
+- `telemarketing_task_list_items.status` حالة يومية تخص `date + team`.
+- `contact_targets.status` حالة عامة/تاريخية للهدف نفسه عبر الأيام.
+
+الـ bugين الحاليين ناتجان من أن بعض الشاشات تعرض الحالة التاريخية كأنها حالة يومية، ومن أن بعض بيانات التيلماركتر القديمة لا تمر من فلتر الفرع/اليوم الحالي بشكل سليم.
+
+**1. Workspace Date Flow**
+
+في [TelemarketerWorkspace.tsx](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/pages/TelemarketerWorkspace.tsx>) و[useTelemarketingStore.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/hooks/useTelemarketingStore.ts>):
+
+- الصفحة تستدعي `loadData(date)` فعلاً عند تغير `date`.
+- `api.telemarketing.snapshot(date)` يرسل التاريخ المحدد فعلاً.
+- الـ store يحفظ `taskLists`, `appointments`, `callLogs` مباشرة من `snapshot`.
+- `getTaskList(teamKey, date)` يفلتر بالضبط على `list.teamKey === teamKey && list.date === date`.
+- `availableTeams` تُحمَّل من `api.schedules.get(date)`.
+- `selectedTeamKey` يُعاد ضبطه فقط إذا صار غير موجود ضمن `availableTeams`.
+- `activeTaskList` يُعاد حسابه من `selectedTeamKey + date`.
+
+ما ليس مضبوطاً تماماً:
+
+- عند تبديل التاريخ، `currentSchedule` لا يتم تصفيره قبل وصول `schedules.get(date)`, لذلك قد يبقى اسم فريق اليوم السابق ظاهراً لحظياً.
+- كذلك الـ store لا يصفّر `taskLists` قبل عودة `snapshot(date)`, لكن لأن `getTaskList` يفلتر على التاريخ الجديد، النتيجة تكون غالباً:
+  - اسم الفريق يبقى ظاهراً مؤقتاً.
+  - العناصر/الزبائن تختفي.
+- إذا كانت قائمة ذلك اليوم مخفية من الـ backend بسبب scope/branch data قديمة، فالحالة لا تعود “مؤقتة”، بل تستقر على “اسم فريق فقط بدون زبائن”.
+
+**2. Backend Snapshot Date Filtering**
+
+في [telemarketing.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/telemarketing.ts>):
+
+المضبوط:
+
+- `GET /telemarketing/snapshot?date=YYYY-MM-DD` يفلتر `task lists` على `telemarketing_task_lists.date = selectedDate`.
+- لا يعتمد على `created_at` لتحديد اليوم التشغيلي.
+- العناصر `items` تُحمَّل فقط عبر `LEFT JOIN telemarketing_task_list_items` على الـ task lists المطابقة.
+- `appointments` مفلترة على `branch + date` وبالنسبة للتيلماركتر أيضاً `team_key`.
+
+المشكلة المهمة:
+
+- `call logs` لا تُفلتر بالتاريخ إطلاقاً.
+- هي تُجلب فقط حسب `branch_id`، وللتيلماركتر حسب `team_key`، وليس عبر task lists الخاصة بالتاريخ المحدد.
+- هذا يعني أن تاريخاً معيناً في الـ workspace قد يعرض تاريخ محاولات اتصال من أيام أخرى لنفس العميل أو نفس الفريق.
+
+المشكلة الأهم لعدم ظهور العملاء:
+
+- `snapshot` يفرض `tl.branch_id = actingBranchId`.
+- في نفس الملف يوجد endpoint legacy وهو `/telemarketing/task-lists/upsert` ما زال يُدخل `telemarketing_task_lists` بدون `branch_id`.
+- لذلك أي قوائم قديمة أو مولدة عبر المسار legacy يمكن أن تبقى `branch_id = null`.
+- ووفق TM-4A هذا صحيح أمنياً أن تُمنع، لكن عملياً يجعل:
+  - `day_schedules` يرجع الفريق لذلك اليوم.
+  - `snapshot` لا يرجع task list له.
+  - فتظهر “اسم الفريق فقط بدون زبائن”.
+
+هذا يفسر Bug 2 أكثر من كونه مشكلة تنقل تاريخ فقط.
+
+**3. PlanOverview / Contact Targets**
+
+في [PlanOverview.tsx](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/pages/planning/PlanOverview.tsx>) و[PlanningContactTargets.tsx](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/pages/planning/PlanningContactTargets.tsx>) و[planningMarketingTargets.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/services/planningMarketingTargets.ts>):
+
+الوضع الحالي:
+
+- PlanOverview لم يعد يفتح dialog فعلياً، بل ينتقل إلى route مستقل:
+  `/planning/contact-targets/:teamKey`
+- صفحة أهداف الاتصال تعتمد على:
+  `api.planning.marketingTargets(date, teamKey)`
+- الـ endpoint يرجع:
+  - `contact_target.status` كـ `contactTargetStatus`
+  - `contact_target.latest_call_outcome` كـ `latestCallOutcome`
+  - `latestAppointment` من `telemarketing_appointments` الأحدث تاريخياً للعميل في الفرع
+
+المشكلة:
+
+- هذا endpoint لا يربط إطلاقاً مع `telemarketing_task_lists` أو `telemarketing_task_list_items` لليوم المحدد والفريق المحدد.
+- بالتالي لا يوجد عنده مفهوم:
+  - `daily item status`
+  - `daily call outcome`
+  - `queued in this team today`
+  - `queued in another team today`
+- لذلك الصفحة تعرض `contactTargetStatus` تحت “حالة هدف الاتصال” رغم أن هذه حالة تاريخية عامة، لا حالة يومية لليوم المحدد.
+- و`latestAppointment` أيضاً تاريخي عام، لأنه مأخوذ من آخر appointment بالفرع بدون فلترة على اليوم أو الفريق.
+
+هذا هو Root Cause المباشر لـ Bug 1.
+
+**4. Generate-from-Plan Duplicate Prevention**
+
+في [telemarketing.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/telemarketing.ts>):
+
+السلوك الحالي هنا جيد نسبياً:
+
+- منع التكرار يعتمد على:
+  - `tl.date = selectedDate`
+  - `tl.branch_id = branchId`
+  - `tl.team_key <> currentTeam`
+- ويمنع التكرار لنفس `entity_id` أو `contact_target_id` في فريق آخر في نفس اليوم فقط.
+- السبب المرجع هو `already_queued_today`.
+
+المهم:
+
+- أمس لا يمنع اليوم.
+- نفس lead أمس في نفس الفريق لا يمنع اليوم.
+- `contact_targets.status` لا يُستخدم حالياً كمانع يومي للتوليد.
+
+إذن فشل التوليد “generic error” ليس سببه duplicate prevention على كل الأيام.
+
+السبب الأقرب من الموجود في الكود:
+
+- الواجهة في [PlanningContactTargets.tsx](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/pages/planning/PlanningContactTargets.tsx>) تلتقط أي خطأ وتعرض فقط:
+  `تعذر توليد قائمة الاتصال`
+- من دون إظهار `error.message` القادم من backend.
+- لذلك حتى لو كان السبب:
+  - branch context
+  - team not found
+  - old null-branch list conflict
+  - أو أي 500 آخر
+  فالمستخدم يرى رسالة عامة فقط.
+
+**Root Causes**
+
+1. **سبب ظهور الفريق بلا زبائن في TelemarketerWorkspace**
+- `day_schedules` يرجع الفريق حسب التاريخ.
+- لكن `snapshot` لا يرجع الـ task list إذا كانت `telemarketing_task_lists.branch_id` قديمة/فارغة/لا تطابق الفرع الحالي.
+- هذا مرجح جداً مع القوائم القديمة أو المسار legacy `/task-lists/upsert`.
+
+2. **سبب بقاء اسم الفريق عبر الأيام**
+- الصفحة لا تصفر `currentSchedule` فور تغير التاريخ.
+- لذلك تبقى أسماء فرق اليوم السابق ظاهرة حتى يعود `schedules.get(date)`.
+- إذا كان نفس `teamKey` صالحاً في اليوم الجديد، فبقاؤه بحد ذاته ليس bug، لكن يعمّق الإحساس بأن الصفحة “علقت” عندما لا تظهر items.
+
+3. **سبب ظهور حالة اليوم السابق في PlanOverview / Contact Targets**
+- الـ endpoint الحالي `marketing-targets` يعرض `contact_targets.status` و`latest_call_outcome` التاريخيين.
+- لا يوجد join على `telemarketing_task_list_items` لليوم/الفريق.
+- لذلك الحالة التاريخية تُعرض كأنها حالة اليوم.
+
+4. **سبب فشل التوليد برسالة عامة**
+- لا يوجد دليل أن duplicate prevention يخلط بين الأيام.
+- الأقرب أن الخطأ الحقيقي من backend يُخفى برسالة frontend عامة.
+
+**Recommended Minimal Fix Order**
+
+1. إصلاح backend `marketing-targets` أولاً ليعيد حقولاً يومية صريحة بجانب الحقول التاريخية.
+2. تحديث صفحة أهداف الاتصال لتعرض الحالة اليومية من تلك الحقول، وتعرض التاريخي فقط تحت “آخر نتيجة اتصال”.
+3. إصلاح `snapshot`/workspace ليكون استرجاع `callLogs` مربوطاً بالقوائم المسموحة للتاريخ المحدد، لا بكل branch logs.
+4. معالجة بيانات telemarketing القديمة ذات `branch_id` الفارغ أو legacy-generated بشكل آمن.
+5. تحسين رسالة فشل التوليد لتعرض السبب الحقيقي أو skipped reasons.
+
+**Proposed Fix Tasks**
+
+1. **Task: Add daily task-list fields to planning marketing targets**
+- Files:
+  - [planningMarketingTargets.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/services/planningMarketingTargets.ts>)
+  - [planning.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/planning.ts>)
+- Change:
+  - Join exact task list for `branch + date + teamKey`.
+  - Join exact item per lead for that task list.
+  - Return:
+    `dailyTaskListId`, `dailyTaskListItemId`, `dailyItemStatus`, `dailyCallOutcome`, `queuedInCurrentTeamToday`, `queuedInAnotherTeamToday`, `queuedTeamKeyToday`.
+- Do not change:
+  - lead eligibility logic
+  - FOP/Candidates
+- Risk: medium.
+- Acceptance:
+  - new date with no item today returns “not generated today” even if yesterday had calls.
+
+2. **Task: Update Contact Targets page to use daily state**
+- Files:
+  - [PlanningContactTargets.tsx](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/pages/planning/PlanningContactTargets.tsx>)
+  - possibly [PlanOverview.tsx](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/pages/planning/PlanOverview.tsx>) if labels/entry point need alignment.
+- Change:
+  - “حالة هدف الاتصال” must use daily item fields.
+  - Historical `contactTargetStatus/latestCallOutcome/latestAppointment` only under “آخر نتيجة اتصال” or historical context.
+- Do not change:
+  - routing model
+  - telemarketer generation flow
+- Risk: low-medium.
+- Acceptance:
+  - yesterday’s booked/contacted state no longer appears as today’s state on a new date.
+
+3. **Task: Snapshot call logs must be scoped through selected-date accessible task lists**
+- Files:
+  - [telemarketing.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/telemarketing.ts>)
+- Change:
+  - Build `callLogs` from task lists accessible for the selected date, ideally via `task_list_id`.
+  - Do not use branch-only logs for date-scoped workspace.
+- Do not change:
+  - TM-4A access model
+- Risk: medium.
+- Acceptance:
+  - workspace on date D shows call history belonging to date D task lists, not arbitrary historical logs.
+
+4. **Task: Clear stale workspace UI state on date change**
+- Files:
+  - [TelemarketerWorkspace.tsx](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/pages/TelemarketerWorkspace.tsx>)
+  - maybe [useTelemarketingStore.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/hooks/useTelemarketingStore.ts>)
+- Change:
+  - Clear or loading-gate `currentSchedule` and selected task state while new date loads.
+  - Reset `selectedTeamKey` only when invalid for the loaded date.
+- Do not change:
+  - backend
+  - permissions
+- Risk: low.
+- Acceptance:
+  - when moving to a date with no teams, old team name does not linger as if still active.
+
+5. **Task: Preserve security; repair legacy null-branch telemarketing data**
+- Files:
+  - likely no app-code relaxation preferred
+  - operational data repair or a dedicated maintenance script later
+- Change:
+  - backfill old `telemarketing_task_lists/call_logs/appointments.branch_id` where possible.
+- Do not change:
+  - `canAccessTaskList` null-branch deny rule
+- Risk: high if done by weakening auth; low if done by safe data repair.
+- Acceptance:
+  - historical lists become visible only after they are attached to the correct branch.
+
+6. **Task: Improve generate-from-plan error visibility**
+- Files:
+  - [PlanningContactTargets.tsx](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/web/src/pages/planning/PlanningContactTargets.tsx>)
+  - maybe [telemarketing.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/telemarketing.ts>) if error payloads need consistency
+- Change:
+  - show backend error message or structured reason instead of one generic banner.
+- Do not change:
+  - duplicate prevention rules
+- Risk: low.
+- Acceptance:
+  - if generation fails, branch manager sees the actual reason.
+
+**Acceptance Tests**
+
+- Workspace on a date with generated lists shows items for that exact date.
+- Workspace on yesterday shows yesterday’s items, not only team name.
+- Workspace on a date with no teams shows `لا يوجد جدول فرق لهذا التاريخ`.
+- Team name does not visually persist as active after date change once the new schedule resolves.
+- Contact Targets on a new date shows “ready/not generated today” instead of yesterday’s outcome as daily state.
+- Generating a list today is not blocked by yesterday’s item.
+- Same target in another team on the same branch/date returns `already_queued_today`.
+- TypeScript passes after changes.
+
+**High-Risk Area**
+
+أكثر نقطة حساسة هي البيانات القديمة ذات `branch_id` الفارغ أو غير الصحيح. لا أنصح بحلها عبر تخفيف scope في TM-4A، لأن ذلك قد يعيد ثغرة وصول بين الفروع. الحل الآمن هو:
+- نثبت عرض الحالة اليومية في planning.
+- نثبت snapshot date-scoping.
+- ثم نعالج البيانات القديمة بربطها بفرعها الصحيح بدل كسر قواعد الأمان.

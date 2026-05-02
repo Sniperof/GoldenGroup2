@@ -1,0 +1,236 @@
+Here are the complete investigation findings:
+
+---
+
+## Section 1 — Database Findings
+
+### `clients` table
+
+| Column | Type | Nullable | Purpose |
+|---|---|---|---|
+| `governorate` | VARCHAR(255) | yes (DEFAULT '') | Plain text name — **not an ID** |
+| `district` | VARCHAR(255) | yes (DEFAULT '') | Plain text name — maps to "area/منطقة" |
+| `neighborhood` | VARCHAR(255) | yes (DEFAULT '') | Stored as an **ID string** that references `geo_units.id` |
+| `detailed_address` | TEXT | yes | Free-form text |
+| `gps_coordinates` | JSONB | yes | `{ lat: number, lng: number }` |
+
+### `geo_units` table
+
+| Column | Type | Nullable | Purpose |
+|---|---|---|---|
+| `id` | SERIAL | no | Primary key |
+| `name` | VARCHAR(255) | no | Display name |
+| `level` | INTEGER | no | 1=Governorate, 2=District, 3=Subarea, 4=Neighborhood |
+| `parent_id` | INTEGER → geo_units(id) | yes | Hierarchy traversal |
+
+**Key insight:** The system is **hybrid** — `governorate` and `district` are stored as **plain text names**, while `neighborhood` is stored as a **geo_units ID**. This means address display requires a geo_units lookup only for the neighborhood/subarea level — not for the full hierarchy.
+
+### `marketing_visits` table
+
+| Column | Type | Nullable | Purpose |
+|---|---|---|---|
+| `customer_address` | TEXT | yes | Plain text snapshot only |
+| `customer_name` | VARCHAR(255) | yes | — |
+| `customer_mobile` | VARCHAR(50) | yes | — |
+
+No geographic hierarchy columns. No link to `geo_units`. No `detailed_address`, no `gps_coordinates`.
+
+---
+
+## Section 2 — TypeScript Type Findings
+
+### `Client` interface (`packages/shared/types.ts`)
+
+```typescript
+interface Client {
+  governorate: string;                          // plain text name
+  district: string;                             // plain text name (= area/منطقة)
+  neighborhood: string;                         // geo_units ID as string
+  detailedAddress?: string;
+  gpsCoordinates?: { lat: number; lng: number };
+}
+```
+
+### `GeoUnit` interface
+
+```typescript
+interface GeoUnit {
+  id: number;
+  name: string;
+  level: number;       // 1=gov, 2=district, 3=subarea, 4=neighborhood
+  parentId: number | null;
+}
+```
+
+### `MarketingVisit` interface
+
+```typescript
+interface MarketingVisit {
+  customerAddress?: string | null;            // plain text — only field returned by API today
+  clientDetailedAddress?: string | null;      // defined in type, NOT returned by API
+  clientGpsCoordinates?: { lat: number; lng: number } | null;  // defined in type, NOT returned by API
+  // No clientGovernorate, clientDistrict, clientNeighborhood fields at all
+}
+```
+
+---
+
+## Section 3 — Frontend Address Display Findings
+
+### `packages/web/src/pages/Clients.tsx`
+
+Helper: `getNeighborhoodHierarchy(id: string)` (local, inline)
+
+```typescript
+const getNeighborhoodHierarchy = (id: string) => {
+  const nId = parseInt(id);
+  const neighborhood = geoUnits.find(gu => gu.id === nId);
+  if (!neighborhood) return '--';
+  const subArea = geoUnits.find(gu => gu.id === neighborhood.parentId);
+  if (subArea) return `${subArea.name} > ${neighborhood.name}`;
+  return neighborhood.name;
+};
+```
+
+- **Output:** `"District > Neighborhood"` — 2 levels only
+- **Input:** neighborhood ID string
+- **Requires:** `geoUnits` array loaded in page state
+- **Missing level:** does not show governorate
+- **Not exported** — defined inline, not reusable as-is
+
+### `packages/web/src/pages/ClientProfile.tsx`
+
+Helper: `getFullLocationStr(neighborhoodId?: string)` (local, inline)
+
+```typescript
+const getFullLocationStr = (neighborhoodId?: string) => {
+  if (!neighborhoodId) return 'غير محدد';
+  const n  = allGeoUnits.find(g => g.id === parseInt(neighborhoodId));
+  const d  = allGeoUnits.find(g => g.id === n?.parentId);
+  const g  = allGeoUnits.find(g => g.id === d?.parentId);
+  const parts = [];
+  if (g) parts.push(g.name);
+  if (d) parts.push(d.name);
+  if (n) parts.push(n.name);
+  return parts.join(' > ') || 'غير محدد';
+};
+```
+
+- **Output:** `"Governorate > District > Neighborhood"` — full 3-level hierarchy
+- **Input:** neighborhood ID string + `allGeoUnits` in closure
+- **Handles missing gracefully:** returns `'غير محدد'` on null
+- **Not exported** — also inline, not reusable as-is
+
+The profile page also renders `governorate`, `district`, `detailedAddress` from the client object directly as text fields (they are already resolved plain text names from the DB). Only `neighborhood` goes through `getFullLocationStr`.
+
+### `packages/web/src/pages/MarketingVisitsPage.tsx`
+
+```tsx
+<span>{visit.customerAddress || '—'}</span>
+```
+
+No helper. Plain text. No hierarchy.
+
+### `packages/web/src/pages/MarketingVisitDetailsPage.tsx`
+
+```tsx
+<InfoRow label="العنوان" value={visit.customerAddress} />
+{visit.clientDetailedAddress ? (
+  <InfoRow label="العنوان التفصيلي" value={visit.clientDetailedAddress} />
+) : null}
+{visit.clientGpsCoordinates ? (
+  <InfoRow label="إحداثيات الموقع" value={`${visit.clientGpsCoordinates.lat}, ${visit.clientGpsCoordinates.lng}`} />
+) : null}
+```
+
+Tries to display `clientDetailedAddress` and `clientGpsCoordinates` — but both are **always undefined** because the API never returns them.
+
+---
+
+## Section 4 — API Response Findings
+
+### Client API (`packages/api/routes/clients.ts`)
+
+```sql
+SELECT
+  c.governorate,          -- returned as plain text name
+  c.district,             -- returned as plain text name
+  c.neighborhood,         -- returned as ID string
+  c.detailed_address  AS "detailedAddress",
+  c.gps_coordinates   AS "gpsCoordinates"
+  ...
+FROM clients c
+```
+
+- **No JOIN to `geo_units`** — the API does not resolve the neighborhood ID to a name; it returns the raw ID string
+- The frontend receives `neighborhood` as a numeric string (e.g., `"42"`) and resolves it locally using `geoUnits` fetched separately via `api.geo.list()`
+- `governorate` and `district` arrive as plain text names already
+
+### Marketing Visits API (`packages/api/routes/marketingVisits.ts`)
+
+```sql
+SELECT
+  mv.customer_name    AS "customerName",
+  mv.customer_address AS "customerAddress",
+  mv.customer_mobile  AS "customerMobile",
+  -- nothing from clients table
+FROM marketing_visits mv
+LEFT JOIN marketing_visit_tasks mvt ON mvt.visit_id = mv.id
+```
+
+- **No JOIN to `clients`** — the linked `client_id` is never used to enrich the response
+- `clientDetailedAddress` and `clientGpsCoordinates` are in the TypeScript type but never populated
+- `customerAddress` is the only geographic data returned
+
+---
+
+## Section 5 — Marketing Visits Gaps
+
+| Field | Client display | Marketing Visits | Status |
+|---|---|---|---|
+| Governorate (text name) | ✅ shown | ❌ not stored, not returned | Missing |
+| District (text name) | ✅ shown | ❌ not stored, not returned | Missing |
+| Neighborhood (ID → resolved) | ✅ shown via `getFullLocationStr` | ❌ not stored, not returned | Missing |
+| Detailed address | ✅ shown | Defined in type, never returned by API | API gap only |
+| GPS coordinates | ✅ shown | Defined in type, never returned by API | API gap only |
+| Plain text address | ❌ not used | ✅ `customerAddress` exists | Different model |
+
+There are **two distinct gaps**:
+
+1. **Structured geographic fields** (`governorate`, `district`, `neighborhood`) are not stored in `marketing_visits` at all and are not returned by a JOIN — fixing this requires either (a) snapshotting them at visit creation time into new columns, or (b) joining the `clients` table at query time.
+
+2. **`clientDetailedAddress` and `clientGpsCoordinates`** are already typed in `MarketingVisit` and the details page already tries to render them — they just need the API to JOIN `clients` and return them. No DB schema change needed for these two.
+
+---
+
+## Section 6 — Recommended Fix Plan
+
+**Option A — Live JOIN (simpler, no migration):**
+Add `LEFT JOIN clients c ON c.id = mv.client_id` to `buildVisitSelect()` in `marketingVisits.ts`. Select `c.detailed_address AS "clientDetailedAddress"` and `c.gps_coordinates AS "clientGpsCoordinates"`. Also select `c.governorate AS "clientGovernorate"`, `c.district AS "clientDistrict"`, `c.neighborhood AS "clientNeighborhood"`. Add these to `mapVisitRows()` and to the `MarketingVisit` type. **No migration needed.**
+
+**Option B — Snapshot at creation time (more resilient to client edits):**
+Add columns `client_governorate`, `client_district`, `client_neighborhood`, `client_detailed_address`, `client_gps_coordinates` to `marketing_visits` and populate them when the visit is created from the telemarketing appointment. Requires a migration and changes to the visit-creation code path.
+
+**Address formatting in the frontend:**
+- Extract `getFullLocationStr` logic from `ClientProfile.tsx` into a shared utility (e.g., `packages/web/src/utils/addressUtils.ts`), exported as `buildGeoLabel(geoUnits, neighborhoodId)` or similar
+- The utility needs `geoUnits` — which means the marketing visits pages must also call `api.geo.list()` (or the equivalent) if the neighborhood field is an ID
+- If Option A is used and `clientNeighborhood` arrives as a raw ID string: the same `api.geo.list()` call + same helper works exactly like the client pages
+- If `clientGovernorate` and `clientDistrict` arrive as plain text names: they can be shown directly without a geo lookup
+
+---
+
+## Section 7 — Files Likely to Modify
+
+| File | Change needed |
+|---|---|
+| `packages/api/routes/marketingVisits.ts` | Add JOIN to `clients` in `buildVisitSelect()`; add fields to `mapVisitRows()` |
+| `packages/shared/types.ts` | Add `clientGovernorate?`, `clientDistrict?`, `clientNeighborhood?` to `MarketingVisit` interface |
+| `packages/web/src/pages/MarketingVisitsPage.tsx` | Use structured fields + geo helper for address column |
+| `packages/web/src/pages/MarketingVisitDetailsPage.tsx` | Use structured fields + geo helper for address section |
+| `packages/web/src/utils/addressUtils.ts` *(new)* | Extract + export reusable `buildGeoLabel` from `ClientProfile.tsx` logic |
+| `packages/web/src/pages/ClientProfile.tsx` | (Optional) Consume the new shared utility instead of local inline function |
+
+**Read-only reference during implementation:**
+- `packages/web/src/pages/ClientProfile.tsx` — copy `getFullLocationStr` pattern
+- `packages/api/routes/clients.ts` — copy the `c.neighborhood AS "neighborhood"` SELECT pattern
+- `packages/web/src/lib/geoConstants.ts` — geo level constants if needed

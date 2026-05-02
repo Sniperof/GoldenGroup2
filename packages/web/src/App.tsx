@@ -14,6 +14,7 @@ import CandidatesEntry from './pages/candidates/CandidatesEntry';
 import TeamScheduler from './pages/planning/TeamScheduler';
 import RouteAssigner from './pages/planning/RouteAssigner';
 import PlanOverview from './pages/planning/PlanOverview';
+import PlanningContactTargets from './pages/planning/PlanningContactTargets';
 import TodaysTasks from './pages/tasks/TodaysTasks';
 import EmergencyTasks from './pages/tasks/EmergencyTasks';
 import Dues from './pages/tasks/Dues';
@@ -27,6 +28,8 @@ import ContractForm from './pages/contracts/ContractForm';
 import TelemarketerWorkspace from './pages/TelemarketerWorkspace';
 import TeamTasksDetail from './pages/planning/TeamTasksDetail';
 import MarketingOperations from './pages/tasks/MarketingOperations';
+import MarketingVisitsPage from './pages/MarketingVisitsPage';
+import MarketingVisitDetailsPage from './pages/MarketingVisitDetailsPage';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
 import BranchDetail from './pages/admin/BranchDetail';
@@ -70,6 +73,7 @@ export default function App() {
                         <Route path="/planning/schedule" element={<TeamScheduler />} />
                         <Route path="/planning/assign" element={<RouteAssigner />} />
                         <Route path="/planning/overview" element={<PlanOverview />} />
+                        <Route path="/planning/contact-targets/:teamKey" element={<PlanningContactTargets />} />
                         <Route path="/planning/team-tasks/:teamKey" element={<TeamTasksDetail />} />
                         <Route path="/tasks/today" element={<TodaysTasks />} />
                         <Route path="/tasks/emergency" element={<EmergencyTasks />} />
@@ -78,6 +82,8 @@ export default function App() {
                         <Route path="/tasks/returns" element={<Returns />} />
                         <Route path="/tasks/followup" element={<FollowUp />} />
                         <Route path="/operations/marketing" element={<MarketingOperations />} />
+                        <Route path="/marketing-visits" element={<MarketingVisitsPage />} />
+                        <Route path="/marketing-visits/:id" element={<MarketingVisitDetailsPage />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />
 
