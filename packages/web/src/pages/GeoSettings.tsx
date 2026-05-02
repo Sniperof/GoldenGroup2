@@ -208,7 +208,7 @@ export default function GeoSettings() {
             </div>
 
             {/* Table Content */}
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto">
                 <SmartTable<GeoUnit>
                     title={currentTab.label}
                     icon={currentTab.icon}
