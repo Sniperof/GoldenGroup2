@@ -590,6 +590,24 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
 
     await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId);
 
+    // Auto-create an open device_demo task for new Lead (outside transaction — non-fatal)
+    try {
+      const existingTask = await pool.query(
+        `SELECT 1 FROM open_tasks WHERE client_id = $1 AND task_type = 'device_demo' AND status IN ('open','in_contact_list','scheduled','in_visit','needs_reschedule')`,
+        [inserted.id],
+      );
+      if (existingTask.rowCount === 0) {
+        await pool.query(
+          `INSERT INTO open_tasks (client_id, branch_id, task_type, task_family, reason, status, source, created_by)
+           VALUES ($1, $2, 'device_demo', 'marketing', 'new_lead', 'open', 'system', $3)`,
+          [inserted.id, targetBranchId, authContext.userId],
+        );
+      }
+    } catch (taskErr: any) {
+      // Unique constraint violation or other error — log and continue
+      console.error('[clients] Failed to auto-create open_task for client', inserted.id, taskErr?.message || taskErr);
+    }
+
     const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
     res.json(rows[0]);
   } catch (err: any) {

@@ -942,6 +942,62 @@ export interface TrainingCourseDetail extends TrainingCourse {
   attendance: { applicationId: number; attendanceDate: string; status: 'Present' | 'Absent' }[];
 }
 
+// Open Task types
+export type OpenTaskStatus = 'open' | 'in_contact_list' | 'scheduled' | 'in_visit' | 'completed' | 'cancelled' | 'needs_reschedule';
+export type OpenTaskType = 'device_demo';
+export type OpenTaskFamily = 'marketing' | 'service' | 'maintenance';
+export type OpenTaskReason = 'new_lead' | 'follow_up' | 'renewal' | 'service_request' | 'other';
+
+export interface OpenTask {
+  id: number;
+  clientId: number;
+  branchId: number;
+  taskType: OpenTaskType;
+  taskFamily: OpenTaskFamily;
+  reason: OpenTaskReason;
+  status: OpenTaskStatus;
+  dueDate: string | null;
+  priority: string | null;
+  source: string;
+  marketingVisitTaskId: string | null;
+  contactTargetId: number | null;
+  notes: string | null;
+  createdBy: number | null;
+  createdAt: string;
+  updatedAt: string;
+  // Joined fields (from API)
+  clientName?: string;
+  clientMobile?: string;
+  clientNeighborhood?: string;
+  clientGovernorate?: string;
+  clientDistrict?: string;
+  branchName?: string;
+  createdByName?: string;
+  assignments?: Array<{ userId: number; userName: string; roleDisplayName: string }>;
+}
+
+export const OPEN_TASK_STATUS_LABELS: Record<OpenTaskStatus, string> = {
+  open: 'مفتوحة',
+  in_contact_list: 'ضمن قائمة الاتصال',
+  scheduled: 'موعد مثبت',
+  in_visit: 'ضمن زيارة',
+  completed: 'مكتملة',
+  cancelled: 'ملغاة',
+  needs_reschedule: 'تحتاج إعادة جدولة',
+};
+
+export const OPEN_TASK_TYPE_LABELS: Record<OpenTaskType, string> = {
+  device_demo: 'عرض جهاز',
+};
+
+export const OPEN_TASK_REASON_LABELS: Record<OpenTaskReason, string> = {
+  new_lead: 'زبون جديد',
+  follow_up: 'متابعة',
+  renewal: 'تجديد',
+  service_request: 'طلب خدمة',
+  other: 'أخرى',
+};
+
 export interface CreateTrainingCourseRequest {
   training_name: string;
   job_vacancy_id: number;

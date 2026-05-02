@@ -30,6 +30,7 @@ import TeamTasksDetail from './pages/planning/TeamTasksDetail';
 import MarketingOperations from './pages/tasks/MarketingOperations';
 import MarketingVisitsPage from './pages/MarketingVisitsPage';
 import MarketingVisitDetailsPage from './pages/MarketingVisitDetailsPage';
+import OpenTasks from './pages/OpenTasks';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
 import BranchDetail from './pages/admin/BranchDetail';
@@ -84,6 +85,7 @@ export default function App() {
                         <Route path="/operations/marketing" element={<MarketingOperations />} />
                         <Route path="/marketing-visits" element={<MarketingVisitsPage />} />
                         <Route path="/marketing-visits/:id" element={<MarketingVisitDetailsPage />} />
+                        <Route path="/open-tasks" element={<OpenTasks />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />
 

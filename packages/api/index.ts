@@ -46,6 +46,7 @@ import systemListsRouter from './routes/systemLists.js';
 import uploadRouter from './routes/upload.js';
 import rolesRouter from './routes/roles.js';
 import departmentsRouter from './routes/departments.js';
+import openTasksRouter from './routes/openTasks.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -85,6 +86,7 @@ app.use('/api/planning', ...branchOnly, planningRouter);
 app.use('/api/contact-targets', ...branchOnly, contactTargetsRouter);
 app.use('/api/telemarketing', ...branchOnly, telemarketingRouter);
 app.use('/api/marketing-visits', ...branchOnly, marketingVisitsRouter);
+app.use('/api/open-tasks', ...branchOnly, openTasksRouter);
 
 // ── Shared routes (HQ + branch) ───────────────────────────────────────────────
 app.use('/api/contracts', contractsRouter);
