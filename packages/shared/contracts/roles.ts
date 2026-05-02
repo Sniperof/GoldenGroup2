@@ -47,6 +47,7 @@ export const PermissionSchema = z.object({
   action: z.string(),
   displayName: z.string(),
   displayOrder: z.number(),
+  allowedScopes: z.array(z.string()),
 });
 
 export const ScopeTypeSchema = z.enum(['GLOBAL', 'BRANCH', 'ASSIGNED']);

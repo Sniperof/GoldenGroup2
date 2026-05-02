@@ -59,7 +59,7 @@ const jobsChildren = [
 export default function MainLayout() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { user: authUser, logout } = useAuthStore();
+    const { user: authUser, logout, grants } = useAuthStore();
     const { hasPermission } = usePermissions();
 
     // Privileged users bypass explicit UI permission checks
@@ -82,9 +82,11 @@ export default function MainLayout() {
 
     const { branchId: selectedBranchId } = useBranchContextStore();
     const isGlobalOnlyPage = isGlobalOnlyPath(location.pathname);
-    // A super admin is "in branch mode" only when they have picked a specific
-    // operational branch. Branch-bound users always see branch-only modules.
-    const canSeeBranchModules = !isSuperAdmin || selectedBranchId != null;
+    // Users see branch modules if they have any permission granted with BRANCH or ASSIGNED scope,
+    // OR if they are a super admin who has selected a branch context.
+    // Super admins without a branch context still see branch modules if they have non-global grants.
+    const hasBranchScopedPermission = grants.some(g => g.scope === 'BRANCH' || g.scope === 'ASSIGNED');
+    const canSeeBranchModules = hasBranchScopedPermission || (isSuperAdmin && selectedBranchId != null);
 
     const jobsViewPermMap: Record<string, string> = {
       '/jobs/applications': 'jobs.applications.view_list',

@@ -14,12 +14,28 @@ import {
 
 type ScopeType = RolePermissionGrant['scopeType'];
 
-const DEFAULT_SCOPE: ScopeType = 'BRANCH';
-const SCOPE_OPTIONS: Array<{ value: ScopeType; label: string }> = [
-  { value: 'BRANCH', label: 'BRANCH' },
+const ALL_SCOPE_OPTIONS: Array<{ value: ScopeType; label: string }> = [
   { value: 'GLOBAL', label: 'GLOBAL' },
+  { value: 'BRANCH', label: 'BRANCH' },
   { value: 'ASSIGNED', label: 'ASSIGNED' },
 ];
+
+/** Return the allowed scope options for a given permission, filtering by allowed_scopes if present. */
+function getScopeOptions(perm: Permission): Array<{ value: ScopeType; label: string }> {
+  const allowedScopes: string[] | undefined = (perm as any).allowedScopes;
+  if (!allowedScopes || allowedScopes.length === 0) return ALL_SCOPE_OPTIONS;
+  return ALL_SCOPE_OPTIONS.filter(opt => allowedScopes.includes(opt.value));
+}
+
+/** Return the default scope for a permission — the first allowed scope, preferring BRANCH if available. */
+function getDefaultScope(perm: Permission): ScopeType {
+  const allowedScopes: string[] | undefined = (perm as any).allowedScopes;
+  if (!allowedScopes || allowedScopes.length === 0) return 'BRANCH';
+  // Prefer BRANCH if allowed, otherwise GLOBAL, otherwise first in list
+  if (allowedScopes.includes('BRANCH')) return 'BRANCH';
+  if (allowedScopes.includes('GLOBAL')) return 'GLOBAL';
+  return allowedScopes[0] as ScopeType;
+}
 
 // ── Human-readable labels & descriptions ─────────────────────────────────────
 const PERM_LABELS: Record<string, { label: string; desc: string }> = {
@@ -229,7 +245,7 @@ export default function RolePermissions() {
     if (!roleId) return;
     trpc.roles.getPermissions.query({ id: roleId })
       .then((perms: RolePermissionGrant[]) => {
-        setAssigned(new Map(perms.map(p => [p.id, p.scopeType ?? DEFAULT_SCOPE])));
+        setAssigned(new Map(perms.map(p => [p.id, p.scopeType ?? 'GLOBAL'])));
       })
       .catch(() => {});
   }, [roleId]);
@@ -254,11 +270,11 @@ export default function RolePermissions() {
     setOpenModules(prev => new Set([...prev].filter(module => moduleKeys.includes(module))));
   }, [moduleKeys]);
 
-  function toggle(permId: number) {
+  function toggle(perm: Permission) {
     if (!canManageRolePermissions || isProtectedRole) return;
     setAssigned(prev => {
       const next = new Map(prev);
-      next.has(permId) ? next.delete(permId) : next.set(permId, DEFAULT_SCOPE);
+      next.has(perm.id) ? next.delete(perm.id) : next.set(perm.id, getDefaultScope(perm));
       return next;
     });
   }
@@ -278,7 +294,10 @@ export default function RolePermissions() {
     const allSelected = ids.every(id => assigned.has(id));
     setAssigned(prev => {
       const next = new Map(prev);
-      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => next.set(id, DEFAULT_SCOPE));
+      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => {
+        const perm = perms.find(p => p.id === id)!;
+        next.set(id, getDefaultScope(perm));
+      });
       return next;
     });
   }
@@ -290,7 +309,10 @@ export default function RolePermissions() {
     const allSelected = ids.every(id => assigned.has(id));
     setAssigned(prev => {
       const next = new Map(prev);
-      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => next.set(id, DEFAULT_SCOPE));
+      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => {
+        const perm = allPerms.find(p => p.id === id)!;
+        next.set(id, getDefaultScope(perm));
+      });
       return next;
     });
   }
@@ -567,9 +589,10 @@ export default function RolePermissions() {
                         .sort((a, b) => ((a as any).display_order ?? 0) - ((b as any).display_order ?? 0))
                         .map(perm => {
                           const isOn = assigned.has(perm.id);
-                          const scopeType = assigned.get(perm.id) ?? DEFAULT_SCOPE;
+                          const scopeType = assigned.get(perm.id) ?? getDefaultScope(perm);
                           const desc = getPermDesc(perm);
                           const action = (perm as any).action ?? '';
+                          const scopeOptions = getScopeOptions(perm);
 
                           return (
                             <div
@@ -580,7 +603,7 @@ export default function RolePermissions() {
                             >
                               <button
                                 type="button"
-                                onClick={() => toggle(perm.id)}
+                                onClick={() => toggle(perm)}
                                 disabled={!canManageRolePermissions || !!isProtectedRole}
                                 aria-pressed={isOn}
                                 className="mt-0.5 shrink-0 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-300 disabled:cursor-not-allowed"
@@ -602,7 +625,7 @@ export default function RolePermissions() {
                                       <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{desc}</p>
                                     )}
                                   </div>
-                                  {isOn && (
+                                  {isOn && scopeOptions.length > 1 && (
                                     <select
                                       value={scopeType}
                                       onClick={event => event.stopPropagation()}
@@ -610,10 +633,15 @@ export default function RolePermissions() {
                                       disabled={!canManageRolePermissions || !!isProtectedRole}
                                       className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
                                     >
-                                      {SCOPE_OPTIONS.map(option => (
+                                      {scopeOptions.map(option => (
                                         <option key={option.value} value={option.value}>{option.label}</option>
                                       ))}
                                     </select>
+                                  )}
+                                  {isOn && scopeOptions.length === 1 && (
+                                    <span className="shrink-0 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-400">
+                                      {scopeOptions[0].label}
+                                    </span>
                                   )}
                                 </div>
                               </div>

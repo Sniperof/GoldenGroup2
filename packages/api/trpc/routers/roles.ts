@@ -69,6 +69,7 @@ function toPermission(p: Record<string, unknown>): z.infer<typeof PermissionSche
     action: p.action as string,
     displayName: p.display_name as string,
     displayOrder: p.display_order as number,
+    allowedScopes: (p.allowed_scopes as string[]) ?? ['GLOBAL', 'BRANCH', 'ASSIGNED'],
   };
 }
 
@@ -366,12 +367,35 @@ export const rolesRouter = router({
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: reason
-              ? `?? ???? ????? ??????? ??? ????? � ${reason}`
-              : '?? ???? ????? ??????? ??? ????? � ??? ????? ?? ????',
+              ? `لا يمكن تعديل صلاحيات هذا الدور المحمي – ${reason}`
+              : 'لا يمكن تعديل صلاحيات هذا الدور المحمي – دور نظامي',
           });
         }
         if (input.grants.some(grant => !VALID_SCOPE_TYPES.has(grant.scopeType))) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '???? ?????? ??? ????' });
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'نطاق غير صالح أو مفقود' });
+        }
+
+        // Validate that each scopeType is allowed for the given permission
+        if (input.grants.length > 0) {
+          const permIds = input.grants.map(g => g.permissionId);
+          const { rows: permRows } = await client.query(
+            'SELECT id, allowed_scopes FROM permissions WHERE id = ANY($1)',
+            [permIds]
+          );
+          const permScopeMap = new Map<number, string[]>(permRows.map((p: any) => [p.id as number, (p.allowed_scopes ?? []) as string[]]));
+
+          for (const grant of input.grants) {
+            const allowed: string[] | undefined = permScopeMap.get(grant.permissionId);
+            if (!allowed) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: `الصلاحية رقم ${grant.permissionId} غير موجودة` });
+            }
+            if (!allowed.includes(grant.scopeType)) {
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message: `النطاق "${grant.scopeType}" غير مسموح لهذه الصلاحية. النطاقات المسموحة: ${allowed.join(', ')}`,
+              });
+            }
+          }
         }
 
         await client.query('BEGIN');

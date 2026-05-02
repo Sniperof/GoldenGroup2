@@ -248,6 +248,28 @@ router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), as
       return res.status(400).json({ error: 'صلاحيات أو نطاقات غير صالحة' });
     }
 
+    // Validate that each scopeType is allowed for the given permission
+    if (normalizedGrants.length > 0) {
+      const permIds = normalizedGrants.map(g => g.permissionId);
+      const { rows: permRows } = await pool.query(
+        'SELECT id, allowed_scopes FROM permissions WHERE id = ANY($1)',
+        [permIds]
+      );
+      const permScopeMap = new Map<number, string[]>(permRows.map((p: any) => [p.id as number, (p.allowed_scopes ?? []) as string[]]));
+
+      for (const grant of normalizedGrants) {
+        const allowed: string[] | undefined = permScopeMap.get(grant.permissionId);
+        if (!allowed) {
+          return res.status(400).json({ error: `الصلاحية رقم ${grant.permissionId} غير موجودة` });
+        }
+        if (!allowed.includes(grant.scopeType)) {
+          return res.status(400).json({
+            error: `النطاق "${grant.scopeType}" غير مسموح لهذه الصلاحية. النطاقات المسموحة: ${allowed.join(', ')}`
+          });
+        }
+      }
+    }
+
     const role = await loadRoleForScope(Number(roleId));
     if (!role) return res.status(404).json({ error: 'الدور غير موجود' });
     if (role.is_system || role.is_protected) {
