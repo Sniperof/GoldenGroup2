@@ -123,7 +123,7 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   // Planning
   'planning.view':   { label: 'عرض خطط وجداول الفرع',      desc: 'الاطلاع على ملخص الخطة وجداول الفرق' },
   'planning.manage': { label: 'إدارة الجدولة وتعيين المسارات', desc: 'إنشاء الجداول وتعيين مسارات العمل للفرق' },
-  'planning.schedule.appear': { label: 'الظهور في جدولة الفرق', desc: 'السماح للموظفين بهذا الدور بالظهور ضمن قائمة الموظفين المتاحين في جدولة الفرق' },
+  'planning.schedule.appear': { label: 'الظهور في جدولة الفرق', desc: 'يسمح للموظفين بهذا الدور بدخول جدولة الفرق، ويكتمل ظهورهم ضمن القوائم بعد تحديد خانة الفريق لهذا الدور' },
 
   // Telemarketer
   'telemarketer.view':   { label: 'عرض إدارة المواعيد',       desc: 'الاطلاع على المواعيد والعملاء المحتملين' },

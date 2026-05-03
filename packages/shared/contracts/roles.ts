@@ -9,6 +9,9 @@ import { z } from 'zod';
 
 // ── Output schemas (what the API returns) ──────────────────────────────────
 
+export const TeamSlotTypeSchema = z.enum(['SUPERVISOR', 'TECHNICIAN', 'TRAINEE', 'TELEMARKETER']).nullable();
+export type TeamSlotType = z.infer<typeof TeamSlotTypeSchema>;
+
 export const RoleSchema = z.object({
   id: z.number(),
   name: z.string(),
@@ -28,6 +31,8 @@ export const RoleSchema = z.object({
   isHidden: z.boolean().optional(),
   protectedReason: z.string().nullable().optional(),
   jobTaskCount: z.number().optional(),
+  // Team-slot eligibility (migration 062+)
+  teamSlotType: TeamSlotTypeSchema.optional(),
 });
 
 export const RoleJobTaskSchema = z.object({
@@ -91,6 +96,7 @@ export const CreateRoleInputSchema = z.object({
   name: z.string().min(1),
   displayName: z.string().min(1),
   description: z.string().optional(),
+  teamSlotType: TeamSlotTypeSchema.optional(),
 });
 
 export const UpdateRoleInputSchema = z.object({
@@ -98,6 +104,7 @@ export const UpdateRoleInputSchema = z.object({
   displayName: z.string().optional(),
   description: z.string().optional(),
   isActive: z.boolean().optional(),
+  teamSlotType: TeamSlotTypeSchema.optional(),
 });
 
 export const SetPermissionsInputSchema = z.object({

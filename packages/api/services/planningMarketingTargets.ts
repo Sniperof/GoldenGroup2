@@ -1,4 +1,5 @@
 import pool from '../db.js';
+import { resolveTeamPlanningScope } from './teamPlanningScope.js';
 
 type RouteCompositionInput = {
   routeId: number;
@@ -84,6 +85,9 @@ export type PlanningMarketingTargetsResponse = {
   hasSupervisor: boolean;
   supervisorEmployeeId: number | null;
   supervisorHrUserId: number | null;
+  technicianEmployeeId?: number | null;
+  technicianHrUserId?: number | null;
+  actorHrUserIds?: number[];
   reason: string | null;
 };
 
@@ -127,6 +131,9 @@ function buildEmptyResponse(params: {
   reason: string;
   supervisorEmployeeId?: number | null;
   supervisorHrUserId?: number | null;
+  technicianEmployeeId?: number | null;
+  technicianHrUserId?: number | null;
+  actorHrUserIds?: number[];
   zoneIds?: number[];
 }): PlanningMarketingTargetsResponse {
   const zoneIds = params.zoneIds ?? [];
@@ -146,6 +153,9 @@ function buildEmptyResponse(params: {
     hasSupervisor: params.supervisorEmployeeId != null,
     supervisorEmployeeId: params.supervisorEmployeeId ?? null,
     supervisorHrUserId: params.supervisorHrUserId ?? null,
+    technicianEmployeeId: params.technicianEmployeeId ?? null,
+    technicianHrUserId: params.technicianHrUserId ?? null,
+    actorHrUserIds: params.actorHrUserIds ?? [],
     reason: params.reason,
   };
 }
@@ -222,30 +232,18 @@ export async function getPlanningMarketingTargets(params: {
     return buildEmptyResponse({ teamKey, reason: 'TEAM_NOT_FOUND' });
   }
 
-  const supervisorEmployeeId = parsePositiveInteger(team.supervisor);
-  if (supervisorEmployeeId == null) {
-    return buildEmptyResponse({ teamKey, reason: 'TEAM_HAS_NO_SUPERVISOR' });
-  }
+  const scope = await resolveTeamPlanningScope({ supervisor: team.supervisor, technician: team.technician });
 
-  const { rows: supervisorRows } = await pool.query(
-    `
-      SELECT id
-      FROM hr_users
-      WHERE employee_id = $1
-        AND is_active = TRUE
-      LIMIT 1
-    `,
-    [supervisorEmployeeId],
-  );
-  const supervisorHrUserId = supervisorRows[0]?.id != null ? Number(supervisorRows[0].id) : null;
-
-  if (supervisorHrUserId == null) {
+  if (scope.actorHrUserIds.length === 0) {
     return buildEmptyResponse({
       teamKey,
-      reason: 'SUPERVISOR_HAS_NO_ACTIVE_HR_USER',
-      supervisorEmployeeId,
+      reason: scope.reason ?? 'TEAM_ACTORS_HAVE_NO_ACTIVE_HR_USER',
+      supervisorEmployeeId: scope.supervisorEmployeeId,
+      technicianEmployeeId: scope.technicianEmployeeId,
     });
   }
+
+  const { supervisorEmployeeId, supervisorHrUserId, technicianEmployeeId, technicianHrUserId, actorHrUserIds } = scope;
 
   const assignmentKey = `${date}_${teamKey}`;
   const { rows: assignmentRows } = await pool.query(
@@ -259,6 +257,9 @@ export async function getPlanningMarketingTargets(params: {
       reason: 'ROUTE_ASSIGNMENT_NOT_FOUND',
       supervisorEmployeeId,
       supervisorHrUserId,
+      technicianEmployeeId,
+      technicianHrUserId,
+      actorHrUserIds,
     });
   }
 
@@ -290,7 +291,7 @@ export async function getPlanningMarketingTargets(params: {
           SELECT 1
           FROM client_assignments ca
           WHERE ca.client_id = c.id
-            AND ca.hr_user_id = $3
+            AND ca.hr_user_id = ANY($3::int[])
         )
         AND NOT EXISTS (
           SELECT 1
@@ -304,7 +305,7 @@ export async function getPlanningMarketingTargets(params: {
         )
       GROUP BY c.neighborhood::int
     `,
-    [branchId, zoneIds, supervisorHrUserId],
+    [branchId, zoneIds, actorHrUserIds],
   );
 
   const countsByZoneMap = new Map<number, number>();
@@ -448,7 +449,7 @@ export async function getPlanningMarketingTargets(params: {
           SELECT 1
           FROM client_assignments ca
           WHERE ca.client_id = c.id
-            AND ca.hr_user_id = $3
+            AND ca.hr_user_id = ANY($3::int[])
         )
         AND NOT EXISTS (
           SELECT 1
@@ -462,7 +463,7 @@ export async function getPlanningMarketingTargets(params: {
         )
       ORDER BY c.id
     `,
-    [branchId, zoneIds, supervisorHrUserId, date, teamKey],
+    [branchId, zoneIds, actorHrUserIds, date, teamKey],
   );
 
   return {

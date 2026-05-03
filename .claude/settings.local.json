@@ -35,14 +35,14 @@
       "Bash(echo *)",
       "Bash(psql *)",
       "Bash(node *)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(pm2 restart *)"
     ],
     "deny": [
       "Bash(rm -rf /*)",
       "Bash(rm -rf /)",
       "Bash(dropdb *)",
       "Bash(sudo rm -rf *)",
-      "Bash(:(){ :|:& }*)",
       "Bash(dd *)",
       "Bash(mkfs *)",
       "Bash(format *)"

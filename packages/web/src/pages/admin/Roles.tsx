@@ -21,6 +21,7 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
   const [displayName, setDisplayName] = useState(role?.displayName ?? '');
   const [name, setName] = useState(role?.name ?? '');
   const [description, setDescription] = useState(role?.description ?? '');
+  const [teamSlotType, setTeamSlotType] = useState<'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' | null>(role?.teamSlotType ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const isEdit = !!role;
@@ -32,8 +33,8 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
     }
     setSaving(true); setError('');
     try {
-      if (isEdit) await updateRole(role!.id, { displayName, description });
-      else await createRole({ name, displayName, description });
+      if (isEdit) await updateRole(role!.id, { displayName, description, teamSlotType });
+      else await createRole({ name, displayName, description, teamSlotType });
       onClose();
     } catch (e: any) { setError(e.message ?? 'حدث خطأ'); }
     finally { setSaving(false); }
@@ -67,6 +68,25 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
               placeholder="وصف مختصر لصلاحيات هذا الدور..."
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">خانة الفريق</label>
+            <div className="relative">
+              <select value={teamSlotType ?? ''}
+                onChange={e => setTeamSlotType(e.target.value ? e.target.value as 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' : null)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 appearance-none bg-white">
+                <option value="">— لا يوجد —</option>
+                <option value="SUPERVISOR">مشرف</option>
+                <option value="TECHNICIAN">فني</option>
+                <option value="TRAINEE">متدرب</option>
+                <option value="TELEMARKETER">مسوق هاتفي</option>
+              </select>
+              <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-500 leading-5">
+              تحدد هذه الخانة موقع الدور داخل الفريق. ولظهور الموظف في جدولة الفرق يجب أن يملك هذا الدور أيضاً صلاحية
+              <span className="font-semibold text-slate-700"> الظهور في جدولة الفرق</span>.
+            </p>
           </div>
         </div>
         <div className="flex gap-3 p-5 border-t border-slate-100">

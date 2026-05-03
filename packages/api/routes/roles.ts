@@ -6,6 +6,7 @@ import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment } from '
 
 const router = Router();
 const VALID_SCOPE_TYPES = new Set(['GLOBAL', 'BRANCH', 'ASSIGNED']);
+const VALID_TEAM_SLOT_TYPES = new Set(['SUPERVISOR', 'TECHNICIAN', 'TRAINEE', 'TELEMARKETER']);
 
 /**
  * Multi-branch rules enforced below:
@@ -131,15 +132,19 @@ router.get('/roles/:id/permissions', requirePermission('admin.roles.view'), asyn
 // user_branch_assignments, not role rows.
 router.post('/roles', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
-    const { name, displayName, description } = req.body;
+    const { name, displayName, description, teamSlotType } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'اسم الدور مطلوب' });
     if (!displayName?.trim()) return res.status(400).json({ error: 'الاسم المعروض مطلوب' });
 
+    if (teamSlotType !== undefined && teamSlotType !== null && !VALID_TEAM_SLOT_TYPES.has(teamSlotType)) {
+      return res.status(400).json({ error: 'نوع خانة الفريق غير صالح' });
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO roles (name, display_name, description, branch_id, is_template, template_id)
-       VALUES ($1, $2, $3, NULL, TRUE, NULL)
+      `INSERT INTO roles (name, display_name, description, branch_id, is_template, template_id, team_slot_type)
+       VALUES ($1, $2, $3, NULL, TRUE, NULL, $4)
        RETURNING *`,
-      [name.trim(), displayName.trim(), description || null]
+      [name.trim(), displayName.trim(), description || null, teamSlotType ?? null]
     );
     res.status(201).json(rows[0]);
   } catch (err: any) {
@@ -170,16 +175,23 @@ router.put('/roles/:id', requirePermission('admin.roles.manage'), async (req, re
       return res.status(403).json({ error: 'غير مسموح بتعديل هذا الدور' });
     }
 
-    const { displayName, description, isActive } = req.body;
+    const { displayName, description, isActive, teamSlotType } = req.body;
+
+    if (teamSlotType !== undefined && teamSlotType !== null && !VALID_TEAM_SLOT_TYPES.has(teamSlotType)) {
+      return res.status(400).json({ error: 'نوع خانة الفريق غير صالح' });
+    }
+
+    const teamSlotTypeProvided = teamSlotType !== undefined;
     const { rows } = await pool.query(
       `UPDATE roles SET
         display_name = COALESCE($1, display_name),
         description = COALESCE($2, description),
         is_active = COALESCE($3, is_active),
+        team_slot_type = CASE WHEN $4 THEN $5::text ELSE team_slot_type END,
         updated_at = NOW()
-       WHERE id = $4
+       WHERE id = $6
        RETURNING *`,
-      [displayName || null, description !== undefined ? description : null, isActive !== undefined ? isActive : null, roleId]
+      [displayName || null, description !== undefined ? description : null, isActive !== undefined ? isActive : null, teamSlotTypeProvided, teamSlotType ?? null, roleId]
     );
     res.json(rows[0]);
   } catch (err: any) {

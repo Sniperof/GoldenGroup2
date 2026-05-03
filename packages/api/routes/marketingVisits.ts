@@ -192,7 +192,7 @@ function buildVisitSelect(whereClause: string) {
     FROM marketing_visits mv
     LEFT JOIN clients c ON c.id = mv.client_id
     LEFT JOIN branches b ON b.id = mv.branch_id
-    LEFT JOIN route_assignments ra ON ra.key = mv.team_key
+    LEFT JOIN route_assignments ra ON ra.key = mv.scheduled_date || '_' || mv.team_key
     LEFT JOIN marketing_visit_tasks mvt ON mvt.visit_id = mv.id
     ${whereClause}
   `;

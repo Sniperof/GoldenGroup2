@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap } from 'lucide-react';
+import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { DaySchedule, Employee } from '../../lib/types';
 
@@ -10,11 +10,11 @@ type SlotType = 'team' | 'solo';
 type TeamRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
 type SlotRole = TeamRole;
 
-const roleLabels: Record<TeamRole, string> = {
-    supervisor: 'مشرف',
-    technician: 'فني',
-    telemarketer: 'مسوق هاتفي',
-    trainee: 'متدرب',
+const teamSlotTypeLabels: Record<string, string> = {
+    SUPERVISOR: 'مشرف',
+    TECHNICIAN: 'فني',
+    TELEMARKETER: 'مسوق هاتفي',
+    TRAINEE: 'متدرب',
 };
 
 export default function TeamScheduler() {
@@ -23,6 +23,8 @@ export default function TeamScheduler() {
     const [selectedSlot, setSelectedSlot] = useState<{ type: SlotType; slotIdx: number; role: SlotRole } | null>(null);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [loading, setLoading] = useState(true);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     useEffect(() => {
         api.employees.schedulePool().then((data: Employee[]) => setEmployees(data)).catch(() => {});
@@ -42,7 +44,6 @@ export default function TeamScheduler() {
 
     const updateCurrent = useCallback((sched: DaySchedule) => {
         setCurrent(sched);
-        api.schedules.save(date, { teams: sched.teams, solos: sched.solos }).catch(() => {});
     }, [date]);
 
     const addTeamSlot = () => updateCurrent({ ...current, teams: [...current.teams, { supervisor: null, technician: null }] });
@@ -56,10 +57,10 @@ export default function TeamScheduler() {
     ].filter(Boolean) as number[];
 
     const canAppear = (employee: Employee) => employee.canAppearInSchedule === true;
-    const availableSups = employees.filter(e => canAppear(e) && e.role === 'supervisor' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTechs = employees.filter(e => canAppear(e) && e.role === 'technician' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTeles = employees.filter(e => canAppear(e) && e.role === 'telemarketer' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTrainees = employees.filter(e => canAppear(e) && e.role === 'trainee' && e.status === 'active' && !assignedIds.includes(e.id));
+    const availableSups = employees.filter(e => canAppear(e) && e.teamSlotType === 'SUPERVISOR' && e.status === 'active' && !assignedIds.includes(e.id));
+    const availableTechs = employees.filter(e => canAppear(e) && e.teamSlotType === 'TECHNICIAN' && e.status === 'active' && !assignedIds.includes(e.id));
+    const availableTeles = employees.filter(e => canAppear(e) && e.teamSlotType === 'TELEMARKETER' && e.status === 'active' && !assignedIds.includes(e.id));
+    const availableTrainees = employees.filter(e => canAppear(e) && e.teamSlotType === 'TRAINEE' && e.status === 'active' && !assignedIds.includes(e.id));
     const poolEmployees = [...availableSups, ...availableTechs, ...availableTeles, ...availableTrainees];
 
     const selectSlot = (type: SlotType, slotIdx: number, role: SlotRole) => {
@@ -74,20 +75,20 @@ export default function TeamScheduler() {
         if (type === 'team') {
             const teams = [...current.teams];
             if (role === 'telemarketer') {
-                if (emp.role !== 'telemarketer') return;
+                if (emp.teamSlotType !== 'TELEMARKETER') return;
                 const currentTeles = teams[slotIdx].telemarketers || [];
                 if (!currentTeles.includes(empId)) {
                     teams[slotIdx] = { ...teams[slotIdx], telemarketers: [...currentTeles, empId] };
                 }
             } else {
-                if (role === 'supervisor' && emp.role !== 'supervisor') return;
-                if (role === 'technician' && emp.role !== 'technician') return;
-                if (role === 'trainee' && emp.role !== 'trainee') return;
+                if (role === 'supervisor' && emp.teamSlotType !== 'SUPERVISOR') return;
+                if (role === 'technician' && emp.teamSlotType !== 'TECHNICIAN') return;
+                if (role === 'trainee' && emp.teamSlotType !== 'TRAINEE') return;
                 teams[slotIdx] = { ...teams[slotIdx], [role]: empId };
             }
             updateCurrent({ ...current, teams });
         } else {
-            if (emp.role !== 'technician') return;
+            if (emp.teamSlotType !== 'TECHNICIAN') return;
             const solos = [...current.solos];
             solos[slotIdx] = { technician: empId };
             updateCurrent({ ...current, solos });
@@ -117,9 +118,14 @@ export default function TeamScheduler() {
     const saveSchedule = async () => {
         try {
             await api.schedules.save(date, { teams: current.teams, solos: current.solos });
-            alert('تم حفظ الجدول!');
-        } catch {
-            alert('حدث خطأ أثناء الحفظ');
+            setSaveStatus('success');
+            setSaveError(null);
+            setTimeout(() => setSaveStatus('idle'), 3000);
+        } catch (err: any) {
+            const msg = err?.response?.data?.error || err?.message || null;
+            setSaveError(msg);
+            setSaveStatus('error');
+            setTimeout(() => { setSaveStatus('idle'); setSaveError(null); }, 5000);
         }
     };
 
@@ -158,6 +164,8 @@ export default function TeamScheduler() {
                     <div className="flex items-center gap-1.5 text-sm"><GraduationCap className="w-4 h-4 text-amber-500" /><span className="text-slate-500">متدربون:</span><span className="text-slate-900 font-bold">{availableTrainees.length}</span></div>
                 </div>
                 <div className="mr-auto flex items-center gap-2">
+                    {saveStatus === 'success' && <span className="flex items-center gap-1 text-emerald-600 text-sm font-medium"><CheckCircle className="w-4 h-4" />تم الحفظ</span>}
+                    {saveStatus === 'error' && <span className="flex items-center gap-1 text-red-500 text-sm font-medium"><AlertCircle className="w-4 h-4" />{saveError || 'خطأ في الحفظ'}</span>}
                     <button onClick={saveSchedule} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all"><Save className="w-4 h-4" /><span>حفظ الجدول</span></button>
                 </div>
             </div>
@@ -177,11 +185,11 @@ export default function TeamScheduler() {
                                     key={e.id}
                                     onClick={() => assignEmployee(e.id)}
                                     className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${selectedSlot
-                                        ? ((selectedSlot.role === 'supervisor' && e.role === 'supervisor') ||
-                                            (selectedSlot.role === 'technician' && e.role === 'technician') ||
-                                            (selectedSlot.role === 'telemarketer' && e.role === 'telemarketer') ||
-                                            (selectedSlot.role === 'trainee' && selectedSlot.type === 'team' && e.role === 'trainee') ||
-                                            (selectedSlot.type === 'solo' && e.role === 'technician'))
+                                        ? ((selectedSlot.role === 'supervisor' && e.teamSlotType === 'SUPERVISOR') ||
+                                            (selectedSlot.role === 'technician' && e.teamSlotType === 'TECHNICIAN') ||
+                                            (selectedSlot.role === 'telemarketer' && e.teamSlotType === 'TELEMARKETER') ||
+                                            (selectedSlot.role === 'trainee' && selectedSlot.type === 'team' && e.teamSlotType === 'TRAINEE') ||
+                                            (selectedSlot.type === 'solo' && e.teamSlotType === 'TECHNICIAN'))
                                             ? 'hover:bg-sky-50'
                                             : 'opacity-40 grayscale cursor-not-allowed'
                                         : 'hover:bg-sky-50'
@@ -193,13 +201,13 @@ export default function TeamScheduler() {
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-medium text-slate-700 truncate">{e.name}</p>
-                                        <p className="text-xs text-gray-500">{e.role ? roleLabels[e.role] : ''}</p>
+                                        <p className="text-xs text-gray-500">{e.teamSlotType ? teamSlotTypeLabels[e.teamSlotType] : ''}</p>
                                     </div>
-                                    {e.role === 'supervisor' ? (
+                                    {e.teamSlotType === 'SUPERVISOR' ? (
                                         <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold">مشرف</span>
-                                    ) : e.role === 'telemarketer' ? (
+                                    ) : e.teamSlotType === 'TELEMARKETER' ? (
                                         <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 text-[10px] font-bold">مسوق</span>
-                                    ) : e.role === 'trainee' ? (
+                                    ) : e.teamSlotType === 'TRAINEE' ? (
                                         <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 text-[10px] font-bold">متدرب</span>
                                     ) : (
                                         <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold">فني</span>

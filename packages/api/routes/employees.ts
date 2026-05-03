@@ -134,7 +134,7 @@ router.get('/schedule-pool', requirePermission('planning.manage'), async (req, r
     res.json(employees.filter(employee =>
       employee.canAppearInSchedule === true &&
       employee.status === 'active' &&
-      ['supervisor', 'technician', 'telemarketer', 'trainee'].includes(String(employee.role ?? '')),
+      employee.teamSlotType != null,
     ));
   } catch (err: any) {
     if (err?.status) {

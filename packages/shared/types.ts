@@ -122,6 +122,7 @@ export interface Employee {
     detailedAddress?: string | null;
     status: 'active' | 'leave' | 'inactive';
     canAppearInSchedule?: boolean;
+    teamSlotType?: 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' | null;
     avatar?: string;
     jobTitle?: string | null;
     academicQualification?: string | null;

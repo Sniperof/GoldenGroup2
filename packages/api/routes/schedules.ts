@@ -149,7 +149,13 @@ async function validateSchedulePayload(req: any, teams: unknown, solos: unknown)
           WHERE su.employee_id = e.id
             AND su.is_active = TRUE
             AND sp.key = 'planning.schedule.appear'
-       ) AS "canAppearInSchedule"
+       ) AS "canAppearInSchedule",
+       (SELECT r.team_slot_type
+          FROM hr_users u
+          JOIN roles r ON r.id = u.role_id
+         WHERE u.employee_id = e.id
+           AND u.is_active = TRUE
+         LIMIT 1) AS "teamSlotType"
      FROM employees e
      WHERE e.id = ANY($1::int[])`,
     [employeeIds],
@@ -190,12 +196,26 @@ async function validateSchedulePayload(req: any, teams: unknown, solos: unknown)
       };
     }
 
-    if (employee.role !== assignment.role) {
+    const expectedSlot = assignment.role.toUpperCase();
+    if (employee.teamSlotType !== expectedSlot) {
       return {
         ok: false,
         status: 400,
         error: `دور الموظف #${assignment.id} لا يناسب خانة ${assignment.label}`,
       };
+    }
+  }
+
+  // Validate each team has exactly 1 supervisor, 1 technician, 1 trainee, and ≥1 telemarketer.
+  for (let teamIdx = 0; teamIdx < (teams as any[]).length; teamIdx++) {
+    const team = (teams as any[])[teamIdx];
+    const teamNum = teamIdx + 1;
+
+    if (toEmployeeId(team.supervisor) == null) {
+      return { ok: false, status: 400, error: `الفريق ${teamNum} يجب أن يضم مشرفاً` };
+    }
+    if (toEmployeeId(team.technician) == null) {
+      return { ok: false, status: 400, error: `الفريق ${teamNum} يجب أن يضم فنياً` };
     }
   }
 

@@ -20,8 +20,8 @@ interface RoleStore {
   fetchPermissions: () => Promise<void>;
   fetchHrUsers: () => Promise<void>;
 
-  createRole: (data: { name: string; displayName: string; description?: string }) => Promise<Role>;
-  updateRole: (id: number, data: { displayName?: string; description?: string; isActive?: boolean }) => Promise<void>;
+  createRole: (data: { name: string; displayName: string; description?: string; teamSlotType?: 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' | null }) => Promise<Role>;
+  updateRole: (id: number, data: { displayName?: string; description?: string; isActive?: boolean; teamSlotType?: 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' | null }) => Promise<void>;
   deleteRole: (id: number) => Promise<void>;
   updateRolePermissions: (roleId: number, grants: Array<{ permissionId: number; scopeType: RolePermissionGrant['scopeType'] }>) => Promise<void>;
 

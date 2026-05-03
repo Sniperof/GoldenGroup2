@@ -23,6 +23,7 @@ import type {
   MarketingVisit,
   MarketingVisitResultUpdateRequest,
   MarketingVisitStatus,
+  MarketingVisitTask,
   MarketingVisitTaskResult,
 } from '@golden-crm/shared';
 import { api } from '../lib/api';
@@ -48,6 +49,22 @@ const TASK_RESULT_LABELS: Record<MarketingVisitTaskResult, string> = {
   cash_offer_not_closed: 'تم تقديم عرض كاش — لم يتم الإغلاق',
   installment_offer_not_closed: 'تم تقديم عرض تقسيط — لم يتم الإغلاق',
   demo_not_completed: 'لم يتم تقديم العرض',
+};
+
+const TASK_TYPE_LABELS: Record<string, string> = {
+  device_demo: 'عرض جهاز',
+};
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  pending:       'قيد الانتظار',
+  completed:     'مكتملة',
+  not_completed: 'لم تكتمل',
+};
+
+const TASK_STATUS_STYLES: Record<string, string> = {
+  pending:       'bg-amber-50 text-amber-700 border border-amber-100',
+  completed:     'bg-emerald-50 text-emerald-700 border border-emerald-100',
+  not_completed: 'bg-rose-50 text-rose-700 border border-rose-100',
 };
 
 const CONTACT_STATUS_LABELS: Record<string, string> = {
@@ -170,7 +187,7 @@ export default function MarketingVisitDetailsPage() {
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<MarketingVisitTask | null>(null);
   const [savingResult, setSavingResult] = useState(false);
   const [modalError, setModalError] = useState('');
   const [resultSaved, setResultSaved] = useState(false);
@@ -214,7 +231,7 @@ export default function MarketingVisitDetailsPage() {
     setModalError('');
     try {
       await api.marketingVisits.updateResult(visit.id, payload);
-      setModalOpen(false);
+      setSelectedTask(null);
       setResultSaved(true);
       await load();
     } catch (err: any) {
@@ -255,14 +272,6 @@ export default function MarketingVisitDetailsPage() {
     }
     return '—';
   })();
-
-  const closedByName = (() => {
-    if (!visit?.task?.closedByEmployeeId) return null;
-    return employeesById.get(visit.task.closedByEmployeeId)?.name ?? `#${visit.task.closedByEmployeeId}`;
-  })();
-
-  const task = visit?.task ?? null;
-  const hasResult = task != null && task.result != null;
 
   return (
     <div className="h-full overflow-y-auto p-8 custom-scroll" dir="rtl">
@@ -456,47 +465,69 @@ export default function MarketingVisitDetailsPage() {
           </div>
 
           {/* Section 3: بيانات خطة العمل */}
-          <Section title="بيانات خطة العمل" icon={<Users className="h-4 w-4" />}>
-            {/* Group A: الفريق */}
-            <div className="sm:col-span-2 lg:col-span-3">
-              <div className="flex flex-col gap-3">
-                <h3 className="text-xs font-bold text-slate-600">الفريق</h3>
-                <div className="grid gap-3">
-                  <InfoRow label="المشرفة" value={supervisorName} />
-                  <InfoRow label="الفني" value={technicianName} />
-                  {(visit.traineeEmployeeId ?? visit.teamSnapshot?.traineeEmployeeId) != null ? (
-                    <InfoRow label="المتدرب" value={traineeName} />
-                  ) : null}
-                  <InfoRow label="التيلماركتر" value={telemarketerName} />
-                </div>
-              </div>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-5 py-3.5">
+              <Users className="h-4 w-4 text-slate-400" />
+              <h2 className="text-sm font-bold text-slate-700">بيانات خطة العمل</h2>
             </div>
+            <div className="divide-y divide-slate-100">
 
-            {/* Group B: نطاق العمل */}
-            <div className="sm:col-span-2 lg:col-span-3">
-              <div className="flex flex-col gap-3">
-                <h3 className="text-xs font-bold text-slate-600">نطاق العمل</h3>
-                <div className="grid gap-3">
-                  {visit.workRouteCount && visit.workRouteCount > 0 ? (
-                    <InfoRow
-                      label="المسارات"
-                      value={`${visit.workRouteCount} ${visit.workRouteCount === 1 ? 'مسار' : 'مسار'}`}
-                    />
-                  ) : null}
-                  {visit.additionalAreaCount && visit.additionalAreaCount > 0 ? (
-                    <InfoRow
-                      label="المناطق الإضافية"
-                      value={`${visit.additionalAreaCount} ${visit.additionalAreaCount === 1 ? 'منطقة' : 'منطقة'}`}
-                    />
-                  ) : null}
-                  {(!visit.workRouteCount || visit.workRouteCount === 0) &&
-                  (!visit.additionalAreaCount || visit.additionalAreaCount === 0) ? (
-                    <div className="text-sm text-slate-600">غير محدد</div>
+              {/* الفريق */}
+              <div className="p-5">
+                <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">الفريق</p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="flex flex-col gap-1 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2.5">
+                    <span className="text-[10px] font-bold text-indigo-400">مشرف</span>
+                    <span className="text-sm font-semibold text-slate-800 truncate">{supervisorName}</span>
+                  </div>
+                  <div className="flex flex-col gap-1 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5">
+                    <span className="text-[10px] font-bold text-emerald-500">فني</span>
+                    <span className="text-sm font-semibold text-slate-800 truncate">{technicianName}</span>
+                  </div>
+                  <div className="flex flex-col gap-1 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2.5">
+                    <span className="text-[10px] font-bold text-violet-400">تيلماركتر</span>
+                    <span className="text-sm font-semibold text-slate-800 truncate">{telemarketerName}</span>
+                  </div>
+                  {(visit.traineeEmployeeId ?? visit.teamSnapshot?.traineeEmployeeId) != null ? (
+                    <div className="flex flex-col gap-1 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5">
+                      <span className="text-[10px] font-bold text-amber-500">متدرب</span>
+                      <span className="text-sm font-semibold text-slate-800 truncate">{traineeName}</span>
+                    </div>
                   ) : null}
                 </div>
               </div>
+
+              {/* نطاق العمل */}
+              <div className="p-5">
+                <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">نطاق العمل</p>
+                <div className="flex flex-wrap gap-3">
+                  <div className="flex items-center gap-3 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 min-w-[120px]">
+                    <Navigation className="h-5 w-5 shrink-0 text-sky-400" />
+                    <div>
+                      <p className="text-[10px] font-bold text-sky-500">المسارات</p>
+                      <p className="text-xl font-bold text-slate-800 leading-tight">
+                        {visit.workRouteCount != null ? visit.workRouteCount : '—'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-xl border border-teal-100 bg-teal-50 px-4 py-3 min-w-[140px]">
+                    <MapPin className="h-5 w-5 shrink-0 text-teal-400" />
+                    <div>
+                      <p className="text-[10px] font-bold text-teal-500">المناطق الإضافية</p>
+                      <p className="text-xl font-bold text-slate-800 leading-tight">
+                        {visit.additionalAreaCount != null ? visit.additionalAreaCount : '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {(visit.workRouteCount == null || visit.workRouteCount === 0) &&
+                 (visit.additionalAreaCount == null || visit.additionalAreaCount === 0) ? (
+                  <p className="mt-3 text-xs text-slate-400">لم يتم تحديد نطاق عمل لهذه الزيارة</p>
+                ) : null}
+              </div>
+
             </div>
-          </Section>
+          </div>
 
           {/* Section 4: مهمة الزيارة */}
           <Section title="مهمة الزيارة" icon={<ClipboardList className="h-4 w-4" />}>
@@ -510,73 +541,87 @@ export default function MarketingVisitDetailsPage() {
             ) : null}
           </Section>
 
-          {/* Section 5: نتيجة الزيارة */}
+          {/* Section 5: مهام الزيارة */}
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-5 py-3.5">
-              <div className="flex items-center gap-2">
-                <Target className="h-4 w-4 text-slate-400" />
-                <h2 className="text-sm font-bold text-slate-700">نتيجة الزيارة</h2>
-              </div>
-              {visit.status === 'scheduled' && canUpdateMarketingVisitResult ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModalError('');
-                    setModalOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700"
-                >
-                  <Target className="h-3.5 w-3.5" />
-                  تسجيل النتيجة
-                </button>
-              ) : null}
+            <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-5 py-3.5">
+              <ClipboardList className="h-4 w-4 text-slate-400" />
+              <h2 className="text-sm font-bold text-slate-700">مهام الزيارة</h2>
             </div>
 
-            {!hasResult ? (
+            {(!visit.tasks || visit.tasks.length === 0) ? (
               <div className="px-5 py-10 text-center">
                 <ClipboardList className="mx-auto mb-3 h-9 w-9 text-slate-300" />
-                <p className="text-sm font-bold text-slate-500">لم يتم تسجيل نتيجة الزيارة بعد</p>
+                <p className="text-sm text-slate-500">لا توجد مهام مرتبطة بهذه الزيارة</p>
               </div>
             ) : (
-              <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
-                <InfoRow
-                  label="حالة الزيارة"
-                  value={
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${STATUS_META[visit.status].className}`}>
-                      {STATUS_META[visit.status].label}
-                    </span>
-                  }
-                />
-                <InfoRow
-                  label="نتيجة عرض الجهاز"
-                  value={task?.result ? TASK_RESULT_LABELS[task.result] : '—'}
-                />
-                {task?.cashOfferAmount != null ? (
-                  <InfoRow
-                    label="قيمة العرض الكاش"
-                    value={`${task.cashOfferAmount.toLocaleString('ar-SY')} ل.س`}
-                  />
-                ) : null}
-                {task?.installmentAmount != null ? (
-                  <InfoRow
-                    label="قيمة القسط"
-                    value={`${task.installmentAmount.toLocaleString('ar-SY')} ل.س`}
-                  />
-                ) : null}
-                {task?.installmentMonths != null ? (
-                  <InfoRow label="عدد الأشهر" value={`${task.installmentMonths} شهر`} />
-                ) : null}
-                {closedByName ? (
-                  <InfoRow label="تم الإغلاق مع" value={closedByName} />
-                ) : null}
-                {task?.resultNotes ? (
-                  <div className="sm:col-span-2 lg:col-span-3">
-                    <InfoRow label="ملاحظات النتيجة" value={task.resultNotes} />
+              <div className="divide-y divide-slate-100">
+                {visit.tasks.map((task) => (
+                  <div key={task.id} className="p-5 space-y-4">
+                    {/* Task header */}
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700">
+                          <ClipboardList className="h-3.5 w-3.5" />
+                          {TASK_TYPE_LABELS[task.taskType] ?? task.taskType}
+                        </span>
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${TASK_STATUS_STYLES[task.status] ?? ''}`}>
+                          {TASK_STATUS_LABELS[task.status] ?? task.status}
+                        </span>
+                      </div>
+                      {task.status === 'pending' && visit.status === 'scheduled' && canUpdateMarketingVisitResult ? (
+                        <button
+                          type="button"
+                          onClick={() => { setModalError(''); setSelectedTask(task); }}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700"
+                        >
+                          <Target className="h-3.5 w-3.5" />
+                          تسجيل نتيجة المهمة
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {/* Task result details */}
+                    {task.result != null ? (
+                      <div className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <InfoRow
+                          label="نتيجة عرض الجهاز"
+                          value={TASK_RESULT_LABELS[task.result] ?? task.result}
+                        />
+                        {task.cashOfferAmount != null ? (
+                          <InfoRow
+                            label="قيمة العرض الكاش"
+                            value={`${task.cashOfferAmount.toLocaleString('ar-SY')} ل.س`}
+                          />
+                        ) : null}
+                        {task.installmentAmount != null ? (
+                          <InfoRow
+                            label="قيمة القسط"
+                            value={`${task.installmentAmount.toLocaleString('ar-SY')} ل.س`}
+                          />
+                        ) : null}
+                        {task.installmentMonths != null ? (
+                          <InfoRow label="عدد الأشهر" value={`${task.installmentMonths} شهر`} />
+                        ) : null}
+                        {task.closedByEmployeeId != null ? (
+                          <InfoRow
+                            label="تم الإغلاق مع"
+                            value={employeesById.get(task.closedByEmployeeId)?.name ?? `#${task.closedByEmployeeId}`}
+                          />
+                        ) : null}
+                        {task.resultNotes ? (
+                          <div className="sm:col-span-2 lg:col-span-3">
+                            <InfoRow label="ملاحظات النتيجة" value={task.resultNotes} />
+                          </div>
+                        ) : null}
+                        {task.completedAt ? (
+                          <InfoRow label="وقت التسجيل" value={formatDateTime(task.completedAt)} />
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">لم يتم تسجيل نتيجة هذه المهمة بعد</p>
+                    )}
                   </div>
-                ) : null}
-                {task?.completedAt ? (
-                  <InfoRow label="وقت الإغلاق" value={formatDateTime(task.completedAt)} />
-                ) : null}
+                ))}
               </div>
             )}
           </div>
@@ -585,14 +630,15 @@ export default function MarketingVisitDetailsPage() {
 
       {visit ? (
         <MarketingVisitResultModal
-          isOpen={modalOpen}
+          isOpen={selectedTask != null}
+          task={selectedTask}
           visit={visit}
           employees={employees}
           saving={savingResult}
           error={modalError}
           onClose={() => {
             if (savingResult) return;
-            setModalOpen(false);
+            setSelectedTask(null);
             setModalError('');
           }}
           onSubmit={handleSubmitResult}

@@ -5,11 +5,17 @@ import type {
   MarketingVisit,
   MarketingVisitResultUpdateRequest,
   MarketingVisitStatus,
+  MarketingVisitTask,
   MarketingVisitTaskResult,
 } from '@golden-crm/shared';
 
+const TASK_TYPE_LABELS: Record<string, string> = {
+  device_demo: 'عرض جهاز',
+};
+
 interface MarketingVisitResultModalProps {
   isOpen: boolean;
+  task?: MarketingVisitTask | null;
   visit: MarketingVisit | null;
   employees: Employee[];
   saving: boolean;
@@ -72,6 +78,7 @@ function parsePositiveInteger(value: string): number | null {
 
 export default function MarketingVisitResultModal({
   isOpen,
+  task,
   visit,
   employees,
   saving,
@@ -168,8 +175,10 @@ export default function MarketingVisitResultModal({
       <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-6 py-4">
           <div>
-            <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة زيارة التسويق</h2>
-            <p className="mt-1 text-xs text-slate-500">احفظ نتيجة الزيارة ومهمة عرض الجهاز فقط</p>
+            <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة المهمة</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {task ? `المهمة: ${TASK_TYPE_LABELS[task.taskType] ?? task.taskType}` : 'تسجيل نتيجة مهمة الزيارة'}
+            </p>
           </div>
           <button
             type="button"

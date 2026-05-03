@@ -148,7 +148,13 @@ export async function listEmployees(filter?: {
           WHERE su.employee_id = e.id
             AND su.is_active = TRUE
             AND sp.key = 'planning.schedule.appear'
-       ) AS "canAppearInSchedule"`
+       ) AS "canAppearInSchedule",
+       (SELECT r2.team_slot_type
+          FROM hr_users u2
+          JOIN roles r2 ON r2.id = u2.role_id
+         WHERE u2.employee_id = e.id
+           AND u2.is_active = TRUE
+         LIMIT 1) AS "teamSlotType"`
     : '';
 
   if (filter?.branchId != null) {

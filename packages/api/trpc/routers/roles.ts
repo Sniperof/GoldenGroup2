@@ -57,6 +57,7 @@ function toRole(r: Record<string, unknown>): z.infer<typeof RoleSchema> {
     isHidden: (r.is_hidden as boolean) ?? false,
     protectedReason: (r.protected_reason as string) ?? null,
     jobTaskCount: Number(r.job_task_count ?? 0),
+    teamSlotType: r.team_slot_type != null ? (r.team_slot_type as 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER') : null,
   };
 }
 
@@ -271,12 +272,13 @@ export const rolesRouter = router({
         void ctx.authContext;
 
         const { rows } = await pool.query(
-          `INSERT INTO roles (name, display_name, description, branch_id, is_template, template_id)
-           VALUES ($1, $2, $3, NULL, TRUE, NULL) RETURNING *`,
+          `INSERT INTO roles (name, display_name, description, branch_id, is_template, template_id, team_slot_type)
+           VALUES ($1, $2, $3, NULL, TRUE, NULL, $4) RETURNING *`,
           [
             input.name.trim(),
             input.displayName.trim(),
             input.description ?? null,
+            input.teamSlotType ?? null,
           ]
         );
         return toRole(rows[0]);
@@ -292,7 +294,7 @@ export const rolesRouter = router({
   update: withPermission('admin.roles.manage')
     .input(UpdateRoleInputSchema)
     .mutation(async ({ input }) => {
-      const { id, displayName, description, isActive } = input;
+      const { id, displayName, description, isActive, teamSlotType } = input;
       const { rows: cur } = await pool.query('SELECT * FROM roles WHERE id = $1', [id]);
       if (!cur[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
       if (cur[0].is_system || cur[0].is_protected) {
@@ -310,6 +312,7 @@ export const rolesRouter = router({
           display_name = COALESCE($1, display_name),
           description  = COALESCE($2, description),
           is_active    = COALESCE($3, is_active),
+          team_slot_type = CASE WHEN $5 THEN $6::text ELSE team_slot_type END,
           updated_at   = NOW()
          WHERE id = $4 RETURNING *`,
         [
@@ -317,6 +320,8 @@ export const rolesRouter = router({
           description !== undefined ? description : null,
           isActive !== undefined ? isActive : null,
           id,
+          teamSlotType !== undefined,
+          teamSlotType ?? null,
         ]
       );
       return toRole(rows[0]);
