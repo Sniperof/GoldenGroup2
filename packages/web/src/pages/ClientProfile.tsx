@@ -11,7 +11,8 @@ import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import type { Client, GeoUnit } from '../lib/types';
 import ClientAvatar from '../components/ClientAvatar';
-import { getOutcomeMeta, OUTCOMES_BY_GROUP } from '@golden-crm/shared';
+import { getOutcomeMeta, OUTCOMES_BY_GROUP, TelemarketingOutcomeCode } from '@golden-crm/shared';
+import OutcomeRecorderModal from '../components/telemarketing/OutcomeRecorderModal';
 
 const referrerTypesAr: Record<string, string> = {
     'Personal': 'شخصي',
@@ -422,145 +423,12 @@ function formatCallDate(dateStr: string): string {
     }
 }
 
-// ── Add Call Log Modal ────────────────────────────────────────────────────────
-
-interface AddCallModalProps {
-    customerId: number;
-    contact: { id?: string; number?: string; label?: string };
-    onClose: () => void;
-    onSaved: () => void;
-}
-
-function AddCallModal({ customerId, contact, onClose, onSaved }: AddCallModalProps) {
-    const [outcome, setOutcome] = useState('');
-    const [notes, setNotes] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!outcome) { setError('يرجى تحديد نتيجة المكالمة'); return; }
-        setSaving(true);
-        setError(null);
-        try {
-            await api.customerCalls.create(customerId, {
-                contactId:     contact.id ?? null,
-                contactNumber: contact.number ?? null,
-                contactLabel:  contact.label ?? null,
-                outcome,
-                notes: notes.trim() || null,
-                sourceType: 'direct_call',
-            });
-            onSaved();
-            onClose();
-        } catch (err: any) {
-            setError(err?.message ?? 'حدث خطأ أثناء الحفظ');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-        >
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" style={{ direction: 'rtl' }}>
-                {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <h2 className="font-black text-slate-800 flex items-center gap-2 text-base">
-                        <History className="w-5 h-5 text-sky-500" />
-                        تسجيل مكالمة جديدة
-                    </h2>
-                    <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors">
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
-
-                <form onSubmit={handleSubmit} className="p-6 space-y-5">
-                    {/* Contact badge */}
-                    {contact.number && (
-                        <div className="flex items-center gap-3 bg-sky-50 border border-sky-100 rounded-2xl px-4 py-3">
-                            <Phone className="w-4 h-4 text-sky-500 shrink-0" />
-                            <div>
-                                <p className="text-[10px] text-sky-500 font-bold mb-0.5">{contact.label || 'رقم التواصل'}</p>
-                                <p className="font-mono font-black text-slate-800 text-sm" dir="ltr">{contact.number}</p>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Outcome picker */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-600 block">نتيجة المكالمة *</label>
-                        <div className="space-y-3">
-                            {OUTCOMES_BY_GROUP.map((group) => (
-                                <div key={group.key}>
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">{group.label}</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {group.outcomes.map((meta) => (
-                                            <button
-                                                key={meta.code}
-                                                type="button"
-                                                onClick={() => setOutcome(meta.code)}
-                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                                                    outcome === meta.code
-                                                        ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
-                                                        : 'bg-white text-slate-600 border-gray-200 hover:border-sky-300 hover:text-sky-600'
-                                                }`}
-                                            >
-                                                {meta.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Notes */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-600 block">ملاحظات (اختياري)</label>
-                        <textarea
-                            value={notes}
-                            onChange={(e) => setNotes(e.target.value)}
-                            rows={3}
-                            placeholder="أضف أي تفاصيل إضافية عن المكالمة..."
-                            className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-slate-700 placeholder:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-400 transition-all"
-                        />
-                    </div>
-
-                    {error && (
-                        <p className="text-xs text-red-600 font-bold bg-red-50 border border-red-100 rounded-xl px-3 py-2">{error}</p>
-                    )}
-
-                    {/* Actions */}
-                    <div className="flex gap-3 pt-1">
-                        <button
-                            type="submit"
-                            disabled={saving}
-                            className="flex-1 py-3 bg-sky-600 text-white font-black rounded-2xl text-sm hover:bg-sky-500 transition-all shadow-[0_4px_12px_rgba(14,165,233,0.3)] disabled:opacity-60 flex items-center justify-center gap-2"
-                        >
-                            {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الحفظ...</> : 'حفظ المكالمة'}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="px-5 py-3 border border-gray-200 text-slate-600 font-bold rounded-2xl text-sm hover:bg-slate-50 transition-all"
-                        >
-                            إلغاء
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-}
-
 // ── ContactsTab ───────────────────────────────────────────────────────────────
 
 function ContactsTab({ client }: { client: Client }) {
     const [callLogs, setCallLogs] = useState<any[]>([]);
     const [loadingCalls, setLoadingCalls] = useState(false);
+    const [modalOpen, setModalOpen] = useState(false);
     const [modalContact, setModalContact] = useState<{ id?: string; number?: string; label?: string } | null>(null);
 
     const fetchCalls = useCallback(async () => {
@@ -691,7 +559,10 @@ function ContactsTab({ client }: { client: Client }) {
                                 </div>
 
                                 <button
-                                    onClick={() => setModalContact({ id: c.id, number: c.number, label: c.label || 'جهة اتصال' })}
+                                    onClick={() => {
+                                        setModalContact({ id: c.id, number: c.number, label: c.label || 'جهة اتصال' });
+                                        setModalOpen(true);
+                                    }}
                                     className="mt-6 px-4 py-3 border border-slate-200 text-slate-600 hover:text-sky-600 bg-slate-50 hover:bg-sky-50 font-bold rounded-xl text-sm w-full transition-all flex justify-center items-center gap-2 shadow-sm"
                                 >
                                     <Plus className="w-4 h-4" /> إضافة سجل مكالمة جديدة
@@ -703,13 +574,31 @@ function ContactsTab({ client }: { client: Client }) {
                 })}
             </div>
 
-            {/* Add Call Modal */}
-            {modalContact && (
-                <AddCallModal
-                    customerId={client.id}
-                    contact={modalContact}
-                    onClose={() => setModalContact(null)}
-                    onSaved={fetchCalls}
+            {/* Outcome Recorder Modal */}
+            {modalOpen && modalContact && (
+                <OutcomeRecorderModal
+                    isOpen={modalOpen}
+                    onClose={() => { setModalOpen(false); setModalContact(null); }}
+                    entityDetails={client}
+                    title="تسجيل مكالمة جديدة"
+                    onSave={async (contactId, outcome, notes, newContactStatus, communicationMethod) => {
+                        try {
+                            await api.customerCalls.create(client.id, {
+                                contactId: contactId || modalContact.id || null,
+                                contactNumber: modalContact.number || null,
+                                contactLabel: modalContact.label || null,
+                                outcome,
+                                notes: notes || null,
+                                sourceType: 'direct_call',
+                                communicationMethod,
+                            });
+                            fetchCalls();
+                            setModalOpen(false);
+                            setModalContact(null);
+                        } catch (err: any) {
+                            console.error('Failed to save call:', err);
+                        }
+                    }}
                 />
             )}
         </div>

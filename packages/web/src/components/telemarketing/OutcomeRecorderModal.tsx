@@ -17,8 +17,9 @@ import { useAuthStore } from '../../hooks/useAuthStore';
 interface OutcomeRecorderModalProps {
     isOpen: boolean;
     onClose: () => void;
-    task: TaskListItem | null;
+    task?: TaskListItem | null;
     entityDetails: any;
+    title?: string;
     onSave: (
         contactId: string,
         outcome: TelemarketingOutcomeCode,
@@ -61,7 +62,7 @@ const OUTCOME_ICON_COLORS: Record<string, { color: string; bg: string; border: s
     booked_marketing_appointment: { color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
 };
 
-export default function OutcomeRecorderModal({ isOpen, onClose, task, entityDetails, onSave }: OutcomeRecorderModalProps) {
+export default function OutcomeRecorderModal({ isOpen, onClose, task, entityDetails, title, onSave }: OutcomeRecorderModalProps) {
     const [method, setMethod] = useState<'phone' | 'whatsapp'>('phone');
     const [whatsappSubtype, setWhatsappSubtype] = useState<'whatsapp_text' | 'whatsapp_voice'>('whatsapp_text');
     const [selectedContactId, setSelectedContactId] = useState<string>('');
@@ -94,7 +95,7 @@ export default function OutcomeRecorderModal({ isOpen, onClose, task, entityDeta
         }
     }, [outcome]);
 
-    if (!isOpen || !task || !entityDetails) return null;
+    if (!isOpen || !entityDetails) return null;
 
     const contacts = getEntityContacts(entityDetails);
     const hasWhatsAppTarget = contacts.some(c => c.id === selectedContactId && c.hasWhatsApp);
@@ -135,8 +136,8 @@ export default function OutcomeRecorderModal({ isOpen, onClose, task, entityDeta
                             <Send className="w-5 h-5 text-violet-600" />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة التواصل</h2>
-                            <p className="text-xs text-slate-500">{task.name}</p>
+                            <h2 className="text-lg font-bold text-slate-800">{title || 'تسجيل نتيجة التواصل'}</h2>
+                            {task?.name && <p className="text-xs text-slate-500">{task.name}</p>}
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-colors">
