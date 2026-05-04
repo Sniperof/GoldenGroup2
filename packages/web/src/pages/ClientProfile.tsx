@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ChevronRight, Phone, MapPin, Share2,
     History, ArrowLeft,
-    Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck
+    Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
+    X, Loader2
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import type { Client, GeoUnit } from '../lib/types';
 import ClientAvatar from '../components/ClientAvatar';
+import { getOutcomeMeta, OUTCOMES_BY_GROUP } from '@golden-crm/shared';
 
 const referrerTypesAr: Record<string, string> = {
     'Personal': 'شخصي',
@@ -384,7 +386,197 @@ function OverviewTab({ client }: { client: Client }) {
     );
 }
 
+// ── outcome colour helper ─────────────────────────────────────────────────────
+
+function outcomeColor(outcome: string): string {
+    const group = getOutcomeMeta(outcome).group;
+    switch (group) {
+        case 'booked':        return 'border-emerald-500';
+        case 'follow_up':     return 'border-amber-400';
+        case 'service_request': return 'border-violet-400';
+        case 'not_reached':   return 'border-slate-300';
+        default:              return 'border-sky-400';
+    }
+}
+
+function outcomeBadgeClass(outcome: string): string {
+    const group = getOutcomeMeta(outcome).group;
+    switch (group) {
+        case 'booked':        return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+        case 'follow_up':     return 'bg-amber-50 text-amber-700 border-amber-100';
+        case 'service_request': return 'bg-violet-50 text-violet-700 border-violet-100';
+        case 'not_reached':   return 'bg-slate-100 text-slate-500 border-slate-200';
+        default:              return 'bg-sky-50 text-sky-700 border-sky-100';
+    }
+}
+
+function formatCallDate(dateStr: string): string {
+    try {
+        const d = new Date(dateStr);
+        return d.toLocaleString('ar-SY', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+        });
+    } catch {
+        return dateStr;
+    }
+}
+
+// ── Add Call Log Modal ────────────────────────────────────────────────────────
+
+interface AddCallModalProps {
+    customerId: number;
+    contact: { id?: string; number?: string; label?: string };
+    onClose: () => void;
+    onSaved: () => void;
+}
+
+function AddCallModal({ customerId, contact, onClose, onSaved }: AddCallModalProps) {
+    const [outcome, setOutcome] = useState('');
+    const [notes, setNotes] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!outcome) { setError('يرجى تحديد نتيجة المكالمة'); return; }
+        setSaving(true);
+        setError(null);
+        try {
+            await api.customerCalls.create(customerId, {
+                contactId:     contact.id ?? null,
+                contactNumber: contact.number ?? null,
+                contactLabel:  contact.label ?? null,
+                outcome,
+                notes: notes.trim() || null,
+                sourceType: 'direct_call',
+            });
+            onSaved();
+            onClose();
+        } catch (err: any) {
+            setError(err?.message ?? 'حدث خطأ أثناء الحفظ');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" style={{ direction: 'rtl' }}>
+                {/* Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                    <h2 className="font-black text-slate-800 flex items-center gap-2 text-base">
+                        <History className="w-5 h-5 text-sky-500" />
+                        تسجيل مكالمة جديدة
+                    </h2>
+                    <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors">
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="p-6 space-y-5">
+                    {/* Contact badge */}
+                    {contact.number && (
+                        <div className="flex items-center gap-3 bg-sky-50 border border-sky-100 rounded-2xl px-4 py-3">
+                            <Phone className="w-4 h-4 text-sky-500 shrink-0" />
+                            <div>
+                                <p className="text-[10px] text-sky-500 font-bold mb-0.5">{contact.label || 'رقم التواصل'}</p>
+                                <p className="font-mono font-black text-slate-800 text-sm" dir="ltr">{contact.number}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Outcome picker */}
+                    <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-600 block">نتيجة المكالمة *</label>
+                        <div className="space-y-3">
+                            {OUTCOMES_BY_GROUP.map((group) => (
+                                <div key={group.key}>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">{group.label}</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {group.outcomes.map((meta) => (
+                                            <button
+                                                key={meta.code}
+                                                type="button"
+                                                onClick={() => setOutcome(meta.code)}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                                                    outcome === meta.code
+                                                        ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                                                        : 'bg-white text-slate-600 border-gray-200 hover:border-sky-300 hover:text-sky-600'
+                                                }`}
+                                            >
+                                                {meta.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Notes */}
+                    <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-600 block">ملاحظات (اختياري)</label>
+                        <textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            rows={3}
+                            placeholder="أضف أي تفاصيل إضافية عن المكالمة..."
+                            className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-slate-700 placeholder:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-400 transition-all"
+                        />
+                    </div>
+
+                    {error && (
+                        <p className="text-xs text-red-600 font-bold bg-red-50 border border-red-100 rounded-xl px-3 py-2">{error}</p>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-3 pt-1">
+                        <button
+                            type="submit"
+                            disabled={saving}
+                            className="flex-1 py-3 bg-sky-600 text-white font-black rounded-2xl text-sm hover:bg-sky-500 transition-all shadow-[0_4px_12px_rgba(14,165,233,0.3)] disabled:opacity-60 flex items-center justify-center gap-2"
+                        >
+                            {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الحفظ...</> : 'حفظ المكالمة'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-5 py-3 border border-gray-200 text-slate-600 font-bold rounded-2xl text-sm hover:bg-slate-50 transition-all"
+                        >
+                            إلغاء
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+// ── ContactsTab ───────────────────────────────────────────────────────────────
+
 function ContactsTab({ client }: { client: Client }) {
+    const [callLogs, setCallLogs] = useState<any[]>([]);
+    const [loadingCalls, setLoadingCalls] = useState(false);
+    const [modalContact, setModalContact] = useState<{ id?: string; number?: string; label?: string } | null>(null);
+
+    const fetchCalls = useCallback(async () => {
+        setLoadingCalls(true);
+        try {
+            const logs = await api.customerCalls.list(client.id);
+            setCallLogs(logs);
+        } catch {
+            setCallLogs([]);
+        } finally {
+            setLoadingCalls(false);
+        }
+    }, [client.id]);
+
+    useEffect(() => { fetchCalls(); }, [fetchCalls]);
+
     return (
         <div className="space-y-6 max-w-5xl">
             <div className="flex items-center justify-between">
@@ -392,97 +584,134 @@ function ContactsTab({ client }: { client: Client }) {
             </div>
 
             <div className="grid grid-cols-1 gap-6">
-                {(client.contacts || []).map((c, i) => (
-                    <div key={c.id || i} className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden flex flex-col xl:flex-row shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-300 group">
+                {(client.contacts || []).map((c, i) => {
+                    // Logs for this specific contact number
+                    const contactLogs = callLogs.filter(
+                        (log) => log.contactNumber === c.number || log.contactId === c.id,
+                    );
+                    const recentLogs = contactLogs.slice(0, 3);
 
-                        {/* === Left Side: Number Info === */}
-                        <div className="p-8 bg-gradient-to-br from-slate-50 to-white border-b xl:border-b-0 xl:border-l border-gray-100 xl:w-[400px] flex flex-col justify-between relative overflow-hidden">
-                            {/* Decorative background blur */}
-                            <div className="absolute -top-10 -right-10 w-40 h-40 bg-sky-400/10 rounded-full blur-3xl pointer-events-none group-hover:bg-sky-400/20 transition-all duration-500" />
+                    return (
+                        <div key={c.id || i} className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden flex flex-col xl:flex-row shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-300 group">
 
-                            <div className="relative">
-                                <div className="flex items-center gap-3 mb-6">
-                                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border ${c.isPrimary ? 'bg-sky-500 border-sky-600 text-white' : 'bg-white border-gray-200 text-slate-400'}`}>
-                                        <Phone className="w-5 h-5" />
+                            {/* === Left Side: Number Info === */}
+                            <div className="p-8 bg-gradient-to-br from-slate-50 to-white border-b xl:border-b-0 xl:border-l border-gray-100 xl:w-[400px] flex flex-col justify-between relative overflow-hidden">
+                                <div className="absolute -top-10 -right-10 w-40 h-40 bg-sky-400/10 rounded-full blur-3xl pointer-events-none group-hover:bg-sky-400/20 transition-all duration-500" />
+
+                                <div className="relative">
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border ${c.isPrimary ? 'bg-sky-500 border-sky-600 text-white' : 'bg-white border-gray-200 text-slate-400'}`}>
+                                            <Phone className="w-5 h-5" />
+                                        </div>
+                                        <div className="flex-1 flex items-center justify-between">
+                                            <span className="text-sm font-bold text-slate-700">{c.label || 'جهة اتصال'}</span>
+                                            {c.isPrimary && (
+                                                <span className="px-2.5 py-1 bg-sky-50 text-sky-600 rounded-lg text-[10px] font-black tracking-wide border border-sky-100">أساسي</span>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="flex-1 flex items-center justify-between">
-                                        <span className="text-sm font-bold text-slate-700">{c.label || 'جهة اتصال'}</span>
-                                        {c.isPrimary && (
-                                            <span className="px-2.5 py-1 bg-sky-50 text-sky-600 rounded-lg text-[10px] font-black tracking-wide border border-sky-100">أساسي</span>
+
+                                    <div className="mb-6">
+                                        <p className="text-3xl font-black text-slate-800 font-mono tracking-widest drop-shadow-sm" dir="ltr">
+                                            {c.number}
+                                        </p>
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-2">
+                                        <span className="flex items-center gap-1.5 text-[11px] bg-white border border-gray-200 text-slate-600 px-3 py-1.5 rounded-xl font-bold shadow-sm">
+                                            {c.type === 'mobile' ? 'موبايل' : 'هاتف أرضي'}
+                                        </span>
+                                        {c.hasWhatsApp && (
+                                            <span className="flex items-center gap-1.5 text-[11px] bg-[#25D366]/10 border border-[#25D366]/20 text-[#128C7E] px-3 py-1.5 rounded-xl font-bold shadow-sm">
+                                                <MessageCircle className="w-3.5 h-3.5" /> واتساب متوفر
+                                            </span>
                                         )}
+                                        <span className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-xl font-bold shadow-sm border ${c.status === 'active' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-red-50 border-red-100 text-red-600'}`}>
+                                            <Activity className="w-3.5 h-3.5" />
+                                            {c.status === 'active' ? 'يعمل' : 'مفصول'}
+                                        </span>
                                     </div>
                                 </div>
+                            </div>
 
-                                <div className="mb-6">
-                                    <p className="text-3xl font-black text-slate-800 font-mono tracking-widest drop-shadow-sm" dir="ltr">
-                                        {c.number}
-                                    </p>
-                                </div>
-
-                                <div className="flex flex-wrap gap-2">
-                                    <span className="flex items-center gap-1.5 text-[11px] bg-white border border-gray-200 text-slate-600 px-3 py-1.5 rounded-xl font-bold shadow-sm">
-                                        {c.type === 'mobile' ? 'موبايل' : 'هاتف أرضي'}
-                                    </span>
-                                    {c.hasWhatsApp && (
-                                        <span className="flex items-center gap-1.5 text-[11px] bg-[#25D366]/10 border border-[#25D366]/20 text-[#128C7E] px-3 py-1.5 rounded-xl font-bold shadow-sm">
-                                            <MessageCircle className="w-3.5 h-3.5" /> واتساب متوفر
+                            {/* === Right Side: Call Logs === */}
+                            <div className="flex-1 p-8 relative bg-white">
+                                <div className="flex items-center justify-between mb-6">
+                                    <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                        <History className="w-4 h-4 text-sky-500" /> سجل مكالمات هذا الرقم
+                                    </h4>
+                                    {loadingCalls ? (
+                                        <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                                    ) : (
+                                        <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
+                                            {contactLogs.length > 0
+                                                ? `${contactLogs.length} مكالمة`
+                                                : 'لا توجد مكالمات'}
                                         </span>
                                     )}
-                                    <span className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-xl font-bold shadow-sm border ${c.status === 'active' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-red-50 border-red-100 text-red-600'}`}>
-                                        <Activity className="w-3.5 h-3.5" />
-                                        {c.status === 'active' ? 'يعمل' : 'مفصول'}
-                                    </span>
                                 </div>
+
+                                <div className="space-y-4">
+                                    {recentLogs.length === 0 && !loadingCalls && (
+                                        <p className="text-xs text-slate-400 text-center py-4">لا يوجد سجل مكالمات لهذا الرقم بعد</p>
+                                    )}
+
+                                    {recentLogs.map((log) => {
+                                        const meta = getOutcomeMeta(log.outcome);
+                                        const lineColor = outcomeColor(log.outcome);
+                                        const badgeClass = outcomeBadgeClass(log.outcome);
+                                        return (
+                                            <div
+                                                key={log.id}
+                                                className={`relative pl-4 border-r-2 ${lineColor} pr-5 group/log hover:bg-slate-50 transition-colors rounded-l-2xl py-2`}
+                                            >
+                                                <div className={`absolute top-3 -right-1.5 w-2.5 h-2.5 rounded-full bg-white border-2 ${lineColor}`} />
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <span className="font-bold text-slate-800 text-sm">{meta.label}</span>
+                                                    <span className="text-slate-400 font-mono text-[10px] bg-white border border-slate-100 px-2 py-0.5 rounded-md shadow-sm">
+                                                        {formatCallDate(log.callDate)}
+                                                    </span>
+                                                </div>
+                                                {log.notes && (
+                                                    <p className="text-xs text-slate-500 leading-relaxed max-w-lg">{log.notes}</p>
+                                                )}
+                                                <div className="mt-2 flex items-center gap-2">
+                                                    {log.callerName && (
+                                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
+                                                            موظف: {log.callerName}
+                                                        </span>
+                                                    )}
+                                                    <span className={`text-[10px] border px-2 py-0.5 rounded font-bold ${badgeClass}`}>
+                                                        {meta.label}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <button
+                                    onClick={() => setModalContact({ id: c.id, number: c.number, label: c.label || 'جهة اتصال' })}
+                                    className="mt-6 px-4 py-3 border border-slate-200 text-slate-600 hover:text-sky-600 bg-slate-50 hover:bg-sky-50 font-bold rounded-xl text-sm w-full transition-all flex justify-center items-center gap-2 shadow-sm"
+                                >
+                                    <Plus className="w-4 h-4" /> إضافة سجل مكالمة جديدة
+                                </button>
                             </div>
+
                         </div>
-
-                        {/* === Right Side: Selected Call Logs view Workspace === */}
-                        <div className="flex-1 p-8 relative bg-white">
-                            <div className="flex items-center justify-between mb-6">
-                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                                    <History className="w-4 h-4 text-sky-500" /> سجل مكالمات هذا الرقم
-                                </h4>
-                                <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">آخر 2 مكالمات</span>
-                            </div>
-
-                            <div className="space-y-4">
-                                {/* Example Log Item 1 */}
-                                <div className="relative pl-4 border-r-2 border-sky-500 pr-5 group/log hover:bg-slate-50 transition-colors rounded-l-2xl py-2">
-                                    <div className="absolute top-3 -right-1.5 w-2.5 h-2.5 rounded-full bg-white border-2 border-sky-500" />
-                                    <div className="flex justify-between items-start mb-1">
-                                        <span className="font-bold text-slate-800 text-sm">مكالمة متابعة صيانة دورية</span>
-                                        <span className="text-slate-400 font-mono text-[10px] bg-white border border-slate-100 px-2 py-0.5 rounded-md shadow-sm">27/02/2026 - 10:00 AM</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500 leading-relaxed max-w-lg">تم الاتصال لتأكيد موعد تغيير الفلاتر، الزبون متجاوب وينتظر الفريق غداً.</p>
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">موظف: يوسف المنسق</span>
-                                        <span className="text-[10px] bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded font-bold">تم الرد</span>
-                                    </div>
-                                </div>
-
-                                {/* Example Log Item 2 */}
-                                <div className="relative pl-4 border-r-2 border-amber-400 pr-5 group/log hover:bg-slate-50 transition-colors rounded-l-2xl py-2">
-                                    <div className="absolute top-3 -right-1.5 w-2.5 h-2.5 rounded-full bg-white border-2 border-amber-400" />
-                                    <div className="flex justify-between items-start mb-1">
-                                        <span className="font-bold text-slate-800 text-sm">التسويق المبدئي - طلب تأجيل</span>
-                                        <span className="text-slate-400 font-mono text-[10px] bg-white border border-slate-100 px-2 py-0.5 rounded-md shadow-sm">10/01/2026 - 12:30 PM</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500 leading-relaxed max-w-lg">الزبون مشغول حالياً، طلب التواصل بعد أسبوعين لبحث خيارات أجهزة الفلاتر.</p>
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">موظف: سارة محمد</span>
-                                        <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-100 px-2 py-0.5 rounded font-bold">تأجيل</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <button className="mt-6 px-4 py-3 border border-slate-200 text-slate-600 hover:text-sky-600 bg-slate-50 hover:bg-sky-50 font-bold rounded-xl text-sm w-full transition-all flex justify-center items-center gap-2 shadow-sm">
-                                <Plus className="w-4 h-4" /> إضافة سجل مكالمة جديدة
-                            </button>
-                        </div>
-
-                    </div>
-                ))}
+                    );
+                })}
             </div>
+
+            {/* Add Call Modal */}
+            {modalContact && (
+                <AddCallModal
+                    customerId={client.id}
+                    contact={modalContact}
+                    onClose={() => setModalContact(null)}
+                    onSaved={fetchCalls}
+                />
+            )}
         </div>
     );
 }

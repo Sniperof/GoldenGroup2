@@ -102,6 +102,11 @@ export const api = {
     delete: (id: number) => request<any>(`/clients/${id}`, { method: 'DELETE' }),
     bulkDelete: (ids: number[]) => request<any>('/clients/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
   },
+  customerCalls: {
+    list: (customerId: number) => request<any[]>(`/customers/${customerId}/calls`),
+    create: (customerId: number, data: any) =>
+      request<any>(`/customers/${customerId}/calls`, { method: 'POST', body: JSON.stringify(data) }),
+  },
   candidates: {
     list: () => request<any[]>('/candidates'),
     create: (data: any) => request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
