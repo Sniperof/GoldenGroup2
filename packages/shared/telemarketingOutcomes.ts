@@ -31,6 +31,8 @@ export type TelemarketingOutcomeCode =
   | 'company_customer_missing_phone'
   // Group 5: Appointment booking
   | 'booked_marketing_appointment'
+  // Free call specific
+  | 'new_number'
   // Legacy codes (kept for backward compatibility)
   | 'rejected'
   | 'booked';
@@ -329,6 +331,20 @@ export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
     itemStatusAfterSave: 'booked',
     closesContactTarget: false,
     opensAppointment: true,
+  },
+
+  // ── Free call: data update — new number ────────────────────
+  new_number: {
+    code: 'new_number',
+    label: 'رقم جديد — إضافة رقم',
+    group: 'reached',
+    nextAction: 'no_action',
+    phoneStatusUpdate: 'none',
+    requiresPhoneStatusUpdate: false,
+    requiresNotes: true,
+    itemStatusAfterSave: 'called',
+    closesContactTarget: false,
+    opensAppointment: false,
   },
 
   // ── Legacy codes (backward compatibility) ───────────────────

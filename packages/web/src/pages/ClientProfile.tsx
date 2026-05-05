@@ -5,14 +5,15 @@ import {
     ChevronRight, Phone, MapPin, Share2,
     History, ArrowLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
-    X, Loader2
+    X, Loader2, PhoneCall
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import type { Client, GeoUnit } from '../lib/types';
 import ClientAvatar from '../components/ClientAvatar';
 import { getOutcomeMeta, OUTCOMES_BY_GROUP, TelemarketingOutcomeCode } from '@golden-crm/shared';
-import OutcomeRecorderModal from '../components/telemarketing/OutcomeRecorderModal';
+import OutcomeRecorderModal, { SaveExtras } from '../components/telemarketing/OutcomeRecorderModal';
+import CustomerCallLog from '../components/customers/CustomerCallLog';
 
 const referrerTypesAr: Record<string, string> = {
     'Personal': 'شخصي',
@@ -25,7 +26,8 @@ const referrerTypesAr: Record<string, string> = {
 export default function ClientProfile() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'visits' | 'network'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network'>('overview');
+    const [callLogRefreshKey, setCallLogRefreshKey] = useState(0);
     const [client, setClient] = useState<Client | null>(null);
     const [clients, setClients] = useState<Client[]>([]);
     const [allGeoUnits, setAllGeoUnits] = useState<GeoUnit[]>([]);
@@ -290,6 +292,7 @@ export default function ClientProfile() {
                             {[
                                 { id: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
                                 { id: 'contacts', label: 'التواصل', icon: Contact2 },
+                                { id: 'calllog', label: 'سجل الاتصال', icon: PhoneCall },
                                 { id: 'visits', label: 'الزيارات', icon: Navigation },
                                 { id: 'network', label: 'الشبكة', icon: Share2 },
                             ].map((tab) => (
@@ -319,7 +322,18 @@ export default function ClientProfile() {
                                 className="h-full"
                             >
                                 {activeTab === 'overview' && <OverviewTab client={client} />}
-                                {activeTab === 'contacts' && <ContactsTab client={client} />}
+                                {activeTab === 'contacts' && (
+                                    <ContactsTab
+                                        client={client}
+                                        onCallSaved={() => setCallLogRefreshKey(k => k + 1)}
+                                    />
+                                )}
+                                {activeTab === 'calllog' && (
+                                    <div className="space-y-4 max-w-5xl">
+                                        <h3 className="text-lg font-black text-slate-800">سجل الاتصال الكامل</h3>
+                                        <CustomerCallLog customerId={client.id} refreshKey={callLogRefreshKey} />
+                                    </div>
+                                )}
                                 {activeTab === 'visits' && <VisitsTab />}
                                 {activeTab === 'network' && <NetworkTab client={client} clients={clients} candidates={candidates} />}
                             </motion.div>
@@ -425,7 +439,7 @@ function formatCallDate(dateStr: string): string {
 
 // ── ContactsTab ───────────────────────────────────────────────────────────────
 
-function ContactsTab({ client }: { client: Client }) {
+function ContactsTab({ client, onCallSaved }: { client: Client; onCallSaved?: () => void }) {
     const [callLogs, setCallLogs] = useState<any[]>([]);
     const [loadingCalls, setLoadingCalls] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
@@ -565,7 +579,7 @@ function ContactsTab({ client }: { client: Client }) {
                                     }}
                                     className="mt-6 px-4 py-3 border border-slate-200 text-slate-600 hover:text-sky-600 bg-slate-50 hover:bg-sky-50 font-bold rounded-xl text-sm w-full transition-all flex justify-center items-center gap-2 shadow-sm"
                                 >
-                                    <Plus className="w-4 h-4" /> إضافة سجل مكالمة جديدة
+                                    <Plus className="w-4 h-4" /> تسجيل نتيجة اتصال
                                 </button>
                             </div>
 
@@ -580,8 +594,9 @@ function ContactsTab({ client }: { client: Client }) {
                     isOpen={modalOpen}
                     onClose={() => { setModalOpen(false); setModalContact(null); }}
                     entityDetails={client}
+                    preselectedContactId={modalContact.id}
                     title="تسجيل مكالمة جديدة"
-                    onSave={async (contactId, outcome, notes, newContactStatus, communicationMethod) => {
+                    onSave={async (contactId, outcome, notes, extras) => {
                         try {
                             await api.customerCalls.create(client.id, {
                                 contactId: contactId || modalContact.id || null,
@@ -590,9 +605,12 @@ function ContactsTab({ client }: { client: Client }) {
                                 outcome,
                                 notes: notes || null,
                                 sourceType: 'direct_call',
-                                communicationMethod,
+                                answeredBy: extras?.answeredBy ?? null,
+                                communicationChannel: extras?.communicationChannel ?? null,
+                                status: extras?.status ?? 'completed',
                             });
                             fetchCalls();
+                            onCallSaved?.();
                             setModalOpen(false);
                             setModalContact(null);
                         } catch (err: any) {

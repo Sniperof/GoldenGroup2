@@ -104,8 +104,13 @@ export const api = {
   },
   customerCalls: {
     list: (customerId: number) => request<any[]>(`/customers/${customerId}/calls`),
+    listByContact: (customerId: number, contactId: string) =>
+      request<any[]>(`/customers/${customerId}/calls?contactId=${encodeURIComponent(contactId)}`),
+    stats: (customerId: number) => request<any[]>(`/customers/${customerId}/calls/stats`),
     create: (customerId: number, data: any) =>
       request<any>(`/customers/${customerId}/calls`, { method: 'POST', body: JSON.stringify(data) }),
+    update: (callId: string, data: any) =>
+      request<any>(`/customers/calls/${callId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
   candidates: {
     list: () => request<any[]>('/candidates'),

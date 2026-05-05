@@ -12,7 +12,7 @@ import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS } from '@golden-crm/shar
 import type { OpenTaskType, OpenTaskReason } from '@golden-crm/shared';
 import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
 import TeamAgendaPanel from '../components/telemarketing/TeamAgendaPanel';
-import OutcomeRecorderModal from '../components/telemarketing/OutcomeRecorderModal';
+import OutcomeRecorderModal, { SaveExtras } from '../components/telemarketing/OutcomeRecorderModal';
 import AppointmentSchedulerModal from '../components/telemarketing/AppointmentSchedulerModal';
 import type { DaySchedule, Contract, Visit, Employee, TaskListItem, Appointment } from '../lib/types';
 import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
@@ -275,13 +275,20 @@ export default function TelemarketerWorkspace() {
         return clients.find(c => c.id === selectedTask.entityId);
     }, [selectedTask, candidates, clients]);
 
-    const handleSaveOutcome = async (contactId: string, outcome: TelemarketingOutcomeCode, notes: string, newContactStatus?: string, communicationMethod?: 'phone' | 'whatsapp_text' | 'whatsapp_voice') => {
+    const handleSaveOutcome = async (contactId: string, outcome: TelemarketingOutcomeCode, notes: string, extras?: SaveExtras) => {
         if (!selectedTask) return;
 
         const meta = OUTCOME_MAP[outcome] ?? OUTCOME_MAP['no_answer'];
 
         const entityContacts = getEntityContacts(entityDetails as any);
         const selectedContact = entityContacts.find(c => c.id === contactId) || entityContacts[0];
+
+        // Map new communicationChannel to legacy communicationMethod expected by addCallLog
+        let communicationMethod: 'phone' | 'whatsapp_text' | 'whatsapp_voice' | undefined;
+        const ch = extras?.communicationChannel;
+        if (ch === 'whatsapp_text') communicationMethod = 'whatsapp_text';
+        else if (ch === 'whatsapp_call') communicationMethod = 'whatsapp_voice';
+        else communicationMethod = 'phone';
 
         await addCallLog({
             entityType: selectedTask.entityType,
@@ -295,20 +302,6 @@ export default function TelemarketerWorkspace() {
             notes,
             communicationMethod
         });
-
-        // Phone status update: only update the specific selected contact
-        if (newContactStatus && selectedTask.entityType === 'client') {
-            const client = clients.find(c => c.id === selectedTask.entityId);
-            if (client && contactId !== 'legacy-fallback') {
-                const contactEntry = client.contacts?.find((c: any) => c.id === contactId);
-                if (contactEntry) {
-                    const updatedContacts = client.contacts.map((c: any) =>
-                        c.id === contactId ? { ...c, status: newContactStatus } : c
-                    );
-                    await updateClient(client.id, { contacts: updatedContacts });
-                }
-            }
-        }
 
         // Determine item status from outcome mapping
         const newStatus = meta.itemStatusAfterSave;

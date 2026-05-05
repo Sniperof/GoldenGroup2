@@ -613,7 +613,9 @@ export type CallOutcome =
   | 'service_request'
   | 'company_customer_missing_phone'
   // Group 5: Appointment booking
-  | 'booked_marketing_appointment';
+  | 'booked_marketing_appointment'
+  // Free call specific
+  | 'new_number';
 
 export interface TaskListItem {
     id: string;
@@ -1082,4 +1084,26 @@ export interface JobApplicationDetail extends JobApplication {
   referrer: JobReferrer | null;
   interviews: Interview[];
   trainings: ApplicationTrainingEnrollment[];
+}
+
+export interface CustomerCallLog {
+  id: string;
+  customerId: number;
+  contactId?: string;
+  contactNumber?: string;
+  contactLabel?: string;
+  callerId?: number;
+  callerName?: string;
+  callerRole?: string;
+  callDate: string;
+  outcome: string;
+  sourceType: string;
+  sourceId?: string;
+  notes?: string;
+  branchId?: number;
+  actionLog?: Record<string, any>;
+  answeredBy?: 'customer' | 'spouse' | 'child';
+  communicationChannel?: 'cellular_call' | 'cellular_text' | 'whatsapp_call' | 'whatsapp_text';
+  status: 'pending' | 'completed';
+  createdAt: string;
 }

@@ -36,7 +36,8 @@
       "Bash(psql *)",
       "Bash(node *)",
       "mcp__Claude_Preview__preview_start",
-      "Bash(pm2 restart *)"
+      "Bash(pm2 restart *)",
+      "Bash(sudo *)"
     ],
     "deny": [
       "Bash(rm -rf /*)",
