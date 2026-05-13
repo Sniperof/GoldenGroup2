@@ -8,7 +8,8 @@ import {
   getSystemRoleName,
   loadDaySchedule,
   getTeamFromSchedule,
-  isEmployeeTelemarketerInTeam,
+  getTeamTelemarketerAccessEmployeeIds,
+  isEmployeeSupervisorInTeam,
   canAccessTaskList,
   canGenerateForTeam,
   BRANCH_LEVEL_ACCESS_ROLES,
@@ -18,6 +19,11 @@ import {
   normaliseOutcomeCode,
   TelemarketingOutcomeCode,
 } from '@golden-crm/shared';
+import {
+  buildCustomerOwnershipSelectColumns,
+  buildCustomerOwnershipSql,
+  mapCustomerOwnership,
+} from '../services/customerOwnership.js';
 
 const router = Router();
 
@@ -122,9 +128,13 @@ function getTeamSnapshotForVisit(
     return {
       supervisorEmployeeId: null,
       technicianEmployeeId: Number.isInteger(solo.technician) ? solo.technician : null,
-      traineeEmployeeId: null,
+      traineeEmployeeId: Number.isInteger(solo.trainee) ? solo.trainee : null,
       teamSnapshot: {
         technicianEmployeeId: Number.isInteger(solo.technician) ? solo.technician : null,
+        traineeEmployeeId: Number.isInteger(solo.trainee) ? solo.trainee : null,
+        telemarketerEmployeeIds: Array.isArray(solo.telemarketers)
+          ? solo.telemarketers.filter((v: any) => Number.isInteger(v))
+          : [],
       },
     };
   }
@@ -206,7 +216,8 @@ async function loadTaskListItem(
         task_list_id,
         entity_type,
         entity_id,
-        contact_target_id
+        contact_target_id,
+        open_task_id
       FROM telemarketing_task_list_items
       WHERE task_list_id = $1
         AND id = $2
@@ -257,6 +268,9 @@ async function updateContactTargetLifecycle(
   );
 }
 
+// One entry per task the user explicitly selected for this appointment.
+type SelectedTask = { openTaskId: number | null; taskType: string };
+
 async function createMarketingVisitForAppointment(
   db: any,
   params: {
@@ -278,7 +292,7 @@ async function createMarketingVisitForAppointment(
     taskListId: string;
     taskListItemId: string;
     createdBy: number | null;
-    openTaskId: number | null;
+    selectedTasks: SelectedTask[];
   },
 ): Promise<string | null> {
   if (params.entityType !== 'client') {
@@ -361,34 +375,64 @@ async function createMarketingVisitForAppointment(
     return null;
   }
 
-  await db.query(
-    `
-      INSERT INTO marketing_visit_tasks (
-        id,
-        visit_id,
-        task_type,
-        status,
-        result,
-        cash_offer_amount,
-        installment_amount,
-        installment_months,
-        closed_by_employee_id,
-        result_notes,
-        contract_id,
-        completed_at,
-        source_open_task_id
-      )
-      VALUES ($1,$2,'device_demo','pending',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,$3)
-      ON CONFLICT (visit_id, task_type) DO NOTHING
-    `,
-    [`${marketingVisitId}_device_demo`, marketingVisitId, params.openTaskId ?? null],
-  );
+  // Create one visit task per selected task — allows multi-task visits including
+  // multiple tasks of the same type (e.g. two device_demo open tasks in one visit).
+  for (let i = 0; i < params.selectedTasks.length; i++) {
+    const task = params.selectedTasks[i];
+    const taskType = task.taskType || 'device_demo';
 
-  if (params.openTaskId != null) {
-    await db.query(
-      `UPDATE open_tasks SET status = 'in_visit', updated_at = NOW() WHERE id = $1 AND status IN ('scheduled', 'in_contact_list')`,
-      [params.openTaskId],
-    );
+    if (task.openTaskId != null) {
+      // Identity is anchored to the open task instance — stable and collision-free
+      // even when multiple tasks share the same task_type in one visit.
+      const taskId = `${marketingVisitId}_ot${task.openTaskId}`;
+      await db.query(
+        `
+          INSERT INTO marketing_visit_tasks (
+            id,
+            visit_id,
+            task_type,
+            status,
+            result,
+            cash_offer_amount,
+            installment_amount,
+            installment_months,
+            closed_by_employee_id,
+            result_notes,
+            contract_id,
+            completed_at,
+            source_open_task_id
+          )
+          VALUES ($1,$2,$3,'pending',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,$4)
+          ON CONFLICT (visit_id, source_open_task_id) WHERE source_open_task_id IS NOT NULL DO NOTHING
+        `,
+        [taskId, marketingVisitId, taskType, task.openTaskId],
+      );
+    } else {
+      // Fallback for tasks without a linked open_task: stable id by type + position.
+      const taskId = `${marketingVisitId}_${taskType}_${i}`;
+      await db.query(
+        `
+          INSERT INTO marketing_visit_tasks (
+            id,
+            visit_id,
+            task_type,
+            status,
+            result,
+            cash_offer_amount,
+            installment_amount,
+            installment_months,
+            closed_by_employee_id,
+            result_notes,
+            contract_id,
+            completed_at,
+            source_open_task_id
+          )
+          VALUES ($1,$2,$3,'pending',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)
+          ON CONFLICT (id) DO NOTHING
+        `,
+        [taskId, marketingVisitId, taskType],
+      );
+    }
   }
 
   return marketingVisitId;
@@ -464,6 +508,7 @@ const mapTaskListRows = (rows: any[]) => {
         openTaskReason: row.itemOpenTaskReason ?? null,
         openTaskType: row.itemOpenTaskType ?? null,
         openTaskStatus: row.itemOpenTaskStatus ?? null,
+        ownership: row.entityType === 'client' ? mapCustomerOwnership(row) : null,
       });
     }
   });
@@ -498,14 +543,28 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
       const employeeRole = employeeId != null ? await getCurrentEmployeeRole(authContext?.userId) : null;
 
       if (employeeRole === 'telemarketer' && employeeId != null) {
-        // Telemarketer: can only see lists for teams where they are in telemarketers[]
+        // Telemarketer: can see assigned teams, or all branch telemarketing
+        // fallback teams when no telemarketers are assigned.
         accessibleTeamKeys = [];
         const dateToCheck = dateParam || new Date().toISOString().split('T')[0];
         const schedule = await loadDaySchedule(dateToCheck);
         if (schedule) {
           for (let i = 0; i < schedule.teams.length; i++) {
             const team = schedule.teams[i];
-            if (isEmployeeTelemarketerInTeam(employeeId, team)) {
+            const accessIds = await getTeamTelemarketerAccessEmployeeIds(team, branchId);
+            if (accessIds.includes(employeeId)) {
+              accessibleTeamKeys.push(`team_${i}`);
+            }
+          }
+        }
+      } else if (employeeRole === 'supervisor' && employeeId != null) {
+        accessibleTeamKeys = [];
+        const dateToCheck = dateParam || new Date().toISOString().split('T')[0];
+        const schedule = await loadDaySchedule(dateToCheck);
+        if (schedule) {
+          for (let i = 0; i < schedule.teams.length; i++) {
+            const team = schedule.teams[i];
+            if (isEmployeeSupervisorInTeam(employeeId, team)) {
               accessibleTeamKeys.push(`team_${i}`);
             }
           }
@@ -570,10 +629,14 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         ot.id AS "itemOpenTaskId",
         ot.reason AS "itemOpenTaskReason",
         ot.task_type AS "itemOpenTaskType",
-        ot.status AS "itemOpenTaskStatus"
+        ot.status AS "itemOpenTaskStatus",
+        ${buildCustomerOwnershipSelectColumns()}
       FROM telemarketing_task_lists tl
       LEFT JOIN telemarketing_task_list_items i ON i.task_list_id = tl.id
       LEFT JOIN open_tasks ot ON ot.id = i.open_task_id
+      LEFT JOIN clients c ON i.entity_type = 'client' AND c.id = i.entity_id
+      LEFT JOIN branches b ON b.id = c.branch_id
+      ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'b.name' })}
       ${taskListWhere}
       ORDER BY tl.date DESC, tl.created_at DESC, i.id
     `,
@@ -1010,10 +1073,17 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
       }
 
       if (openTaskId != null) {
-        await pgClient.query(
+        const tlUpdateResult = await pgClient.query(
           `UPDATE open_tasks SET status = 'in_contact_list', updated_at = NOW() WHERE id = $1 AND status = 'open'`,
           [openTaskId],
         );
+        if ((tlUpdateResult as any).rowCount > 0) {
+          await pgClient.query(
+            `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value)
+             VALUES ($1, 'status_change', $2, NULL, 'open', 'in_contact_list')`,
+            [openTaskId, req.authContext?.userId ?? null],
+          );
+        }
       }
 
       lifecycleUpdates.push({ contactTargetId, itemId });
@@ -1239,7 +1309,7 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
 
 // ─── POST /appointments ───
 // Scope: verify branch + team membership for telemarketers
-router.post('/appointments', requirePermission('telemarketing.appointments.create'), async (req, res) => {
+router.post('/appointments', requirePermission('telemarketing.appointments.book'), async (req, res) => {
   const appointment = req.body;
 
   const createdBy = getCallerId(req);
@@ -1292,12 +1362,23 @@ router.post('/appointments', requirePermission('telemarketing.appointments.creat
     return;
   }
 
+  // selectedOpenTasks: explicit multi-task booking payload from the frontend.
+  // Each entry names a task list item + its linked open task + the task type.
+  // Falls back to the single legacy open_task_id when not provided.
+  const rawSelectedTasks: Array<{ openTaskId: number | null; taskType: string; taskListItemId: string }> =
+    Array.isArray(appointment.selectedOpenTasks) && appointment.selectedOpenTasks.length > 0
+      ? appointment.selectedOpenTasks
+      : [{ openTaskId: taskListItem.open_task_id ?? null, taskType: 'device_demo', taskListItemId: appointment.taskListItemId }];
+
+  // Primary open task is the first in the list (used for the appointment record's open_task_id).
+  const primaryOpenTaskId: number | null = rawSelectedTasks[0]?.openTaskId ?? null;
+
   const pgClient = await pool.connect();
 
   try {
     await pgClient.query('BEGIN');
 
-    const openTaskId: number | null = taskListItem.open_task_id ?? null;
+    const visitTaskTypes = rawSelectedTasks.map(t => t.taskType || 'device_demo');
 
     const { rows } = await pgClient.query(
       `
@@ -1342,35 +1423,54 @@ router.post('/appointments', requirePermission('telemarketing.appointments.creat
         appointment.occupation || '',
         appointment.waterSource || '',
         appointment.notes || '',
-        JSON.stringify(appointment.visitTasks || ['device_demo']),
+        JSON.stringify(visitTaskTypes),
         appointment.requestedDeviceModelId || null,
         appointment.requestedDeviceName || null,
         appointment.createdAt || new Date().toISOString(),
         createdBy,
         branchId,
         contactTargetId,
-        openTaskId,
+        primaryOpenTaskId,
       ],
     );
 
     const savedAppointment = rows[0];
 
-    await pgClient.query(
-      `
-        UPDATE telemarketing_task_list_items
-        SET status = 'booked',
-            call_outcome = 'booked_marketing_appointment'
-        WHERE task_list_id = $1
-          AND id = $2
-      `,
-      [appointment.taskListId, appointment.taskListItemId],
-    );
-
-    if (openTaskId != null) {
+    // Mark ALL selected task list items as booked.
+    const allSelectedItemIds = rawSelectedTasks.map(t => t.taskListItemId).filter(Boolean);
+    if (allSelectedItemIds.length > 0) {
       await pgClient.query(
-        `UPDATE open_tasks SET status = 'scheduled', updated_at = NOW() WHERE id = $1 AND status = 'in_contact_list'`,
-        [openTaskId],
+        `
+          UPDATE telemarketing_task_list_items
+          SET status = 'booked',
+              call_outcome = 'booked_marketing_appointment'
+          WHERE task_list_id = $1
+            AND id = ANY($2::varchar[])
+        `,
+        [appointment.taskListId, allSelectedItemIds],
       );
+    }
+
+    // Load schedule once for team context (used for all open_task updates).
+    const bookingSchedule = await loadDaySchedule(appointment.date);
+    const bookingTeamContext = getTeamSnapshotForVisit(bookingSchedule, appointment.teamKey);
+    const teamSnapshotJson = bookingTeamContext.teamSnapshot
+      ? JSON.stringify(bookingTeamContext.teamSnapshot)
+      : null;
+
+    // Update EACH selected open task to 'scheduled' with team snapshot.
+    // Unselected tasks are not touched — they remain in their current state.
+    for (const task of rawSelectedTasks) {
+      if (task.openTaskId != null) {
+        await pgClient.query(
+          `UPDATE open_tasks
+           SET status = 'scheduled',
+               team_snapshot = $2::jsonb,
+               updated_at = NOW()
+           WHERE id = $1 AND status = 'in_contact_list'`,
+          [task.openTaskId, teamSnapshotJson],
+        );
+      }
     }
 
     if (contactTargetId != null) {
@@ -1399,7 +1499,7 @@ router.post('/appointments', requirePermission('telemarketing.appointments.creat
       taskListId: appointment.taskListId,
       taskListItemId: appointment.taskListItemId,
       createdBy,
-      openTaskId,
+      selectedTasks: rawSelectedTasks,
     });
 
     await pgClient.query('COMMIT');

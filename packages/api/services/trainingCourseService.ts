@@ -28,6 +28,7 @@ import {
   updateApplicationTrainingStarted,
   updateTrainingCourseStatus,
   updateTrainingCourseTraineeResult,
+  updateTrainingCourseEndDate as updateTrainingCourseEndDateRecord,
   upsertTrainingAttendanceRecord,
 } from '../repositories/trainingCourseRepository.js';
 
@@ -57,6 +58,12 @@ function mapCourse(row: any) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function normalizeDateOnly(dateStr: string) {
+  const d = new Date(dateStr);
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 async function validateTrainingApplicationEligibility(applicationId: number, jobVacancyId: number) {
@@ -143,6 +150,44 @@ export async function getTrainingCourseDetail(courseId: string) {
   const trainees = await getTrainingCourseTraineesDetail(courseId);
   const attendance = await getTrainingCourseAttendance(courseId);
   return { ...mapCourse(course), vacancy, trainees, attendance };
+}
+
+export async function updateTrainingCourseEndDateFlow(courseId: string, body: any, user: TrainingActor) {
+  const client = await pool.connect();
+  try {
+    const endDate = typeof body?.endDate === 'string' ? body.endDate.trim() : '';
+    if (!endDate) throw createServiceError(400, { error: 'تاريخ نهاية الدورة مطلوب' });
+
+    const course = await getTrainingCourseById(courseId, client);
+    if (!course) throw createServiceError(404, { error: 'الدورة التدريبية غير موجودة' });
+
+    const startDate = normalizeDateOnly(course.start_date);
+    const newEndDate = normalizeDateOnly(endDate);
+    if (newEndDate < startDate) {
+      throw createServiceError(400, { error: 'يجب أن يكون تاريخ نهاية الدورة مساوياً أو بعد تاريخ البداية' });
+    }
+
+    await client.query('BEGIN');
+    const updated = await updateTrainingCourseEndDateRecord(client, courseId, endDate);
+    await insertAuditLog(client, {
+      entityType: 'TrainingCourse',
+      entityId: Number(courseId),
+      actionType: 'Training End Date Updated',
+      performedByRole: user.role,
+      performedByUserId: user.id,
+      oldValue: JSON.stringify({ endDate: course.end_date }),
+      newValue: JSON.stringify({ endDate }),
+    });
+    await client.query('COMMIT');
+
+    if (!updated) throw createServiceError(500, { error: 'تعذر تحديث تاريخ نهاية الدورة' });
+    return getTrainingCourseDetail(courseId);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function startTrainingCourse(courseId: string, user: TrainingActor) {

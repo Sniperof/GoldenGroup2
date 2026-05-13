@@ -1,0 +1,46 @@
+# P5 — Constitution Updates Patch
+# Files are untracked in git (docs/constitution/ not in .gitignore but not added)
+# Changes are on disk, verified by grep.
+#
+# ── planning-contact-targets.md ──────────────────────────────────────────────
+#
+# OLD §8:
+# ### `PC-G001` — القيد التشغيلي يركّز على وجود المهمة لا على نوعها
+# - هذا القسم يجب أن يبقى غير مرتبط بنوع المهمة أو اسمها.
+# - أي ربط بنوع مهمة محدد يضيّق المفهوم أكثر من المطلوب...
+#
+# NEW §8:
+# ### `PC-G001` — القيد التشغيلي يركّز على وجود المهمة لا على نوعها
+# **الحالة: decision pending — بحاجة قرار منتج**
+# [+ code locations: planningMarketingTargets.ts lines 380, 390, 417, 556]
+# [+ Option A: remove filter / Option B: constrain constitution]
+#
+# NEW `PC-G003` — `GET /contact-targets/marketing` مُصلَح (p1)
+# NEW `PC-G004` — `contact_target.status` terminal behavior (gap)
+#
+# ── telemarketing-appointments.md ────────────────────────────────────────────
+#
+# OLD AP-R001:
+# لا يمكن فتح حجز الموعد إلا إذا كانت الجهة مرتبطة بمهام مفتوحة...
+#
+# NEW AP-R001:
+# **[السلوك المقصود — غير مُفرَّض بالكامل في الباكند]**
+# [+ actual behavior: open_task_id=NULL works, task_type unchecked]
+# [+ evidence: appointment fcc7ccc9 in staging]
+# [+ UI gate vs API gap separation]
+#
+# OLD §9:
+# AP-G001: أثر تاريخي (general)
+# AP-G002: نوع المهمة (general)
+# AP-G003: خلط (general)
+#
+# NEW §9:
+# AP-G001: legacy — يبقى تقنياً (explicit decision)
+# AP-G002: مُثبَت في الكود (p3) — قرار منتج لازم + dead path detail
+# AP-G003: السلسلة التشغيلية (refined)
+# AP-G004: NEW — legacy /result @deprecated
+# AP-G005: NEW — open_task silent update
+#
+# ── NEW FILE ──────────────────────────────────────────────────────────────────
+# docs/constitution/handoffs/2026-05-12-p1-p4-findings-handoff.md
+# Complete findings handoff: what ended, open gaps, legacy table, priorities

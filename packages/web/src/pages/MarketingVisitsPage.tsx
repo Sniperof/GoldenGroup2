@@ -13,6 +13,7 @@ import {
   Target,
 } from 'lucide-react';
 import type {
+  DeviceModel,
   Employee,
   GeoUnit,
   MarketingVisit,
@@ -27,13 +28,20 @@ import MarketingVisitResultModal from '../components/marketing-visits/MarketingV
 
 const STATUS_META: Record<MarketingVisitStatus, { label: string; className: string }> = {
   scheduled: { label: 'مجدولة', className: 'bg-slate-100 text-slate-700 border border-slate-200' },
+  in_visit: { label: 'في الزيارة', className: 'bg-indigo-50 text-indigo-700 border border-indigo-100' },
+  ended: { label: 'انتهت', className: 'bg-amber-50 text-amber-700 border border-amber-200' },
   completed: { label: 'تمت', className: 'bg-emerald-50 text-emerald-700 border border-emerald-100' },
   not_completed: { label: 'لم تتم', className: 'bg-rose-50 text-rose-700 border border-rose-100' },
-  postponed_by_company: { label: 'مؤجلة من الشركة', className: 'bg-amber-50 text-amber-700 border border-amber-100' },
-  postponed_by_customer: { label: 'مؤجلة من الزبون', className: 'bg-orange-50 text-orange-700 border border-orange-100' },
   cancelled: { label: 'ملغاة', className: 'bg-slate-200 text-slate-700 border border-slate-300' },
-  needs_reschedule: { label: 'بحاجة إعادة جدولة', className: 'bg-yellow-50 text-yellow-700 border border-yellow-100' },
+  needs_reschedule: { label: 'تحتاج إعادة جدولة', className: 'bg-yellow-50 text-yellow-700 border border-yellow-100' },
 };
+
+const DEFAULT_STATUS_META = { label: 'غير معروفة', className: 'bg-slate-100 text-slate-500 border border-slate-200' };
+
+function getMarketingVisitStatusMeta(status: string | null | undefined) {
+  if (!status) return DEFAULT_STATUS_META;
+  return STATUS_META[status as MarketingVisitStatus] ?? DEFAULT_STATUS_META;
+}
 
 function formatDateKey(date: Date) {
   const year = date.getFullYear();
@@ -98,6 +106,7 @@ export default function MarketingVisitsPage() {
   const [visits, setVisits] = useState<MarketingVisit[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+  const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -114,14 +123,16 @@ export default function MarketingVisitsPage() {
     setLoading(true);
     setError('');
     try {
-      const [visitsData, employeesData, geoUnitsData] = await Promise.all([
+      const [visitsData, employeesData, geoUnitsData, deviceModelsData] = await Promise.all([
         api.marketingVisits.list(targetDate) as Promise<MarketingVisit[]>,
         api.employees.list() as Promise<Employee[]>,
         api.geoUnits.list() as Promise<GeoUnit[]>,
+        api.deviceModels.list() as Promise<DeviceModel[]>,
       ]);
       setVisits(visitsData);
       setEmployees(employeesData);
       setGeoUnits(geoUnitsData);
+      setDeviceModels(deviceModelsData);
     } catch (loadError) {
       console.error('Failed to load marketing visits:', loadError);
       setError('تعذر تحميل زيارات التسويق');
@@ -146,7 +157,7 @@ export default function MarketingVisitsPage() {
       total: visits.length,
       scheduled: visits.filter((visit) => visit.status === 'scheduled').length,
       completed: visits.filter((visit) => visit.status === 'completed').length,
-      postponed: visits.filter((visit) => visit.status === 'postponed_by_company' || visit.status === 'postponed_by_customer' || visit.status === 'needs_reschedule').length,
+      postponed: visits.filter((visit) => visit.status === 'needs_reschedule').length,
       blocked: visits.filter((visit) => visit.status === 'not_completed' || visit.status === 'cancelled').length,
     };
   }, [visits]);
@@ -335,34 +346,19 @@ export default function MarketingVisitsPage() {
                     <td className="px-4 py-4 text-sm text-slate-700">{getTechnicianName(visit, employeesById)}</td>
                     <td className="px-4 py-4 text-sm text-slate-700">{getTelemarketerName(visit, employeesById)}</td>
                     <td className="px-4 py-4">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${STATUS_META[visit.status].className}`}>
-                        {STATUS_META[visit.status].label}
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${getMarketingVisitStatusMeta(visit.status).className}`}>
+                        {getMarketingVisitStatusMeta(visit.status).label}
                       </span>
                     </td>
                     <td className="px-4 py-4">
-                      {visit.status === 'scheduled' && canUpdateMarketingVisitResult ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setModalError('');
-                            setFeedback('');
-                            setSelectedVisit(visit);
-                          }}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-sky-50 px-3 py-2 text-sm font-bold text-sky-700 transition-colors hover:bg-sky-100"
-                        >
-                          <Target className="h-4 w-4" />
-                          <span>تسجيل النتيجة</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/marketing-visits/${visit.id}`)}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200"
-                        >
-                          <Eye className="h-4 w-4" />
-                          <span>عرض النتيجة</span>
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/marketing-visits/${visit.id}`)}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200"
+                      >
+                        <Eye className="h-4 w-4" />
+                        <span>عرض التفاصيل</span>
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -376,6 +372,7 @@ export default function MarketingVisitsPage() {
         isOpen={selectedVisit != null}
         visit={selectedVisit}
         employees={employees}
+        deviceModels={deviceModels}
         saving={savingResult}
         error={modalError}
         onClose={() => {

@@ -34,9 +34,10 @@ import { getUnifiedApplicationState, getUnifiedApplicationStateClasses } from '.
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_META: Record<EmployeeDetailType['status'], { label: string; className: string }> = {
-  active:   { label: 'نشط',       className: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
-  leave:    { label: 'إجازة',     className: 'bg-amber-50   text-amber-700   border border-amber-200'   },
-  inactive: { label: 'غير فعال', className: 'bg-slate-100  text-slate-600   border border-slate-200'   },
+  active:     { label: 'نشط',           className: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
+  vacation:   { label: 'إجازة',         className: 'bg-amber-50 text-amber-700 border border-amber-200' },
+  suspended:  { label: 'موقوف',         className: 'bg-orange-50 text-orange-700 border border-orange-200' },
+  terminated: { label: 'منتهي الخدمة',  className: 'bg-slate-100 text-slate-600 border border-slate-200' },
 };
 
 const STAGE_LABELS: Record<string, string> = {
@@ -870,7 +871,7 @@ export default function EmployeeDetail() {
                     )}
                   </div>
                   {/* Online-ish status dot */}
-                  <span className={`absolute -bottom-1 -left-1 w-4 h-4 rounded-full border-2 border-white ${detail.status === 'active' ? 'bg-emerald-400' : detail.status === 'leave' ? 'bg-amber-400' : 'bg-slate-300'}`} />
+                  <span className={`absolute -bottom-1 -left-1 w-4 h-4 rounded-full border-2 border-white ${detail.status === 'active' ? 'bg-emerald-400' : detail.status === 'vacation' ? 'bg-amber-400' : detail.status === 'suspended' ? 'bg-orange-400' : 'bg-slate-300'}`} />
                 </div>
               </div>
 

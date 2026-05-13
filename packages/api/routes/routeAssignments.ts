@@ -11,9 +11,10 @@ function isNonNegativeInteger(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0;
 }
 
-function validateRouteAssignmentPayload(body: any): { ok: true; routes: any[]; extraZones: number[] } | { ok: false; error: string } {
+function validateRouteAssignmentPayload(body: any): { ok: true; routes: any[]; extraZones: number[]; stationOrder: number[] } | { ok: false; error: string } {
   const routes = body?.routes ?? [];
   const extraZones = body?.extraZones ?? [];
+  const stationOrder = body?.stationOrder ?? [];
 
   if (!Array.isArray(routes)) {
     return { ok: false, error: 'routes must be an array' };
@@ -21,6 +22,10 @@ function validateRouteAssignmentPayload(body: any): { ok: true; routes: any[]; e
 
   if (!Array.isArray(extraZones)) {
     return { ok: false, error: 'extraZones must be an array' };
+  }
+
+  if (!Array.isArray(stationOrder)) {
+    return { ok: false, error: 'stationOrder must be an array' };
   }
 
   const seenRouteIds = new Set<number>();
@@ -64,14 +69,26 @@ function validateRouteAssignmentPayload(body: any): { ok: true; routes: any[]; e
     seenExtraZones.add(zoneId);
   }
 
-  return { ok: true, routes, extraZones };
+  const seenStationOrder = new Set<number>();
+  for (const zoneId of stationOrder) {
+    if (!isPositiveInteger(zoneId)) {
+      return { ok: false, error: 'stationOrder must contain valid geo unit ids' };
+    }
+
+    if (seenStationOrder.has(zoneId)) {
+      return { ok: false, error: `Station ${zoneId} is duplicated in the ordering` };
+    }
+    seenStationOrder.add(zoneId);
+  }
+
+  return { ok: true, routes, extraZones, stationOrder };
 }
 
 router.get('/', async (_req, res) => {
   const { rows } = await pool.query('SELECT * FROM route_assignments');
   const result: Record<string, any> = {};
   rows.forEach((r: any) => {
-    result[r.key] = { routes: r.routes, extraZones: r.extra_zones };
+    result[r.key] = { routes: r.routes, extraZones: r.extra_zones, stationOrder: r.station_order || [] };
   });
   res.json(result);
 });
@@ -79,9 +96,9 @@ router.get('/', async (_req, res) => {
 router.get('/:key', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM route_assignments WHERE key = $1', [req.params.key]);
   if (rows.length > 0) {
-    res.json({ routes: rows[0].routes, extraZones: rows[0].extra_zones });
+    res.json({ routes: rows[0].routes, extraZones: rows[0].extra_zones, stationOrder: rows[0].station_order || [] });
   } else {
-    res.json({ routes: [], extraZones: [] });
+    res.json({ routes: [], extraZones: [], stationOrder: [] });
   }
 });
 
@@ -92,11 +109,11 @@ router.put('/:key', async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    `INSERT INTO route_assignments (key, routes, extra_zones) VALUES ($1, $2, $3)
-    ON CONFLICT (key) DO UPDATE SET routes=$2, extra_zones=$3 RETURNING *`,
-    [req.params.key, JSON.stringify(validation.routes), JSON.stringify(validation.extraZones)]
+    `INSERT INTO route_assignments (key, routes, extra_zones, station_order) VALUES ($1, $2, $3, $4)
+    ON CONFLICT (key) DO UPDATE SET routes=$2, extra_zones=$3, station_order=$4 RETURNING *`,
+    [req.params.key, JSON.stringify(validation.routes), JSON.stringify(validation.extraZones), JSON.stringify(validation.stationOrder)]
   );
-  res.json({ routes: rows[0].routes, extraZones: rows[0].extra_zones });
+  res.json({ routes: rows[0].routes, extraZones: rows[0].extra_zones, stationOrder: rows[0].station_order || [] });
 });
 
 export default router;

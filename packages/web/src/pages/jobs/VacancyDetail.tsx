@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import type { JobVacancy, JobApplicationListItem, ApplicationStage } from '../../lib/types';
 import { authFetch } from '../../lib/authFetch';
 import {
-  ArrowRight, Briefcase, MapPin, Calendar, Users, GraduationCap, Edit,
+  ArrowRight, Briefcase, MapPin, Calendar, Users, GraduationCap, Edit, Car,
   XCircle, RotateCcw, Archive, Lock, X, AlertTriangle, CheckCircle,
   ClipboardList, Eye, Mail, Phone, Smartphone, Globe,
   PhoneCall, User, BookOpen, Clock, TrendingUp,
@@ -387,6 +387,15 @@ export default function VacancyDetail() {
                   )}
                 </div>
               </div>
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50">
+                <Car className="w-5 h-5 text-sky-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">السيارة</p>
+                  <p className="text-sm font-medium text-slate-700">
+                    {detail.hasCarRequired ? 'هل يمتلك المتقدم سيارة: مطلوب' : 'هل يمتلك المتقدم سيارة: غير مطلوب'}
+                  </p>
+                </div>
+              </div>
             </div>
             {detail.responsibilities && (
               <div className="mt-4 pt-4 border-t border-slate-100">
@@ -490,6 +499,7 @@ export default function VacancyDetail() {
                       requiredExperienceYears: app.vacancyRequiredExperienceYears ?? undefined,
                       requiredSkills: app.vacancyRequiredSkills || undefined,
                       drivingLicenseRequired: Boolean(app.vacancyDrivingLicenseRequired),
+                      hasCarRequired: Boolean(app.vacancyHasCarRequired),
                     },
                   ).score;
                   const initials = `${app.applicantFirstName?.[0] || ''}${app.applicantLastName?.[0] || ''}`;
@@ -668,6 +678,13 @@ export default function VacancyDetail() {
                       </select>
                     </div>
                   </div>
+                  <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${formData.hasCarRequired ? 'border-sky-400 bg-sky-50' : 'border-slate-200 bg-white hover:border-sky-200'}`}>
+                    <input type="checkbox" checked={formData.hasCarRequired || false} onChange={e => setField('hasCarRequired', e.target.checked)} disabled={isLocked('full')} className="sr-only" />
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${formData.hasCarRequired ? 'bg-sky-500 border-sky-500' : 'border-slate-300'}`}>
+                      {formData.hasCarRequired && <CheckCircle className="w-3 h-3 text-white" />}
+                    </div>
+                    <span className="text-sm font-medium text-slate-700">هل يمتلك المتقدم سيارة</span>
+                  </label>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">المهارات المطلوبة</label>
                     <textarea value={formData.requiredSkills || ''} onChange={e => setField('requiredSkills', e.target.value || null)} rows={2} disabled={isLocked('partial')} className={inputCls(isLocked('partial'))} />

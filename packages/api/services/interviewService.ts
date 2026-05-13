@@ -217,32 +217,71 @@ export async function getInterviewById(id: string, authContext: AuthContext) {
 export async function scheduleInterviewForApplication(body: any, user: InterviewActor) {
   const client = await pool.connect();
   try {
-    if (!body.applicationId) throw createServiceError(400, { error: 'معرّف الطلب مطلوب' });
+    const jobVacancyId = body.jobVacancyId != null && String(body.jobVacancyId).trim() !== ''
+      ? Number.parseInt(String(body.jobVacancyId), 10)
+      : null;
+    const applicationId = body.applicationId != null && String(body.applicationId).trim() !== ''
+      ? Number.parseInt(String(body.applicationId), 10)
+      : null;
+    const interviewerUserId = body.interviewerUserId != null && String(body.interviewerUserId).trim() !== ''
+      ? Number.parseInt(String(body.interviewerUserId), 10)
+      : null;
+
+    if (!Number.isInteger(jobVacancyId) || jobVacancyId <= 0) {
+      throw createServiceError(400, {
+        code: 'JOB_VACANCY_REQUIRED',
+        message: 'يجب اختيار الشاغر الوظيفي',
+        field: 'jobVacancyId',
+        error: 'يجب اختيار الشاغر الوظيفي',
+      });
+    }
+    if (!Number.isInteger(applicationId) || applicationId <= 0) {
+      throw createServiceError(400, {
+        code: 'APPLICATION_REQUIRED',
+        message: 'يجب اختيار المتقدم للمقابلة',
+        field: 'applicationId',
+        error: 'يجب اختيار المتقدم للمقابلة',
+      });
+    }
     if (!body.interviewType) throw createServiceError(400, { error: 'نوع المقابلة مطلوب' });
     if (!body.interviewNumber) throw createServiceError(400, { error: 'رقم المقابلة مطلوب' });
     if (!body.interviewDate) throw createServiceError(400, { error: 'تاريخ المقابلة مطلوب' });
     if (!body.interviewTime) throw createServiceError(400, { error: 'وقت المقابلة مطلوب' });
-    if (!body.interviewerUserId) {
-      throw createServiceError(400, { error: 'يجب اختيار المقابِل من القائمة المعتمدة.' });
+    if (!interviewerUserId) {
+      throw createServiceError(400, {
+        code: 'INTERVIEWER_REQUIRED',
+        message: 'يجب اختيار المقابل من القائمة',
+        field: 'interviewerUserId',
+        error: 'يجب اختيار المقابل من القائمة',
+      });
     }
 
     await client.query('BEGIN');
 
-    const applicationContext = await getApplicationInterviewContext(client, body.applicationId);
+    const applicationContext = await getApplicationInterviewContext(client, applicationId);
     if (!applicationContext) {
       throw createServiceError(404, { error: 'طلب التوظيف غير موجود' });
     }
 
     ensureBranchAccess(user.authContext, applicationContext.resolvedBranchId);
 
+    if (Number(applicationContext.jobVacancyId) !== Number(jobVacancyId)) {
+      throw createServiceError(400, {
+        code: 'JOB_VACANCY_MISMATCH',
+        message: 'الشاغر المختار لا يطابق الطلب المحدد',
+        field: 'jobVacancyId',
+        error: 'الشاغر المختار لا يطابق الطلب المحدد',
+      });
+    }
+
     const branchId = Number(applicationContext.resolvedBranchId);
     const selectedInterviewer = await resolveEligibleInterviewer(
       client,
       branchId,
-      body.interviewerUserId,
+      interviewerUserId,
     );
 
-    const policyState = await fetchApplicationPolicyState(client, body.applicationId);
+    const policyState = await fetchApplicationPolicyState(client, applicationId);
     if (!policyState) {
       throw createServiceError(404, { error: 'طلب التوظيف غير موجود' });
     }
@@ -251,7 +290,7 @@ export async function scheduleInterviewForApplication(body: any, user: Interview
       throw createServiceError(403, { error: blockReason });
     }
 
-    const existingScheduled = await findExistingScheduledInterview(client, Number(body.applicationId));
+    const existingScheduled = await findExistingScheduledInterview(client, applicationId);
     if (existingScheduled.length > 0) {
       throw createServiceError(409, { error: 'يوجد مقابلة مجدولة بالفعل لهذا الطلب' });
     }
@@ -270,7 +309,7 @@ export async function scheduleInterviewForApplication(body: any, user: Interview
     }
 
     const row = await insertInterview(client, {
-      applicationId: Number(body.applicationId),
+      applicationId,
       interviewType: body.interviewType,
       interviewNumber: body.interviewNumber,
       interviewerUserId: selectedInterviewer.interviewerUserId,
@@ -280,12 +319,12 @@ export async function scheduleInterviewForApplication(body: any, user: Interview
       internalNotes: body.internalNotes ? body.internalNotes : null,
     });
 
-    await markApplicationInterviewScheduled(client, Number(body.applicationId));
+    await markApplicationInterviewScheduled(client, applicationId);
 
     await insertAuditLog(client, {
       entityType: 'interview',
       entityId: row.id,
-      applicationId: Number(body.applicationId),
+      applicationId,
       actionType: 'Interview Scheduled',
       performedByRole: user.role,
       performedByUserId: user.id,

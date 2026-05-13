@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Phone, Loader2, MessageSquare, PhoneMissed, Clock } from 'lucide-react';
+import { Phone, Loader2, MessageSquare, PhoneMissed, Clock, Edit3 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { getOutcomeMeta } from '@golden-crm/shared';
 import type { CustomerCallLog } from '@golden-crm/shared';
+import MessageReplyOutcomeModal from './MessageReplyOutcomeModal';
 
 interface Props {
     customerId: number;
@@ -11,6 +12,10 @@ interface Props {
     contactNumber: string;
     /** Bump this to force a refresh from the parent */
     refreshKey?: number;
+    /** Max entries to show; omit for unlimited */
+    limit?: number;
+    /** Called when a log is updated (to refresh parent) */
+    onLogUpdated?: () => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -20,14 +25,19 @@ function formatDate(dateStr: string): string {
         const d = new Date(dateStr);
         const now = new Date();
         const diffMs = now.getTime() - d.getTime();
-        const diffDays = Math.floor(diffMs / 86_400_000);
+        const diffDays = Math.max(0, Math.floor(diffMs / 86_400_000));
 
-        const timeStr = d.toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' });
+        const h = String(d.getHours()).padStart(2, '0');
+        const m = String(d.getMinutes()).padStart(2, '0');
+        const timeStr = `${h}:${m}`;
 
         if (diffDays === 0) return `اليوم ${timeStr}`;
         if (diffDays === 1) return `أمس ${timeStr}`;
         if (diffDays < 7) return `منذ ${diffDays} أيام — ${timeStr}`;
-        return d.toLocaleDateString('ar-SY', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ` ${timeStr}`;
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}-${month}-${year} ${timeStr}`;
     } catch {
         return dateStr;
     }
@@ -35,11 +45,19 @@ function formatDate(dateStr: string): string {
 
 function channelLabel(ch?: string): string {
     switch (ch) {
-        case 'cellular_call':  return 'مكالمة خلوية';
-        case 'cellular_text':  return 'رسالة خلوية';
+        case 'cellular_call':  return 'مكالمة هاتفية';
+        case 'cellular_text':  return 'رسالة نصية';
         case 'whatsapp_call':  return 'مكالمة واتساب';
         case 'whatsapp_text':  return 'رسالة واتساب';
         default:               return 'مكالمة';
+    }
+}
+
+function sourceLabel(sourceType?: string): string {
+    switch (sourceType) {
+        case 'telemarketing_task': return 'ضمن مهمة';
+        case 'direct_call': return 'اتصال حر';
+        default: return sourceType ? `مصدر: ${sourceType}` : 'مصدر غير محدد';
     }
 }
 
@@ -52,8 +70,10 @@ function answeredByLabel(ab?: string): string {
     }
 }
 
-function OutcomeIcon({ outcome, status }: { outcome: string; status?: string }) {
+function OutcomeIcon({ outcome, status, channel }: { outcome: string; status?: string; channel?: string }) {
+    const isTextChannel = channel?.includes('text');
     if (status === 'pending') return <Clock className="w-4 h-4 text-amber-500" />;
+    if (isTextChannel) return <MessageSquare className="w-4 h-4 text-sky-500" />;
     const group = getOutcomeMeta(outcome).group;
     if (group === 'not_reached') return <PhoneMissed className="w-4 h-4 text-red-400" />;
     if (group === 'service_request') return <Phone className="w-4 h-4 text-indigo-500" />;
@@ -75,9 +95,10 @@ function groupBorderColor(outcome: string, status?: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function PhoneCallLog({ customerId, contactId, contactLabel, contactNumber, refreshKey }: Props) {
+export default function PhoneCallLog({ customerId, contactId, contactLabel, contactNumber, refreshKey, limit, onLogUpdated }: Props) {
     const [logs, setLogs] = useState<CustomerCallLog[]>([]);
     const [loading, setLoading] = useState(false);
+    const [editLog, setEditLog] = useState<CustomerCallLog | null>(null);
 
     const fetchLogs = useCallback(async () => {
         setLoading(true);
@@ -109,9 +130,12 @@ export default function PhoneCallLog({ customerId, contactId, contactLabel, cont
         );
     }
 
+    const displayLogs = limit ? logs.slice(0, limit) : logs;
+    const hasMore = limit && logs.length > limit;
+
     return (
         <div className="space-y-3">
-            {logs.map((log) => {
+            {displayLogs.map((log) => {
                 const meta = getOutcomeMeta(log.outcome);
                 const borderColor = groupBorderColor(log.outcome, log.status);
                 const abLabel = answeredByLabel(log.answeredBy);
@@ -127,7 +151,7 @@ export default function PhoneCallLog({ customerId, contactId, contactLabel, cont
 
                         <div className="flex items-start justify-between mb-1">
                             <div className="flex items-center gap-1.5">
-                                <OutcomeIcon outcome={log.outcome} status={log.status} />
+                                <OutcomeIcon outcome={log.outcome} status={log.status} channel={log.communicationChannel} />
                                 <span className="font-bold text-slate-800 text-sm">{meta.label}</span>
                                 {log.status === 'pending' && (
                                     <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">
@@ -153,15 +177,55 @@ export default function PhoneCallLog({ customerId, contactId, contactLabel, cont
                             <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
                                 {chLabel}
                             </span>
+                            <span className="text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded font-bold border border-violet-100">
+                                {sourceLabel(log.sourceType)}
+                            </span>
                             {abLabel && (
                                 <span className="text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded font-bold border border-violet-100">
                                     {abLabel}
                                 </span>
                             )}
+                            {log.status === 'pending' && log.communicationChannel?.includes('text') && (
+                                <button
+                                    onClick={() => setEditLog(log)}
+                                    className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded font-bold border border-amber-100 hover:bg-amber-100 transition-colors flex items-center gap-1"
+                                >
+                                    <Edit3 className="w-3 h-3" /> تعديل النتيجة
+                                </button>
+                            )}
                         </div>
                     </div>
                 );
             })}
+            {hasMore && (
+                <button
+                    onClick={() => window.dispatchEvent(new CustomEvent('switchToCallLogTab'))}
+                    className="w-full text-xs text-sky-600 font-bold py-2 hover:text-sky-700 transition-colors"
+                >
+                    عرض الكل ({logs.length}) →
+                </button>
+            )}
+            {editLog && (
+                <MessageReplyOutcomeModal
+                    isOpen={true}
+                    onClose={() => setEditLog(null)}
+                    logId={editLog.id}
+                    onSave={async (outcome, notes) => {
+                        try {
+                            await api.customerCalls.update(editLog.id, {
+                                outcome,
+                                notes: notes || null,
+                                status: 'completed',
+                            });
+                            setEditLog(null);
+                            fetchLogs();
+                            onLogUpdated?.();
+                        } catch (err) {
+                            console.error('Failed to update log:', err);
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

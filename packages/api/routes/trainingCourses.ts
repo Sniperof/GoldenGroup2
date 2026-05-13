@@ -11,6 +11,7 @@ import {
   recordTrainingAttendance,
   recordTrainingResult,
   startTrainingCourse,
+  updateTrainingCourseEndDateFlow,
 } from '../services/trainingCourseService.js';
 
 const router = Router();
@@ -120,6 +121,19 @@ router.post('/:id/attendance', requirePermission('jobs.training.record_attendanc
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
     console.error('Error recording attendance:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+router.patch('/:id/end-date', requirePermission('jobs.training.create'), async (req, res) => {
+  try {
+    const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const result = await updateTrainingCourseEndDateFlow(courseId, req.body, req.user!);
+    res.json(result);
+  } catch (err: any) {
+    if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
+    console.error('Error updating training course end date:', err);
     res.status(500).json({ error: err.message });
   }
 });

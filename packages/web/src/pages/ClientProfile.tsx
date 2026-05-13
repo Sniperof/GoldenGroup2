@@ -11,9 +11,11 @@ import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import type { Client, GeoUnit } from '../lib/types';
 import ClientAvatar from '../components/ClientAvatar';
-import { getOutcomeMeta, OUTCOMES_BY_GROUP, TelemarketingOutcomeCode } from '@golden-crm/shared';
+import { getOutcomeMeta, OUTCOMES_BY_GROUP, TelemarketingOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY, OUTCOME_MAP } from '@golden-crm/shared';
 import OutcomeRecorderModal, { SaveExtras } from '../components/telemarketing/OutcomeRecorderModal';
 import CustomerCallLog from '../components/customers/CustomerCallLog';
+import PhoneCallLog from '../components/customers/PhoneCallLog';
+import DeviceOfferModal from '../components/clients/DeviceOfferModal';
 
 const referrerTypesAr: Record<string, string> = {
     'Personal': 'شخصي',
@@ -325,7 +327,9 @@ export default function ClientProfile() {
                                 {activeTab === 'contacts' && (
                                     <ContactsTab
                                         client={client}
+                                        refreshKey={callLogRefreshKey}
                                         onCallSaved={() => setCallLogRefreshKey(k => k + 1)}
+                                        onClientUpdate={(fields) => setClient(prev => prev ? { ...prev, ...fields } : null)}
                                     />
                                 )}
                                 {activeTab === 'calllog' && (
@@ -334,7 +338,7 @@ export default function ClientProfile() {
                                         <CustomerCallLog customerId={client.id} refreshKey={callLogRefreshKey} />
                                     </div>
                                 )}
-                                {activeTab === 'visits' && <VisitsTab />}
+                                {activeTab === 'visits' && <VisitsTab client={client} />}
                                 {activeTab === 'network' && <NetworkTab client={client} clients={clients} candidates={candidates} />}
                             </motion.div>
                         </AnimatePresence>
@@ -439,7 +443,7 @@ function formatCallDate(dateStr: string): string {
 
 // ── ContactsTab ───────────────────────────────────────────────────────────────
 
-function ContactsTab({ client, onCallSaved }: { client: Client; onCallSaved?: () => void }) {
+function ContactsTab({ client, refreshKey, onCallSaved, onClientUpdate }: { client: Client; refreshKey?: number; onCallSaved?: () => void; onClientUpdate?: (fields: Partial<Client>) => void }) {
     const [callLogs, setCallLogs] = useState<any[]>([]);
     const [loadingCalls, setLoadingCalls] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
@@ -508,10 +512,21 @@ function ContactsTab({ client, onCallSaved }: { client: Client; onCallSaved?: ()
                                                 <MessageCircle className="w-3.5 h-3.5" /> واتساب متوفر
                                             </span>
                                         )}
-                                        <span className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-xl font-bold shadow-sm border ${c.status === 'active' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-red-50 border-red-100 text-red-600'}`}>
-                                            <Activity className="w-3.5 h-3.5" />
-                                            {c.status === 'active' ? 'يعمل' : 'مفصول'}
-                                        </span>
+                                    <span className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-xl font-bold shadow-sm border ${
+                                        c.status === 'active' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
+                                        c.status === 'preferred' ? 'bg-sky-50 border-sky-100 text-sky-600' :
+                                        c.status === 'out-of-coverage' ? 'bg-orange-50 border-orange-100 text-orange-600' :
+                                        c.status === 'invalid' ? 'bg-red-50 border-red-100 text-red-600' :
+                                        'bg-slate-50 border-slate-100 text-slate-600'
+                                    }`}>
+                                        <Activity className="w-3.5 h-3.5" />
+                                        {c.status === 'active' ? 'يعمل' :
+                                         c.status === 'preferred' ? 'مفضل' :
+                                         c.status === 'out-of-coverage' ? 'خارج تغطية' :
+                                         c.status === 'unused' ? 'غير مستخدم' :
+                                         c.status === 'invalid' ? 'قيمة خاطئة' :
+                                         c.status || 'غير محدد'}
+                                    </span>
                                     </div>
                                 </div>
                             </div>
@@ -534,42 +549,15 @@ function ContactsTab({ client, onCallSaved }: { client: Client; onCallSaved?: ()
                                 </div>
 
                                 <div className="space-y-4">
-                                    {recentLogs.length === 0 && !loadingCalls && (
-                                        <p className="text-xs text-slate-400 text-center py-4">لا يوجد سجل مكالمات لهذا الرقم بعد</p>
-                                    )}
-
-                                    {recentLogs.map((log) => {
-                                        const meta = getOutcomeMeta(log.outcome);
-                                        const lineColor = outcomeColor(log.outcome);
-                                        const badgeClass = outcomeBadgeClass(log.outcome);
-                                        return (
-                                            <div
-                                                key={log.id}
-                                                className={`relative pl-4 border-r-2 ${lineColor} pr-5 group/log hover:bg-slate-50 transition-colors rounded-l-2xl py-2`}
-                                            >
-                                                <div className={`absolute top-3 -right-1.5 w-2.5 h-2.5 rounded-full bg-white border-2 ${lineColor}`} />
-                                                <div className="flex justify-between items-start mb-1">
-                                                    <span className="font-bold text-slate-800 text-sm">{meta.label}</span>
-                                                    <span className="text-slate-400 font-mono text-[10px] bg-white border border-slate-100 px-2 py-0.5 rounded-md shadow-sm">
-                                                        {formatCallDate(log.callDate)}
-                                                    </span>
-                                                </div>
-                                                {log.notes && (
-                                                    <p className="text-xs text-slate-500 leading-relaxed max-w-lg">{log.notes}</p>
-                                                )}
-                                                <div className="mt-2 flex items-center gap-2">
-                                                    {log.callerName && (
-                                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
-                                                            موظف: {log.callerName}
-                                                        </span>
-                                                    )}
-                                                    <span className={`text-[10px] border px-2 py-0.5 rounded font-bold ${badgeClass}`}>
-                                                        {meta.label}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                                    <PhoneCallLog
+                                        customerId={client.id}
+                                        contactId={c.id}
+                                        contactLabel={c.label || 'جهة اتصال'}
+                                        contactNumber={c.number}
+                                        refreshKey={refreshKey}
+                                        limit={2}
+                                        onLogUpdated={onCallSaved}
+                                    />
                                 </div>
 
                                 <button
@@ -608,7 +596,25 @@ function ContactsTab({ client, onCallSaved }: { client: Client; onCallSaved?: ()
                                 answeredBy: extras?.answeredBy ?? null,
                                 communicationChannel: extras?.communicationChannel ?? null,
                                 status: extras?.status ?? 'completed',
+                                callDate: extras?.callDateTime ?? null,
                             });
+
+                            // Auto-apply phone status update based on outcome
+                            const meta = OUTCOME_MAP[outcome];
+                            const phoneStatusUpdate = meta?.phoneStatusUpdate;
+                            if (phoneStatusUpdate && phoneStatusUpdate !== 'none' && modalContact?.id) {
+                                const contactStatus = PHONE_STATUS_TO_CONTACT_ENTRY[phoneStatusUpdate];
+                                if (contactStatus) {
+                                    const updatedContacts = (client.contacts || []).map((c: any) =>
+                                        c.id === modalContact.id ? { ...c, status: contactStatus } : c
+                                    );
+                                    // Optimistic update
+                                    onClientUpdate?.({ contacts: updatedContacts });
+                                    // Sync with backend
+                                    api.clients.update(client.id, { contacts: updatedContacts }).catch(console.error);
+                                }
+                            }
+
                             fetchCalls();
                             onCallSaved?.();
                             setModalOpen(false);
@@ -623,24 +629,143 @@ function ContactsTab({ client, onCallSaved }: { client: Client; onCallSaved?: ()
     );
 }
 
-function VisitsTab() {
+function VisitsTab({ client }: { client: Client }) {
+    const [visits, setVisits] = useState<any[]>([]);
+    const [tasks, setTasks] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [modalOpen, setModalOpen] = useState(false);
+    const hasIncompleteTask = tasks.some((task) => task.status !== 'completed' && task.status !== 'cancelled');
+
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const [taskData, visitData] = await Promise.all([
+                api.openTasks.listByClient(client.id),
+                api.marketingVisits.list('', client.id),
+            ]);
+            setTasks(taskData);
+            setVisits(visitData);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    }, [client.id]);
+
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
     return (
         <div className="space-y-6 max-w-5xl h-full flex flex-col">
             <div className="flex items-center justify-between">
-                <h3 className="text-lg font-black text-slate-800">سجل الزيارات (مساحة العمل)</h3>
-                <button className="px-5 py-2.5 bg-sky-600 text-white font-bold rounded-xl shadow-[0_4px_12px_rgba(14,165,233,0.3)] hover:bg-sky-500 transition-all hover:-translate-y-0.5 flex items-center gap-2 text-sm">
-                    <Plus className="w-4 h-4" /> إضافة زيارة جديدة
+                <h3 className="text-lg font-black text-slate-800">سجل الزيارات والمهام</h3>
+                <button
+                    onClick={() => setModalOpen(true)}
+                    disabled={hasIncompleteTask}
+                    className="px-5 py-2.5 bg-sky-600 text-white font-bold rounded-xl shadow-[0_4px_12px_rgba(14,165,233,0.3)] hover:bg-sky-500 transition-all hover:-translate-y-0.5 flex items-center gap-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:translate-y-0"
+                >
+                    <Plus className="w-4 h-4" /> إضافة عرض جهاز
                 </button>
             </div>
-
-            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-12 text-center flex-1 flex flex-col items-center justify-center">
-                <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6">
-                    <Navigation className="w-10 h-10 text-slate-300" />
+            {hasIncompleteTask && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+                    لا يمكن إنشاء عرض جديد ما دامت هناك مهمة غير مكتملة لهذا الزبون.
                 </div>
-                <h4 className="text-lg text-slate-600 font-black mb-2">لا توجد زيارات مسجلة بعد</h4>
-                <p className="text-sm text-slate-400 max-w-sm mx-auto leading-relaxed">ستظهر هنا تفاصيل الزيارات المستقبلية والسابقة الخاصة بالزبون، بما في ذلك التسويق والصيانة.</p>
-                <button className="mt-6 text-sky-600 font-bold text-sm bg-sky-50 px-6 py-2.5 rounded-xl hover:bg-sky-100 transition-all">إضافة أول زيارة</button>
-            </div>
+            )}
+
+            {loading ? (
+                <div className="text-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-slate-300" />
+                </div>
+            ) : (
+                <div className="space-y-6">
+                    {tasks.length === 0 ? (
+                        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-12 text-center flex-1 flex flex-col items-center justify-center">
+                            <Navigation className="w-10 h-10 text-slate-300 mb-4" />
+                            <h4 className="text-lg text-slate-600 font-black mb-2">لا توجد مهام مسجلة</h4>
+                            <p className="text-sm text-slate-400 max-w-sm mx-auto leading-relaxed">اضغط "إضافة عرض جهاز" لإنشاء مهمة جديدة.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {tasks.map((task) => {
+                                const preOffers = task.preOffers ?? task.preoffers ?? [];
+                                return (
+                                    <div key={task.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                                                    task.status === 'open' ? 'bg-sky-50 text-sky-600 border-sky-100' :
+                                                    task.status === 'scheduled' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                                                    task.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                                    'bg-slate-50 text-slate-500 border-slate-100'
+                                                }`}>{task.status}</span>
+                                                <span className="text-sm font-bold text-slate-700">مهمة #{task.id}</span>
+                                            </div>
+                                            {(task.dueDate || task.due_date) && (
+                                                <span className="text-xs text-slate-400 font-mono">{task.dueDate || task.due_date}</span>
+                                            )}
+                                        </div>
+                                        {task.devices && task.devices.length > 0 && (
+                                            <div className="text-sm text-slate-600 mb-2">
+                                                الأجهزة: {task.devices.map((d: any) => `${d.deviceName} × ${d.quantity}`).join('، ')}
+                                            </div>
+                                        )}
+                                        {preOffers.length > 0 && (
+                                            <div className="text-sm text-slate-600">
+                                                عروض مسبقة: {preOffers.length}
+                                            </div>
+                                        )}
+                                        {task.notes && (
+                                            <div className="text-xs text-slate-400 mt-2">{task.notes}</div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    <section className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h4 className="text-base font-black text-slate-800">الزيارات الفعلية</h4>
+                            <span className="text-xs text-slate-400">{visits.length} زيارة</span>
+                        </div>
+                        {visits.length === 0 ? (
+                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center text-sm text-slate-400">
+                                لا توجد زيارات مسجلة لهذا الزبون حتى الآن.
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {visits.map((visit) => (
+                                    <div key={visit.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <div className="text-sm font-bold text-slate-800">زيارة #{visit.id}</div>
+                                                <div className="text-xs text-slate-500 mt-1">{visit.scheduledDate} {visit.scheduledTime ? `• ${visit.scheduledTime}` : ''}</div>
+                                            </div>
+                                            <span className="px-2.5 py-1 rounded-lg text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">
+                                                {visit.status}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </section>
+                </div>
+            )}
+
+            {modalOpen && (
+                <DeviceOfferModal
+                    isOpen={modalOpen}
+                    onClose={() => setModalOpen(false)}
+                    client={client}
+                    onCreated={() => {
+                        setModalOpen(false);
+                        fetchData();
+                    }}
+                />
+            )}
         </div>
     );
 }

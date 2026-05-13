@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { Phone, Loader2, PhoneMissed, Clock, Filter, MessageSquare } from 'lucide-react';
+import { Phone, Loader2, PhoneMissed, Clock, Filter, MessageSquare, Edit3 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { getOutcomeMeta } from '@golden-crm/shared';
+import { getOutcomeMeta, TelemarketingOutcomeCode } from '@golden-crm/shared';
 import type { CustomerCallLog as CallLogEntry } from '@golden-crm/shared';
+import MessageReplyOutcomeModal from './MessageReplyOutcomeModal';
 
 interface Props {
     customerId: number;
@@ -23,13 +24,14 @@ function formatDateGroup(dateStr: string): string {
     try {
         const d = new Date(dateStr);
         const now = new Date();
-        const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+        const diffDays = Math.max(0, Math.floor((now.getTime() - d.getTime()) / 86_400_000));
         if (diffDays === 0) return 'اليوم';
         if (diffDays === 1) return 'أمس';
         if (diffDays < 7) return `منذ ${diffDays} أيام`;
         if (diffDays < 14) return 'منذ أسبوع';
         if (diffDays < 30) return 'منذ أسبوعين أو أكثر';
-        return d.toLocaleDateString('ar-SY', { month: 'long', year: 'numeric' });
+        const months = ['يناير','فبراير','مارس','أبريل','مايو','حزيران','تموز','آب','أيلول','تشرين الأول','تشرين الثاني','كانون الأول'];
+        return `${months[d.getMonth()]} ${d.getFullYear()}`;
     } catch {
         return dateStr.split('T')[0];
     }
@@ -37,7 +39,10 @@ function formatDateGroup(dateStr: string): string {
 
 function formatTime(dateStr: string): string {
     try {
-        return new Date(dateStr).toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' });
+        const d = new Date(dateStr);
+        const h = String(d.getHours()).padStart(2, '0');
+        const m = String(d.getMinutes()).padStart(2, '0');
+        return `${h}:${m}`;
     } catch { return ''; }
 }
 
@@ -47,11 +52,19 @@ function dateKey(dateStr: string): string {
 
 function channelLabel(ch?: string): string {
     switch (ch) {
-        case 'cellular_call':  return 'مكالمة خلوية';
-        case 'cellular_text':  return 'رسالة خلوية';
+        case 'cellular_call':  return 'مكالمة هاتفية';
+        case 'cellular_text':  return 'رسالة نصية';
         case 'whatsapp_call':  return 'مكالمة واتساب';
         case 'whatsapp_text':  return 'رسالة واتساب';
         default:               return 'مكالمة';
+    }
+}
+
+function sourceLabel(sourceType?: string): string {
+    switch (sourceType) {
+        case 'telemarketing_task': return 'ضمن مهمة';
+        case 'direct_call': return 'اتصال حر';
+        default: return sourceType ? `مصدر: ${sourceType}` : 'مصدر غير محدد';
     }
 }
 
@@ -79,8 +92,9 @@ function matchesPeriod(dateStr: string, period: PeriodFilter): boolean {
     }
 }
 
-function outcomeGroupIcon(outcome: string, status?: string): React.ReactNode {
+function outcomeGroupIcon(outcome: string, status?: string, channel?: string): React.ReactNode {
     if (status === 'pending') return <Clock className="w-3.5 h-3.5 text-amber-500" />;
+    if (channel?.includes('text')) return <MessageSquare className="w-3.5 h-3.5 text-sky-500" />;
     const group = getOutcomeMeta(outcome).group;
     if (group === 'not_reached') return <PhoneMissed className="w-3.5 h-3.5 text-red-400" />;
     return <Phone className="w-3.5 h-3.5 text-emerald-500" />;
@@ -129,12 +143,19 @@ function FilterSelect<T extends string>({
 export default function CustomerCallLog({ customerId, refreshKey }: Props) {
     const [logs, setLogs] = useState<CallLogEntry[]>([]);
     const [loading, setLoading] = useState(false);
+    const [editLog, setEditLog] = useState<CallLogEntry | null>(null);
 
     // Filters
     const [channel, setChannel] = useState<ChannelFilter>('all');
     const [status, setStatus] = useState<StatusFilter>('all');
     const [period, setPeriod] = useState<PeriodFilter>('all');
     const [outcomeGroup, setOutcomeGroup] = useState<OutcomeGroupFilter>('all');
+    const [caller, setCaller] = useState<string>('all');
+
+    const callerOptions = useMemo(() => {
+        const names = new Set(logs.map(l => l.callerName).filter(Boolean));
+        return [{ value: 'all', label: 'المتصل: الكل' }, ...Array.from(names).map(n => ({ value: n, label: n }))];
+    }, [logs]);
 
     const fetchLogs = useCallback(async () => {
         setLoading(true);
@@ -164,9 +185,10 @@ export default function CustomerCallLog({ customerId, refreshKey }: Props) {
                 if (outcomeGroup === 'booked' && g !== 'booked') return false;
                 if (outcomeGroup === 'reached' && (g === 'not_reached' || g === 'booked')) return false;
             }
+            if (caller !== 'all' && log.callerName !== caller) return false;
             return true;
         });
-    }, [logs, channel, status, period, outcomeGroup]);
+    }, [logs, channel, status, period, outcomeGroup, caller]);
 
     // Group by date
     const grouped = useMemo(() => {
@@ -193,8 +215,8 @@ export default function CustomerCallLog({ customerId, refreshKey }: Props) {
                     onChange={setChannel}
                     options={[
                         { value: 'all', label: 'القناة: الكل' },
-                        { value: 'cellular_call', label: 'مكالمة خلوية' },
-                        { value: 'cellular_text', label: 'رسالة خلوية' },
+                        { value: 'cellular_call', label: 'مكالمة هاتفية' },
+                        { value: 'cellular_text', label: 'رسالة نصية' },
                         { value: 'whatsapp_call', label: 'مكالمة واتساب' },
                         { value: 'whatsapp_text', label: 'رسالة واتساب' },
                     ]}
@@ -238,6 +260,16 @@ export default function CustomerCallLog({ customerId, refreshKey }: Props) {
                     ]}
                 />
 
+                <select
+                    value={caller}
+                    onChange={e => setCaller(e.target.value)}
+                    className="text-xs font-bold bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-slate-600 focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300"
+                >
+                    {callerOptions.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                </select>
+
                 {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400 mr-auto" />}
                 {!loading && (
                     <span className="text-xs text-slate-400 font-bold mr-auto">
@@ -269,7 +301,7 @@ export default function CustomerCallLog({ customerId, refreshKey }: Props) {
                                     className={`flex items-start gap-3 px-5 py-4 border-r-4 ${bc} hover:bg-slate-50/70 transition-colors`}
                                 >
                                     <div className="shrink-0 mt-0.5">
-                                        {outcomeGroupIcon(log.outcome, log.status)}
+                                        {outcomeGroupIcon(log.outcome, log.status, log.communicationChannel)}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-start justify-between gap-2">
@@ -296,10 +328,21 @@ export default function CustomerCallLog({ customerId, refreshKey }: Props) {
                                                 {channelIcon(log.communicationChannel)}
                                                 {channelLabel(log.communicationChannel)}
                                             </span>
+                                            <span className="text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded font-bold border border-violet-100">
+                                                {sourceLabel(log.sourceType)}
+                                            </span>
                                             {log.callerName && (
                                                 <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
                                                     {log.callerName}
                                                 </span>
+                                            )}
+                                            {log.status === 'pending' && log.communicationChannel?.includes('text') && (
+                                                <button
+                                                    onClick={() => setEditLog(log)}
+                                                    className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded font-bold border border-amber-100 hover:bg-amber-100 transition-colors flex items-center gap-1"
+                                                >
+                                                    <Edit3 className="w-3 h-3" /> تعديل النتيجة
+                                                </button>
                                             )}
                                         </div>
 
@@ -313,6 +356,26 @@ export default function CustomerCallLog({ customerId, refreshKey }: Props) {
                     </div>
                 </div>
             ))}
+            {editLog && (
+                <MessageReplyOutcomeModal
+                    isOpen={true}
+                    onClose={() => setEditLog(null)}
+                    logId={editLog.id}
+                    onSave={async (outcome, notes) => {
+                        try {
+                            await api.customerCalls.update(editLog.id, {
+                                outcome,
+                                notes: notes || null,
+                                status: 'completed',
+                            });
+                            setEditLog(null);
+                            fetchLogs();
+                        } catch (err) {
+                            console.error('Failed to update log:', err);
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

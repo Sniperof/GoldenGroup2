@@ -1,0 +1,37 @@
+# P4 — No behavioral code changes in this session.
+# The session is a terminology audit against constitutions.
+#
+# Key finding: The main drift is BEHAVIORAL not naming:
+# planningMarketingTargets.ts applies device_demo filter in 4 places,
+# while the constitution (PC-G001) explicitly flags this as a gap.
+#
+# Proposed Option A: Remove device_demo constraint (align with constitution)
+#
+# diff --git a/packages/api/services/planningMarketingTargets.ts
+# --- a/packages/api/services/planningMarketingTargets.ts
+# +++ b/packages/api/services/planningMarketingTargets.ts
+#
+# @@ countsByZone query
+# -      AND open_tasks.task_type = 'device_demo'
+# -      AND open_tasks.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+# +      AND open_tasks.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+#
+# @@ unfinished_visit lateral
+# -      AND mvt.task_type = 'device_demo'
+#        (remove filter — check any unfinished visit regardless of task type)
+#
+# @@ leads query lateral
+# -      AND open_tasks.task_type = 'device_demo'
+# -      AND open_tasks.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+# +      AND open_tasks.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+#
+# Proposed Option B: Update constitution to document current constraint
+#
+# diff --git a/docs/constitution/features/planning-contact-targets.md
+# --- a/docs/constitution/features/planning-contact-targets.md
+# +++ b/docs/constitution/features/planning-contact-targets.md
+# @@ PC-G001
+# + ### `PC-G001-IMPL` — المرحلة الحالية تقتصر على device_demo
+# + - تطبيقًا للمرحلة الأولى، الكود يُقيّد الاستعلام بـ task_type='device_demo' حصراً.
+# + - هذا قيد MVP مؤقت وليس تعريفًا دستورياً نهائياً.
+# + - عند توسيع النطاق ليشمل أنواع أخرى، يُزال هذا القيد من SQL فقط.

@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     ChevronLeft, ChevronRight, Calendar, Users, User, Route as RouteIcon,
-    AlertTriangle, ArrowRight, ArrowLeft, ClipboardList, MapPin, Briefcase, Eye, Loader2
+    AlertTriangle, ArrowRight, ArrowLeft, ClipboardList, MapPin, Briefcase, Eye, Loader2,
+    Layers, Megaphone, Wrench, Building2
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { Route, GeoUnit, DaySchedule, RouteAssignmentData, Client } from '../../lib/types';
@@ -64,6 +65,7 @@ export default function PlanOverview() {
     const [routeAssignments, setRouteAssignments] = useState<Record<string, RouteAssignmentData>>({});
     const [employees, setEmployees] = useState<any[]>([]);
     const [marketingTargets, setMarketingTargets] = useState<Record<string, MarketingTargetsResponse>>({});
+    const [workScopes, setWorkScopes] = useState<Record<string, any>>({});
 
     useEffect(() => {
         let cancelled = false;
@@ -136,7 +138,7 @@ export default function PlanOverview() {
             cards.push({
                 key: soloKey,
                 type: 'solo',
-                label: tech ? `فردي: ${tech.name}` : `وحدة فردية #${idx + 1}`,
+                label: tech ? `طوارئ: ${tech.name}` : `فريق طوارئ #${idx + 1}`,
                 supervisor: null,
                 technician: tech,
                 assignment: routeAssignments[assignmentKey] || null,
@@ -191,6 +193,33 @@ export default function PlanOverview() {
         };
 
         loadMarketingTargets();
+        return () => { cancelled = true; };
+    }, [date, teamCards]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const cardsWithAssignments = teamCards.filter(card => card.assignment && card.assignment.routes.length > 0);
+        if (cardsWithAssignments.length === 0) {
+            setWorkScopes({});
+            return () => { cancelled = true; };
+        }
+
+        const loadWorkScopes = async () => {
+            const entries = await Promise.all(cardsWithAssignments.map(async (card) => {
+                try {
+                    const result = await api.workScopes.get(date, card.key);
+                    return [card.key, result] as const;
+                } catch {
+                    return [card.key, null] as const;
+                }
+            }));
+            if (!cancelled) {
+                const validEntries = entries.filter(([, v]) => v !== null);
+                setWorkScopes(Object.fromEntries(validEntries));
+            }
+        };
+
+        loadWorkScopes();
         return () => { cancelled = true; };
     }, [date, teamCards]);
 
@@ -380,7 +409,7 @@ export default function PlanOverview() {
                                         <div>
                                             <p className="text-slate-900 font-bold text-sm">{card.label}</p>
                                             <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-                                                {card.type === 'solo' ? 'وحدة فردية' : 'فريق قياسي'}
+                                                {card.type === 'solo' ? 'فريق طوارئ' : 'فريق قياسي'}
                                             </p>
                                         </div>
                                     </div>
@@ -502,6 +531,73 @@ export default function PlanOverview() {
                             </motion.div>
                         );
                     })}
+                </div>
+            )}
+
+            {/* Work Scope Summary Section */}
+            {Object.keys(workScopes).length > 0 && (
+                <div className="mt-8">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Layers className="w-5 h-5 text-violet-600" />
+                        <h2 className="text-base font-bold text-slate-800">نطاق العمل العام</h2>
+                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">جميع أنواع المهام</span>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {Object.entries(workScopes).map(([key, scope]) => {
+                            if (!scope) return null;
+                            const counts = scope.counts ?? { marketing: 0, emergency: 0, service: 0, other: 0, total: 0 };
+                            const card = teamCards.find(c => c.key === key);
+
+                            return (
+                                <motion.div
+                                    key={key}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="bg-white rounded-xl border border-violet-100 shadow-sm overflow-hidden"
+                                >
+                                    <div className="flex items-center justify-between px-4 py-3 bg-violet-50 border-b border-violet-100">
+                                        <div className="flex items-center gap-2">
+                                            <Layers className="w-4 h-4 text-violet-600" />
+                                            <span className="text-sm font-bold text-violet-800">
+                                                {card?.label ?? key}
+                                            </span>
+                                        </div>
+                                        <span className="text-xs font-bold text-violet-600 bg-violet-100 px-2 py-0.5 rounded-full">
+                                            {counts.total} مهمة
+                                        </span>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-3 gap-3">
+                                        <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-emerald-50 border border-emerald-100">
+                                            <Megaphone className="w-4 h-4 text-emerald-600" />
+                                            <span className="text-lg font-black text-emerald-700">{counts.marketing}</span>
+                                            <span className="text-[10px] text-emerald-600 font-medium">تسويق</span>
+                                        </div>
+                                        <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-red-50 border border-red-100">
+                                            <AlertTriangle className="w-4 h-4 text-red-500" />
+                                            <span className="text-lg font-black text-red-600">{counts.emergency}</span>
+                                            <span className="text-[10px] text-red-500 font-medium">طوارئ</span>
+                                        </div>
+                                        <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-blue-50 border border-blue-100">
+                                            <Wrench className="w-4 h-4 text-blue-500" />
+                                            <span className="text-lg font-black text-blue-600">{counts.service + counts.other}</span>
+                                            <span className="text-[10px] text-blue-500 font-medium">خدمة/أخرى</span>
+                                        </div>
+                                    </div>
+                                    {/* Company-owned task indicator */}
+                                    {scope.tasks?.some((t: any) => t.ownershipType === 'company_branch') && (
+                                        <div className="px-4 pb-3">
+                                            <div className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-1.5 border border-slate-200">
+                                                <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                                                <span>
+                                                    {scope.tasks.filter((t: any) => t.ownershipType === 'company_branch').length} مهمة مملوكة للشركة (OP/FOP/فرع)
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </motion.div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 

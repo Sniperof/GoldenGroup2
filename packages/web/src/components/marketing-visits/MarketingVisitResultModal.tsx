@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import type {
+  DeviceModel,
   Employee,
   MarketingVisit,
   MarketingVisitResultUpdateRequest,
@@ -16,8 +17,10 @@ const TASK_TYPE_LABELS: Record<string, string> = {
 interface MarketingVisitResultModalProps {
   isOpen: boolean;
   task?: MarketingVisitTask | null;
+  taskDisplayLabel?: string;
   visit: MarketingVisit | null;
   employees: Employee[];
+  deviceModels?: DeviceModel[];
   saving: boolean;
   error: string;
   onClose: () => void;
@@ -27,10 +30,8 @@ interface MarketingVisitResultModalProps {
 const STATUS_OPTIONS: Array<{ value: MarketingVisitStatus; label: string }> = [
   { value: 'completed', label: 'تمت' },
   { value: 'not_completed', label: 'لم تتم' },
-  { value: 'postponed_by_company', label: 'مؤجلة من الشركة' },
-  { value: 'postponed_by_customer', label: 'مؤجلة من الزبون' },
+  { value: 'needs_reschedule', label: 'مؤجلة' },
   { value: 'cancelled', label: 'ملغاة' },
-  { value: 'needs_reschedule', label: 'بحاجة إعادة جدولة' },
 ];
 
 const TASK_RESULT_OPTIONS: Array<{ value: MarketingVisitTaskResult; label: string }> = [
@@ -58,11 +59,16 @@ const INSTALLMENT_RESULTS = new Set<MarketingVisitTaskResult>([
 
 const NON_COMPLETED_STATUSES = new Set<MarketingVisitStatus>([
   'not_completed',
-  'postponed_by_company',
-  'postponed_by_customer',
-  'cancelled',
   'needs_reschedule',
+  'cancelled',
 ]);
+
+const NOT_CLOSED_OFFER_RESULTS = new Set<MarketingVisitTaskResult>([
+  'cash_offer_not_closed',
+  'installment_offer_not_closed',
+]);
+
+const CURRENCY_OPTIONS = ['SYP', 'USD', 'EUR'];
 
 function parsePositiveNumber(value: string): number | null {
   if (!value.trim()) return null;
@@ -79,8 +85,10 @@ function parsePositiveInteger(value: string): number | null {
 export default function MarketingVisitResultModal({
   isOpen,
   task,
+  taskDisplayLabel,
   visit,
   employees,
+  deviceModels = [],
   saving,
   error,
   onClose,
@@ -93,6 +101,11 @@ export default function MarketingVisitResultModal({
   const [installmentMonths, setInstallmentMonths] = useState('');
   const [closedByEmployeeId, setClosedByEmployeeId] = useState('');
   const [notes, setNotes] = useState('');
+  const [currency, setCurrency] = useState('SYP');
+  const [discountPercentage, setDiscountPercentage] = useState('');
+  const [soldDeviceModelId, setSoldDeviceModelId] = useState('');
+  const [noClosingReason, setNoClosingReason] = useState('');
+  const [followUpDueDate, setFollowUpDueDate] = useState('');
   const [validationError, setValidationError] = useState('');
 
   const activeEmployees = useMemo(
@@ -109,6 +122,11 @@ export default function MarketingVisitResultModal({
     setInstallmentMonths('');
     setClosedByEmployeeId('');
     setNotes('');
+    setCurrency('SYP');
+    setDiscountPercentage('');
+    setSoldDeviceModelId('');
+    setNoClosingReason('');
+    setFollowUpDueDate('');
     setValidationError('');
   }, [isOpen, visit]);
 
@@ -122,6 +140,9 @@ export default function MarketingVisitResultModal({
   const requiresNotes =
     (status !== '' && NON_COMPLETED_STATUSES.has(status)) ||
     selectedTaskResult === 'demo_not_completed';
+  const showCurrencyAndDiscount = selectedTaskResult != null && (CASH_RESULTS.has(selectedTaskResult) || INSTALLMENT_RESULTS.has(selectedTaskResult));
+  const requiresNoClosingReason = selectedTaskResult != null && NOT_CLOSED_OFFER_RESULTS.has(selectedTaskResult);
+  const requiresFollowUpDueDate = status === 'needs_reschedule';
 
   const handleSubmit = async () => {
     setValidationError('');
@@ -159,6 +180,24 @@ export default function MarketingVisitResultModal({
       return;
     }
 
+    if (requiresNoClosingReason && !noClosingReason.trim()) {
+      setValidationError('يرجى إدخال سبب عدم التسكير');
+      return;
+    }
+
+    if (requiresFollowUpDueDate && !followUpDueDate) {
+      setValidationError('يرجى تحديد تاريخ الاستحقاق');
+      return;
+    }
+
+    const parsedDiscount = discountPercentage.trim()
+      ? Number(discountPercentage)
+      : null;
+    if (parsedDiscount !== null && (Number.isNaN(parsedDiscount) || parsedDiscount < 0 || parsedDiscount > 100)) {
+      setValidationError('نسبة الحسم يجب أن تكون بين 0 و 100');
+      return;
+    }
+
     await onSubmit({
       status,
       taskResult: taskResult || null,
@@ -167,6 +206,11 @@ export default function MarketingVisitResultModal({
       installmentMonths: requiresInstallment ? parsePositiveInteger(installmentMonths) : null,
       closedByEmployeeId: requiresClosedBy ? parsePositiveInteger(closedByEmployeeId) : null,
       notes: notes.trim() || null,
+      currency: showCurrencyAndDiscount ? (currency || 'SYP') : null,
+      discountPercentage: showCurrencyAndDiscount ? parsedDiscount : null,
+      soldDeviceModelId: requiresClosedBy && soldDeviceModelId ? Number(soldDeviceModelId) : null,
+      noClosingReason: requiresNoClosingReason ? noClosingReason.trim() || null : null,
+      followUpDueDate: requiresFollowUpDueDate ? followUpDueDate : null,
     });
   };
 
@@ -177,7 +221,11 @@ export default function MarketingVisitResultModal({
           <div>
             <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة المهمة</h2>
             <p className="mt-1 text-xs text-slate-500">
-              {task ? `المهمة: ${TASK_TYPE_LABELS[task.taskType] ?? task.taskType}` : 'تسجيل نتيجة مهمة الزيارة'}
+              {taskDisplayLabel
+                ? `المهمة: ${taskDisplayLabel}`
+                : task
+                  ? `المهمة: ${TASK_TYPE_LABELS[task.taskType] ?? task.taskType}`
+                  : 'تسجيل نتيجة مهمة الزيارة'}
             </p>
           </div>
           <button
@@ -257,15 +305,26 @@ export default function MarketingVisitResultModal({
               <label className="text-sm font-bold text-slate-700">
                 قيمة العرض الكاش <span className="text-red-500">*</span>
               </label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={cashOfferAmount}
-                onChange={(event) => setCashOfferAmount(event.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                placeholder="أدخل قيمة العرض الكاش"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={cashOfferAmount}
+                  onChange={(event) => setCashOfferAmount(event.target.value)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                  placeholder="أدخل قيمة العرض الكاش"
+                />
+                <select
+                  value={currency}
+                  onChange={(event) => setCurrency(event.target.value)}
+                  className="w-24 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                >
+                  {CURRENCY_OPTIONS.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 
@@ -275,15 +334,26 @@ export default function MarketingVisitResultModal({
                 <label className="text-sm font-bold text-slate-700">
                   قيمة القسط <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={installmentAmount}
-                  onChange={(event) => setInstallmentAmount(event.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  placeholder="أدخل قيمة القسط"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={installmentAmount}
+                    onChange={(event) => setInstallmentAmount(event.target.value)}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                    placeholder="أدخل قيمة القسط"
+                  />
+                  <select
+                    value={currency}
+                    onChange={(event) => setCurrency(event.target.value)}
+                    className="w-24 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                  >
+                    {CURRENCY_OPTIONS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-700">
@@ -299,6 +369,24 @@ export default function MarketingVisitResultModal({
                   placeholder="أدخل عدد الأشهر"
                 />
               </div>
+            </div>
+          )}
+
+          {showCurrencyAndDiscount && (
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700">
+                نسبة الحسم % <span className="text-slate-400 font-normal text-xs">(اختياري)</span>
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={discountPercentage}
+                onChange={(event) => setDiscountPercentage(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                placeholder="مثال: 10"
+              />
             </div>
           )}
 
@@ -322,10 +410,59 @@ export default function MarketingVisitResultModal({
             </div>
           )}
 
+          {requiresClosedBy && deviceModels.length > 0 && (
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700">
+                الجهاز المباع <span className="text-slate-400 font-normal text-xs">(اختياري)</span>
+              </label>
+              <select
+                value={soldDeviceModelId}
+                onChange={(event) => setSoldDeviceModelId(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+              >
+                <option value="">لا يوجد / غير محدد</option>
+                {deviceModels.map((dm) => (
+                  <option key={dm.id} value={dm.id}>
+                    {dm.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {requiresClosedBy && (
             <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
               تم حفظ الإغلاق، وسيتم إنشاء العقد لاحقاً من خطوة منفصلة.
             </p>
+          )}
+
+          {requiresNoClosingReason && (
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700">
+                سبب عدم التسكير <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={noClosingReason}
+                onChange={(event) => setNoClosingReason(event.target.value)}
+                rows={3}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                placeholder="اكتب سبب عدم التسكير..."
+              />
+            </div>
+          )}
+
+          {requiresFollowUpDueDate && (
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700">
+                تاريخ الاستحقاق <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={followUpDueDate}
+                onChange={(event) => setFollowUpDueDate(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+              />
+            </div>
           )}
 
           {requiresNotes && (

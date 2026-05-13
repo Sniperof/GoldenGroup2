@@ -3,6 +3,7 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
+import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -96,6 +97,11 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         );
         duesResult.push(dRows[0]);
       }
+    }
+
+    // OP promotion: client now has a contract → company ownership, no personal assignments
+    if (c.customerId) {
+      await promoteClientToLifecycleStatus(client, Number(c.customerId), 'OP');
     }
 
     await client.query('COMMIT');

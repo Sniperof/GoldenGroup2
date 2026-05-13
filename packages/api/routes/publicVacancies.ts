@@ -19,6 +19,7 @@ router.get('/', async (_req, res) => {
         required_experience_years AS "requiredExperienceYears",
         required_skills AS "requiredSkills", responsibilities,
         driving_license_required AS "drivingLicenseRequired",
+        has_car_required AS "hasCarRequired",
         vacancy_count AS "vacancyCount",
         start_date AS "startDate", end_date AS "endDate", status
       FROM job_vacancies
@@ -48,6 +49,8 @@ router.get('/:id', async (req, res) => {
         required_experience_years AS "requiredExperienceYears",
         required_skills AS "requiredSkills", responsibilities,
         driving_license_required AS "drivingLicenseRequired",
+        has_car_required AS "hasCarRequired",
+        vacancy_count AS "vacancyCount",
         start_date AS "startDate", end_date AS "endDate", status
       FROM job_vacancies
       WHERE id = $1 AND status = 'Open' AND CURRENT_DATE BETWEEN start_date AND end_date`,

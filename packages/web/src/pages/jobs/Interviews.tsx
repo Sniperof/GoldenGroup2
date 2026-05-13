@@ -47,6 +47,14 @@ const emptyForm: ScheduleForm = {
   internalNotes: '',
 };
 
+const interviewFieldMessages = {
+  jobVacancyId: 'يجب اختيار الشاغر الوظيفي',
+  applicationId: 'يجب اختيار المتقدم للمقابلة',
+  interviewerUserId: 'يجب اختيار المقابل من القائمة',
+  interviewDate: 'تاريخ المقابلة مطلوب',
+  interviewTime: 'وقت المقابلة مطلوب',
+} as const;
+
 export default function Interviews() {
   const [searchParams] = useSearchParams();
   const { interviews, filters, loading, fetchInterviews, setFilter, resetFilters, scheduleInterview, recordResult } = useInterviewStore();
@@ -54,6 +62,7 @@ export default function Interviews() {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [form, setForm] = useState<ScheduleForm>({ ...emptyForm });
   const [formError, setFormError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [resultModal, setResultModal] = useState<{ id: number } | null>(null);
   const [resultNotes, setResultNotes] = useState('');
@@ -63,6 +72,17 @@ export default function Interviews() {
   const [interviewers, setInterviewers] = useState<InterviewerOption[]>([]);
   const [loadingInterviewers, setLoadingInterviewers] = useState(false);
   const highlightedInterviewId = Number(searchParams.get('highlightInterviewId') || 0);
+
+  const resetScheduleModal = () => {
+    setShowScheduleModal(false);
+    setForm({ ...emptyForm });
+    setFormError('');
+    setFieldErrors({});
+    setInterviewers([]);
+    setEligibleApps([]);
+    setLoadingEligible(false);
+    setLoadingInterviewers(false);
+  };
 
   useEffect(() => {
     fetchVacancies();
@@ -94,6 +114,14 @@ export default function Interviews() {
 
   async function handleVacancyChange(vacId: string) {
     setForm(p => ({ ...p, jobVacancyId: vacId, applicationId: '', interviewerUserId: '' }));
+    setFormError('');
+    setFieldErrors(prev => {
+      const next = { ...prev };
+      delete next.jobVacancyId;
+      delete next.applicationId;
+      delete next.interviewerUserId;
+      return next;
+    });
     setInterviewers([]);
     if (!vacId) {
       setEligibleApps([]);
@@ -116,6 +144,13 @@ export default function Interviews() {
 
   async function handleApplicationChange(applicationId: string) {
     setForm(p => ({ ...p, applicationId, interviewerUserId: '' }));
+    setFormError('');
+    setFieldErrors(prev => {
+      const next = { ...prev };
+      delete next.applicationId;
+      delete next.interviewerUserId;
+      return next;
+    });
     setInterviewers([]);
     if (!applicationId) {
       return;
@@ -137,15 +172,25 @@ export default function Interviews() {
     }
   }
 
+  const validateScheduleForm = () => {
+    const nextErrors: Record<string, string> = {};
+    if (!form.jobVacancyId) nextErrors.jobVacancyId = interviewFieldMessages.jobVacancyId;
+    if (!form.applicationId) nextErrors.applicationId = interviewFieldMessages.applicationId;
+    if (!form.interviewerUserId) nextErrors.interviewerUserId = interviewFieldMessages.interviewerUserId;
+    if (!form.interviewDate) nextErrors.interviewDate = interviewFieldMessages.interviewDate;
+    if (!form.interviewTime) nextErrors.interviewTime = interviewFieldMessages.interviewTime;
+    setFieldErrors(nextErrors);
+    setFormError('');
+    return Object.keys(nextErrors).length === 0;
+  };
+
   const handleSchedule = async () => {
-    if (!form.applicationId.trim()) { setFormError('رقم الطلب مطلوب'); return; }
-    if (!form.interviewerUserId.trim()) { setFormError('يجب اختيار المقابِل من القائمة'); return; }
-    if (!form.interviewDate) { setFormError('تاريخ المقابلة مطلوب'); return; }
-    if (!form.interviewTime) { setFormError('وقت المقابلة مطلوب'); return; }
+    if (!validateScheduleForm()) return;
     setFormError('');
     setSubmitting(true);
     try {
       await scheduleInterview({
+        jobVacancyId: Number(form.jobVacancyId),
         applicationId: Number(form.applicationId),
         interviewType: form.interviewType,
         interviewNumber: form.interviewNumber,
@@ -154,12 +199,14 @@ export default function Interviews() {
         interviewTime: form.interviewTime,
         internalNotes: form.internalNotes || undefined,
       } as any);
-      setShowScheduleModal(false);
-      setForm({ ...emptyForm });
-      setInterviewers([]);
-      setEligibleApps([]);
+      resetScheduleModal();
     } catch (err: any) {
-      setFormError(err.message);
+      if (err?.field && err?.message) {
+        setFieldErrors(prev => ({ ...prev, [err.field]: err.message }));
+        setFormError('');
+      } else {
+        setFormError(err?.message || 'تعذر جدولة المقابلة');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -363,7 +410,7 @@ export default function Interviews() {
         {showScheduleModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={() => setShowScheduleModal(false)}
+            onClick={resetScheduleModal}
           >
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
@@ -371,7 +418,7 @@ export default function Interviews() {
             >
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-lg font-bold text-slate-800">جدولة مقابلة جديدة</h3>
-                <button onClick={() => setShowScheduleModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                <button onClick={resetScheduleModal} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -384,23 +431,25 @@ export default function Interviews() {
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">الشاغر الوظيفي *</label>
                   <select value={form.jobVacancyId} onChange={e => handleVacancyChange(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white">
+                    className={`w-full border rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 ${fieldErrors.jobVacancyId ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`}>
                     <option value="">اختر الشاغر...</option>
                     {vacancies.filter(v => v.status === 'Open').map(v => (
                       <option key={v.id} value={v.id}>{v.title} — {v.branch}</option>
                     ))}
                   </select>
+                  {fieldErrors.jobVacancyId && <p className="mt-1 text-xs text-red-600">{fieldErrors.jobVacancyId}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">المتقدم (الطلبات المؤهلة) *</label>
                   <select value={form.applicationId} onChange={e => handleApplicationChange(e.target.value)}
                     disabled={!form.jobVacancyId || loadingEligible}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white disabled:bg-slate-50 disabled:text-slate-400">
+                    className={`w-full border rounded-lg px-3 py-2.5 text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400 focus:ring-2 ${fieldErrors.applicationId ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`}>
                     <option value="">{loadingEligible ? 'جاري التحميل...' : 'اختر المتقدم...'}</option>
                     {eligibleApps.map(a => (
                       <option key={a.id} value={a.id}>{a.applicantFirstName} {a.applicantLastName} (رقم {a.id})</option>
                     ))}
                   </select>
+                  {fieldErrors.applicationId && <p className="mt-1 text-xs text-red-600">{fieldErrors.applicationId}</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -426,9 +475,16 @@ export default function Interviews() {
                   <label className="block text-xs font-medium text-slate-600 mb-1">المقابِل *</label>
                   <select
                     value={form.interviewerUserId}
-                    onChange={e => setForm(p => ({ ...p, interviewerUserId: e.target.value }))}
+                    onChange={e => {
+                      setForm(p => ({ ...p, interviewerUserId: e.target.value }));
+                      setFieldErrors(prev => {
+                        const next = { ...prev };
+                        delete next.interviewerUserId;
+                        return next;
+                      });
+                    }}
                     disabled={!form.applicationId || loadingInterviewers}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white disabled:bg-slate-50 disabled:text-slate-400"
+                    className={`w-full border rounded-lg px-3 py-2.5 text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400 focus:ring-2 ${fieldErrors.interviewerUserId ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`}
                   >
                     <option value="">
                       {!form.applicationId
@@ -447,6 +503,7 @@ export default function Interviews() {
                       </option>
                     ))}
                   </select>
+                  {fieldErrors.interviewerUserId && <p className="mt-1 text-xs text-red-600">{fieldErrors.interviewerUserId}</p>}
                   {form.applicationId && !loadingInterviewers && interviewers.length === 0 ? (
                     <p className="mt-1 text-xs text-amber-600">
                       لا يوجد مستخدمون مؤهلون لإجراء مقابلات ضمن هذا الفرع.
@@ -457,14 +514,30 @@ export default function Interviews() {
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">التاريخ *</label>
                     <input type="date" value={form.interviewDate}
-                      onChange={e => setForm(p => ({ ...p, interviewDate: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500" />
+                    onChange={e => {
+                      setForm(p => ({ ...p, interviewDate: e.target.value }));
+                      setFieldErrors(prev => {
+                        const next = { ...prev };
+                        delete next.interviewDate;
+                        return next;
+                      });
+                    }}
+                      className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:ring-2 ${fieldErrors.interviewDate ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`} />
+                    {fieldErrors.interviewDate && <p className="mt-1 text-xs text-red-600">{fieldErrors.interviewDate}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">الوقت *</label>
                     <input type="time" value={form.interviewTime}
-                      onChange={e => setForm(p => ({ ...p, interviewTime: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500" />
+                    onChange={e => {
+                      setForm(p => ({ ...p, interviewTime: e.target.value }));
+                      setFieldErrors(prev => {
+                        const next = { ...prev };
+                        delete next.interviewTime;
+                        return next;
+                      });
+                    }}
+                      className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:ring-2 ${fieldErrors.interviewTime ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`} />
+                    {fieldErrors.interviewTime && <p className="mt-1 text-xs text-red-600">{fieldErrors.interviewTime}</p>}
                   </div>
                 </div>
                 <div>
@@ -475,7 +548,7 @@ export default function Interviews() {
                 </div>
               </div>
               <div className="flex gap-3 justify-end mt-5">
-                <button onClick={() => setShowScheduleModal(false)}
+                <button onClick={resetScheduleModal}
                   className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
                   إلغاء
                 </button>

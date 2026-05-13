@@ -90,7 +90,23 @@ function collectScheduleAssignments(teams: unknown, solos: unknown): ScheduleAss
       throw error;
     }
 
-    addAssignment(assignments, solo.technician, 'technician', `solo ${index + 1} technician`);
+    addAssignment(assignments, solo.technician, 'technician', `emergency ${index + 1} technician`);
+    addAssignment(assignments, solo.trainee, 'trainee', `emergency ${index + 1} trainee`);
+
+    if (solo.telemarketers != null && !Array.isArray(solo.telemarketers)) {
+      const error = new Error(`Invalid telemarketers list in emergency ${index + 1}`);
+      (error as any).status = 400;
+      throw error;
+    }
+
+    (solo.telemarketers || []).forEach((telemarketerId: unknown, teleIndex: number) => {
+      addAssignment(
+        assignments,
+        telemarketerId,
+        'telemarketer',
+        `emergency ${index + 1} telemarketer ${teleIndex + 1}`,
+      );
+    });
   });
 
   return assignments;
@@ -206,7 +222,7 @@ async function validateSchedulePayload(req: any, teams: unknown, solos: unknown)
     }
   }
 
-  // Validate each team has exactly 1 supervisor, 1 technician, 1 trainee, and ≥1 telemarketer.
+  // Validate each standard team: supervisor + technician required.
   for (let teamIdx = 0; teamIdx < (teams as any[]).length; teamIdx++) {
     const team = (teams as any[])[teamIdx];
     const teamNum = teamIdx + 1;
@@ -216,6 +232,16 @@ async function validateSchedulePayload(req: any, teams: unknown, solos: unknown)
     }
     if (toEmployeeId(team.technician) == null) {
       return { ok: false, status: 400, error: `الفريق ${teamNum} يجب أن يضم فنياً` };
+    }
+  }
+
+  // Validate emergency slots: technician is required; trainee and telemarketer are both optional and independent
+  for (let soloIdx = 0; soloIdx < (solos as any[]).length; soloIdx++) {
+    const solo = (solos as any[])[soloIdx];
+    const soloNum = soloIdx + 1;
+
+    if (toEmployeeId(solo.technician) == null) {
+      return { ok: false, status: 400, error: `فريق الطوارئ ${soloNum} يجب أن يضم فنياً` };
     }
   }
 

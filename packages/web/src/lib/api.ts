@@ -1,3 +1,7 @@
+import type {
+  MarketingVisitCancelRequest,
+  MarketingVisitRescheduleRequest,
+} from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
 
 const API_BASE = '/api';
@@ -163,9 +167,36 @@ export const api = {
     update: (id: number, data: any) => request<any>(`/maintenance-requests/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   emergencyTickets: {
-    list: () => request<any[]>('/emergency-tickets'),
+    list: (params?: { openTaskId?: number }) => {
+      const qs = params?.openTaskId ? `?openTaskId=${params.openTaskId}` : '';
+      return request<any[]>(`/emergency-tickets${qs}`);
+    },
     create: (data: any) => request<any>('/emergency-tickets', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/emergency-tickets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  },
+  openTasks: {
+    create: (data: any) => request<any>('/open-tasks', { method: 'POST', body: JSON.stringify(data) }),
+    listByClient: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}`),
+    get: (id: number) => request<any>(`/open-tasks/${id}`),
+    update: (id: number, data: any) => request<any>(`/open-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    assignTeam: (id: number, data: { supervisorId?: number; technicianId?: number; traineeId?: number }) =>
+      request<any>(`/open-tasks/${id}/assign-team`, { method: 'POST', body: JSON.stringify(data) }),
+    getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
+    submitEmergencyResult: (id: number, data: any) =>
+      request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),
+    listDeviceDemo: (params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no' }) => {
+      const q = new URLSearchParams({ branchId: String(params.branchId) });
+      if (params.status) q.set('status', params.status);
+      if (params.visitStatus) q.set('visitStatus', params.visitStatus);
+      if (params.scheduledDate) q.set('scheduledDate', params.scheduledDate);
+      if (params.scheduled) q.set('scheduled', params.scheduled);
+      return request<any[]>(`/open-tasks/device-demo?${q}`);
+    },
+    getActivity: (id: number) => request<any[]>(`/open-tasks/${id}/activity`),
+    addActivity: (id: number, data: any) => request<any>(`/open-tasks/${id}/activity`, { method: 'POST', body: JSON.stringify(data) }),
+    getDevices: (id: number) => request<any[]>(`/open-tasks/${id}/devices`),
+    addDevices: (id: number, data: any) => request<any>(`/open-tasks/${id}/devices`, { method: 'POST', body: JSON.stringify(data) }),
+    getCalls: (id: number) => request<any[]>(`/open-tasks/${id}/calls`),
   },
   visits: {
     list: () => request<any[]>('/visits'),
@@ -187,14 +218,57 @@ export const api = {
       return request<any>(`/planning/marketing-targets?${query.toString()}`);
     },
   },
-  contactTargets: {
-    listMarketing: () => request<any[]>('/contact-targets/marketing'),
-    syncMarketing: () => request<{ targets: any[]; count: number }>('/contact-targets/marketing/sync', { method: 'POST' }),
+  workScopes: {
+    get: (date: string, teamKey: string, branchId?: number) => {
+      const qs = branchId ? `?branchId=${branchId}` : '';
+      return request<any>(`/work-scopes/${encodeURIComponent(date)}/${encodeURIComponent(teamKey)}${qs}`);
+    },
+    create: (data: { date: string; teamKey: string; zoneIds?: number[]; scopeType?: string; branchId?: number }) =>
+      request<any>('/work-scopes', { method: 'POST', body: JSON.stringify(data) }),
+    activate: (id: number) =>
+      request<any>(`/work-scopes/${id}/activate`, { method: 'PUT' }),
+    generateTasks: (id: number) =>
+      request<any>(`/work-scopes/${id}/generate-tasks`, { method: 'POST' }),
+  },
+  fieldVisits: {
+    get: (id: number) => request<any>(`/field-visits/${id}`),
+    start: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
+      request<any>(`/field-visits/${id}/start`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+    end: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
+      request<any>(`/field-visits/${id}/end`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+    complete: (id: number) =>
+      request<any>(`/field-visits/${id}/complete`, { method: 'POST' }),
+    getGeo: (id: number) => request<any>(`/field-visits/${id}/geo`),
+    getSource: (id: number) => request<any>(`/field-visits/${id}/source`),
+    createNameCollection: (taskId: number, data: { proposed_count: number }) =>
+      request<any>(`/field-visits/visit-tasks/${taskId}/name-collection`, { method: 'POST', body: JSON.stringify(data) }),
+    recordNames: (ncId: number, data: { actual_count: number; notes?: string }) =>
+      request<any>(`/field-visits/name-collections/${ncId}/record-names`, { method: 'PUT', body: JSON.stringify(data) }),
+    getNameCollection: (ncId: number) => request<any>(`/field-visits/name-collections/${ncId}`),
+    addDirectSuggestion: (taskId: number, data: { name: string; phone?: string; notes?: string }) =>
+      request<any>(`/field-visits/visit-tasks/${taskId}/direct-suggestions`, { method: 'POST', body: JSON.stringify(data) }),
+    listDirectSuggestions: (taskId: number) =>
+      request<any[]>(`/field-visits/visit-tasks/${taskId}/direct-suggestions`),
   },
   marketingVisits: {
-    list: (date: string) => request<any[]>(`/marketing-visits?date=${encodeURIComponent(date)}`),
+    list: (date: string, clientId?: number) => {
+      const qs = new URLSearchParams();
+      if (date) qs.append('date', date);
+      if (clientId) qs.append('clientId', String(clientId));
+      const query = qs.toString() ? `?${qs.toString()}` : '';
+      return request<any[]>(`/marketing-visits${query}`);
+    },
     get: (id: string) => request<any>(`/marketing-visits/${id}`),
     updateResult: (id: string, data: any) => request<any>(`/marketing-visits/${id}/result`, { method: 'PATCH', body: JSON.stringify(data) }),
+    updateTaskResult: (visitId: string, taskId: string, data: any) => request<any>(`/marketing-visits/${visitId}/tasks/${taskId}/result`, { method: 'PATCH', body: JSON.stringify(data) }),
+    updateStatus: (visitId: string, status: string) =>
+      request<any>(`/marketing-visits/${visitId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    updateTaskOutcome: (visitId: string, taskId: string, data: any) =>
+      request<any>(`/marketing-visits/${visitId}/tasks/${taskId}/outcome`, { method: 'PATCH', body: JSON.stringify(data) }),
+    reschedule: (visitId: string, data: MarketingVisitRescheduleRequest) =>
+      request<any>(`/marketing-visits/${visitId}/reschedule`, { method: 'PATCH', body: JSON.stringify(data) }),
+    cancel: (visitId: string, data: MarketingVisitCancelRequest) =>
+      request<any>(`/marketing-visits/${visitId}/cancel`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
 telemarketing: {
     snapshot: (date?: string) => {
@@ -215,6 +289,7 @@ telemarketing: {
       const qs = query.toString() ? `?${query.toString()}` : '';
       return request<any[]>(`/system-lists${qs}`);
     },
+    getItemsByCode: (code: string) => request<any[]>(`/system-lists/${code}/items`),
     create: (data: any) => request<any>('/system-lists', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/system-lists/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/system-lists/${id}`, { method: 'DELETE' }),

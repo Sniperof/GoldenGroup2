@@ -47,6 +47,8 @@ import uploadRouter from './routes/upload.js';
 import rolesRouter from './routes/roles.js';
 import departmentsRouter from './routes/departments.js';
 import openTasksRouter from './routes/openTasks.js';
+import workScopesRouter from './routes/workScopes.js';
+import fieldVisitsRouter from './routes/fieldVisits.js';
 import customerCallsRouter from './routes/customerCalls.js';
 
 const app = express();
@@ -88,6 +90,8 @@ app.use('/api/contact-targets', ...branchOnly, contactTargetsRouter);
 app.use('/api/telemarketing', ...branchOnly, telemarketingRouter);
 app.use('/api/marketing-visits', ...branchOnly, marketingVisitsRouter);
 app.use('/api/open-tasks', ...branchOnly, openTasksRouter);
+app.use('/api/work-scopes', ...branchOnly, workScopesRouter);
+app.use('/api/field-visits', ...branchOnly, fieldVisitsRouter);
 
 // ── Customer call logs (accessible from both HQ and branch contexts) ─────────
 app.use('/api/customers', requireAuth, customerCallsRouter);

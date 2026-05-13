@@ -5,43 +5,62 @@ import {
   Briefcase,
   Building2,
   Calendar,
+  CheckCircle2,
   ClipboardList,
   ExternalLink,
   Loader2,
   MapPin,
   Navigation,
+  Pencil,
   Phone,
+  RotateCcw,
   ShieldCheck,
   Target,
   User,
   Users,
+  XCircle,
 } from 'lucide-react';
 import type {
   ContactEntry,
+  CustomerOwnership,
+  DeviceModel,
   Employee,
   GeoUnit,
+  MarketingVisitCancelRequest,
   MarketingVisit,
-  MarketingVisitResultUpdateRequest,
+  MarketingVisitRescheduleRequest,
   MarketingVisitStatus,
   MarketingVisitTask,
+  MarketingVisitTaskOutcome,
+  MarketingVisitTaskOutcomeRequest,
   MarketingVisitTaskResult,
 } from '@golden-crm/shared';
+import { MARKETING_VISIT_TASK_OUTCOME_LABELS } from '@golden-crm/shared';
 import { api } from '../lib/api';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { buildDetailedAddressLabel, buildMapsUrl } from '../utils/addressUtils';
 import ClientAvatar from '../components/ClientAvatar';
-import MarketingVisitResultModal from '../components/marketing-visits/MarketingVisitResultModal';
+import CancelVisitModal from '../components/marketing-visits/CancelVisitModal';
+import MarketingVisitOutcomeModal from '../components/marketing-visits/MarketingVisitOutcomeModal';
+import RescheduleVisitModal from '../components/marketing-visits/RescheduleVisitModal';
 
 const STATUS_META: Record<MarketingVisitStatus, { label: string; className: string }> = {
   scheduled: { label: 'مجدولة', className: 'bg-slate-100 text-slate-700 border border-slate-200' },
+  in_visit: { label: 'في الزيارة', className: 'bg-indigo-50 text-indigo-700 border border-indigo-100' },
+  ended: { label: 'انتهت (في انتظار النتيجة)', className: 'bg-amber-50 text-amber-700 border border-amber-200' },
   completed: { label: 'تمت', className: 'bg-emerald-50 text-emerald-700 border border-emerald-100' },
   not_completed: { label: 'لم تتم', className: 'bg-rose-50 text-rose-700 border border-rose-100' },
-  postponed_by_company: { label: 'مؤجلة من الشركة', className: 'bg-amber-50 text-amber-700 border border-amber-100' },
-  postponed_by_customer: { label: 'مؤجلة من الزبون', className: 'bg-orange-50 text-orange-700 border border-orange-100' },
   cancelled: { label: 'ملغاة', className: 'bg-slate-200 text-slate-700 border border-slate-300' },
-  needs_reschedule: { label: 'بحاجة إعادة جدولة', className: 'bg-yellow-50 text-yellow-700 border border-yellow-100' },
+  needs_reschedule: { label: 'تحتاج إعادة جدولة', className: 'bg-yellow-50 text-yellow-700 border border-yellow-100' },
 };
+
+const DEFAULT_STATUS_META = { label: 'غير معروفة', className: 'bg-slate-100 text-slate-500 border border-slate-200' };
+
+function getMarketingVisitStatusMeta(status: string | null | undefined) {
+  if (!status) return DEFAULT_STATUS_META;
+  return STATUS_META[status as MarketingVisitStatus] ?? DEFAULT_STATUS_META;
+}
 
 const TASK_RESULT_LABELS: Record<MarketingVisitTaskResult, string> = {
   cash_offer_closed: 'تم تقديم عرض كاش — تم الإغلاق',
@@ -56,7 +75,7 @@ const TASK_TYPE_LABELS: Record<string, string> = {
 };
 
 const TASK_STATUS_LABELS: Record<string, string> = {
-  pending:       'قيد الانتظار',
+  pending:       'مجدولة',
   completed:     'مكتملة',
   not_completed: 'لم تكتمل',
 };
@@ -101,6 +120,11 @@ function formatDateTime(isoStr: string) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function isToday(dateStr: string): boolean {
+  const serverToday = new Date().toISOString().slice(0, 10);
+  return dateStr === serverToday;
 }
 
 function extractGeoComponents(args: {
@@ -169,6 +193,21 @@ function Section({ title, icon, children }: SectionProps) {
   );
 }
 
+function OwnershipBadge({ ownership }: { ownership?: CustomerOwnership | null }) {
+  const label = ownership?.ownerLabel || 'الشركة العامة';
+  const isPersonal = (ownership?.ownerType ?? '').startsWith('personal');
+
+  return (
+    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${
+      isPersonal
+        ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+        : 'border-slate-200 bg-slate-50 text-slate-600'
+    }`}>
+      {label}
+    </span>
+  );
+}
+
 export default function MarketingVisitDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -185,12 +224,18 @@ export default function MarketingVisitDetailsPage() {
   const [visit, setVisit] = useState<MarketingVisit | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+  const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedTask, setSelectedTask] = useState<MarketingVisitTask | null>(null);
-  const [savingResult, setSavingResult] = useState(false);
-  const [modalError, setModalError] = useState('');
-  const [resultSaved, setResultSaved] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [showOutcomeModal, setShowOutcomeModal] = useState(false);
+  const [outcomeTask, setOutcomeTask] = useState<MarketingVisitTask | null>(null);
+  const [outcomeModalError, setOutcomeModalError] = useState('');
+  const [savingOutcome, setSavingOutcome] = useState(false);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [savingVisitLifecycle, setSavingVisitLifecycle] = useState(false);
+  const [visitLifecycleError, setVisitLifecycleError] = useState('');
 
   const employeesById = useMemo(
     () => new Map(employees.map((e) => [e.id, e])),
@@ -202,14 +247,16 @@ export default function MarketingVisitDetailsPage() {
     setLoading(true);
     setError('');
     try {
-      const [visitData, employeesData, geoUnitsData] = await Promise.all([
+      const [visitData, employeesData, geoUnitsData, deviceModelsData] = await Promise.all([
         api.marketingVisits.get(id) as Promise<MarketingVisit>,
         api.employees.list() as Promise<Employee[]>,
         api.geoUnits.list() as Promise<GeoUnit[]>,
+        api.deviceModels.list() as Promise<DeviceModel[]>,
       ]);
       setVisit(visitData);
       setEmployees(employeesData);
       setGeoUnits(geoUnitsData);
+      setDeviceModels(deviceModelsData);
     } catch {
       setError('تعذر تحميل تفاصيل الزيارة');
     } finally {
@@ -225,21 +272,72 @@ export default function MarketingVisitDetailsPage() {
     load();
   }, [canViewMarketingVisits, load]);
 
-  const handleSubmitResult = async (payload: MarketingVisitResultUpdateRequest) => {
+  const handleTransitionStatus = async (newStatus: string) => {
     if (!visit) return;
-    setSavingResult(true);
-    setModalError('');
+    setSavingStatus(true);
     try {
-      await api.marketingVisits.updateResult(visit.id, payload);
-      setSelectedTask(null);
-      setResultSaved(true);
-      await load();
+      const updated = await api.marketingVisits.updateStatus(visit.id, newStatus);
+      setVisit(updated);
     } catch (err: any) {
-      setModalError(err?.message || 'تعذر حفظ نتيجة الزيارة');
+      console.error('Status transition failed:', err?.message);
     } finally {
-      setSavingResult(false);
+      setSavingStatus(false);
     }
   };
+
+  const handleSubmitOutcome = async (payload: MarketingVisitTaskOutcomeRequest) => {
+    if (!visit || !outcomeTask) return;
+    setSavingOutcome(true);
+    setOutcomeModalError('');
+    try {
+      await api.marketingVisits.updateTaskOutcome(visit.id, outcomeTask.id, payload);
+      setShowOutcomeModal(false);
+      setOutcomeTask(null);
+      await load();
+    } catch (err: any) {
+      setOutcomeModalError(err?.message || 'تعذر حفظ نتيجة المهمة');
+    } finally {
+      setSavingOutcome(false);
+    }
+  };
+
+  const handleRescheduleVisit = async (payload: MarketingVisitRescheduleRequest) => {
+    if (!visit) return;
+    setSavingVisitLifecycle(true);
+    setVisitLifecycleError('');
+    try {
+      await api.marketingVisits.reschedule(visit.id, payload);
+      setShowRescheduleModal(false);
+      await load();
+    } catch (err: any) {
+      setVisitLifecycleError(err?.message || 'تعذر تأجيل الموعد');
+    } finally {
+      setSavingVisitLifecycle(false);
+    }
+  };
+
+  const handleCancelVisit = async (payload: MarketingVisitCancelRequest) => {
+    if (!visit) return;
+    setSavingVisitLifecycle(true);
+    setVisitLifecycleError('');
+    try {
+      await api.marketingVisits.cancel(visit.id, payload);
+      setShowCancelModal(false);
+      await load();
+    } catch (err: any) {
+      setVisitLifecycleError(err?.message || 'تعذر إلغاء الموعد');
+    } finally {
+      setSavingVisitLifecycle(false);
+    }
+  };
+
+  function getTaskDisplayLabel(task: MarketingVisitTask): string {
+    const base = TASK_TYPE_LABELS[task.taskType] ?? task.taskType;
+    const sameType = (visit?.tasks ?? []).filter((t) => t.taskType === task.taskType);
+    if (sameType.length <= 1) return base;
+    const index = sameType.findIndex((t) => t.id === task.id);
+    return `${base} (${index + 1})`;
+  }
 
   if (!canViewMarketingVisits) return <Navigate to="/" replace />;
 
@@ -306,26 +404,77 @@ export default function MarketingVisitDetailsPage() {
         </div>
       ) : !visit ? null : (
         <div className="space-y-5">
-          {resultSaved ? (
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              تم حفظ نتيجة الزيارة بنجاح.
-            </div>
-          ) : null}
-
           {/* Section 1: بيانات الموعد */}
           <Section title="بيانات الموعد" icon={<Calendar className="h-4 w-4" />}>
             <InfoRow label="معرف الزيارة" value={<span className="font-mono text-xs text-slate-500">{visit.id}</span>} />
             <InfoRow
               label="حالة الزيارة"
               value={
-                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${STATUS_META[visit.status].className}`}>
-                  {STATUS_META[visit.status].label}
+                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${getMarketingVisitStatusMeta(visit.status).className}`}>
+                  {getMarketingVisitStatusMeta(visit.status).label}
                 </span>
               }
             />
+            {canUpdateMarketingVisitResult && visit.status === 'scheduled' && isToday(visit.scheduledDate) ? (
+              <div className="flex items-center">
+                <button
+                  type="button"
+                  onClick={() => handleTransitionStatus('in_visit')}
+                  disabled={savingStatus}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {savingStatus ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  بدء الزيارة
+                </button>
+              </div>
+            ) : null}
+            {canUpdateMarketingVisitResult && visit.status === 'in_visit' ? (
+              <div className="flex items-center">
+                <button
+                  type="button"
+                  onClick={() => handleTransitionStatus('ended')}
+                  disabled={savingStatus}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {savingStatus ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  إنهاء الزيارة
+                </button>
+              </div>
+            ) : null}
+            {canUpdateMarketingVisitResult && (visit.status === 'scheduled' || visit.status === 'in_visit') ? (
+              <div className="sm:col-span-2 lg:col-span-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVisitLifecycleError('');
+                      setShowRescheduleModal(true);
+                    }}
+                    disabled={savingVisitLifecycle}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {savingVisitLifecycle && showRescheduleModal ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                    تأجيل الموعد
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVisitLifecycleError('');
+                      setShowCancelModal(true);
+                    }}
+                    disabled={savingVisitLifecycle}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-rose-700 disabled:opacity-50"
+                  >
+                    {savingVisitLifecycle && showCancelModal ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
+                    إلغاء الموعد
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <InfoRow label="تاريخ الموعد" value={formatDateArabic(visit.scheduledDate)} />
             <InfoRow label="وقت الموعد" value={visit.scheduledTime || '—'} />
             <InfoRow label="مصدر الزيارة" value="موعد تيلماركتنج" />
+            <InfoRow label="الملكية الحالية" value={<OwnershipBadge ownership={visit.ownership} />} />
             <InfoRow label="تاريخ إنشاء الزيارة" value={formatDateTime(visit.createdAt)} />
           </Section>
 
@@ -554,94 +703,115 @@ export default function MarketingVisitDetailsPage() {
                 <p className="text-sm text-slate-500">لا توجد مهام مرتبطة بهذه الزيارة</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
-                {visit.tasks.map((task) => (
-                  <div key={task.id} className="p-5 space-y-4">
-                    {/* Task header */}
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700">
-                          <ClipboardList className="h-3.5 w-3.5" />
-                          {TASK_TYPE_LABELS[task.taskType] ?? task.taskType}
+              <table className="w-full text-sm" dir="rtl">
+                <thead className="bg-slate-50 text-xs font-bold text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 text-right">اسم المهمة</th>
+                    <th className="px-4 py-3 text-right">الجهاز المستهدف</th>
+                    <th className="px-4 py-3 text-right">تاريخ الاستحقاق</th>
+                    <th className="px-4 py-3 text-center">الإجراء</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {visit.tasks.map((task) => (
+                    <tr
+                      key={task.id}
+                      className="hover:bg-slate-50/50 cursor-pointer"
+                      onClick={() => task.sourceOpenTaskId && navigate(`/tasks/device-demo/${task.sourceOpenTaskId}`)}
+                    >
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-sky-100 bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700">
+                          <ClipboardList className="h-3 w-3" />
+                          {getTaskDisplayLabel(task)}
                         </span>
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${TASK_STATUS_STYLES[task.status] ?? ''}`}>
+                        <span className={`mr-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${TASK_STATUS_STYLES[task.status] ?? ''}`}>
                           {TASK_STATUS_LABELS[task.status] ?? task.status}
                         </span>
-                      </div>
-                      {task.status === 'pending' && visit.status === 'scheduled' && canUpdateMarketingVisitResult ? (
-                        <button
-                          type="button"
-                          onClick={() => { setModalError(''); setSelectedTask(task); }}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700"
-                        >
-                          <Target className="h-3.5 w-3.5" />
-                          تسجيل نتيجة المهمة
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {/* Task result details */}
-                    {task.result != null ? (
-                      <div className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <InfoRow
-                          label="نتيجة عرض الجهاز"
-                          value={TASK_RESULT_LABELS[task.result] ?? task.result}
-                        />
-                        {task.cashOfferAmount != null ? (
-                          <InfoRow
-                            label="قيمة العرض الكاش"
-                            value={`${task.cashOfferAmount.toLocaleString('ar-SY')} ل.س`}
-                          />
-                        ) : null}
-                        {task.installmentAmount != null ? (
-                          <InfoRow
-                            label="قيمة القسط"
-                            value={`${task.installmentAmount.toLocaleString('ar-SY')} ل.س`}
-                          />
-                        ) : null}
-                        {task.installmentMonths != null ? (
-                          <InfoRow label="عدد الأشهر" value={`${task.installmentMonths} شهر`} />
-                        ) : null}
-                        {task.closedByEmployeeId != null ? (
-                          <InfoRow
-                            label="تم الإغلاق مع"
-                            value={employeesById.get(task.closedByEmployeeId)?.name ?? `#${task.closedByEmployeeId}`}
-                          />
-                        ) : null}
-                        {task.resultNotes ? (
-                          <div className="sm:col-span-2 lg:col-span-3">
-                            <InfoRow label="ملاحظات النتيجة" value={task.resultNotes} />
-                          </div>
-                        ) : null}
-                        {task.completedAt ? (
-                          <InfoRow label="وقت التسجيل" value={formatDateTime(task.completedAt)} />
-                        ) : null}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-400">لم يتم تسجيل نتيجة هذه المهمة بعد</p>
-                    )}
-                  </div>
-                ))}
-              </div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {visit.requestedDeviceName || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {formatDateArabic(visit.scheduledDate)}
+                      </td>
+                      <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        {(visit.status === 'in_visit' || visit.status === 'ended') && !task.outcome && canUpdateMarketingVisitResult ? (
+                          <button
+                            type="button"
+                            onClick={() => { setOutcomeModalError(''); setOutcomeTask(task); setShowOutcomeModal(true); }}
+                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-emerald-700"
+                          >
+                            <CheckCircle2 className="h-3 w-3" />
+                            تسجيل النتيجة
+                          </button>
+                        ) : task.outcome ? (
+                          <button
+                            type="button"
+                            onClick={() => { setOutcomeModalError(''); setOutcomeTask(task); setShowOutcomeModal(true); }}
+                            className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500"
+                          >
+                            <Pencil className="h-3 w-3" />
+                            تعديل النتيجة
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         </div>
       )}
 
       {visit ? (
-        <MarketingVisitResultModal
-          isOpen={selectedTask != null}
-          task={selectedTask}
+        <MarketingVisitOutcomeModal
+          isOpen={showOutcomeModal}
+          task={outcomeTask}
           visit={visit}
           employees={employees}
-          saving={savingResult}
-          error={modalError}
+          deviceModels={deviceModels}
+          saving={savingOutcome}
+          error={outcomeModalError}
           onClose={() => {
-            if (savingResult) return;
-            setSelectedTask(null);
-            setModalError('');
+            if (savingOutcome) return;
+            setShowOutcomeModal(false);
+            setOutcomeTask(null);
+            setOutcomeModalError('');
           }}
-          onSubmit={handleSubmitResult}
+          onSubmit={handleSubmitOutcome}
+        />
+      ) : null}
+
+      {visit ? (
+        <RescheduleVisitModal
+          isOpen={showRescheduleModal}
+          visit={visit}
+          saving={savingVisitLifecycle}
+          error={showRescheduleModal ? visitLifecycleError : ''}
+          onClose={() => {
+            if (savingVisitLifecycle) return;
+            setShowRescheduleModal(false);
+            setVisitLifecycleError('');
+          }}
+          onSubmit={handleRescheduleVisit}
+        />
+      ) : null}
+
+      {visit ? (
+        <CancelVisitModal
+          isOpen={showCancelModal}
+          visit={visit}
+          saving={savingVisitLifecycle}
+          error={showCancelModal ? visitLifecycleError : ''}
+          onClose={() => {
+            if (savingVisitLifecycle) return;
+            setShowCancelModal(false);
+            setVisitLifecycleError('');
+          }}
+          onSubmit={handleCancelVisit}
         />
       ) : null}
     </div>

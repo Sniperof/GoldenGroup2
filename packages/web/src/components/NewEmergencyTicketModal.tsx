@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, MapPin, ShieldCheck, FileText, Paperclip, Send, Image, Trash2, AlertTriangle } from 'lucide-react';
+import { useAuthStore } from '../hooks/useAuthStore';
 import { useClientStore } from '../hooks/useClientStore';
 import { useEmergencyStore } from '../hooks/useEmergencyStore';
 import { api } from '../lib/api';
@@ -20,6 +21,7 @@ const RATING_LABELS: Record<ClientRating, { label: string; color: string }> = {
 export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
     const { clients, loadClients } = useClientStore();
     const { addTicket } = useEmergencyStore();
+    const user = useAuthStore((state) => state.user);
 
     // --- State ---
     const [searchQuery, setSearchQuery] = useState('');
@@ -152,9 +154,9 @@ export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
         setIsSubmitting(true);
 
         const clientAddress = [selectedClient.governorate, selectedClient.district, selectedClient.neighborhood]
-            .filter(Boolean).join(' / ') || 'غير محدد';
+            .filter((v) => v && v.trim() !== '').join(' / ') || 'غير محدد';
 
-        const created = await addTicket({
+        const ticketPayload = {
             clientId: selectedClient.id,
             clientName: selectedClient.name || `${selectedClient.firstName || ''} ${selectedClient.lastName || ''}`,
             clientAddress,
@@ -164,11 +166,13 @@ export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
             problemDescription: problemDescription.trim(),
             callNotes: callNotes.trim() || undefined,
             attachments,
-            callReceiver: 'إبراهيم عبيد',
             priority: 'Normal',
             status: 'New',
             assignedTechnicianId: null,
-        });
+            openTaskId: null,
+        };
+
+        const created = await addTicket(ticketPayload as Parameters<typeof addTicket>[0]);
 
         if (!created) {
             setIsSubmitting(false);
@@ -405,11 +409,11 @@ export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
                                 {/* Call Receiver */}
                                 <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 flex items-center gap-3">
                                     <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200">
-                                        <img src="https://ui-avatars.com/api/?name=Ibrahim+Obaid&background=0ea5e9&color=fff" alt="" className="w-full h-full" />
+                                        <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || '')}&background=0ea5e9&color=fff`} alt="" className="w-full h-full" />
                                     </div>
                                     <div>
                                         <p className="text-[10px] text-slate-400 font-bold">مستقبل المكالمة</p>
-                                        <p className="text-sm font-bold text-slate-700">إبراهيم عبيد</p>
+                                        <p className="text-sm font-bold text-slate-700">{user?.name || 'غير محدد'}</p>
                                     </div>
                                 </div>
                             </motion.div>

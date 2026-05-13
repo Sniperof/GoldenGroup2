@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -62,6 +63,60 @@ function normalizeDevicePayload(body: any) {
 router.get('/', async (_req, res) => {
   const { rows } = await pool.query(`SELECT ${selectFields} FROM device_models ORDER BY id`);
   res.json(rows.map(serializeDevice));
+});
+
+router.get('/for-sale', requireAuth, async (req, res) => {
+  try {
+    if (req.user?.isSuperAdmin === true) {
+      const { rows } = await pool.query(
+        `SELECT id, name, category
+         FROM device_models
+         ORDER BY name ASC, id ASC`,
+      );
+      return res.json(rows);
+    }
+
+    const { rows: userRows } = await pool.query(
+      `SELECT e.department_id AS "departmentId"
+       FROM hr_users u
+       LEFT JOIN employees e ON e.id = u.employee_id
+       WHERE u.id = $1`,
+      [req.user?.id ?? null],
+    );
+    const departmentId = userRows[0]?.departmentId ?? null;
+
+    if (!departmentId) {
+      return res.json([]);
+    }
+
+    const { rows: deptRows } = await pool.query(
+      `SELECT device_model_ids AS "deviceModelIds"
+       FROM departments
+       WHERE id = $1`,
+      [departmentId],
+    );
+
+    const rawIds = Array.isArray(deptRows[0]?.deviceModelIds) ? deptRows[0].deviceModelIds : [];
+    const deviceModelIds = rawIds
+      .map((value: any) => Number(value))
+      .filter((value: number) => Number.isInteger(value) && value > 0);
+
+    if (deviceModelIds.length === 0) {
+      return res.json([]);
+    }
+
+    const { rows } = await pool.query(
+      `SELECT id, name, category
+       FROM device_models
+       WHERE id = ANY($1::int[])
+       ORDER BY name ASC, id ASC`,
+      [deviceModelIds],
+    );
+    return res.json(rows);
+  } catch (err: any) {
+    console.error('[device-models] GET /for-sale error:', err);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/', async (req, res) => {

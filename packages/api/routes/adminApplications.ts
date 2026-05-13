@@ -135,6 +135,7 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
         a.academic_qualification AS "applicantAcademicQualification",
         a.specialization AS "applicantSpecialization",
         a.driving_license AS "applicantDrivingLicense",
+        a.has_car AS "applicantHasCar",
         a.computer_skills AS "applicantComputerSkills",
         a.years_of_experience AS "applicantYearsOfExperience",
         jv.title AS "vacancyTitle",
@@ -149,6 +150,7 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
         jv.required_experience_years AS "vacancyRequiredExperienceYears",
         jv.required_skills AS "vacancyRequiredSkills",
         jv.driving_license_required AS "vacancyDrivingLicenseRequired",
+        jv.has_car_required AS "vacancyHasCarRequired",
         EXISTS (
           SELECT 1
           FROM interviews i
@@ -184,7 +186,14 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
     if (!a.dob) return res.status(400).json({ error: '????? ??????? ?????' });
     if (!a.gender) return res.status(400).json({ error: '????? ?????' });
     if (!a.maritalStatus) return res.status(400).json({ error: '?????? ?????????? ??????' });
-    if (!a.governorate?.trim()) return res.status(400).json({ error: '???????? ??????' });
+    if (!a.governorate?.trim()) return res.status(400).json({ error: 'المحافظة مطلوبة' });
+    if (!a.detailedAddress?.trim()) return res.status(400).json({ error: 'العنوان التفصيلي مطلوب' });
+    if (typeof a.hasCar !== 'boolean') return res.status(400).json({ error: 'يرجى تحديد هل تمتلك سيارة' });
+
+    const jobVacancyId = Number(body.jobVacancyId);
+    if (!Number.isInteger(jobVacancyId) || jobVacancyId <= 0) {
+      return res.status(400).json({ error: 'الشاغر الوظيفي حقل إلزامي' });
+    }
 
     const submissionType = body.submissionType;
     if (!['Apply', 'Refer a Candidate'].includes(submissionType)) {
@@ -205,11 +214,11 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
     let applicationBranchId: number | null = null;
 
     // Vacancy: if linked, must be Open and within date range
-    if (body.jobVacancyId) {
+    if (jobVacancyId) {
       const { rows: vacRows } = await client.query(
         `SELECT id, status, branch_id FROM job_vacancies
          WHERE id = $1 AND status = 'Open' AND CURRENT_DATE BETWEEN start_date AND end_date`,
-        [body.jobVacancyId]
+        [jobVacancyId]
       );
       if (vacRows.length === 0) {
         await client.query('ROLLBACK');
@@ -238,11 +247,11 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
     }
 
     // Duplicate check
-    const dupResult = await checkDuplicate(client, a.mobileNumber, body.jobVacancyId || null);
+    const dupResult = await checkDuplicate(client, a.mobileNumber, jobVacancyId);
     if (dupResult.blocked) {
       await client.query('ROLLBACK');
       return res.status(409).json({
-        error: body.jobVacancyId ? '???? ??? ??? ?????? ???? ????? ??????? ???????' : '???? ??? ??? ??? ?????? ???? ?????',
+        error: 'يوجد طلب نشط بالفعل لهذا الرقم والشاغر الوظيفي',
         duplicateApplicationId: dupResult.duplicateApplicationId,
       });
     }
@@ -255,17 +264,18 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
         mobile_number, secondary_mobile, governorate, city_or_area,
         sub_area, neighborhood, detailed_address,
         academic_qualification, specialization, previous_employment, driving_license,
+        has_car,
         expected_salary, computer_skills, foreign_languages,
         years_of_experience, cv_url, photo_url, applicant_segment,
         has_whatsapp_primary, has_whatsapp_secondary
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
       RETURNING id`,
       [
         a.firstName, a.lastName, a.dob, a.gender, a.maritalStatus, a.email || null,
         a.mobileNumber, a.secondaryMobile || null,
         a.governorate, a.cityOrArea || null, a.subArea || null, a.neighborhood || null, a.detailedAddress || null,
         a.academicQualification || null, a.specialization || null, a.previousEmployment || null,
-        a.drivingLicense || null, a.expectedSalary ? parseInt(a.expectedSalary) : null,
+        a.drivingLicense || null, a.hasCar ?? false, a.expectedSalary ? parseInt(a.expectedSalary) : null,
         a.computerSkills || null, a.foreignLanguages || null,
         a.yearsOfExperience ? parseInt(a.yearsOfExperience) : null,
         a.cvUrl || null, a.photoUrl || null, a.applicantSegment || null,
@@ -315,7 +325,7 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
         duplicate_flag AS "duplicateFlag", created_at AS "createdAt",
         stage_status AS "stageStatus", decision`,
       [
-        body.jobVacancyId || null, applicantId, referrerId,
+        jobVacancyId, applicantId, referrerId,
         submissionType, applicationSource,
         enteredByUserId, body.enteredByName || null,
         duplicateFlag, applicationBranchId,
@@ -331,7 +341,7 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
       performedByUserId: req.user!.id,
       newValue: JSON.stringify({
         applicantId, referrerId,
-        jobVacancyId: body.jobVacancyId || null,
+        jobVacancyId,
         submissionType, applicationSource, duplicateFlag,
       }),
     });
@@ -372,6 +382,7 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
         specialization,
         previous_employment AS "previousEmployment",
         driving_license AS "drivingLicense",
+        has_car AS "hasCar",
         has_whatsapp_primary AS "hasWhatsappPrimary",
         has_whatsapp_secondary AS "hasWhatsappSecondary",
         expected_salary AS "expectedSalary",
@@ -397,6 +408,7 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
         required_experience_years AS "requiredExperienceYears",
         required_skills AS "requiredSkills", responsibilities,
         driving_license_required AS "drivingLicenseRequired",
+        has_car_required AS "hasCarRequired",
         vacancy_count AS "vacancyCount",
         start_date AS "startDate", end_date AS "endDate",
         status, created_at AS "createdAt", updated_at AS "updatedAt"
@@ -723,15 +735,17 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
         a.photo_url AS "photoUrl",
         a.academic_qualification AS "academicQualification",
         a.specialization,
-        a.years_of_experience AS "yearsOfExperience",
+        a.previous_employment AS "previousEmployment",
         a.driving_license AS "drivingLicense",
+        a.has_car AS "hasCar",
         a.computer_skills AS "computerSkills",
         a.foreign_languages AS "foreignLanguages",
-        a.previous_employment AS "previousEmployment",
+        a.years_of_experience AS "yearsOfExperience",
         jv.title AS "vacancyTitle",
         jv.branch AS "vacancyBranch",
         jv.branch_id AS "vacancyBranchId",
         jv.work_type AS "vacancyWorkType",
+        jv.has_car_required AS "vacancyHasCarRequired",
         ja.branch_id AS "applicationBranchId",
         r.type AS "referrerType",
         r.full_name AS "referrerName",

@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowRight, Loader2, PhoneCall, Target } from 'lucide-react';
 import { api } from '../../lib/api';
 import { getOutcomeMeta } from '@golden-crm/shared';
-import type { Client, GeoUnit } from '../../lib/types';
+import type { Client, CustomerOwnership, GeoUnit } from '../../lib/types';
 
 type MarketingTargetsResponse = {
     teamKey: string;
@@ -19,11 +19,10 @@ type MarketingTargetsResponse = {
 const contactTargetStatusLabels: Record<string, string> = {
     new: 'جديد',
     queued: 'بالانتظار',
-    in_call_list: 'ضمن قائمة اتصال',
+    in_call_list: 'ضمن قائمة اتصال', // legacy alias for 'queued' — kept for old DB records
     contacted: 'تم الاتصال',
     booked: 'تم حجز موعد',
     closed: 'مغلق',
-    cancelled: 'ملغى',
 };
 
 const dailyStatusLabels: Record<string, string> = {
@@ -44,6 +43,20 @@ const getLeadPhone = (lead: Client) => {
 const getLeadName = (lead: Client) => {
     return lead.name || [lead.firstName, lead.fatherName, lead.lastName].filter(Boolean).join(' ') || `#${lead.id}`;
 };
+
+function OwnerLabelCell({ ownership }: { ownership?: CustomerOwnership | null }) {
+    const text = ownership?.ownerLabel || 'الشركة العامة';
+    const isPersonal = (ownership?.ownerType ?? '').startsWith('personal');
+    return (
+        <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${
+            isPersonal
+                ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                : 'border-slate-200 bg-slate-50 text-slate-600'
+        }`}>
+            {text}
+        </span>
+    );
+}
 
 const getDailyStatusLabel = (lead: any): { label: string; className: string } => {
     const queuedInCurrentTeam = lead.queuedInCurrentTeamToday;
@@ -184,6 +197,9 @@ export default function PlanningContactTargets() {
                         أهداف الاتصال - {teamLabel}
                     </h1>
                     <p className="mt-1 text-sm text-slate-500">الأهداف التسويقية ضمن نطاق عمل الفريق بتاريخ {date}</p>
+                    <p className="mt-0.5 text-xs font-medium text-amber-600">
+                        الحالة اليومية تعكس حالة بند قائمة الاتصال — منفصلة عن حالة المهمة المفتوحة.
+                    </p>
                 </div>
 
                 <button
@@ -239,8 +255,12 @@ export default function PlanningContactTargets() {
                                     <th className="px-4 py-3 text-right">الزبون</th>
                                     <th className="px-4 py-3 text-right">رقم الموبايل الرئيسي</th>
                                     <th className="px-4 py-3 text-right">العنوان</th>
+                                    <th className="px-4 py-3 text-right">جهة الإسناد</th>
                                     <th className="px-4 py-3 text-right">التصنيف</th>
-                                    <th className="px-4 py-3 text-right">الحالة اليومية</th>
+                                    <th className="px-4 py-3 text-right">
+                                        <span>الحالة اليومية</span>
+                                        <span className="block text-[10px] font-normal text-slate-400">بند قائمة الاتصال</span>
+                                    </th>
                                     <th className="px-4 py-3 text-right">آخر نتيجة اتصال</th>
                                     <th className="px-4 py-3 text-right">آخر موعد</th>
                                 </tr>
@@ -261,6 +281,9 @@ export default function PlanningContactTargets() {
                                             <td className="px-4 py-3 font-bold text-slate-800">{getLeadName(lead)}</td>
                                             <td className="px-4 py-3 font-mono text-slate-600" dir="ltr">{getLeadPhone(lead)}</td>
                                             <td className="px-4 py-3 text-slate-600">{zoneName || 'غير متوفر'}</td>
+                                            <td className="px-4 py-3">
+                                                <OwnerLabelCell ownership={(lead as any).ownership} />
+                                            </td>
                                             <td className="px-4 py-3">
                                                 <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700">
                                                     Lead

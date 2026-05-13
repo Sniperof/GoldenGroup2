@@ -1,5 +1,12 @@
 import pool from '../db.js';
 import { resolveTeamPlanningScope } from './teamPlanningScope.js';
+import type { CustomerOwnership } from '@golden-crm/shared';
+import {
+  buildCustomerOwnershipSelectColumns,
+  buildCustomerOwnershipSql,
+  mapCustomerOwnership,
+  getCompanyOwnedClients,
+} from './customerOwnership.js';
 
 type RouteCompositionInput = {
   routeId: number;
@@ -68,6 +75,7 @@ export interface PlanningLead {
   openTaskDueDate: string | null;
   openTaskPriority: string | null;
   openTaskNotes: string | null;
+  ownership: CustomerOwnership;
 }
 
 export type PlanningMarketingTargetsResponse = {
@@ -87,6 +95,7 @@ export type PlanningMarketingTargetsResponse = {
   supervisorHrUserId: number | null;
   technicianEmployeeId?: number | null;
   technicianHrUserId?: number | null;
+  companyHrUserIds?: number[];
   actorHrUserIds?: number[];
   reason: string | null;
 };
@@ -126,6 +135,54 @@ function normalizeExtraZones(value: unknown): number[] {
     .filter((zoneId): zoneId is number => zoneId != null);
 }
 
+function normalizeNumberList(values: unknown): number[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map(parsePositiveInteger)
+    .filter((value): value is number => value != null);
+}
+
+async function resolveMarketingActorHrUserIds(params: {
+  branchId: number;
+  telemarketerEmployeeIds: unknown;
+  supervisorHrUserId: number | null;
+}): Promise<number[]> {
+  const selectedTelemarketerEmployeeIds = normalizeNumberList(params.telemarketerEmployeeIds);
+
+  const query = selectedTelemarketerEmployeeIds.length > 0
+    ? `
+        SELECT u.id
+          FROM hr_users u
+          JOIN employees e ON e.id = u.employee_id
+         WHERE u.employee_id = ANY($1::int[])
+           AND u.is_active = TRUE
+           AND e.status = 'active'
+           AND e.role = 'telemarketer'
+      `
+    : `
+        SELECT u.id
+          FROM hr_users u
+          JOIN employees e ON e.id = u.employee_id
+         WHERE u.branch_id = $1
+           AND u.employee_id IS NOT NULL
+           AND u.is_active = TRUE
+           AND e.is_active = TRUE
+           AND e.status = 'active'
+           AND e.role = 'telemarketer'
+      `;
+
+  const { rows } = await pool.query<{ id: number }>(query, selectedTelemarketerEmployeeIds.length > 0
+    ? [selectedTelemarketerEmployeeIds]
+    : [params.branchId]);
+
+  const actorIds = [
+    params.supervisorHrUserId,
+    ...rows.map(row => Number(row.id)),
+  ].filter((id): id is number => Number.isInteger(id) && id > 0);
+
+  return actorIds.filter((id, index) => actorIds.indexOf(id) === index);
+}
+
 function buildEmptyResponse(params: {
   teamKey: string;
   reason: string;
@@ -133,6 +190,7 @@ function buildEmptyResponse(params: {
   supervisorHrUserId?: number | null;
   technicianEmployeeId?: number | null;
   technicianHrUserId?: number | null;
+  companyHrUserIds?: number[];
   actorHrUserIds?: number[];
   zoneIds?: number[];
 }): PlanningMarketingTargetsResponse {
@@ -155,9 +213,30 @@ function buildEmptyResponse(params: {
     supervisorHrUserId: params.supervisorHrUserId ?? null,
     technicianEmployeeId: params.technicianEmployeeId ?? null,
     technicianHrUserId: params.technicianHrUserId ?? null,
+    companyHrUserIds: params.companyHrUserIds ?? [],
     actorHrUserIds: params.actorHrUserIds ?? [],
     reason: params.reason,
   };
+}
+
+function buildTeamOwnedClientScopePredicate(clientAlias: string, assignmentAlias = 'ca'): string {
+  return `
+    (
+      EXISTS (
+        SELECT 1
+        FROM client_assignments ${assignmentAlias}
+        WHERE ${assignmentAlias}.client_id = ${clientAlias}.id
+          AND ${assignmentAlias}.hr_user_id = ANY($3::int[])
+      )
+      OR NOT EXISTS (
+        SELECT 1
+        FROM client_assignments ${assignmentAlias}
+        JOIN hr_users hu ON hu.id = ${assignmentAlias}.hr_user_id
+        WHERE ${assignmentAlias}.client_id = ${clientAlias}.id
+          AND hu.employee_id IS NOT NULL
+      )
+    )
+  `;
 }
 
 async function buildZoneIds(routes: RouteCompositionInput[], extraZones: number[]): Promise<number[]> {
@@ -201,7 +280,7 @@ async function buildZoneIds(routes: RouteCompositionInput[], extraZones: number[
   }
 
   extraZones.forEach(zoneId => zoneIds.add(zoneId));
-  return [...zoneIds];
+  return Array.from(zoneIds);
 }
 
 export async function getPlanningMarketingTargets(params: {
@@ -232,19 +311,25 @@ export async function getPlanningMarketingTargets(params: {
     return buildEmptyResponse({ teamKey, reason: 'TEAM_NOT_FOUND' });
   }
 
-  const scope = await resolveTeamPlanningScope({ supervisor: team.supervisor, technician: team.technician });
+  const scope = await resolveTeamPlanningScope({
+    supervisor: team.supervisor,
+    technician: team.technician,
+    branchId,
+  });
 
-  if (scope.actorHrUserIds.length === 0) {
-    return buildEmptyResponse({
-      teamKey,
-      reason: scope.reason ?? 'TEAM_ACTORS_HAVE_NO_ACTIVE_HR_USER',
-      supervisorEmployeeId: scope.supervisorEmployeeId,
-      technicianEmployeeId: scope.technicianEmployeeId,
-    });
-  }
+  const {
+    supervisorEmployeeId,
+    supervisorHrUserId,
+    technicianEmployeeId,
+    technicianHrUserId,
+    companyHrUserIds,
+  } = scope;
 
-  const { supervisorEmployeeId, supervisorHrUserId, technicianEmployeeId, technicianHrUserId, actorHrUserIds } = scope;
-
+  const actorHrUserIds = await resolveMarketingActorHrUserIds({
+    branchId,
+    telemarketerEmployeeIds: team.telemarketers,
+    supervisorHrUserId,
+  });
   const assignmentKey = `${date}_${teamKey}`;
   const { rows: assignmentRows } = await pool.query(
     'SELECT routes, extra_zones AS "extraZones" FROM route_assignments WHERE key = $1',
@@ -259,6 +344,7 @@ export async function getPlanningMarketingTargets(params: {
       supervisorHrUserId,
       technicianEmployeeId,
       technicianHrUserId,
+      companyHrUserIds,
       actorHrUserIds,
     });
   }
@@ -273,6 +359,10 @@ export async function getPlanningMarketingTargets(params: {
       reason: 'NO_TARGET_STATIONS',
       supervisorEmployeeId,
       supervisorHrUserId,
+      technicianEmployeeId,
+      technicianHrUserId,
+      companyHrUserIds,
+      actorHrUserIds,
       zoneIds,
     });
   }
@@ -283,29 +373,54 @@ export async function getPlanningMarketingTargets(params: {
         c.neighborhood::int AS "zoneId",
         COUNT(*)::int AS count
       FROM clients c
+      LEFT JOIN LATERAL (
+        SELECT id
+        FROM open_tasks
+        WHERE open_tasks.client_id = c.id
+          AND open_tasks.task_type = 'device_demo'
+          AND open_tasks.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+        ORDER BY open_tasks.created_at DESC
+        LIMIT 1
+      ) ot ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT 1 AS has_unfinished_visit
+        FROM marketing_visit_tasks mvt
+        JOIN marketing_visits mv ON mv.id = mvt.visit_id
+        WHERE mvt.source_open_task_id = ot.id
+          AND mvt.task_type = 'device_demo'
+          AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
+          AND NULLIF(mv.scheduled_date, '')::date < $4::date
+        LIMIT 1
+      ) unfinished_visit ON TRUE
       WHERE c.is_candidate = FALSE
         AND c.branch_id = $1
         AND NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
         AND c.neighborhood::int = ANY($2::int[])
-        AND EXISTS (
-          SELECT 1
-          FROM client_assignments ca
-          WHERE ca.client_id = c.id
-            AND ca.hr_user_id = ANY($3::int[])
-        )
+        AND ${buildTeamOwnedClientScopePredicate('c')}
+        AND ot.id IS NOT NULL
+        AND unfinished_visit.has_unfinished_visit IS NULL
         AND NOT EXISTS (
           SELECT 1
           FROM contracts ct
           WHERE ct.customer_id = c.id
         )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM visits v
-          WHERE v.customer_id = c.id
+        AND (
+          NOT EXISTS (
+            SELECT 1
+            FROM visits v
+            WHERE v.customer_id = c.id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM open_tasks ot_scope
+            WHERE ot_scope.client_id = c.id
+              AND ot_scope.task_type = 'device_demo'
+              AND ot_scope.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+          )
         )
       GROUP BY c.neighborhood::int
     `,
-    [branchId, zoneIds, actorHrUserIds],
+    [branchId, zoneIds, actorHrUserIds, date],
   );
 
   const countsByZoneMap = new Map<number, number>();
@@ -317,7 +432,7 @@ export async function getPlanningMarketingTargets(params: {
     count: countsByZoneMap.get(zoneId) ?? 0,
   }));
 
-  const { rows: leads } = await pool.query(
+  const { rows: leadRows } = await pool.query(
     `
       SELECT
         c.id,
@@ -389,9 +504,11 @@ export async function getPlanningMarketingTargets(params: {
         ot.status AS "openTaskStatus",
         ot.due_date AS "openTaskDueDate",
         ot.priority AS "openTaskPriority",
-        ot.notes AS "openTaskNotes"
+        ot.notes AS "openTaskNotes",
+        ${buildCustomerOwnershipSelectColumns()}
       FROM clients c
       LEFT JOIN branches b ON b.id = c.branch_id
+      ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'b.name' })}
       LEFT JOIN contact_targets contact_target
         ON contact_target.branch_id = c.branch_id
        AND contact_target.target_type = 'client'
@@ -441,30 +558,51 @@ export async function getPlanningMarketingTargets(params: {
         ORDER BY open_tasks.created_at DESC
         LIMIT 1
       ) ot ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT 1 AS has_unfinished_visit
+        FROM marketing_visit_tasks mvt
+        JOIN marketing_visits mv ON mv.id = mvt.visit_id
+        WHERE mvt.source_open_task_id = ot.id
+          AND mvt.task_type = 'device_demo'
+          AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
+          AND NULLIF(mv.scheduled_date, '')::date < $4::date
+        LIMIT 1
+      ) unfinished_visit ON TRUE
       WHERE c.is_candidate = FALSE
         AND c.branch_id = $1
         AND NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
         AND c.neighborhood::int = ANY($2::int[])
-        AND EXISTS (
-          SELECT 1
-          FROM client_assignments ca
-          WHERE ca.client_id = c.id
-            AND ca.hr_user_id = ANY($3::int[])
-        )
+        AND ${buildTeamOwnedClientScopePredicate('c')}
+        AND ot.id IS NOT NULL
+        AND unfinished_visit.has_unfinished_visit IS NULL
         AND NOT EXISTS (
           SELECT 1
           FROM contracts ct
           WHERE ct.customer_id = c.id
         )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM visits v
-          WHERE v.customer_id = c.id
+        AND (
+          NOT EXISTS (
+            SELECT 1
+            FROM visits v
+            WHERE v.customer_id = c.id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM open_tasks ot_scope
+            WHERE ot_scope.client_id = c.id
+              AND ot_scope.task_type = 'device_demo'
+              AND ot_scope.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+          )
         )
       ORDER BY c.id
     `,
     [branchId, zoneIds, actorHrUserIds, date, teamKey],
   );
+
+  const leads = leadRows.map((row: any) => ({
+    ...row,
+    ownership: mapCustomerOwnership(row),
+  }));
 
   return {
     teamKey,
@@ -478,9 +616,246 @@ export async function getPlanningMarketingTargets(params: {
     },
     zoneIds,
     targetStationsCount: zoneIds.length,
-    hasSupervisor: true,
+    hasSupervisor: supervisorEmployeeId != null,
     supervisorEmployeeId,
     supervisorHrUserId,
+    technicianEmployeeId,
+    technicianHrUserId,
+    companyHrUserIds,
+    actorHrUserIds,
     reason: null,
+  };
+}
+
+export type WorkScopeTask = {
+  openTaskId: number;
+  clientId: number;
+  clientName: string;
+  clientMobile: string | null;
+  clientNeighborhood: string | null;
+  taskType: string;
+  taskFamily: string;
+  origin: string | null;
+  status: string;
+  dueDate: string | null;
+  priority: string | null;
+  notes: string | null;
+  ownershipType: string;
+  ownerLabel: string;
+  assignedPersonName: string | null;
+};
+
+export type WorkScopeResponse = {
+  scopeId: number | null;
+  teamKey: string;
+  date: string;
+  branchId: number;
+  zoneIds: number[];
+  tasks: WorkScopeTask[];
+  counts: { marketing: number; emergency: number; service: number; other: number; total: number };
+  supervisorHrUserId: number | null;
+  technicianHrUserId: number | null;
+  actorHrUserIds: number[];
+};
+
+export async function getPlanningWorkScope(params: {
+  date: string;
+  teamKey: string;
+  branchId: number;
+}): Promise<WorkScopeResponse> {
+  const { date, teamKey, branchId } = params;
+
+  const keyMatch = teamKey.match(/^(team|solo)_(\d+)$/);
+  if (!keyMatch) throw new Error('teamKey must be team_X or solo_X');
+
+  const teamIndex = Number(keyMatch[2]);
+  const { rows: scheduleRows } = await pool.query(
+    'SELECT teams, solos FROM day_schedules WHERE date = $1',
+    [date],
+  );
+
+  const scheduleData = scheduleRows[0];
+  const teams = scheduleData?.teams ?? [];
+  const solos = scheduleData?.solos ?? [];
+  const teamEntry = keyMatch[1] === 'team' ? teams[teamIndex] : solos[teamIndex];
+
+  const empty: WorkScopeResponse = {
+    scopeId: null,
+    teamKey,
+    date,
+    branchId,
+    zoneIds: [],
+    tasks: [],
+    counts: { marketing: 0, emergency: 0, service: 0, other: 0, total: 0 },
+    supervisorHrUserId: null,
+    technicianHrUserId: null,
+    actorHrUserIds: [],
+  };
+
+  if (!teamEntry) return empty;
+
+  const scope = await resolveTeamPlanningScope({
+    supervisor: teamEntry.supervisor,
+    technician: teamEntry.technician,
+    branchId,
+  });
+
+  const { actorHrUserIds, supervisorHrUserId, technicianHrUserId } = scope;
+
+  // Get zone IDs from route assignment
+  const assignmentKey = `${date}_${teamKey}`;
+  const { rows: assignmentRows } = await pool.query(
+    'SELECT routes, extra_zones AS "extraZones" FROM route_assignments WHERE key = $1',
+    [assignmentKey],
+  );
+
+  let zoneIds: number[] = [];
+  if (assignmentRows[0]) {
+    zoneIds = await buildZoneIds(
+      normalizeRoutes(assignmentRows[0].routes),
+      normalizeExtraZones(assignmentRows[0].extraZones),
+    );
+  }
+
+  // Look up the work_scope record if it exists
+  const { rows: scopeRows } = await pool.query(
+    'SELECT id FROM work_scopes WHERE date = $1 AND team_key = $2 AND branch_id = $3',
+    [date, teamKey, branchId],
+  );
+  const scopeId: number | null = scopeRows[0]?.id ?? null;
+
+  // Get company-owned client IDs in zone
+  const companyOwnedIds = zoneIds.length > 0 ? await getCompanyOwnedClients(branchId, zoneIds) : [];
+
+  // Build a set of client IDs reachable by this team:
+  //   1) client is company-owned in zone
+  //   2) client is personally assigned to a team actor
+  const clientIdConditions: string[] = [];
+  const queryParams: any[] = [branchId];
+  let paramIdx = 2;
+
+  const ownershipClauses: string[] = [];
+
+  if (companyOwnedIds.length > 0) {
+    ownershipClauses.push(`ot.client_id = ANY($${paramIdx}::int[])`);
+    queryParams.push(companyOwnedIds);
+    paramIdx++;
+  }
+
+  if (actorHrUserIds.length > 0) {
+    ownershipClauses.push(`EXISTS (
+      SELECT 1 FROM client_assignments ca
+      WHERE ca.client_id = ot.client_id
+        AND ca.hr_user_id = ANY($${paramIdx}::int[])
+    )`);
+    queryParams.push(actorHrUserIds);
+    paramIdx++;
+  }
+
+  if (ownershipClauses.length === 0) {
+    return { ...empty, scopeId, zoneIds, supervisorHrUserId, technicianHrUserId, actorHrUserIds };
+  }
+
+  const ownerFilter = ownershipClauses.join(' OR ');
+
+  const { rows: taskRows } = await pool.query(
+    `SELECT
+       ot.id               AS "openTaskId",
+       ot.client_id        AS "clientId",
+       ot.task_type        AS "taskType",
+       ot.task_family      AS "taskFamily",
+       ot.origin           AS "origin",
+       ot.status,
+       ot.due_date         AS "dueDate",
+       ot.priority,
+       ot.notes,
+       c.name              AS "clientName",
+       c.mobile            AS "clientMobile",
+       c.neighborhood      AS "clientNeighborhood",
+       c.candidate_status  AS "candidateStatus",
+       b.name              AS "branchName",
+       CASE
+         WHEN c.candidate_status IN ('OP', 'FOP') THEN 'company_branch'
+         WHEN NOT EXISTS (
+           SELECT 1 FROM client_assignments ca2
+           JOIN hr_users u2 ON u2.id = ca2.hr_user_id
+           WHERE ca2.client_id = c.id AND u2.employee_id IS NOT NULL AND u2.is_active = TRUE
+         ) THEN 'company_branch'
+         ELSE 'personal'
+       END AS "ownershipType",
+       COALESCE(
+         CASE
+           WHEN c.candidate_status IN ('OP', 'FOP') THEN b.name
+           WHEN NOT EXISTS (
+             SELECT 1 FROM client_assignments ca3
+             JOIN hr_users u3 ON u3.id = ca3.hr_user_id
+             WHERE ca3.client_id = c.id AND u3.employee_id IS NOT NULL AND u3.is_active = TRUE
+           ) THEN b.name
+           ELSE (
+             SELECT string_agg(u4.name, ' + ' ORDER BY ca4.assigned_at)
+             FROM client_assignments ca4
+             JOIN hr_users u4 ON u4.id = ca4.hr_user_id
+             WHERE ca4.client_id = c.id AND u4.employee_id IS NOT NULL AND u4.is_active = TRUE
+           )
+         END,
+         b.name
+       ) AS "ownerLabel"
+     FROM open_tasks ot
+     JOIN clients c ON c.id = ot.client_id
+     LEFT JOIN branches b ON b.id = c.branch_id
+     WHERE ot.branch_id = $1
+       AND ot.status IN ('open', 'assigned', 'scheduled', 'in_visit', 'in_contact_list', 'needs_reschedule')
+       AND (c.is_active IS NULL OR c.is_active = TRUE)
+       AND c.deleted_at IS NULL
+       AND (${ownerFilter})
+     ORDER BY ot.created_at DESC`,
+    queryParams,
+  );
+
+  const companyOwnedSet = new Set(companyOwnedIds);
+
+  const tasks: WorkScopeTask[] = taskRows.map((r: any) => ({
+    openTaskId: r.openTaskId,
+    clientId: r.clientId,
+    clientName: r.clientName,
+    clientMobile: r.clientMobile,
+    clientNeighborhood: r.clientNeighborhood,
+    taskType: r.taskType,
+    taskFamily: r.taskFamily,
+    origin: r.origin,
+    status: r.status,
+    dueDate: r.dueDate,
+    priority: r.priority,
+    notes: r.notes,
+    ownershipType: companyOwnedSet.has(r.clientId) ? 'company_branch' : 'personal',
+    ownerLabel: companyOwnedSet.has(r.clientId)
+      ? (r.branchName ? `فرع ${r.branchName}` : 'الشركة')
+      : r.ownerLabel,
+    assignedPersonName: companyOwnedSet.has(r.clientId) ? null : r.ownerLabel,
+  }));
+
+  const counts = tasks.reduce(
+    (acc, t) => {
+      if (t.taskFamily === 'marketing') acc.marketing++;
+      else if (t.taskFamily === 'emergency') acc.emergency++;
+      else if (t.taskFamily === 'service') acc.service++;
+      else acc.other++;
+      acc.total++;
+      return acc;
+    },
+    { marketing: 0, emergency: 0, service: 0, other: 0, total: 0 },
+  );
+
+  return {
+    scopeId,
+    teamKey,
+    date,
+    branchId,
+    zoneIds,
+    tasks,
+    counts,
+    supervisorHrUserId,
+    technicianHrUserId,
+    actorHrUserIds,
   };
 }

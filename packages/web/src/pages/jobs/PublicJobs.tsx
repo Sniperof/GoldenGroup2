@@ -23,6 +23,7 @@ interface ApplicantForm {
   cvFile: File | null; photoFile: File | null;
   academicQualification: string; previousEmployment: string;
   drivingLicense: string; expectedSalary: string;
+  hasCar: string;
   computerSkills: string; 
   foreignLanguages: string[];
   yearsOfExperience: string; applicantSegment: string;
@@ -47,6 +48,7 @@ const emptyApplicant: ApplicantForm = {
   cvUrl: '', photoUrl: '', cvFile: null, photoFile: null,
   academicQualification: '', previousEmployment: '',
   drivingLicense: '', expectedSalary: '',
+  hasCar: '',
   computerSkills: '', foreignLanguages: [],
   yearsOfExperience: '', applicantSegment: '',
   specialization: '', hasWhatsappPrimary: false, hasWhatsappSecondary: false,
@@ -198,9 +200,6 @@ export default function PublicJobs() {
 
     // Address (Section 2)
     if (!applicant.geoSelection.govId) e.geoSelection = 'المحافظة مطلوبة';
-    if (!applicant.geoSelection.regionId) e.geoSelection = 'المنطقة مطلوبة';
-    if (!applicant.geoSelection.subId) e.geoSelection = 'الناحية مطلوبة';
-    if (!applicant.geoSelection.neighborhoodId) e.geoSelection = 'الحي مطلوب';
     if (!applicant.detailedAddress.trim()) e.detailedAddress = 'العنوان التفصيلي مطلوب';
 
     // Contact (Section 3)
@@ -215,6 +214,7 @@ export default function PublicJobs() {
     if (!applicant.academicQualification) e.academicQualification = 'الشهادة العلمية مطلوبة';
     if (!applicant.previousEmployment.trim()) e.previousEmployment = 'العمل السابق مطلوب (أو "لا يوجد")';
     if (!applicant.drivingLicense) e.drivingLicense = 'يرجى تحديد حالة شهادة القيادة';
+    if (!applicant.hasCar) e.hasCar = 'يرجى تحديد هل تمتلك سيارة';
     if (!applicant.expectedSalary) e.expectedSalary = 'الراتب المتوقع مطلوب';
     if (!applicant.computerSkills.trim()) e.computerSkills = 'مهارات الحاسب مطلوبة';
     if (applicant.foreignLanguages.length === 0) e.foreignLanguages = 'مطلوب لغة واحدة على الأقل. اختر لا يوجد إن لزم.';
@@ -310,6 +310,7 @@ export default function PublicJobs() {
           specialization: applicant.specialization.trim() || null,
           previousEmployment: applicant.previousEmployment.trim(),
           drivingLicense: applicant.drivingLicense === 'yes',
+          hasCar: applicant.hasCar === 'yes',
           expectedSalary: parseInt(applicant.expectedSalary),
           computerSkills: applicant.computerSkills.trim(),
           foreignLanguages: applicant.foreignLanguages.join(', '),
@@ -430,6 +431,7 @@ export default function PublicJobs() {
                   <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
                     <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{v.startDate ? new Date(v.startDate).toLocaleDateString('ar-IQ') : '—'}</span>
                     {v.drivingLicenseRequired && <span className="flex items-center gap-1 text-amber-500"><Car className="w-3 h-3" />رخصة قيادة</span>}
+                    {v.hasCarRequired && <span className="flex items-center gap-1 text-sky-500"><Car className="w-3 h-3" />سيارة مطلوبة</span>}
                   </div>
                 </motion.div>
               ))}
@@ -520,10 +522,10 @@ export default function PublicJobs() {
                 </Field>
               </FormSection>
 
-              <FormSection num={2} title="عنوان السكن" subtitle="يتم التحديد حصراً عبر نظام البحث الجغرافي" icon={MapPin} delay={0.2}>
+              <FormSection num={2} title="عنوان السكن" subtitle="المحافظة والعنوان التفصيلي إلزاميان، وباقي المستويات اختيارية" icon={MapPin} delay={0.2}>
                 <div className={`md:col-span-2 lg:col-span-2 bg-slate-50/50 border ${fieldErrors.geoSelection ? 'border-red-400' : 'border-slate-200'} rounded-2xl p-4`}>
-                  <GeoSmartSearch label="التسلسل الهرمي للمنطقة" required geoUnits={geoUnits} value={applicant.geoSelection} onChange={v => { setA('geoSelection', v); delete fieldErrors.geoSelection; }} placeholder="المحافظة > المنطقة > الناحية > الحي" />
-                  {fieldErrors.geoSelection && <p className={errorCls}><AlertTriangle className="w-3 h-3"/> {fieldErrors.geoSelection}</p>}
+                  <GeoSmartSearch label="التسلسل الهرمي للمنطقة" geoUnits={geoUnits} value={applicant.geoSelection} onChange={v => { setA('geoSelection', v); delete fieldErrors.geoSelection; }} placeholder="المحافظة > المنطقة > الناحية > الحي" />
+                  <p className="mt-2 text-xs text-slate-500">يمكن الحفظ بمحافظة + عنوان تفصيلي فقط، أما المنطقة والناحية والحي فهي اختيارية.</p>
                 </div>
                 <Field label="تفاصيل إضافية للعنوان" required error={fieldErrors.detailedAddress} className="lg:col-span-1">
                   <textarea value={applicant.detailedAddress} onChange={e => setA('detailedAddress', e.target.value)} className={inputCls(!!fieldErrors.detailedAddress) + " min-h-[96px] py-3 resize-none w-full"} placeholder="رقم الدار، أقرب نقطة دالة..." />
@@ -592,6 +594,18 @@ export default function PublicJobs() {
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="radio" name="dl" checked={applicant.drivingLicense === 'no'} onChange={() => setA('drivingLicense', 'no')} className="w-4 h-4 text-sky-500" />
                       <span className="text-sm font-semibold text-slate-700">لا يوجد</span>
+                    </label>
+                  </div>
+                </Field>
+                <Field label="هل تمتلك سيارة" required error={fieldErrors.hasCar} className="flex flex-col justify-center">
+                  <div className="flex items-center gap-6 mt-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" name="car" checked={applicant.hasCar === 'yes'} onChange={() => setA('hasCar', 'yes')} className="w-4 h-4 text-sky-500" />
+                      <span className="text-sm font-semibold text-slate-700">نعم</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" name="car" checked={applicant.hasCar === 'no'} onChange={() => setA('hasCar', 'no')} className="w-4 h-4 text-sky-500" />
+                      <span className="text-sm font-semibold text-slate-700">لا</span>
                     </label>
                   </div>
                 </Field>

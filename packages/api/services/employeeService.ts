@@ -70,7 +70,7 @@ type EmployeeWriteInput = {
   residenceNeighborhood: string | null;
   detailedAddress: string | null;
   residence: string;
-  status: 'active' | 'leave' | 'inactive';
+  status: 'active' | 'vacation' | 'suspended' | 'terminated';
   avatar: string;
   jobTitle: string;
   academicQualification: string | null;
@@ -142,9 +142,12 @@ function asGender(value: unknown): 'male' | 'female' {
   throw createServiceError(400, { error: 'الجنس مطلوب' });
 }
 
-function asEmployeeStatus(value: unknown): 'active' | 'leave' | 'inactive' {
-  const raw = String(value ?? 'active').trim();
-  if (raw === 'leave' || raw === 'inactive') return raw;
+function asEmployeeStatus(value: unknown): 'active' | 'vacation' | 'suspended' | 'terminated' {
+  const raw = String(value ?? 'active').trim().toLowerCase();
+  if (raw === 'vacation') return 'vacation';
+  if (raw === 'leave') return 'vacation';
+  if (raw === 'suspended' || raw === 'terminated') return raw;
+  if (raw === 'inactive') return 'terminated';
   return 'active';
 }
 

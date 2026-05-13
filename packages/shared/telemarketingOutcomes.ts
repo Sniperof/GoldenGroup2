@@ -33,6 +33,8 @@ export type TelemarketingOutcomeCode =
   | 'booked_marketing_appointment'
   // Free call specific
   | 'new_number'
+  // Text message (no call outcome yet)
+  | 'message_sent'
   // Legacy codes (kept for backward compatibility)
   | 'rejected'
   | 'booked';
@@ -347,6 +349,20 @@ export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
     opensAppointment: false,
   },
 
+
+  // ── Text message (no call outcome yet) ─────────────────────────
+  message_sent: {
+    code: 'message_sent',
+    label: 'رسالة نصية مرسلة — منتظر رد',
+    group: 'not_reached',
+    nextAction: 'retry_later',
+    phoneStatusUpdate: 'none',
+    requiresPhoneStatusUpdate: false,
+    requiresNotes: false,
+    itemStatusAfterSave: 'pending',
+    closesContactTarget: false,
+    opensAppointment: false,
+  },
   // ── Legacy codes (backward compatibility) ───────────────────
   rejected: {
     code: 'rejected',

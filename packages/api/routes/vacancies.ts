@@ -20,6 +20,7 @@ const VACANCY_COLS = `
   jv.required_experience_years AS "requiredExperienceYears",
   jv.required_skills AS "requiredSkills", jv.responsibilities,
   jv.driving_license_required AS "drivingLicenseRequired",
+  jv.has_car_required AS "hasCarRequired",
   jv.vacancy_count AS "vacancyCount",
   jv.start_date AS "startDate", jv.end_date AS "endDate",
   jv.status, jv.created_at AS "createdAt", jv.updated_at AS "updatedAt"
@@ -171,8 +172,9 @@ router.post('/', requirePermission('jobs.vacancies.create'), async (req, res) =>
         work_type, required_gender, required_age_min, required_age_max, contact_methods,
         required_certificate, required_major, required_experience_years,
         required_skills, responsibilities, driving_license_required,
+        has_car_required,
         vacancy_count, start_date, end_date, status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'Open')
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'Open')
       RETURNING id`,
       [
         v.title, v.branch || null, targetBranchId, departmentCheck.departmentId,
@@ -185,6 +187,7 @@ router.post('/', requirePermission('jobs.vacancies.create'), async (req, res) =>
         v.requiredExperienceYears || null,
         v.requiredSkills || null, v.responsibilities || null,
         v.drivingLicenseRequired || false,
+        v.hasCarRequired || false,
         v.vacancyCount,
         v.startDate, v.endDate,
       ]
@@ -257,9 +260,9 @@ router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) =>
           required_age_min=$11, required_age_max=$12, contact_methods=$13,
           required_certificate=$14, required_major=$15,
           required_experience_years=$16, required_skills=$17, responsibilities=$18,
-          driving_license_required=$19, vacancy_count=$20,
-          start_date=$21, end_date=$22, updated_at=NOW()
-        WHERE id=$23`,
+          driving_license_required=$19, has_car_required=$20, vacancy_count=$21,
+          start_date=$22, end_date=$23, updated_at=NOW()
+        WHERE id=$24`,
         [
           v.title, v.branch || null, departmentCheck.departmentId,
           v.governorate || null, v.cityOrArea || null, v.subArea || null,
@@ -271,6 +274,7 @@ router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) =>
           v.requiredExperienceYears || null,
           v.requiredSkills || null, v.responsibilities || null,
           v.drivingLicenseRequired || false,
+          v.hasCarRequired || false,
           v.vacancyCount,
           v.startDate, v.endDate, vacancyId,
         ]

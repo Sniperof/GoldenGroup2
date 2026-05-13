@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2 } from 'lucide-react';
 import { api } from '../lib/api';
-import type { Client, GeoUnit, Visit, Contract } from '../lib/types';
+import type { Client, CustomerOwnership, GeoUnit, Visit, Contract } from '../lib/types';
 import ClientModal from '../components/ClientModal';
 import ClientAvatar from '../components/ClientAvatar';
 import SmartTable from '../components/SmartTable';
@@ -28,6 +28,27 @@ function extractApiPayload(error: unknown): any | null {
     } catch {
         return null;
     }
+}
+
+function OwnershipCell({ ownership }: { ownership?: CustomerOwnership | null }) {
+    const label = ownership?.ownerLabel || 'الشركة العامة';
+    const isPersonal = (ownership?.ownerType ?? '').startsWith('personal');
+    const personalAssignments = ownership?.personalAssignments || [];
+
+    return (
+        <div className="flex flex-col gap-0.5">
+            <span className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-bold ${
+                isPersonal
+                    ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                    : 'border-slate-200 bg-slate-50 text-slate-600'
+            }`}>
+                {label}
+            </span>
+            {isPersonal && personalAssignments.length > 1 ? (
+                <span className="text-[10px] font-bold text-slate-400">{personalAssignments.length} إسنادات شخصية فعالة</span>
+            ) : null}
+        </div>
+    );
 }
 
 export default function Clients() {
@@ -120,7 +141,8 @@ export default function Clients() {
                     c.id.toString().includes(q) ||
                     (c.referrerName || '').toLowerCase().includes(q) ||
                     (c.branchName || '').toLowerCase().includes(q) ||
-                    (c.assignments || []).some(a => a.userName.toLowerCase().includes(q));
+                    (c.assignments || []).some(a => a.userName.toLowerCase().includes(q)) ||
+                    (c.ownership?.ownerLabel || '').toLowerCase().includes(q);
             });
         }
 
@@ -162,11 +184,15 @@ export default function Clients() {
     };
 
     const deleteClient = async (id: number) => {
-        if (!confirm('حذف هذا العميل؟')) return;
+        const client = clients.find(c => c.id === id);
+        const clientName = client?.name ?? `#${id}`;
+        if (!confirm(`حذف الزبون "${clientName}"؟\n\nملاحظة: لا يمكن الحذف إذا كان للزبون عقود أو سجل زيارات أو مهام مكتملة.`)) return;
         try {
             await api.clients.delete(id);
             await fetchClients();
-        } catch (err) {
+        } catch (err: any) {
+            const msg = err?.response?.data?.error || err?.message || 'تعذر حذف الزبون';
+            alert(msg);
             console.error('Failed to delete client:', err);
         }
     };
@@ -184,6 +210,18 @@ export default function Clients() {
     const handleSaveClient = async (clientData: Client) => {
         try {
             if (editingClient) {
+                // Warn about branch change implications
+                if (editingClient.branchId && clientData.branchId && editingClient.branchId !== clientData.branchId) {
+                    const ok = confirm('تغيير الفرع سيؤثر على تعيينات المهام. تأكيد؟');
+                    if (!ok) return;
+                }
+                // Warn about OP/FOP transition
+                const wasOpFop = ['OP', 'FOP'].includes(editingClient.candidateStatus ?? '');
+                const nowOpFop = ['OP', 'FOP'].includes(clientData.candidateStatus ?? '');
+                if (!wasOpFop && nowOpFop) {
+                    const ok = confirm('تغيير الحالة إلى OP/FOP سيحذف جميع التعيينات الشخصية ويلغي المهام التسويقية. تأكيد؟');
+                    if (!ok) return;
+                }
                 await api.clients.update(clientData.id, clientData);
             } else {
                 await api.clients.create({
@@ -209,8 +247,9 @@ export default function Clients() {
                 return;
             }
 
+            const serverMsg = (err as any)?.response?.data?.error || (err as any)?.message;
             console.error('Failed to save client:', err);
-            alert('تعذر حفظ الزبون حالياً.');
+            alert(serverMsg || 'تعذر حفظ الزبون حالياً.');
         }
     };
 
@@ -299,31 +338,13 @@ export default function Clients() {
         },
         // Only GLOBAL and BRANCH scope users may see assignment info
         ...(canSeeAssignments ? [{
-            key: 'assignments' as const,
-            label: 'المسؤولون',
+            key: 'ownership' as const,
+            label: 'الملكية',
             sortable: false,
             render: (c: Client & { lifecycleStage: string }) => {
-                const list = c.assignments || [];
-                if (list.length === 0) return <span className="text-xs text-slate-400">--</span>;
-                const visible = list.slice(0, 2);
-                const extra = list.length - visible.length;
-                return (
-                    <div className="flex flex-col gap-0.5">
-                        {visible.map((a, i) => (
-                            <div key={i} className="text-xs leading-4">
-                                <span className="font-bold text-slate-700">{a.userName}</span>
-                                {a.roleDisplayName && (
-                                    <span className="text-slate-400"> · {a.roleDisplayName}</span>
-                                )}
-                            </div>
-                        ))}
-                        {extra > 0 && (
-                            <span className="text-[10px] text-sky-500 font-bold">+{extra} آخرين</span>
-                        )}
-                    </div>
-                );
+                return <OwnershipCell ownership={c.ownership} />;
             },
-            getValue: (c: Client & { lifecycleStage: string }) => (c.assignments || []).map(a => a.userName).join(', '),
+            getValue: (c: Client & { lifecycleStage: string }) => c.ownership?.ownerLabel || '',
         }] : []),
         ...clientColumns.slice(4),
     ];

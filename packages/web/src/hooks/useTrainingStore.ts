@@ -130,6 +130,15 @@ async function completeCourse(id: number, opts: Opts = {}): Promise<void> {
   ]);
 }
 
+async function updateTrainingCourseEndDate(id: number, endDate: string, opts: Opts = {}): Promise<TrainingCourseDetail> {
+  const updated = await patch(`${API}/${id}/end-date`, { endDate, ...opts });
+  await Promise.all([
+    useTrainingDetail.getState().fetchCourseDetail(id),
+    useTrainingList.getState().fetch(),
+  ]);
+  return updated as TrainingCourseDetail;
+}
+
 async function recordAttendance(
   courseId: number,
   attendance_date: string,
@@ -180,7 +189,7 @@ export function useTrainingStore() {
     selectedCourse, detailLoading, detailError,
     fetchCourses, fetchCourseDetail,
     setFilter, resetFilters, setPage,
-    createCourse, startCourse, completeCourse,
+    createCourse, startCourse, completeCourse, updateTrainingCourseEndDate,
     recordAttendance, recordTraineeResult, addTrainees, fetchEligibleTrainees,
   };
 }

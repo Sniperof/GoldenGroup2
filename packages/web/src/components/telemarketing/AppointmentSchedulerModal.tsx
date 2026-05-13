@@ -1,35 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Clock, Droplets, FileText, CheckCircle2, X, Monitor, Loader2 } from 'lucide-react';
+import { Calendar, Clock, Droplets, FileText, CheckCircle2, X, Loader2 } from 'lucide-react';
 import { WORKING_HOURS } from '../../lib/types';
-import { api } from '../../lib/api';
+import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
+import type { OpenTaskType } from '@golden-crm/shared';
 
-interface DeviceModelOption {
-    id: number;
-    nameAr?: string | null;
-    nameEn?: string | null;
-    name: string;
+export interface CustomerOpenTask {
+    taskListItemId: string;
+    openTaskId: number | null;
+    openTaskType: string | null;
+    openTaskReason: string | null;
+    openTaskStatus: string | null;
+}
+
+export interface SelectedTaskEntry {
+    taskListItemId: string;
+    openTaskId: number | null;
+    taskType: string;
 }
 
 interface AppointmentSchedulerModalProps {
     isOpen: boolean;
     onClose: () => void;
-    task: { id: string; name: string; [k: string]: any } | null;
-    entityDetails: any;
+    customerName: string;
     defaultDate: string;
+    /** All open tasks belonging to this customer in the current task list */
+    customerOpenTasks: CustomerOpenTask[];
+    entityDetails: any;
     onSave: (data: {
         visitTime: string;
-        visitTasks: string[];
+        selectedTaskEntries: SelectedTaskEntry[];
         waterSource: string;
         requestedDeviceModelId: number | null;
         requestedDeviceName: string;
         technicianNotes: string;
     }) => Promise<void>;
 }
-
-const VISIT_TASK_OPTIONS = [
-    { value: 'device_demo', label: 'عرض جهاز' },
-];
 
 const WATER_SOURCE_OPTIONS = [
     { value: 'الاسالة الحكومية', label: 'الاسالة الحكومية' },
@@ -39,77 +45,64 @@ const WATER_SOURCE_OPTIONS = [
     { value: 'غير معروف', label: 'غير معروف' },
 ];
 
-export default function AppointmentSchedulerModal({ isOpen, onClose, task, entityDetails, defaultDate, onSave }: AppointmentSchedulerModalProps) {
+function getTaskLabel(type: string | null): string {
+    if (!type) return 'مهمة غير محددة';
+    return (OPEN_TASK_TYPE_LABELS as Record<string, string>)[type as OpenTaskType] || type;
+}
+
+export default function AppointmentSchedulerModal({
+    isOpen,
+    onClose,
+    customerName,
+    defaultDate,
+    customerOpenTasks,
+    entityDetails,
+    onSave,
+}: AppointmentSchedulerModalProps) {
     const [visitTime, setVisitTime] = useState('');
-    const [visitTasks, setVisitTasks] = useState<string[]>(['device_demo']);
     const [waterSource, setWaterSource] = useState('');
-    const [selectedDeviceModelId, setSelectedDeviceModelId] = useState<number | null>(null);
-    const [requestedDeviceName, setRequestedDeviceName] = useState('');
     const [technicianNotes, setTechnicianNotes] = useState('');
-    const [deviceModels, setDeviceModels] = useState<DeviceModelOption[]>([]);
-    const [loadingDevices, setLoadingDevices] = useState(false);
     const [saving, setSaving] = useState(false);
 
+    // Reset fields when opening.
     useEffect(() => {
         if (isOpen) {
             setVisitTime('');
-            setVisitTasks(['device_demo']);
             setWaterSource(entityDetails?.waterSource || '');
-            setSelectedDeviceModelId(null);
-            setRequestedDeviceName('');
             setTechnicianNotes('');
         }
-    }, [isOpen, entityDetails]);
+    }, [isOpen, entityDetails, customerOpenTasks]);
 
-    useEffect(() => {
-        if (!isOpen) return;
-        let cancelled = false;
-        setLoadingDevices(true);
-        api.deviceModels.list()
-            .then((devices: DeviceModelOption[]) => {
-                if (!cancelled) setDeviceModels(devices);
-            })
-            .catch(() => {
-                if (!cancelled) setDeviceModels([]);
-            })
-            .finally(() => {
-                if (!cancelled) setLoadingDevices(false);
-            });
-        return () => { cancelled = true; };
-    }, [isOpen]);
+    if (!isOpen) return null;
 
-    if (!isOpen || !task) return null;
+    const selectedTasks = customerOpenTasks;
+    const includesDeviceDemo = selectedTasks.some(t => t.openTaskType === 'device_demo');
 
-    const isValid = visitTime && visitTasks.length > 0 && waterSource;
-
-    const handleDeviceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const val = e.target.value;
-        if (!val) {
-            setSelectedDeviceModelId(null);
-            setRequestedDeviceName('');
-            return;
-        }
-        const id = Number(val);
-        setSelectedDeviceModelId(id);
-        const device = deviceModels.find(d => d.id === id);
-        setRequestedDeviceName(device?.nameAr || device?.name || '');
-    };
+    const isValid =
+        visitTime &&
+        selectedTasks.length > 0 &&
+        (!includesDeviceDemo || !!waterSource);
 
     const handleSave = async () => {
         if (!isValid || saving) return;
         setSaving(true);
         try {
+            const selectedTaskEntries: SelectedTaskEntry[] = selectedTasks.map(t => ({
+                taskListItemId: t.taskListItemId,
+                openTaskId: t.openTaskId,
+                taskType: t.openTaskType || 'device_demo',
+            }));
             await onSave({
                 visitTime,
-                visitTasks,
-                waterSource,
-                requestedDeviceModelId: selectedDeviceModelId,
-                requestedDeviceName,
+                selectedTaskEntries,
+                waterSource: includesDeviceDemo ? waterSource : '',
+                requestedDeviceModelId: null,
+                requestedDeviceName: '',
                 technicianNotes,
             });
             onClose();
         } catch {
-            // Error is handled by the caller; keep modal open so user can retry
+            // Caller handles error; keep modal open for retry.
         } finally {
             setSaving(false);
         }
@@ -123,7 +116,7 @@ export default function AppointmentSchedulerModal({ isOpen, onClose, task, entit
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
-                {/* Compact header */}
+                {/* Header */}
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-emerald-50 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
@@ -131,7 +124,7 @@ export default function AppointmentSchedulerModal({ isOpen, onClose, task, entit
                         </div>
                         <div>
                             <h2 className="text-lg font-bold text-slate-800">جدولة موعد زيارة تسويقية</h2>
-                            <p className="text-xs text-slate-500">{task.name} &middot; {defaultDate}</p>
+                            <p className="text-xs text-slate-500">{customerName} &middot; {defaultDate}</p>
                         </div>
                     </div>
                     <button onClick={onClose} disabled={saving} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-colors">
@@ -158,87 +151,48 @@ export default function AppointmentSchedulerModal({ isOpen, onClose, task, entit
                         />
                     </div>
 
-                    {/* Visit Tasks */}
                     <div className="space-y-2">
                         <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                            <FileText className="w-4 h-4 text-emerald-500" />مهام الزيارة <span className="text-red-500">*</span>
+                            <FileText className="w-4 h-4 text-emerald-500" />
+                            المهام المرتبطة بهذا الموعد
                         </label>
-                        <div className="flex flex-wrap gap-2">
-                            {VISIT_TASK_OPTIONS.map(opt => {
-                                const checked = visitTasks.includes(opt.value);
-                                return (
-                                    <label
-                                        key={opt.value}
-                                        className={`flex items-center gap-2 px-4 py-2 rounded-xl border cursor-pointer transition-colors text-sm font-bold ${
-                                            checked
-                                                ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
-                                                : 'bg-slate-50 border-gray-200 text-slate-500 hover:border-emerald-300'
-                                        }`}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={checked}
-                                            onChange={() => {
-                                                if (checked) return;
-                                                setVisitTasks([opt.value]);
-                                            }}
-                                            className="accent-emerald-600"
-                                        />
-                                        {opt.label}
-                                    </label>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Requested Device */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                            <Monitor className="w-4 h-4 text-emerald-500" />الجهاز المطلوب عرضه
-                        </label>
-                        {loadingDevices ? (
-                            <div className="flex items-center gap-2 text-sm text-slate-400 py-2">
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                جاري تحميل قائمة الأجهزة...
-                            </div>
-                        ) : deviceModels.length > 0 ? (
-                            <select
-                                value={selectedDeviceModelId ?? ''}
-                                onChange={handleDeviceSelect}
-                                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                            >
-                                <option value="">اختر الجهاز المطلوب عرضه...</option>
-                                {deviceModels.map(d => (
-                                    <option key={d.id} value={d.id}>{d.nameAr || d.name}</option>
-                                ))}
-                            </select>
+                        {customerOpenTasks.length === 0 ? (
+                            <p className="text-sm text-slate-400 bg-slate-50 rounded-xl px-4 py-3 border border-slate-200">
+                                لا توجد مهام مفتوحة مرتبطة بهذا الزبون
+                            </p>
                         ) : (
-                            <input
-                                type="text"
-                                value={requestedDeviceName}
-                                onChange={e => setRequestedDeviceName(e.target.value)}
-                                placeholder="اكتب اسم الجهاز المطلوب عرضه..."
-                                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm placeholder:text-gray-400 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                            />
+                            <div className="text-sm text-slate-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 space-y-2">
+                                {customerOpenTasks.map(task => (
+                                    <div key={task.taskListItemId} className="flex items-center justify-between gap-3">
+                                        <span className="font-bold">{getTaskLabel(task.openTaskType)}</span>
+                                        {task.openTaskReason && (
+                                            <span className="text-[10px] bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-emerald-700">
+                                                {task.openTaskReason}
+                                            </span>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
                         )}
                     </div>
 
-                    {/* Water Source */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                            <Droplets className="w-4 h-4 text-blue-500" />مصدر المياه الحالي <span className="text-red-500">*</span>
-                        </label>
-                        <select
-                            value={waterSource}
-                            onChange={e => setWaterSource(e.target.value)}
-                            className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                        >
-                            <option value="">-- اختر مصدر المياه --</option>
-                            {WATER_SOURCE_OPTIONS.map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                        </select>
-                    </div>
+                    {includesDeviceDemo && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                                <Droplets className="w-4 h-4 text-blue-500" />مصدر المياه الحالي <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                value={waterSource}
+                                onChange={e => setWaterSource(e.target.value)}
+                                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                            >
+                                <option value="">-- اختر مصدر المياه --</option>
+                                {WATER_SOURCE_OPTIONS.map(opt => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
 
                     {/* Technician Notes */}
                     <div className="space-y-2">

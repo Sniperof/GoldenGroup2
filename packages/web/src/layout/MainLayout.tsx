@@ -14,7 +14,7 @@ import {
     ClipboardList, UsersRound, MapPinned, ChevronDown, Gem, Eye,
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
-    ChevronLeft, ChevronRight, Target, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield
+    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor
 } from 'lucide-react';
 
 const navItems = [
@@ -33,13 +33,14 @@ const recordsChildren = [
 ];
 
 const operationsChildren = [
+    { path: '/tasks/open', label: 'المهام المفتوحة', icon: ListChecks },
+    { path: '/tasks/device-demo', label: 'عروض الأجهزة', icon: Monitor },
     { path: '/tasks/today', label: 'مهام اليوم', icon: Calendar },
     { path: '/tasks/emergency', label: 'طوارئ', icon: AlertTriangle },
     { path: '/tasks/dues', label: 'مستحقات', icon: DollarSign },
     { path: '/tasks/periodic', label: 'صيانة دورية', icon: RefreshCw },
     { path: '/tasks/returns', label: 'إرجاع', icon: RotateCcw },
     { path: '/tasks/followup', label: 'متابعة', icon: PhoneCall },
-    { path: '/operations/marketing', label: 'عمليات التسويق', icon: Target },
 ];
 
 const planningChildren = [
@@ -300,23 +301,6 @@ export default function MainLayout() {
                     >
                         <Calendar className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
                         <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>زيارات التسويق</span>
-                    </NavLink>
-                    )}
-
-                    {/* Open Tasks (Marketing) */}
-                    {canSeeBranchModules && can('marketing_visits.view') && (
-                    <NavLink
-                        to="/open-tasks"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
-                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                            } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
-                        }
-                    >
-                        <ListChecks className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
-                        <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>المهام التسويقية</span>
                     </NavLink>
                     )}
 

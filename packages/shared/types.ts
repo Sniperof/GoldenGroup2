@@ -120,7 +120,7 @@ export interface Employee {
     residenceNeighborhoodId?: number | null;
     residenceNeighborhood?: string | null;
     detailedAddress?: string | null;
-    status: 'active' | 'leave' | 'inactive';
+    status: 'active' | 'vacation' | 'suspended' | 'terminated';
     canAppearInSchedule?: boolean;
     teamSlotType?: 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' | null;
     avatar?: string;
@@ -232,6 +232,37 @@ export interface ClientAssignment {
     roleDisplayName: string | null;
 }
 
+export type CustomerOwnershipType =
+    | 'personal_single_supervisor'
+    | 'personal_single_technician'
+    | 'personal_multi'
+    | 'company_branch'
+    | 'company_global';
+
+export type CompanyOwnershipScope = 'branch' | 'global';
+
+export type EffectiveOwnershipReason =
+    | 'personal_assignment_active'
+    | 'company_default_unassigned'
+    | 'company_default_non_owner_assignments_ignored'
+    | 'company_reclaimed_op_fop';
+
+export interface PersonalOwnershipAssignment {
+    userId: number;
+    userName: string;
+    roleDisplayName: string | null;
+    teamSlotType: 'SUPERVISOR' | 'TECHNICIAN';
+    employeeId: number | null;
+}
+
+export interface CustomerOwnership {
+    ownerType: CustomerOwnershipType;
+    ownerLabel: string;
+    personalAssignments: PersonalOwnershipAssignment[];
+    companyOwnershipScope: CompanyOwnershipScope;
+    effectiveOwnershipReason: EffectiveOwnershipReason;
+}
+
 export interface CandidateAssignment {
     userId: number;
     userName: string;
@@ -274,6 +305,7 @@ export interface Client {
     branchId?: number | null;
     branchName?: string | null;
     assignments?: ClientAssignment[];
+    ownership?: CustomerOwnership;
     createdByUserId?: number | null;
     createdByUserName?: string | null;
     createdByRoleDisplayName?: string | null;
@@ -328,8 +360,32 @@ export interface Visit {
 
 export type MarketingVisitType = 'marketing';
 
-export type MarketingVisitStatus =
+export type MarketingVisitStage =
     | 'scheduled'
+    | 'in_visit'
+    | 'ended'
+    | 'cancelled'
+    | 'needs_reschedule';
+
+export type MarketingVisitCompletionState =
+    | 'completed'
+    | 'not_completed'
+    | null;
+
+export type MarketingVisitStatus =
+    | MarketingVisitStage
+    | Exclude<MarketingVisitCompletionState, null>;
+
+// General status for field_visits (the core visit table).
+// Superset of MarketingVisitStatus — adds 'ended' and 'in_progress'.
+// ended   = field execution finished, awaiting result recording.
+// completed = all visit_tasks have recorded final results (auto-set by rule).
+// Marketing visits skip 'ended' because result recording and visit completion are one step.
+// Emergency visits go: scheduled → ended (result recorded) → completed (auto via rule).
+export type FieldVisitStatus =
+    | 'scheduled'
+    | 'in_progress'
+    | 'ended'
     | 'completed'
     | 'not_completed'
     | 'postponed_by_company'
@@ -347,6 +403,19 @@ export type MarketingVisitTaskResult =
     | 'cash_offer_not_closed'
     | 'installment_offer_not_closed'
     | 'demo_not_completed';
+
+export type MarketingVisitTaskOutcome =
+  | 'offer_presented'
+  | 'device_sold'
+  | 'rescheduled'
+  | 'cancelled';
+
+export const MARKETING_VISIT_TASK_OUTCOME_LABELS: Record<MarketingVisitTaskOutcome, string> = {
+  offer_presented: 'تقديم عرض (بدون بيع)',
+  device_sold: 'تم البيع',
+  rescheduled: 'إعادة جدولة الزيارة',
+  cancelled: 'إلغاء الزيارة',
+};
 
 export type MarketingVisitSourceType = 'telemarketing_appointment';
 
@@ -372,6 +441,7 @@ export interface MarketingVisitTask {
     taskType: MarketingVisitTaskType;
     status: MarketingVisitTaskStatus;
     result?: MarketingVisitTaskResult | null;
+    offers?: MarketingVisitTaskOfferInput[] | null;
     cashOfferAmount?: number | null;
     installmentAmount?: number | null;
     installmentMonths?: number | null;
@@ -381,6 +451,28 @@ export interface MarketingVisitTask {
     completedAt?: string | null;
     createdAt: string;
     updatedAt: string;
+    currency?: string | null;
+    discountPercentage?: number | null;
+    soldDeviceModelId?: number | null;
+    soldDeviceModelName?: string | null;
+    offeredDeviceModelId?: number | null;
+    offeredDeviceModelName?: string | null;
+    noClosingReason?: string | null;
+    outcome?: MarketingVisitTaskOutcome | null;
+    offerType?: 'cash' | 'installment' | null;
+    hasDiscount?: boolean | null;
+    isDeviceSold?: boolean | null;
+    saleReferenceNumber?: string | null;
+    cancellationReasonId?: number | null;
+    cancellationReasonName?: string | null;
+    rescheduleReasonId?: number | null;
+    rescheduleReasonName?: string | null;
+    followUpDueDate?: string | null;
+    cancellationReason?: string | null;
+    rescheduleReason?: string | null;
+    sourceOpenTaskId?: number | null;
+    openTaskPriority?: 'high' | 'medium' | 'low' | null;
+    openTaskDueDate?: string | null;
 }
 
 export interface MarketingVisit {
@@ -416,6 +508,7 @@ export interface MarketingVisit {
     clientDetailedAddress?: string | null;
     clientGpsCoordinates?: { lat: number; lng: number } | null;
     branchName?: string | null;
+    ownership?: CustomerOwnership;
     referrerName?: string | null;
     supervisorEmployeeId?: number | null;
     technicianEmployeeId?: number | null;
@@ -432,15 +525,64 @@ export interface MarketingVisit {
     updatedAt: string;
 }
 
+export interface MarketingVisitTaskOfferInput {
+    deviceModelId: number;
+    offerType: 'cash' | 'installment';
+    quantity: number;
+    totalAmount: number;
+    firstPaymentAmount?: number | null;
+    installmentMonths?: number | null;
+    currency: string;
+    discountPercentage?: number | null;
+    closedByEmployeeId?: number | null;
+    noClosingReason?: string | null;
+    customerResponse: 'accepted' | 'rejected' | 'extension_requested' | null;
+    rejectionReasonId?: number | null;
+    extensionReasonId?: number | null;
+    extensionDueDate?: string | null;
+    saleReferenceNumber?: string | null;
+}
+
 export interface MarketingVisitResultUpdateRequest {
     status: MarketingVisitStatus;
+    outcome?: MarketingVisitTaskOutcome;
     taskResult?: MarketingVisitTaskResult | null;
+    offers?: MarketingVisitTaskOfferInput[] | null;
+    offerType?: 'cash' | 'installment' | null;
     cashOfferAmount?: number | null;
     installmentAmount?: number | null;
     installmentMonths?: number | null;
+    currency?: string | null;
+    discountPercentage?: number | null;
     closedByEmployeeId?: number | null;
+    noClosingReason?: string | null;
+    soldDeviceModelId?: number | null;
+    offeredDeviceModelId?: number | null;
+    rescheduleReasonId?: number | null;
+    followUpDueDate?: string | null;
+    cancellationReasonId?: number | null;
     nonCompletionReason?: MarketingVisitNonCompletionReason | null;
     notes?: string | null;
+}
+
+export interface MarketingVisitTaskOutcomeRequest extends Omit<MarketingVisitResultUpdateRequest, 'status' | 'taskResult' | 'nonCompletionReason'> {}
+
+export interface MarketingVisitLifecycleTaskUpdate {
+    openTaskId: number;
+    priority: 'high' | 'medium' | 'low';
+    dueDate?: string | null;
+}
+
+export interface MarketingVisitRescheduleRequest {
+    rescheduleReasonId: number;
+    notes?: string | null;
+    taskUpdates: MarketingVisitLifecycleTaskUpdate[];
+}
+
+export interface MarketingVisitCancelRequest {
+    cancellationReasonId: number;
+    notes?: string | null;
+    taskUpdates: MarketingVisitLifecycleTaskUpdate[];
 }
 
 export interface TeamSlot {
@@ -450,13 +592,18 @@ export interface TeamSlot {
     trainee?: number | null;
 }
 
-export interface SoloSlot {
+export interface EmergencySlot {
     technician: number | null;
+    trainee?: number | null;
+    telemarketers?: number[];
 }
+
+/** @deprecated Use EmergencySlot */
+export type SoloSlot = EmergencySlot;
 
 export interface DaySchedule {
     teams: TeamSlot[];
-    solos: SoloSlot[];
+    solos: EmergencySlot[];
 }
 
 export interface RouteComposition {
@@ -469,6 +616,7 @@ export interface RouteComposition {
 export interface RouteAssignmentData {
     routes: RouteComposition[];
     extraZones: number[];
+    stationOrder?: number[];
 }
 
 export interface Task {
@@ -588,6 +736,19 @@ export interface MaintenanceRequest {
     };
 }
 
+/**
+ * Canonical status values for the contact_targets table.
+ * 'in_call_list' is a legacy alias for 'queued' — still handled in transition
+ * guards but never written by current code. 'cancelled' appears only in UI
+ * labels and has no write path.
+ */
+export type ContactTargetStatus =
+  | 'new'           // created, not yet added to a call list
+  | 'queued'        // added to today's call list via generate-from-plan
+  | 'contacted'     // call made, no appointment booked
+  | 'booked'        // appointment created — terminal for telemarketing flow
+  | 'closed';       // not interested / service request / no action needed
+
 export type CallOutcome =
   // Legacy (kept for backward compatibility)
   | 'no_answer'
@@ -615,7 +776,9 @@ export type CallOutcome =
   // Group 5: Appointment booking
   | 'booked_marketing_appointment'
   // Free call specific
-  | 'new_number';
+  | 'new_number'
+  // Text message
+  | 'message_sent';
 
 export interface TaskListItem {
     id: string;
@@ -634,6 +797,7 @@ export interface TaskListItem {
     openTaskReason: string | null;
     openTaskType: string | null;
     openTaskStatus: string | null;
+    ownership?: CustomerOwnership | null;
 }
 
 export interface TaskList {
@@ -656,7 +820,7 @@ export interface CallLog {
     notes: string;
     timestamp: string;
     calledBy?: number;
-    communicationMethod?: 'phone' | 'whatsapp_text' | 'whatsapp_voice';
+    communicationMethod?: 'phone' | 'cellular_text' | 'whatsapp_text' | 'whatsapp_voice';
     contactTargetId?: number;
     taskListItemId?: string;
 }
@@ -688,7 +852,13 @@ export interface Appointment {
 
 export const WORKING_HOURS = { start: 9, end: 17, slotMinutes: 60 };
 
-export type EmergencyTicketStatus = 'New' | 'Assigned' | 'In Progress' | 'Completed' | 'Cancelled';
+export type EmergencyTicketStatus =
+    | 'New'
+    | 'Assigned'
+    | 'In Progress'
+    | 'Completed'
+    | 'Cancelled'
+    | OpenTaskStatus;
 export type EmergencyTicketPriority = 'Critical' | 'High' | 'Normal';
 
 export interface EmergencyTicket {
@@ -702,10 +872,11 @@ export interface EmergencyTicket {
     problemDescription: string;
     callNotes?: string;
     attachments: string[];
-    callReceiver: string;
+    callReceiver: string | null;
     priority: EmergencyTicketPriority;
     status: EmergencyTicketStatus;
     assignedTechnicianId: number | null;
+    openTaskId: number | null;
     createdAt: string;
 }
 
@@ -783,6 +954,7 @@ export interface JobVacancy {
   requiredSkills: string | null;
   responsibilities: string | null;
   drivingLicenseRequired: boolean;
+  hasCarRequired: boolean;
   vacancyCount: number;
   startDate: string;
   endDate: string;
@@ -812,6 +984,7 @@ export interface Applicant {
   specialization?: string | null;
   previousEmployment: string;
   drivingLicense: string | boolean | null;
+  hasCar?: boolean | null;
   expectedSalary: number | null;
   computerSkills: string | null;
   foreignLanguages: string | null;
@@ -952,7 +1125,7 @@ export interface TrainingCourseDetail extends TrainingCourse {
 
 // Open Task types
 export type OpenTaskStatus = 'open' | 'in_contact_list' | 'scheduled' | 'in_visit' | 'completed' | 'cancelled' | 'needs_reschedule';
-export type OpenTaskType = 'device_demo';
+export type OpenTaskType = 'device_demo' | 'emergency_maintenance';
 export type OpenTaskFamily = 'marketing' | 'service' | 'maintenance';
 export type OpenTaskReason = 'new_lead' | 'follow_up' | 'renewal' | 'service_request' | 'other';
 
@@ -973,6 +1146,33 @@ export interface OpenTask {
   createdBy: number | null;
   createdAt: string;
   updatedAt: string;
+  clientSnapshot?: {
+    name: string;
+    mobile: string;
+    contacts: ContactEntry[];
+    address: {
+      governorate: string;
+      district: string;
+      subArea: string;
+      neighborhood: string;
+      detailed: string;
+    };
+    rating: ClientRating;
+    clientType: string;
+  };
+  contractSnapshot?: {
+    contractNumber: string;
+    deviceModel: string;
+    serialNumber: string;
+    installationDate: string;
+    status: string;
+  } | null;
+  teamSnapshot?: {
+    supervisor?: { id: number; name: string };
+    technician?: { id: number; name: string };
+    trainee?: { id: number; name: string };
+    assignedAt: string;
+  } | null;
   // Joined fields (from API)
   clientName?: string;
   clientMobile?: string;
@@ -982,20 +1182,22 @@ export interface OpenTask {
   branchName?: string;
   createdByName?: string;
   assignments: Array<{ userId: number; userName: string; roleDisplayName: string }>;
+  ownership?: CustomerOwnership;
 }
 
 export const OPEN_TASK_STATUS_LABELS: Record<OpenTaskStatus, string> = {
-  open: 'مفتوحة',
+  open: 'قيد الانتظار',            // was: مفتوحة — technical value stays 'open'
   in_contact_list: 'ضمن قائمة الاتصال',
-  scheduled: 'موعد مثبت',
-  in_visit: 'ضمن زيارة',
+  scheduled: 'مجدولة',             // was: موعد مثبت
+  in_visit: 'في الزيارة',          // was: ضمن زيارة
   completed: 'مكتملة',
   cancelled: 'ملغاة',
-  needs_reschedule: 'تحتاج إعادة جدولة',
+  needs_reschedule: 'تحتاج متابعة', // was: تحتاج إعادة جدولة — not a terminal state, awaits follow-up
 };
 
 export const OPEN_TASK_TYPE_LABELS: Record<OpenTaskType, string> = {
   device_demo: 'عرض جهاز',
+  emergency_maintenance: 'صيانة طارئة',
 };
 
 export const OPEN_TASK_REASON_LABELS: Record<OpenTaskReason, string> = {
@@ -1010,6 +1212,42 @@ export const OPEN_TASK_FAMILY_LABELS: Record<OpenTaskFamily, string> = {
   marketing: 'تسويق',
   service: 'خدمة',
   maintenance: 'صيانة',
+};
+
+// ── Emergency Maintenance Result ──────────────────────────────────────────────
+// Canonical list of final decisions for emergency_maintenance visit tasks.
+// Each value maps to a specific open_task status transition (see mapping below).
+// These values are validated on the backend in POST /open-tasks/:id/emergency-result.
+export type EmergencyFinalDecision =
+  | 'resolved'           // → open_task: completed
+  | 'partially_resolved' // → open_task: needs_reschedule
+  | 'unresolved'         // → open_task: needs_reschedule
+  | 'needs_followup'     // → open_task: needs_reschedule
+  | 'cancelled';         // → open_task: cancelled
+
+export const EMERGENCY_FINAL_DECISION_LABELS: Record<EmergencyFinalDecision, string> = {
+  resolved:           'تم الحل نهائياً',
+  partially_resolved: 'تم الحل جزئياً',
+  unresolved:         'لم تُحَل',
+  needs_followup:     'تحتاج متابعة',
+  cancelled:          'إلغاء نهائي',
+};
+
+export const EMERGENCY_FINAL_DECISION_DESCRIPTIONS: Record<EmergencyFinalDecision, string> = {
+  resolved:           'المشكلة حُلّت بالكامل — تُنهى المهمة',
+  partially_resolved: 'المشكلة حُلّت جزئياً — تحتاج متابعة',
+  unresolved:         'لم يتمكن الفني من الحل — تحتاج إعادة جدولة',
+  needs_followup:     'يُوصى بزيارة متابعة',
+  cancelled:          'المهمة ملغاة',
+};
+
+// Derived open_task status from emergency final decision
+export const EMERGENCY_DECISION_TO_TASK_STATUS: Record<EmergencyFinalDecision, string> = {
+  resolved:           'completed',
+  partially_resolved: 'needs_reschedule',
+  unresolved:         'needs_reschedule',
+  needs_followup:     'needs_reschedule',
+  cancelled:          'cancelled',
 };
 
 export interface CreateTrainingCourseRequest {
@@ -1059,6 +1297,7 @@ export interface JobApplicationListItem extends JobApplication {
   vacancyRequiredExperienceYears?: number | null;
   vacancyRequiredSkills?: string | null;
   vacancyDrivingLicenseRequired?: boolean | null;
+  vacancyHasCarRequired?: boolean | null;
   hasScheduledInterview?: boolean;
 }
 

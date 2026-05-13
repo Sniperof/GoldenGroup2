@@ -48,7 +48,7 @@ const emptyVacancy: Partial<JobVacancy> = {
   requiredAgeMin: null, requiredAgeMax: null, contactMethods: [],
   requiredCertificate: null, requiredMajor: null,
   requiredExperienceYears: null, requiredSkills: null, responsibilities: null,
-  drivingLicenseRequired: false, vacancyCount: 1,
+  drivingLicenseRequired: false, hasCarRequired: false, vacancyCount: 1,
   startDate: '', endDate: '',
 };
 
@@ -426,6 +426,13 @@ export default function Vacancies() {
           </div>
           <span className="text-sm font-medium text-slate-700">يُشترط امتلاك رخصة قيادة</span>
         </label>
+        <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${formData.hasCarRequired ? 'border-sky-400 bg-sky-50' : 'border-slate-200 bg-white hover:border-sky-200'}`}>
+          <input type="checkbox" checked={formData.hasCarRequired || false} onChange={e => setField('hasCarRequired', e.target.checked)} disabled={isFieldLocked('full')} className="sr-only" />
+          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${formData.hasCarRequired ? 'bg-sky-500 border-sky-500' : 'border-slate-300'}`}>
+            {formData.hasCarRequired && <div className="w-2 h-2 bg-white rounded-full" />}
+          </div>
+          <span className="text-sm font-medium text-slate-700">هل يمتلك المتقدم سيارة</span>
+        </label>
       </div>
 
       {/* Education */}
@@ -516,6 +523,8 @@ export default function Vacancies() {
             { l: 'الجنس', v: formData.requiredGender || 'لا يهم' },
             { l: 'الشهادة', v: formData.requiredCertificate || '—' },
             { l: 'وسائل التواصل', v: `${(formData.contactMethods || []).length} وسيلة` },
+            { l: 'رخصة القيادة', v: formData.drivingLicenseRequired ? 'مطلوبة' : 'غير مطلوبة' },
+            { l: 'هل يمتلك سيارة', v: formData.hasCarRequired ? 'مطلوب' : 'غير مطلوب' },
           ].map(({ l, v }) => (
             <div key={l}>
               <p className="text-[10px] text-slate-400">{l}</p>

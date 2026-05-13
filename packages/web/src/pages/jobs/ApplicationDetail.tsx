@@ -189,6 +189,10 @@ function buildEmployeeInitialValuesFromApplication(detail: JobApplicationDetail)
           : '',
     maritalStatus: detail.applicant?.maritalStatus ?? '',
     detailedAddress: detail.applicant?.detailedAddress ?? '',
+    applicantGovernorate: detail.applicant?.governorate ?? '',
+    applicantCityOrArea: detail.applicant?.cityOrArea ?? '',
+    applicantSubArea: detail.applicant?.subArea ?? '',
+    applicantNeighborhood: detail.applicant?.neighborhood ?? '',
     contacts: buildApplicationContacts(detail),
     academicQualification: detail.applicant?.academicQualification ?? '',
     specialization: detail.applicant?.specialization ?? '',
@@ -242,13 +246,6 @@ export default function ApplicationDetail() {
   const [interviewerOptions, setInterviewerOptions] = useState<InterviewerOption[]>([]);
   const [loadingInterviewers, setLoadingInterviewers] = useState(false);
 
-  // ── Create Training Course inline ──
-  const [showCreateTrainingModal, setShowCreateTrainingModal] = useState(false);
-  const [trainingForm, setTrainingForm] = useState({
-    training_name: '', branch: '', device_name: '', trainer: '', start_date: '', end_date: '', notes: '',
-  });
-  const [trainingFormError, setTrainingFormError] = useState('');
-  const [trainingSubmitting, setTrainingSubmitting] = useState(false);
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [employeeLoading, setEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState('');
@@ -360,6 +357,7 @@ export default function ApplicationDetail() {
     setInterviewSubmitting(true);
     try {
       await storeScheduleInterview({
+        jobVacancyId: Number(detail?.vacancy?.id),
         applicationId: Number(id),
         interviewType: interviewForm.interviewType,
         interviewNumber: interviewForm.interviewNumber,
@@ -376,43 +374,6 @@ export default function ApplicationDetail() {
       setInterviewFormError(err.message);
     } finally {
       setInterviewSubmitting(false);
-    }
-  };
-
-  const handleCreateTraining = async () => {
-    if (!detail) return;
-    if (!trainingForm.training_name.trim()) { setTrainingFormError('اسم الدورة مطلوب'); return; }
-    if (!trainingForm.branch.trim()) { setTrainingFormError('الفرع مطلوب'); return; }
-    if (!trainingForm.trainer.trim()) { setTrainingFormError('اسم المدرب مطلوب'); return; }
-    if (!trainingForm.start_date || !trainingForm.end_date) { setTrainingFormError('تواريخ الدورة مطلوبة'); return; }
-    setTrainingFormError('');
-    setTrainingSubmitting(true);
-    try {
-      const res = await authFetch('/api/admin/training-courses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          training_name: trainingForm.training_name,
-          job_vacancy_id: detail.jobVacancyId,
-          branch: trainingForm.branch,
-          device_name: trainingForm.device_name || undefined,
-          trainer: trainingForm.trainer,
-          start_date: trainingForm.start_date,
-          end_date: trainingForm.end_date,
-          notes: trainingForm.notes || undefined,
-          trainee_application_ids: [Number(id)],
-        }),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-      const data = await res.json();
-      setShowCreateTrainingModal(false);
-      setTrainingForm({ training_name: '', branch: '', device_name: '', trainer: '', start_date: '', end_date: '', notes: '' });
-      fetchDetail();
-      navigate(`/jobs/training-courses/${data.id}`);
-    } catch (err: any) {
-      setTrainingFormError(err.message);
-    } finally {
-      setTrainingSubmitting(false);
     }
   };
 
@@ -825,7 +786,7 @@ export default function ApplicationDetail() {
                 <InfoRow label="سنوات الخبرة" value={detail.applicant?.yearsOfExperience != null ? `${detail.applicant.yearsOfExperience} سنة` : '—'} />
                 <InfoRow label="جهة العمل السابقة" value={detail.applicant?.previousEmployment || '—'} />
               </div>
-              <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-3 gap-3">
+              <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-slate-50 rounded-xl p-3">
                   <p className="text-[10px] text-slate-400 mb-1 flex items-center gap-1"><Monitor className="w-3 h-3" /> مهارات الحاسب</p>
                   <p className="text-xs text-slate-700 font-medium leading-relaxed">{detail.applicant?.computerSkills || '—'}</p>
@@ -840,6 +801,16 @@ export default function ApplicationDetail() {
                     {detail.applicant?.drivingLicense && detail.applicant.drivingLicense !== 'false'
                       ? <span className="text-emerald-600">نعم</span>
                       : <span className="text-slate-400">لا</span>}
+                  </p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] text-slate-400 mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> هل تمتلك سيارة</p>
+                  <p className="text-xs font-bold">
+                    {detail.applicant?.hasCar === true
+                      ? <span className="text-emerald-600">نعم</span>
+                      : detail.applicant?.hasCar === false
+                        ? <span className="text-slate-400">لا</span>
+                        : <span className="text-slate-400">—</span>}
                   </p>
                 </div>
               </div>
@@ -1220,7 +1191,7 @@ export default function ApplicationDetail() {
               };
               const info = enrollment ? statusMap[enrollment.trainingStatus] : null;
               return (
-                <PermissionGate permission="jobs.training.create">
+                <PermissionGate anyOf={["jobs.training.view_detail", "jobs.training.create"]}>
                   <div className="bg-cyan-50 border border-cyan-200 rounded-2xl p-5 space-y-3">
                     <h3 className="text-[11px] font-bold text-cyan-600 uppercase tracking-widest flex items-center gap-2">
                       <BookOpen className="w-3.5 h-3.5" /> مرحلة التدريب
@@ -1244,17 +1215,9 @@ export default function ApplicationDetail() {
                         </button>
                       </>
                     ) : (
-                      <>
-                        <p className="text-xs text-cyan-700 leading-relaxed">
-                          لم يُسجَّل في دورة تدريبية بعد — يمكنك إنشاء دورة تدريبية مباشرةً من هنا أو من تاب التدريب.
-                        </p>
-                        <button
-                          onClick={() => { setTrainingForm(f => ({ ...f, branch: detail.vacancy?.branch || '' })); setShowCreateTrainingModal(true); }}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-600 text-white transition-all"
-                        >
-                          <Plus className="w-3.5 h-3.5" /> إنشاء دورة تدريبية الآن
-                        </button>
-                      </>
+                      <p className="text-xs text-cyan-700 leading-relaxed">
+                        لم يُسجَّل في دورة تدريبية بعد — يمكنك متابعة الدورات من صفحة إدارة الدورات التدريبية.
+                      </p>
                     )}
                   </div>
                 </PermissionGate>
@@ -1461,14 +1424,6 @@ export default function ApplicationDetail() {
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-sky-500" /> سجل التدريب
             </h3>
-            <PermissionGate permission="jobs.training.create">
-              <button
-                onClick={() => { setTrainingForm(f => ({ ...f, branch: detail.vacancy?.branch || '' })); setShowCreateTrainingModal(true); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg text-xs font-bold transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" /> إنشاء دورة تدريبية
-              </button>
-            </PermissionGate>
           </div>
           {!detail.trainings || detail.trainings.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">لم يُسجَّل في أي دورة تدريبية بعد</p>
@@ -1722,6 +1677,10 @@ export default function ApplicationDetail() {
                       app.drivingLicense ? 'match' : 'mismatch';
                     if (dlMatch === 'match') score += 10;
 
+                    const carMatch: MatchLevel = !vac.hasCarRequired ? 'neutral' :
+                      app.hasCar ? 'match' : 'mismatch';
+                    if (carMatch === 'match') score += 0;
+
                     // 8. Skills (Bonus up to 25 pts)
                     const appSkills = (app.computerSkills || '').toLowerCase();
                     const vacSkills = (vac.requiredSkills || '').split(/[,،\n]/).map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -1733,6 +1692,7 @@ export default function ApplicationDetail() {
                   };
 
                   const { score, certMatch, specMatch, expMatch, locMatch, genderMatch, ageMatch, dlMatch, appAge, vacSkills, appSkills } = calculateMatchScore();
+                  const carMatch: MatchLevel = !vac.hasCarRequired ? 'neutral' : app.hasCar ? 'match' : 'mismatch';
 
                   const rows = [
                     { label: 'المؤهل العلمي', applicant: app.academicQualification || '—', vacancy: vac.requiredCertificate || 'لا يهم', level: certMatch },
@@ -1742,6 +1702,7 @@ export default function ApplicationDetail() {
                     { label: 'الجنس', applicant: app.gender || '—', vacancy: vac.requiredGender || 'لا يهم', level: genderMatch },
                     { label: 'العمر', applicant: appAge != null ? `${appAge} سنة` : '—', vacancy: (vac.requiredAgeMin || vac.requiredAgeMax) ? `${vac.requiredAgeMin || '—'} – ${vac.requiredAgeMax || '—'} سنة` : 'لا يهم', level: ageMatch },
                     { label: 'رخصة القيادة', applicant: app.drivingLicense ? 'نعم' : 'لا', vacancy: vac.drivingLicenseRequired ? 'مطلوبة' : 'غير مطلوبة', level: dlMatch },
+                    { label: 'هل يمتلك سيارة', applicant: app.hasCar ? 'نعم' : 'لا', vacancy: vac.hasCarRequired ? 'مطلوب' : 'غير مطلوب', level: carMatch },
                   ];
 
                   return (
@@ -2003,108 +1964,6 @@ export default function ApplicationDetail() {
                 <button onClick={handleScheduleInterview} disabled={interviewSubmitting}
                   className="px-6 py-2.5 text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
                   {interviewSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري...</> : <><Calendar className="w-4 h-4" /> جدولة المقابلة</>}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Create Training Course Modal ── */}
-      <AnimatePresence>
-        {showCreateTrainingModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={() => setShowCreateTrainingModal(false)}
-          >
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]" dir="rtl"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-cyan-500" /> إنشاء دورة تدريبية
-                </h3>
-                <div className="flex flex-col gap-0.5 text-right">
-                  <span className="text-xs text-slate-500">المتدرب: <span className="font-bold text-slate-700">{detail.applicant?.firstName} {detail.applicant?.lastName}</span></span>
-                  <span className="text-xs text-slate-500">الشاغر: <span className="font-bold text-slate-700">{detail.vacancy?.title}</span></span>
-                </div>
-              </div>
-
-              <div className="px-6 py-5 overflow-y-auto space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">اسم الدورة <span className="text-red-400">*</span></label>
-                  <input type="text" value={trainingForm.training_name}
-                    onChange={e => setTrainingForm(f => ({ ...f, training_name: e.target.value }))}
-                    placeholder="أدخل اسم الدورة التدريبية..."
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 block mb-1.5">الفرع <span className="text-red-400">*</span></label>
-                    <input type="text" value={trainingForm.branch}
-                      onChange={e => setTrainingForm(f => ({ ...f, branch: e.target.value }))}
-                      placeholder="الفرع..."
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 block mb-1.5">اسم المدرب <span className="text-red-400">*</span></label>
-                    <input type="text" value={trainingForm.trainer}
-                      onChange={e => setTrainingForm(f => ({ ...f, trainer: e.target.value }))}
-                      placeholder="اسم المدرب..."
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">الجهاز / الجهاز المستخدم</label>
-                  <input type="text" value={trainingForm.device_name}
-                    onChange={e => setTrainingForm(f => ({ ...f, device_name: e.target.value }))}
-                    placeholder="اسم الجهاز (اختياري)..."
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 block mb-1.5">تاريخ البداية <span className="text-red-400">*</span></label>
-                    <input type="date" value={trainingForm.start_date}
-                      onChange={e => setTrainingForm(f => ({ ...f, start_date: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 block mb-1.5">تاريخ النهاية <span className="text-red-400">*</span></label>
-                    <input type="date" value={trainingForm.end_date}
-                      onChange={e => setTrainingForm(f => ({ ...f, end_date: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">ملاحظات</label>
-                  <textarea value={trainingForm.notes}
-                    onChange={e => setTrainingForm(f => ({ ...f, notes: e.target.value }))}
-                    rows={3} placeholder="ملاحظات إضافية (اختياري)..."
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500 resize-none"
-                  />
-                </div>
-                {trainingFormError && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />{trainingFormError}
-                  </div>
-                )}
-              </div>
-
-              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
-                <button onClick={() => setShowCreateTrainingModal(false)}
-                  className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
-                  إلغاء
-                </button>
-                <button onClick={handleCreateTraining} disabled={trainingSubmitting}
-                  className="px-6 py-2.5 text-sm font-bold text-white bg-cyan-500 hover:bg-cyan-600 rounded-xl shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
-                  {trainingSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري...</> : <><BookOpen className="w-4 h-4" /> إنشاء الدورة</>}
                 </button>
               </div>
             </motion.div>

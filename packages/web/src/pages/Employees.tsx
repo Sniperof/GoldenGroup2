@@ -20,8 +20,9 @@ const ROLE_LABELS: Record<string, string> = {
 
 const STATUS_META: Record<Employee['status'], { label: string; className: string }> = {
   active: { label: 'نشط', className: 'bg-emerald-50 text-emerald-700 border border-emerald-100' },
-  leave: { label: 'إجازة', className: 'bg-amber-50 text-amber-700 border border-amber-100' },
-  inactive: { label: 'غير فعال', className: 'bg-gray-50 text-gray-600 border border-gray-100' },
+  vacation: { label: 'إجازة', className: 'bg-amber-50 text-amber-700 border border-amber-100' },
+  suspended: { label: 'موقوف', className: 'bg-orange-50 text-orange-700 border border-orange-100' },
+  terminated: { label: 'منتهي الخدمة', className: 'bg-gray-50 text-gray-600 border border-gray-100' },
 };
 
 function getEmployeeResidenceTableLabel(employee: Employee) {
@@ -145,13 +146,12 @@ export default function Employees() {
     {
       key: 'status',
       label: 'جميع الحالات',
-      options: STATUS_META
-        ? [
-            { value: 'active', label: 'نشط' },
-            { value: 'leave', label: 'إجازة' },
-            { value: 'inactive', label: 'غير فعال' },
-          ]
-        : [],
+      options: [
+        { value: 'active', label: 'نشط' },
+        { value: 'vacation', label: 'إجازة' },
+        { value: 'suspended', label: 'موقوف' },
+        { value: 'terminated', label: 'منتهي الخدمة' },
+      ],
     },
   ];
 

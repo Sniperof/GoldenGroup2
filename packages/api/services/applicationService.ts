@@ -48,7 +48,9 @@ export async function createPublicApplication(body: any): Promise<PublicApplicat
     if (!a.gender) throw createServiceError(400, { error: 'الجنس مطلوب' });
     if (!a.maritalStatus) throw createServiceError(400, { error: 'الحالة الاجتماعية مطلوبة' });
     if (!a.governorate?.trim()) throw createServiceError(400, { error: 'المحافظة مطلوبة' });
-    if (!body.jobVacancyId) throw createServiceError(400, { error: 'معرّف الشاغر الوظيفي مطلوب' });
+    if (!a.detailedAddress?.trim()) throw createServiceError(400, { error: 'العنوان التفصيلي مطلوب' });
+    if (typeof a.hasCar !== 'boolean') throw createServiceError(400, { error: 'يرجى تحديد هل تمتلك سيارة' });
+    if (!body.jobVacancyId) throw createServiceError(400, { error: 'الشاغر الوظيفي حقل إلزامي' });
 
     const submissionType = body.submissionType;
     if (!['Apply', 'Refer a Candidate'].includes(submissionType)) {

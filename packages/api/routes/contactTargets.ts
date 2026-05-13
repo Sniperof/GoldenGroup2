@@ -1,5 +1,12 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import {
+  buildCustomerOwnershipSelectColumns,
+  buildCustomerOwnershipSql,
+  mapCustomerOwnership,
+} from '../services/customerOwnership.js';
+
+const ACTIVE_OPEN_TASK_STATUSES = ['open', 'assigned', 'scheduled', 'in_visit', 'in_contact_list', 'needs_reschedule'];
 
 const router = Router();
 
@@ -41,11 +48,15 @@ const marketingTargetSelect = `
     ct.latest_call_outcome AS "latestCallOutcome",
     latest_appointment."latestAppointment",
     ct.created_at AS "createdAt",
-    ct.updated_at AS "updatedAt"
+    ct.updated_at AS "updatedAt",
+    ${buildCustomerOwnershipSelectColumns()}
   FROM contact_targets ct
   JOIN clients c ON c.id = ct.target_id
+  LEFT JOIN branches b ON b.id = ct.branch_id
+  LEFT JOIN branches cb ON cb.id = c.branch_id
   LEFT JOIN hr_users supervisor ON supervisor.id = ct.supervisor_hr_user_id
   LEFT JOIN geo_units zone ON zone.id = ct.zone_id
+  ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
   LEFT JOIN LATERAL (
     SELECT COALESCE(
       json_agg(
@@ -95,6 +106,12 @@ const marketingTargetSelect = `
       FROM contracts contract
       WHERE contract.customer_id = c.id
     )
+    AND EXISTS (
+      SELECT 1
+      FROM open_tasks ot
+      WHERE ot.client_id = c.id
+        AND ot.status = ANY($2::varchar[])
+    )
     AND NOT EXISTS (
       SELECT 1
       FROM visits visit
@@ -109,8 +126,8 @@ router.get('/marketing', async (req, res) => {
     return res.status(400).json({ error: 'A branch context is required' });
   }
 
-  const { rows } = await pool.query(marketingTargetSelect, [branchId]);
-  return res.json(rows);
+  const { rows } = await pool.query(marketingTargetSelect, [branchId, ACTIVE_OPEN_TASK_STATUSES]);
+  return res.json(rows.map((row: any) => ({ ...row, ownership: mapCustomerOwnership(row) })));
 });
 
 router.post('/marketing/sync', async (req, res) => {
@@ -162,6 +179,12 @@ router.post('/marketing/sync', async (req, res) => {
           FROM contracts contract
           WHERE contract.customer_id = c.id
         )
+        AND EXISTS (
+          SELECT 1
+          FROM open_tasks ot
+          WHERE ot.client_id = c.id
+            AND ot.status = ANY(ARRAY['open', 'assigned', 'scheduled', 'in_visit', 'in_contact_list', 'needs_reschedule']::varchar[])
+        )
         AND NOT EXISTS (
           SELECT 1
           FROM visits visit
@@ -177,8 +200,8 @@ router.post('/marketing/sync', async (req, res) => {
     [branchId],
   );
 
-  const { rows } = await pool.query(marketingTargetSelect, [branchId]);
-  return res.json({ targets: rows, count: rows.length });
+  const { rows } = await pool.query(marketingTargetSelect, [branchId, ACTIVE_OPEN_TASK_STATUSES]);
+  return res.json({ targets: rows.map((row: any) => ({ ...row, ownership: mapCustomerOwnership(row) })), count: rows.length });
 });
 
 export default router;

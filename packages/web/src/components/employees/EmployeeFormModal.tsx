@@ -88,6 +88,10 @@ export type EmployeeFormInitialValues = Partial<EmployeeFormValues> & {
   residenceRegionId?: number | null;
   residenceSubAreaId?: number | null;
   residenceNeighborhoodId?: number | null;
+  applicantGovernorate?: string | null;
+  applicantCityOrArea?: string | null;
+  applicantSubArea?: string | null;
+  applicantNeighborhood?: string | null;
 };
 
 interface EmployeeFormModalProps {
@@ -149,8 +153,9 @@ function normalizeSourceChannel(value?: string | null): string {
 
 const STATUS_OPTIONS: Array<{ value: Employee['status']; label: string }> = [
   { value: 'active', label: 'نشط' },
-  { value: 'leave', label: 'إجازة' },
-  { value: 'inactive', label: 'غير فعال' },
+  { value: 'vacation', label: 'إجازة' },
+  { value: 'suspended', label: 'موقوف' },
+  { value: 'terminated', label: 'منتهي الخدمة' },
 ];
 
 type StepKey = 'identity' | 'contact' | 'qualifications' | 'employment' | 'referral';
@@ -194,6 +199,60 @@ function buildGeoSelection(initialValues?: EmployeeFormInitialValues): GeoSelect
     regionId: initialValues?.residenceRegionId ? String(initialValues.residenceRegionId) : '',
     subId: initialValues?.residenceSubAreaId ? String(initialValues.residenceSubAreaId) : '',
     neighborhoodId: initialValues?.residenceNeighborhoodId ? String(initialValues.residenceNeighborhoodId) : '',
+  };
+}
+
+function normalizeGeoText(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/[\s،,]+/g, ' ')
+    .toLowerCase();
+}
+
+function resolveGeoSelectionFromText(geoUnits: GeoUnit[], initialValues?: EmployeeFormInitialValues): GeoSelection | null {
+  const govName = normalizeGeoText(initialValues?.applicantGovernorate);
+  const regionName = normalizeGeoText(initialValues?.applicantCityOrArea);
+  const subName = normalizeGeoText(initialValues?.applicantSubArea);
+  const neighborhoodName = normalizeGeoText(initialValues?.applicantNeighborhood);
+
+  if (!govName && !regionName && !subName && !neighborhoodName) return null;
+
+  const matchesName = (unit: GeoUnit, name: string) => normalizeGeoText(unit.name) === name;
+  const findUnit = (name: string, preferredLevels: number[], parentId?: number | null) => {
+    const candidates = geoUnits.filter((unit) => matchesName(unit, name) && (parentId == null || unit.parentId === parentId));
+    if (candidates.length === 0) return null;
+    return (
+      candidates.find((unit) => preferredLevels.includes(unit.level))
+      ?? candidates[0]
+      ?? null
+    );
+  };
+
+  const gov = govName ? findUnit(govName, [1]) : null;
+  const region = regionName
+    ? findUnit(regionName, [2], gov?.id ?? null)
+      || findUnit(regionName, [2])
+      || findUnit(regionName, [3], gov?.id ?? null)
+      || findUnit(regionName, [3])
+    : null;
+  const sub = subName
+    ? findUnit(subName, [3], region?.id ?? null)
+      || findUnit(subName, [3])
+      || findUnit(subName, [4], region?.id ?? null)
+      || findUnit(subName, [4])
+    : null;
+  const neighborhood = neighborhoodName
+    ? findUnit(neighborhoodName, [4], sub?.id ?? null)
+      || findUnit(neighborhoodName, [4])
+    : null;
+
+  if (!gov && !region && !sub && !neighborhood) return null;
+
+  return {
+    govId: gov?.id ? String(gov.id) : '',
+    regionId: region?.id ? String(region.id) : '',
+    subId: sub?.id ? String(sub.id) : '',
+    neighborhoodId: neighborhood?.id ? String(neighborhood.id) : '',
   };
 }
 
@@ -460,6 +519,22 @@ export default function EmployeeFormModal({
     loadSpecializations();
     return () => { cancelled = true; };
   }, [isOpen, form.academicQualification]);
+
+  useEffect(() => {
+    if (!isOpen || geoUnits.length === 0 || !initialValues) return;
+    const resolved = resolveGeoSelectionFromText(geoUnits, initialValues);
+    if (!resolved) return;
+
+    setForm((current) => ({
+      ...current,
+      geoSelection: {
+        govId: current.geoSelection.govId || resolved.govId,
+        regionId: current.geoSelection.regionId || resolved.regionId,
+        subId: current.geoSelection.subId || resolved.subId,
+        neighborhoodId: current.geoSelection.neighborhoodId || resolved.neighborhoodId,
+      },
+    }));
+  }, [isOpen, geoUnits, initialValues]);
 
   const selectedBranchName = useMemo(() => {
     if (branchLocked && fixedBranchName) return fixedBranchName;

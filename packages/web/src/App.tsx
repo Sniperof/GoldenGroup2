@@ -17,6 +17,7 @@ import PlanOverview from './pages/planning/PlanOverview';
 import PlanningContactTargets from './pages/planning/PlanningContactTargets';
 import TodaysTasks from './pages/tasks/TodaysTasks';
 import EmergencyTasks from './pages/tasks/EmergencyTasks';
+import EmergencyTaskDetail from './pages/tasks/EmergencyTaskDetail';
 import Dues from './pages/tasks/Dues';
 import Periodic from './pages/tasks/Periodic';
 import Returns from './pages/tasks/Returns';
@@ -27,7 +28,8 @@ import ContractList from './pages/contracts/ContractList';
 import ContractForm from './pages/contracts/ContractForm';
 import TelemarketerWorkspace from './pages/TelemarketerWorkspace';
 import TeamTasksDetail from './pages/planning/TeamTasksDetail';
-import MarketingOperations from './pages/tasks/MarketingOperations';
+import DeviceDemo from './pages/tasks/DeviceDemo';
+import DeviceDemoDetail from './pages/tasks/DeviceDemoDetail';
 import MarketingVisitsPage from './pages/MarketingVisitsPage';
 import MarketingVisitDetailsPage from './pages/MarketingVisitDetailsPage';
 import OpenTasks from './pages/OpenTasks';
@@ -47,6 +49,7 @@ import SystemLists from './pages/admin/SystemLists';
 import Roles from './pages/admin/Roles';
 import RolePermissions from './pages/admin/RolePermissions';
 import PermissionSettings from './pages/admin/PermissionSettings';
+import VisitDetailPage from './pages/visits/VisitDetailPage';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -79,14 +82,18 @@ export default function App() {
                         <Route path="/planning/team-tasks/:teamKey" element={<TeamTasksDetail />} />
                         <Route path="/tasks/today" element={<TodaysTasks />} />
                         <Route path="/tasks/emergency" element={<EmergencyTasks />} />
+                        <Route path="/tasks/emergency/:id" element={<EmergencyTaskDetail />} />
                         <Route path="/tasks/dues" element={<Dues />} />
                         <Route path="/tasks/periodic" element={<Periodic />} />
                         <Route path="/tasks/returns" element={<Returns />} />
                         <Route path="/tasks/followup" element={<FollowUp />} />
-                        <Route path="/operations/marketing" element={<MarketingOperations />} />
+                        <Route path="/tasks/open" element={<OpenTasks />} />
+                        <Route path="/tasks/device-demo" element={<DeviceDemo />} />
+                        <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
+                        <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
                         <Route path="/marketing-visits" element={<MarketingVisitsPage />} />
                         <Route path="/marketing-visits/:id" element={<MarketingVisitDetailsPage />} />
-                        <Route path="/open-tasks" element={<OpenTasks />} />
+                        <Route path="/field-visits/:id" element={<VisitDetailPage />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />
 

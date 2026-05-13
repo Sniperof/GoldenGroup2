@@ -11,6 +11,7 @@ export interface JobMatchResult {
   genderMatch: MatchLevel;
   ageMatch: MatchLevel;
   dlMatch: MatchLevel;
+  carMatch: MatchLevel;
   appAge: number | null;
   vacSkills: string[];
   appSkills: string;
@@ -61,6 +62,7 @@ export function calculateJobMatchScore(applicant: Partial<Applicant>, vacancy: P
     gender: 5,
     age: 5,
     drivingLicense: 5,
+    hasCar: 2.5,
   } as const;
 
   const appCertVal = getCertificateLevel(applicant.academicQualification);
@@ -135,6 +137,13 @@ export function calculateJobMatchScore(applicant: Partial<Applicant>, vacancy: P
     : 'mismatch';
   addWeightedScore(weights.drivingLicense, dlMatch, totals);
 
+  const carMatch: MatchLevel = !vacancy.hasCarRequired
+    ? 'neutral'
+    : applicant.hasCar
+    ? 'match'
+    : 'mismatch';
+  addWeightedScore(weights.hasCar, carMatch, totals);
+
   const appSkills = normalizeText(applicant.computerSkills);
   const vacSkills = (vacancy.requiredSkills || '')
     .split(/[,،\n]/)
@@ -150,6 +159,7 @@ export function calculateJobMatchScore(applicant: Partial<Applicant>, vacancy: P
     genderMatch,
     ageMatch,
     dlMatch,
+    carMatch,
     appAge,
     vacSkills,
     appSkills,

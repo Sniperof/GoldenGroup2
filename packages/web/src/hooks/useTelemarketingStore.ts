@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { TaskList, TaskListItem, Appointment, CallLog } from '../lib/types';
 import type { TelemarketingOutcomeCode } from '@golden-crm/shared';
+import type { SelectedTaskEntry } from '../components/telemarketing/AppointmentSchedulerModal';
 import { api } from '../lib/api';
 
 function simpleUUID() {
@@ -18,7 +19,7 @@ interface TelemarketingStore {
     loadData: (date?: string) => Promise<void>;
     generateTaskList: (teamKey: string, date: string, items: Omit<TaskListItem, 'id' | 'status'>[]) => Promise<void>;
     addCallLog: (log: Omit<CallLog, 'id' | 'timestamp'>) => Promise<void>;
-    addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>) => Promise<void>;
+    addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries?: SelectedTaskEntry[]) => Promise<void>;
     updateTaskListItemStatus: (taskListId: string, itemId: string, status: TaskListItem['status'], outcome?: TelemarketingOutcomeCode) => Promise<void>;
     getTaskList: (teamKey: string, date: string) => TaskList | undefined;
     getAppointmentsForTeamDate: (teamKey: string, date: string) => Appointment[];
@@ -78,15 +79,11 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
             timestamp: new Date().toISOString(),
         };
 
-        try {
-            const saved = await api.telemarketing.createCallLog(newLog);
-            set((state) => ({ callLogs: [saved, ...state.callLogs] }));
-        } catch (error) {
-            console.error('Failed to save telemarketing call log:', error);
-        }
+        const saved = await api.telemarketing.createCallLog(newLog);
+        set((state) => ({ callLogs: [saved, ...state.callLogs] }));
     },
 
-    addAppointment: async (appointmentInput) => {
+    addAppointment: async (appointmentInput, selectedTaskEntries) => {
         const isBooked = get().appointments.some(
             (appointment) =>
                 appointment.teamKey === appointmentInput.teamKey &&
@@ -104,7 +101,11 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
             createdAt: new Date().toISOString(),
         };
 
-        const saved = await api.telemarketing.createAppointment(newAppointment);
+        const payload = selectedTaskEntries && selectedTaskEntries.length > 0
+            ? { ...newAppointment, selectedOpenTasks: selectedTaskEntries }
+            : newAppointment;
+
+        const saved = await api.telemarketing.createAppointment(payload);
         set((state) => ({ appointments: [...state.appointments, saved] }));
     },
 

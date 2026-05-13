@@ -94,7 +94,7 @@ export default function TrainingCourses() {
       if (vac?.branchId) {
         setLoadingTrainers(true);
         try {
-          const r = await authFetch(`/api/training-courses/trainers?branchId=${vac.branchId}`);
+          const r = await authFetch(`/api/admin/training-courses/trainers?branchId=${vac.branchId}`);
           const data = await r.json();
           setEligibleTrainers(Array.isArray(data) ? data : []);
         } catch { setEligibleTrainers([]); }

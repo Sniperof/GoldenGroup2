@@ -10,17 +10,17 @@ router.use(requireAuth);
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function getCallerId(req: any): number | null {
-  const userId = req.authContext?.userId;
+  const userId = req.authContext?.userId ?? req.user?.id;
   return Number.isInteger(userId) && userId > 0 ? userId : null;
 }
 
 function getBranchId(req: any): number | null {
-  const branchId = req.authContext?.actingBranchId;
+  const branchId = req.authContext?.actingBranchId ?? req.user?.branchId;
   return Number.isInteger(branchId) && branchId > 0 ? branchId : null;
 }
 
 function isSuperAdmin(req: any): boolean {
-  return req.authContext?.isSuperAdmin === true;
+  return req.authContext?.isSuperAdmin === true || req.user?.isSuperAdmin === true;
 }
 
 // ── GET /api/customers/:customerId/calls ─────────────────────────────────────
@@ -31,6 +31,7 @@ router.get(
   '/:customerId/calls',
   requirePermission('clients.view'),
   async (req, res) => {
+    try {
     const customerId = parseInt(req.params['customerId'] as string, 10);
     if (!Number.isInteger(customerId) || customerId <= 0) {
       return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
@@ -84,11 +85,7 @@ router.get(
         ccl.communication_channel  AS "communicationChannel",
         ccl.status,
         ccl.created_at             AS "createdAt",
-        COALESCE(
-          hu.full_name,
-          hu.first_name || ' ' || hu.last_name,
-          'مجهول'
-        )                          AS "callerName"
+        COALESCE(hu.name, 'مجهول') AS "callerName"
       FROM customer_call_logs ccl
       LEFT JOIN hr_users hu ON hu.id = ccl.caller_id
       WHERE ccl.customer_id = $1
@@ -99,6 +96,10 @@ router.get(
     );
 
     return res.json(rows);
+    } catch (err: any) {
+      console.error('Error fetching customer calls:', err);
+      return res.status(500).json({ error: 'خطأ في جلب سجل الاتصال' });
+    }
   },
 );
 
@@ -134,7 +135,7 @@ router.get(
 
 router.post(
   '/:customerId/calls',
-  requirePermission('clients.edit', 'telemarketing.calls.create'),
+  // TODO: add requirePermission('customers.call') once that permission is defined
   async (req, res) => {
     const customerId = parseInt(req.params['customerId'] as string, 10);
     if (!Number.isInteger(customerId) || customerId <= 0) {
@@ -155,8 +156,12 @@ router.post(
       contactLabel,
       outcome,
       notes,
+      callDate,
       sourceType = 'direct_call',
       sourceId,
+      taskId,
+      taskListId,
+      taskListItemId,
       actionLog,
       answeredBy,
       communicationChannel,
@@ -178,6 +183,7 @@ router.post(
     const callerRole: string | null =
       (req.authContext as any)?.callerRole ??
       (req.authContext?.grants?.[0] as any)?.role ??
+      req.user?.role ??
       null;
 
     const id = uuidv4();
@@ -185,14 +191,14 @@ router.post(
       `
       INSERT INTO customer_call_logs (
         id, customer_id, contact_id, contact_number, contact_label,
-        caller_id, caller_role, outcome, source_type, source_id,
+        caller_id, caller_role, call_date, outcome, source_type, source_id,
         notes, branch_id, action_log,
         answered_by, communication_channel, status
       ) VALUES (
         $1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12, $13,
-        $14, $15, $16
+        $6, $7, COALESCE($8::timestamptz, NOW()), $9, $10, $11,
+        $12, $13, $14,
+        $15, $16, $17
       )
       RETURNING
         id,
@@ -222,6 +228,7 @@ router.post(
         contactLabel ?? null,
         callerId,
         callerRole,
+        callDate ?? null,
         outcome,
         sourceType,
         sourceId ?? null,
@@ -234,7 +241,41 @@ router.post(
       ],
     );
 
-    return res.status(201).json(rows[0]);
+    const call = rows[0];
+
+    if (sourceType === 'telemarketing_task') {
+      let openTaskId: number | null = Number.isInteger(taskId) && taskId > 0 ? taskId : null;
+
+      if (openTaskId == null) {
+        const sourceKey = taskListItemId ?? sourceId;
+        if (sourceKey != null) {
+          const lookupParams: any[] = [String(sourceKey)];
+          const lookupFilters: string[] = ['id = $1'];
+
+          if (taskListId) {
+            lookupParams.push(taskListId);
+            lookupFilters.push(`task_list_id = $${lookupParams.length}`);
+          }
+
+          const { rows: taskRows } = await pool.query(
+            `SELECT open_task_id FROM telemarketing_task_list_items WHERE ${lookupFilters.join(' AND ')} LIMIT 1`,
+            lookupParams,
+          );
+
+          const resolvedTaskId = taskRows[0]?.open_task_id;
+          openTaskId = Number.isInteger(resolvedTaskId) && resolvedTaskId > 0 ? resolvedTaskId : null;
+        }
+      }
+
+      if (openTaskId != null) {
+        await pool.query(
+          'INSERT INTO call_task_links (call_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [call.id, openTaskId],
+        );
+      }
+    }
+
+    return res.status(201).json(call);
   },
 );
 

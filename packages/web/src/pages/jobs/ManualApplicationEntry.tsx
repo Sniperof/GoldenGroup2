@@ -25,6 +25,7 @@ interface ApplicantForm {
   cvFile: File | null; photoFile: File | null;
   academicQualification: string; previousEmployment: string;
   drivingLicense: string; expectedSalary: string;
+  hasCar: string;
   computerSkills: string;
   foreignLanguages: string[];
   yearsOfExperience: string; applicantSegment: string;
@@ -49,6 +50,7 @@ const emptyApplicant: ApplicantForm = {
   cvUrl: '', photoUrl: '', cvFile: null, photoFile: null,
   academicQualification: '', previousEmployment: '',
   drivingLicense: '', expectedSalary: '',
+  hasCar: '',
   computerSkills: '', foreignLanguages: [],
   yearsOfExperience: '', applicantSegment: '',
   specialization: '', hasWhatsappPrimary: false, hasWhatsappSecondary: false,
@@ -233,6 +235,7 @@ export default function ManualApplicationEntry() {
   const validate = (): boolean => {
     const e: Record<string, string> = {};
     if (!applicationSource) e.applicationSource = 'مصدر الطلب مطلوب';
+    if (!selectedVacancyId) e.vacancy = 'الشاغر الوظيفي حقل إلزامي';
     if (!applicant.firstName.trim()) e.firstName = 'الاسم الأول مطلوب';
     if (!applicant.lastName.trim()) e.lastName = 'الكنية مطلوبة';
     if (!applicant.dob) {
@@ -247,9 +250,6 @@ export default function ManualApplicationEntry() {
       e.email = 'صيغة البريد الإلكتروني غير صحيحة';
     }
     if (!applicant.geoSelection.govId) e.geoSelection = 'المحافظة مطلوبة';
-    if (!applicant.geoSelection.regionId) e.geoSelection = 'المنطقة مطلوبة';
-    if (!applicant.geoSelection.subId) e.geoSelection = 'الناحية مطلوبة';
-    if (!applicant.geoSelection.neighborhoodId) e.geoSelection = 'الحي مطلوب';
     if (!applicant.detailedAddress.trim()) e.detailedAddress = 'العنوان التفصيلي مطلوب';
     if (!applicant.mobileNumber.trim()) e.mobileNumber = 'رقم الموبايل الرئيسي مطلوب';
     else if (!/^\d{10}$/.test(applicant.mobileNumber)) e.mobileNumber = 'يجب أن يتكون من 10 أرقام';
@@ -259,6 +259,7 @@ export default function ManualApplicationEntry() {
     if (!applicant.academicQualification) e.academicQualification = 'الشهادة العلمية مطلوبة';
     if (!applicant.previousEmployment.trim()) e.previousEmployment = 'العمل السابق مطلوب';
     if (!applicant.drivingLicense) e.drivingLicense = 'يرجى تحديد حالة الرخصة';
+    if (!applicant.hasCar) e.hasCar = 'يرجى تحديد هل تمتلك سيارة';
     if (!applicant.expectedSalary) e.expectedSalary = 'الراتب المتوقع مطلوب';
     if (!applicant.computerSkills.trim()) e.computerSkills = 'مهارات الحاسب مطلوبة';
     if (applicant.foreignLanguages.length === 0) e.foreignLanguages = 'اختر لغة واحدة على الأقل';
@@ -323,6 +324,7 @@ export default function ManualApplicationEntry() {
           specialization: applicant.specialization.trim() || null,
           previousEmployment: applicant.previousEmployment.trim(),
           drivingLicense: applicant.drivingLicense === 'yes',
+          hasCar: applicant.hasCar === 'yes',
           expectedSalary: parseInt(applicant.expectedSalary),
           computerSkills: applicant.computerSkills.trim(),
           foreignLanguages: applicant.foreignLanguages.join(', '),
@@ -425,9 +427,9 @@ export default function ManualApplicationEntry() {
           </div>
           <div className="h-px mx-6 bg-gradient-to-r from-transparent via-violet-200 to-transparent" />
           <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Field label="الشاغر الوظيفي المرتبط">
+            <Field label="الشاغر الوظيفي المرتبط" required error={fieldErrors.vacancy}>
               <SelectWrapper>
-                <select value={selectedVacancyId} onChange={e => setSelectedVacancyId(e.target.value ? Number(e.target.value) : '')} className={selectCls()}>
+                <select value={selectedVacancyId} onChange={e => setSelectedVacancyId(e.target.value ? Number(e.target.value) : '')} className={selectCls(!!fieldErrors.vacancy)}>
                   <option value="">غير مرتبط بشاغر (يُربط لاحقاً)</option>
                   {vacancies.map(v => <option key={v.id} value={v.id}>{(v.branch ? `[${v.branch}] ` : '') + v.title}</option>)}
                 </select>
@@ -506,17 +508,15 @@ export default function ManualApplicationEntry() {
         </SectionCard>
 
         {/* ─── SECTION 2: Address ─── */}
-        <SectionCard num={2} title="عنوان السكن" subtitle="التسلسل الجغرافي للموقع" icon={MapPin} colorKey={2} delay={0.08}>
+        <SectionCard num={2} title="عنوان السكن" subtitle="المحافظة إلزامية، وبقية مستويات العنوان اختيارية" icon={MapPin} colorKey={2} delay={0.08}>
           <div className={`md:col-span-2 lg:col-span-2 rounded-xl border ${fieldErrors.geoSelection ? 'border-red-300 bg-red-50/50' : 'border-slate-200 bg-white'} p-4`}>
             <GeoSmartSearch
-              label="التسلسل الهرمي للمنطقة" required
+              label="التسلسل الهرمي للمنطقة"
               geoUnits={geoUnits} value={applicant.geoSelection}
               onChange={v => { setA('geoSelection', v); delete fieldErrors.geoSelection; }}
               placeholder="المحافظة > المنطقة > الناحية > الحي"
             />
-            {fieldErrors.geoSelection && (
-              <p className="text-xs text-red-500 mt-2 flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{fieldErrors.geoSelection}</p>
-            )}
+            <p className="mt-2 text-xs text-slate-500">يمكن الحفظ بمحافظة + عنوان تفصيلي فقط، أما المنطقة والناحية والحي فهي اختيارية.</p>
           </div>
           <Field label="تفاصيل إضافية للعنوان" required error={fieldErrors.detailedAddress}>
             <textarea value={applicant.detailedAddress} onChange={e => setA('detailedAddress', e.target.value)}
@@ -598,6 +598,17 @@ export default function ManualApplicationEntry() {
               {[{ val: 'yes', label: 'نعم، يوجد' }, { val: 'no', label: 'لا يوجد' }].map(opt => (
                 <label key={opt.val} onClick={() => setA('drivingLicense', opt.val)}
                   className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 cursor-pointer text-sm font-semibold transition-all ${applicant.drivingLicense === opt.val ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'}`}>
+                  <Car className="w-3.5 h-3.5" />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </Field>
+          <Field label="هل تمتلك سيارة" required error={fieldErrors.hasCar} className="flex flex-col">
+            <div className="flex items-center gap-3 mt-1">
+              {[{ val: 'yes', label: 'نعم' }, { val: 'no', label: 'لا' }].map(opt => (
+                <label key={opt.val} onClick={() => setA('hasCar', opt.val)}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 cursor-pointer text-sm font-semibold transition-all ${applicant.hasCar === opt.val ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'}`}>
                   <Car className="w-3.5 h-3.5" />
                   {opt.label}
                 </label>

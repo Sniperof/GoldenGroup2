@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Users, Save, Plus, MapPin, Route as RouteIcon, ListOrdered, X, ArrowRight, ArrowLeft, Loader2 } from 'lucide-react';
+import { Calendar, Users, Save, Plus, MapPin, Route as RouteIcon, ListOrdered, X, ArrowRight, ArrowLeft, Loader2, GripVertical } from 'lucide-react';
 import { api } from '../../lib/api';
+import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import { levelNames } from '../../lib/geoConstants';
 import type { Route, GeoUnit, DaySchedule, RouteComposition, RouteAssignmentData } from '../../lib/types';
 import { getWorkCoverageLabel } from '../../lib/types';
@@ -14,6 +15,17 @@ const levelColors: Record<number, { bg: string; text: string; border: string }> 
 };
 
 const getToday = () => new Date().toISOString().split('T')[0];
+
+const emptyGeoSelection: GeoSelection = { govId: '', regionId: '', subId: '', neighborhoodId: '' };
+
+function normalizeStationOrder(order: number[] | undefined, finalZoneIds: number[]): number[] {
+    const validIds = new Set(finalZoneIds);
+    const normalized = (order || []).filter(id => validIds.has(id));
+    finalZoneIds.forEach(id => {
+        if (!normalized.includes(id)) normalized.push(id);
+    });
+    return normalized;
+}
 
 type StationLeadCount = {
     zoneId: number;
@@ -47,6 +59,9 @@ export default function RouteAssigner() {
     const [selectedTeam, setSelectedTeam] = useState('');
     const [composition, setComposition] = useState<RouteComposition[]>([]);
     const [extraZones, setExtraZones] = useState<number[]>([]);
+    const [extraZoneSelection, setExtraZoneSelection] = useState<GeoSelection>(emptyGeoSelection);
+    const [stationOrder, setStationOrder] = useState<number[]>([]);
+    const [draggedStationId, setDraggedStationId] = useState<number | null>(null);
     const [selectedRouteId, setSelectedRouteId] = useState('');
 
     const allGeoUnits = geoUnits;
@@ -58,15 +73,6 @@ export default function RouteAssigner() {
         () => savedRoutes.filter(route => !selectedRouteIds.has(route.id)),
         [savedRoutes, selectedRouteIds],
     );
-    const hasPersistedAssignmentMatch = useMemo(() => {
-        if (!selectedTeam || !savedAssignmentForCurrentKey) return false;
-        const savedRoutesSnapshot = JSON.stringify(savedAssignmentForCurrentKey.routes || []);
-        const currentRoutesSnapshot = JSON.stringify(composition);
-        const savedExtraZonesSnapshot = JSON.stringify(savedAssignmentForCurrentKey.extraZones || []);
-        const currentExtraZonesSnapshot = JSON.stringify(extraZones);
-
-        return savedRoutesSnapshot === currentRoutesSnapshot && savedExtraZonesSnapshot === currentExtraZonesSnapshot;
-    }, [composition, extraZones, savedAssignmentForCurrentKey, selectedTeam]);
 
     useEffect(() => {
         let cancelled = false;
@@ -120,7 +126,7 @@ export default function RouteAssigner() {
         });
         (sched.solos || []).forEach((s, idx) => {
             const tech = s.technician ? employees.find(e => e.id === s.technician) : null;
-            opts.push({ value: `solo_${idx}`, label: tech ? `فردي: ${tech.name}` : `وحدة فردية #${idx + 1}` });
+            opts.push({ value: `solo_${idx}`, label: tech ? `طوارئ: ${tech.name}` : `فريق طوارئ #${idx + 1}` });
         });
         return opts;
     }, [schedules, date, employees]);
@@ -130,6 +136,9 @@ export default function RouteAssigner() {
         setSelectedTeam('');
         setComposition([]);
         setExtraZones([]);
+        setExtraZoneSelection(emptyGeoSelection);
+        setStationOrder([]);
+        setDraggedStationId(null);
         setStationLeadCounts(null);
         setStationLeadCountsError(false);
         setSaveMessage(null);
@@ -142,10 +151,14 @@ export default function RouteAssigner() {
         if (saved) {
             setComposition(JSON.parse(JSON.stringify(saved.routes || [])));
             setExtraZones([...(saved.extraZones || [])]);
+            setStationOrder([...(saved.stationOrder || [])]);
         } else {
             setComposition([]);
             setExtraZones([]);
+            setStationOrder([]);
         }
+        setExtraZoneSelection(emptyGeoSelection);
+        setDraggedStationId(null);
         setStationLeadCounts(null);
         setStationLeadCountsError(false);
         setSaveMessage(null);
@@ -180,13 +193,38 @@ export default function RouteAssigner() {
         }));
     };
 
-    const addExtraZone = (val: string) => {
-        const id = parseInt(val);
-        if (!id || extraZones.includes(id) || finalZoneIds.has(id)) return;
+    const addExtraZone = (id: number) => {
+        if (!id || extraZones.includes(id) || finalZoneIds.includes(id)) return;
         setExtraZones(z => [...z, id]);
     };
 
+    const handleExtraZoneSelection = (selection: GeoSelection) => {
+        setExtraZoneSelection(selection);
+    };
+
     const removeExtraZone = (idx: number) => setExtraZones(z => z.filter((_, i) => i !== idx));
+
+    const handleStationDrop = (targetZoneId: number) => {
+        if (draggedStationId == null || draggedStationId === targetZoneId) {
+            setDraggedStationId(null);
+            return;
+        }
+
+        setStationOrder(prev => {
+            const baseOrder = normalizeStationOrder(
+                prev.length > 0 ? prev : (savedAssignmentForCurrentKey?.stationOrder || []),
+                finalZoneIds,
+            );
+            const fromIndex = baseOrder.indexOf(draggedStationId);
+            const toIndex = baseOrder.indexOf(targetZoneId);
+            if (fromIndex < 0 || toIndex < 0) return baseOrder;
+            const next = [...baseOrder];
+            const [moved] = next.splice(fromIndex, 1);
+            next.splice(toIndex, 0, moved);
+            return next;
+        });
+        setDraggedStationId(null);
+    };
 
     const finalZones = useMemo(() => {
         const zones: { id: number; name: string; level: number }[] = [];
@@ -207,13 +245,56 @@ export default function RouteAssigner() {
         return zones;
     }, [composition, extraZones, savedRoutes, geoUnits, getRouteStations]);
 
-    const finalZoneIds = useMemo(() => new Set(finalZones.map(zone => zone.id)), [finalZones]);
+    const finalZoneIds = useMemo(() => finalZones.map(zone => zone.id), [finalZones]);
+    const orderedFinalZoneIds = useMemo(() => normalizeStationOrder(
+        stationOrder.length > 0 ? stationOrder : (savedAssignmentForCurrentKey?.stationOrder || []),
+        finalZoneIds,
+    ), [stationOrder, savedAssignmentForCurrentKey, finalZoneIds]);
+    const orderedFinalZones = useMemo(() => orderedFinalZoneIds
+        .map(id => finalZones.find(zone => zone.id === id))
+        .filter((zone): zone is NonNullable<typeof zone> => Boolean(zone)),
+    [finalZones, orderedFinalZoneIds]);
+
+    const selectedExtraZoneId = useMemo(() => {
+        const rawId = extraZoneSelection.neighborhoodId || extraZoneSelection.subId || extraZoneSelection.regionId || extraZoneSelection.govId;
+        const parsedId = parseInt(rawId, 10);
+        return Number.isFinite(parsedId) ? parsedId : null;
+    }, [extraZoneSelection]);
+
+    const selectedExtraZoneUnit = useMemo(() => {
+        if (selectedExtraZoneId == null) return null;
+        return geoUnits.find(unit => unit.id === selectedExtraZoneId) || null;
+    }, [geoUnits, selectedExtraZoneId]);
+
+    const canAddSelectedExtraZone = Boolean(
+        selectedExtraZoneUnit
+        && !extraZones.includes(selectedExtraZoneUnit.id)
+        && !finalZoneIds.includes(selectedExtraZoneUnit.id),
+    );
+
+    const commitSelectedExtraZone = () => {
+        if (!selectedExtraZoneUnit || !canAddSelectedExtraZone) return;
+        addExtraZone(selectedExtraZoneUnit.id);
+        setExtraZoneSelection(emptyGeoSelection);
+    };
+
+    const hasPersistedAssignmentMatch = useMemo(() => {
+        if (!selectedTeam || !savedAssignmentForCurrentKey) return false;
+        const savedRoutesSnapshot = JSON.stringify(savedAssignmentForCurrentKey.routes || []);
+        const currentRoutesSnapshot = JSON.stringify(composition);
+        const savedExtraZonesSnapshot = JSON.stringify(savedAssignmentForCurrentKey.extraZones || []);
+        const currentExtraZonesSnapshot = JSON.stringify(extraZones);
+        const savedStationOrderSnapshot = JSON.stringify(normalizeStationOrder(savedAssignmentForCurrentKey.stationOrder || [], finalZoneIds));
+        const currentStationOrderSnapshot = JSON.stringify(orderedFinalZoneIds);
+
+        return savedRoutesSnapshot === currentRoutesSnapshot
+            && savedExtraZonesSnapshot === currentExtraZonesSnapshot
+            && savedStationOrderSnapshot === currentStationOrderSnapshot;
+    }, [composition, extraZones, finalZoneIds, orderedFinalZoneIds, savedAssignmentForCurrentKey, selectedTeam]);
+
     const selectableExtraZones = useMemo(() => {
-        return allGeoUnits.filter(unit => {
-            const hasChildren = allGeoUnits.some(child => child.parentId === unit.id);
-            return unit.level === 4 || !hasChildren;
-        });
-    }, [allGeoUnits]);
+        return allGeoUnits.filter(unit => unit.level === 4 && !finalZoneIds.includes(unit.id) && !extraZones.includes(unit.id));
+    }, [allGeoUnits, extraZones, finalZoneIds]);
     const workCoverageLabel = getWorkCoverageLabel({
         routes: composition,
         extraZones,
@@ -263,7 +344,7 @@ export default function RouteAssigner() {
 
         loadStationLeadCounts();
         return () => { cancelled = true; };
-    }, [date, finalZones, hasPersistedAssignmentMatch, selectedTeam, stationLeadCountsRefreshKey]);
+    }, [date, finalZones, hasPersistedAssignmentMatch, orderedFinalZones, selectedTeam, stationLeadCountsRefreshKey]);
 
     useEffect(() => {
         if (hasUnsavedChanges) {
@@ -295,7 +376,11 @@ export default function RouteAssigner() {
         setSaving(true);
         setSaveMessage(null);
         try {
-            const data = { routes: JSON.parse(JSON.stringify(composition)), extraZones: [...extraZones] };
+            const data = {
+                routes: JSON.parse(JSON.stringify(composition)),
+                extraZones: [...extraZones],
+                stationOrder: [...orderedFinalZoneIds],
+            };
             await api.routeAssignments.save(currentKey, data);
             setRouteAssignments(prev => ({ ...prev, [currentKey]: data }));
             setStationLeadCounts(null);
@@ -439,11 +524,34 @@ export default function RouteAssigner() {
                     {/* Extra Zones */}
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                         <h3 className="text-slate-900 font-bold text-sm flex items-center gap-2 mb-3"><MapPin className="w-4 h-4 text-orange-500" />مناطق إضافية</h3>
-                        <div className="flex gap-2 mb-3">
-                            <select onChange={e => { addExtraZone(e.target.value); e.target.value = ''; }} className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none">
-                                <option value="">اختر منطقة...</option>
-                                {selectableExtraZones.filter(n => !finalZoneIds.has(n.id)).map(n => <option key={n.id} value={n.id}>{n.name} ({levelNames[n.level]})</option>)}
-                            </select>
+                        <div className="space-y-3 mb-3">
+                            <GeoSmartSearch
+                                label="أضف حي"
+                                geoUnits={selectableExtraZones}
+                                value={extraZoneSelection}
+                                onChange={handleExtraZoneSelection}
+                                disabled={!selectedTeam}
+                                minSelectableLevel={4}
+                                placeholder={selectedTeam ? 'ابحث عن حي لإضافته...' : 'اختر الفريق أولاً...'}
+                            />
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={commitSelectedExtraZone}
+                                    disabled={!selectedTeam || !canAddSelectedExtraZone}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>إضافة المنطقة</span>
+                                </button>
+                                {selectedExtraZoneUnit && (
+                                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${canAddSelectedExtraZone ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>
+                                        <MapPin className="w-3 h-3" />
+                                        <span>{selectedExtraZoneUnit.name}</span>
+                                        {!canAddSelectedExtraZone && <span className="text-[10px]">مضاف مسبقًا</span>}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
                             {extraZones.map((zId, idx) => {
@@ -468,14 +576,26 @@ export default function RouteAssigner() {
                             <div className="text-xs font-bold text-slate-500">عدد العملاء</div>
                         </div>
                         <div className="p-3 space-y-1 max-h-96 overflow-y-auto custom-scroll">
-                            {finalZones.length === 0 ? (
+                            {orderedFinalZones.length === 0 ? (
                                 <p className="text-center text-slate-500 text-sm py-6">لا توجد مناطق بعد</p>
-                            ) : finalZones.map((z, i) => {
+                            ) : orderedFinalZones.map((z, i) => {
                                 const colors = levelColors[z.level] || levelColors[4];
                                 const stationLeadCountLabel = getStationLeadCountLabel(z.id);
+                                const isDragging = draggedStationId === z.id;
                                 return (
-                                    <div key={z.id} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 hover:bg-sky-50 transition-colors">
+                                    <div
+                                        key={z.id}
+                                        draggable
+                                        onDragStart={() => setDraggedStationId(z.id)}
+                                        onDragEnd={() => setDraggedStationId(null)}
+                                        onDragOver={e => e.preventDefault()}
+                                        onDrop={() => handleStationDrop(z.id)}
+                                        className={`flex items-center gap-2 p-2 rounded-lg border transition-colors ${isDragging ? 'bg-sky-50 border-sky-300 shadow-sm' : 'bg-gray-50 hover:bg-sky-50 border-transparent'}`}
+                                    >
                                         <span className="w-6 h-6 rounded-full bg-sky-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
+                                        <button type="button" className="text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing" aria-label="إعادة ترتيب المحطة">
+                                            <GripVertical className="w-4 h-4" />
+                                        </button>
                                         <span className="text-slate-800 text-sm">{z.name}</span>
                                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${colors.bg} ${colors.text} ${colors.border}`}>{levelNames[z.level]}</span>
                                         {stationLeadCountLabel && (
@@ -483,7 +603,7 @@ export default function RouteAssigner() {
                                                 <span>{stationLeadCountLabel}</span>
                                             </span>
                                         )}
-                                        {i < finalZones.length - 1 && <ArrowLeft className="w-3 h-3 text-slate-400" />}
+                                        {i < orderedFinalZones.length - 1 && <ArrowLeft className="w-3 h-3 text-slate-400" />}
                                     </div>
                                 );
                             })}

@@ -1,0 +1,26 @@
++export type ContactTargetStatus =
++  | 'new'           // created, not yet added to a call list
++  | 'queued'        // added to today's call list via generate-from-plan
++  | 'contacted'     // call made, no appointment booked
++  | 'booked'        // appointment created — terminal for telemarketing flow
++  | 'closed';       // not interested / service request / no action needed
++
+ export type CallOutcome =
+   // Legacy (kept for backward compatibility)
+   | 'no_answer'
+@@ -615,7 +776,9 @@ export type CallOutcome =
+   // Group 5: Appointment booking
+   | 'booked_marketing_appointment'
+   // Free call specific
+-  | 'new_number';
++  | 'new_number'
+     new: 'جديد',
+     queued: 'بالانتظار',
+-    in_call_list: 'ضمن قائمة اتصال',
++    in_call_list: 'ضمن قائمة اتصال', // legacy alias for 'queued' — kept for old DB records
+     contacted: 'تم الاتصال',
+     booked: 'تم حجز موعد',
+     closed: 'مغلق',
+-    cancelled: 'ملغى',
+ };
+ 

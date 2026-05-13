@@ -1,0 +1,6 @@
+ALTER TABLE applicants
+  ADD COLUMN IF NOT EXISTS has_car BOOLEAN DEFAULT FALSE;
+
+UPDATE applicants
+SET has_car = COALESCE(has_car, FALSE)
+WHERE has_car IS NULL;

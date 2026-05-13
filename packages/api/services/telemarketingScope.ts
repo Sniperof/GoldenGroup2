@@ -115,6 +115,41 @@ export function isEmployeeTelemarketerInTeam(employeeId: number, team: TeamSlot)
   return Array.isArray(team.telemarketers) && team.telemarketers.includes(employeeId);
 }
 
+export function isEmployeeSupervisorInTeam(employeeId: number, team: TeamSlot): boolean {
+  return team.supervisor === employeeId;
+}
+
+export async function getTeamTelemarketerAccessEmployeeIds(
+  team: TeamSlot,
+  branchId: number | null,
+): Promise<number[]> {
+  const assignedTelemarketers = Array.isArray(team.telemarketers)
+    ? team.telemarketers.filter((id): id is number => Number.isInteger(id))
+    : [];
+
+  if (assignedTelemarketers.length > 0) {
+    return assignedTelemarketers;
+  }
+
+  if (branchId == null) {
+    return [];
+  }
+
+  const { rows } = await pool.query<{ employee_id: number }>(
+    `SELECT e.id AS employee_id
+       FROM hr_users u
+       JOIN employees e ON e.id = u.employee_id
+      WHERE u.branch_id = $1
+        AND u.employee_id IS NOT NULL
+        AND u.is_active = TRUE
+        AND e.status = 'active'
+        AND e.role = 'telemarketer'`,
+    [branchId],
+  );
+
+  return rows.map(row => Number(row.employee_id));
+}
+
 /**
  * Determine whether the current user can access a given task list.
  *
@@ -156,13 +191,26 @@ export async function canAccessTaskList(
   const employeeId = await getCurrentEmployeeId(authContext.userId);
   const employeeRole = await getCurrentEmployeeRole(authContext.userId);
 
-  // Telemarketer: must be in team.telemarketers[]
-  if (employeeRole === 'telemarketer' && employeeId != null) {
-    const schedule = await loadDaySchedule(taskList.date);
-    if (!schedule) return false;
-    const team = getTeamFromSchedule(taskList.date, schedule, taskList.teamKey);
-    if (!team) return false;
-    return isEmployeeTelemarketerInTeam(employeeId, team);
+  if (employeeId == null || employeeRole == null) {
+    return false;
+  }
+
+  const schedule = await loadDaySchedule(taskList.date);
+  if (!schedule) return false;
+
+  const team = getTeamFromSchedule(taskList.date, schedule, taskList.teamKey);
+  if (!team) return false;
+
+  // Telemarketer: must be part of the team, or part of the branch-wide
+  // fallback pool when the team has no assigned telemarketers.
+  if (employeeRole === 'telemarketer') {
+    const accessIds = await getTeamTelemarketerAccessEmployeeIds(team, taskList.branchId);
+    return accessIds.includes(employeeId);
+  }
+
+  // Team supervisor: always allowed for their own team.
+  if (employeeRole === 'supervisor') {
+    return isEmployeeSupervisorInTeam(employeeId, team);
   }
 
   // All other roles: denied by default

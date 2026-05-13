@@ -55,6 +55,24 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/system-lists/:code/items
+router.get('/:code/items', requireAuth, async (req, res) => {
+  try {
+    const { code } = req.params;
+    const { rows } = await pool.query(
+      `SELECT id, category, value, is_active, display_order
+       FROM system_lists
+       WHERE category = $1
+       ORDER BY display_order ASC, id ASC`,
+      [code]
+    );
+    res.json(rows);
+  } catch (err: any) {
+    console.error('Error fetching system list items:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/system-lists
 router.post('/', requirePermission('admin.system_lists.manage'), async (req, res) => {
   try {

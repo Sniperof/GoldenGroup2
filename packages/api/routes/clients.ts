@@ -15,6 +15,12 @@ import {
   normalizeContactsForWrite,
   normalizePhone as normalizeContactPhone,
 } from '../utils/contactValidation.js';
+import {
+  buildCustomerOwnershipSelectColumns,
+  buildCustomerOwnershipSql,
+  mapCustomerOwnership,
+  redactPersonalAssignments,
+} from '../services/customerOwnership.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -74,11 +80,13 @@ const CLIENT_SELECT = `
        LEFT JOIN roles r2 ON r2.id = u2.role_id
        WHERE ca.client_id = c.id),
       '[]'::json
-    ) AS "assignments"
+    ) AS "assignments",
+    ${buildCustomerOwnershipSelectColumns()}
   FROM clients c
   LEFT JOIN branches b   ON b.id  = c.branch_id
   LEFT JOIN hr_users cb  ON cb.id = c.created_by
   LEFT JOIN roles    rcb ON rcb.id = cb.role_id
+  ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'b.name' })}
 `;
 
 const CLIENT_MUTATION_RETURNING = `
@@ -125,6 +133,13 @@ const CLIENT_MUTATION_RETURNING = `
 `;
 
 const toJson = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fallback);
+
+function mapClientRow(row: any) {
+  return {
+    ...row,
+    ownership: mapCustomerOwnership(row),
+  };
+}
 
 type ClientSubject = {
   branchId: number | null;
@@ -458,11 +473,15 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(`${CLIENT_SELECT}${where} ORDER BY c.id`, params);
 
-    // Defense-in-depth: ASSIGNED-scope users must not see who else is assigned to a client.
-    // The column is already hidden on the frontend, but we strip it on the backend too.
+    // Defense-in-depth: ASSIGNED-scope users must not see other assignees' identities.
+    // Strip both the raw assignments list and ownership.personalAssignments.
     const responseRows = listAccess.scope === 'ASSIGNED'
-      ? rows.map((r: any) => ({ ...r, assignments: [] }))
-      : rows;
+      ? rows.map((r: any) => {
+          const mapped = mapClientRow({ ...r, assignments: [] });
+          mapped.ownership = redactPersonalAssignments(mapped.ownership);
+          return mapped;
+        })
+      : rows.map(mapClientRow);
 
     res.json(responseRows);
   } catch (err: any) {
@@ -506,7 +525,7 @@ router.get('/:id', requirePermission('clients.view'), async (req, res) => {
     }
 
     const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
-    res.json(rows[0]);
+    res.json(mapClientRow(rows[0]));
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -590,20 +609,8 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
 
     await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId);
 
-    // Auto-create an open device_demo task for new Lead (outside transaction — non-fatal)
-    try {
-      await pool.query(
-        `INSERT INTO open_tasks (client_id, branch_id, task_type, task_family, reason, status, source, created_by)
-         VALUES ($1, $2, 'device_demo', 'marketing', 'new_lead', 'open', 'system', $3)`,
-        [inserted.id, targetBranchId, authContext.userId],
-      );
-    } catch (taskErr: any) {
-      // Unique constraint violation or other error — log and continue
-      console.error('[clients] Failed to auto-create open_task for client', inserted.id, taskErr?.message || taskErr);
-    }
-
     const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
-    res.json(rows[0]);
+    res.json(mapClientRow(rows[0]));
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -623,6 +630,13 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
       return forbidClientAccess(res, access.reason);
     }
 
+    // Load existing client for comparison / audit
+    const { rows: existingRows } = await pool.query(
+      'SELECT branch_id, candidate_status, is_active FROM clients WHERE id = $1',
+      [clientId],
+    );
+    const existing = existingRows[0];
+
     const c = enforcePersonalReferrer(
       normalizeClientPayload(req.body ?? {}),
       { id: authContext.userId, name: req.user?.name || '' },
@@ -639,6 +653,20 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
       });
     }
 
+    // Guard: block branch change if client has in-progress or scheduled visits
+    const newBranchId = req.body?.branchId ?? existing?.branch_id;
+    if (newBranchId && existing?.branch_id && Number(newBranchId) !== Number(existing.branch_id)) {
+      const { rows: activeVisits } = await pool.query(
+        `SELECT 1 FROM field_visits WHERE client_id = $1 AND status IN ('in_progress', 'scheduled') LIMIT 1`,
+        [clientId],
+      );
+      if (activeVisits.length > 0) {
+        return res.status(400).json({
+          error: 'لا يمكن تغيير الفرع: الزبون لديه زيارة نشطة أو مجدولة',
+        });
+      }
+    }
+
     // Resolve assignment changes only if the caller explicitly provided a new list
     let newAssigneeIds: number[] | null = null;
     if (Array.isArray(req.body?.assignmentUserIds)) {
@@ -652,6 +680,12 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
       }
       newAssigneeIds = resolved;
     }
+
+    const transitioningToOpFop =
+      c.candidateStatus &&
+      ['OP', 'FOP'].includes(c.candidateStatus) &&
+      existing?.candidate_status &&
+      !['OP', 'FOP'].includes(existing.candidate_status);
 
     await pool.query(
       `UPDATE clients SET
@@ -676,13 +710,40 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
       ],
     );
 
-    if (newAssigneeIds !== null) {
+    // If transitioning to OP/FOP: drop personal assignments + cancel marketing tasks
+    if (transitioningToOpFop) {
+      await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+      await pool.query(
+        `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
+         WHERE client_id = $1 AND task_family = 'marketing'
+           AND status NOT IN ('completed', 'cancelled')`,
+        [clientId],
+      );
+    } else if (newAssigneeIds !== null) {
       await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
       await insertClientAssignments(Number(clientId), newAssigneeIds, authContext.userId);
     }
 
+    // Audit log: record meaningful field changes
+    const auditFields: Array<{ field: string; oldVal: string | null; newVal: string | null }> = [];
+    if (existing) {
+      if (c.candidateStatus !== undefined && String(c.candidateStatus ?? '') !== String(existing.candidate_status ?? '')) {
+        auditFields.push({ field: 'candidate_status', oldVal: existing.candidate_status, newVal: c.candidateStatus ?? null });
+      }
+      if (newBranchId && existing.branch_id && Number(newBranchId) !== Number(existing.branch_id)) {
+        auditFields.push({ field: 'branch_id', oldVal: String(existing.branch_id), newVal: String(newBranchId) });
+      }
+    }
+    for (const af of auditFields) {
+      await pool.query(
+        `INSERT INTO client_audit_log (client_id, field_name, old_value, new_value, changed_by, changed_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [clientId, af.field, af.oldVal, af.newVal, authContext.userId],
+      );
+    }
+
     const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
-    res.json(rows[0]);
+    res.json(mapClientRow(rows[0]));
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -702,7 +763,56 @@ router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
       return forbidClientAccess(res, access.reason);
     }
 
-    await pool.query('DELETE FROM clients WHERE id = $1', [clientId]);
+    // Guard: block if client has contracts
+    const { rows: contractRows } = await pool.query(
+      'SELECT 1 FROM contracts WHERE customer_id = $1 LIMIT 1',
+      [clientId],
+    );
+    if (contractRows.length > 0) {
+      return res.status(400).json({ error: 'لا يمكن حذف الزبون: لديه عقود مسجلة في النظام' });
+    }
+
+    // Guard: block if client has field visit history
+    const { rows: visitRows } = await pool.query(
+      'SELECT 1 FROM field_visits WHERE client_id = $1 LIMIT 1',
+      [clientId],
+    );
+    if (visitRows.length > 0) {
+      return res.status(400).json({ error: 'لا يمكن حذف الزبون: لديه سجل زيارات ميدانية' });
+    }
+
+    // Guard: block if client has any completed task results
+    const { rows: taskResultRows } = await pool.query(
+      `SELECT 1 FROM open_tasks ot
+       WHERE ot.client_id = $1 AND ot.status = 'completed' LIMIT 1`,
+      [clientId],
+    );
+    if (taskResultRows.length > 0) {
+      return res.status(400).json({ error: 'لا يمكن حذف الزبون: لديه مهام مكتملة في السجل' });
+    }
+
+    // Soft delete: cascade cancel open tasks, clean up assignments and appointments
+    await pool.query(
+      `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
+       WHERE client_id = $1 AND status NOT IN ('completed', 'cancelled')`,
+      [clientId],
+    );
+    await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+    await pool.query('DELETE FROM contact_targets WHERE target_type = $1 AND target_id = $2', ['client', clientId]);
+    await pool.query(
+      `UPDATE telemarketing_appointments
+       SET status = 'cancelled', updated_at = NOW()
+       WHERE entity_type = 'client' AND entity_id = $1
+         AND status NOT IN ('cancelled', 'completed')`,
+      [clientId],
+    );
+    await pool.query(
+      `UPDATE clients
+       SET deleted_at = NOW(), deleted_by = $1, is_active = FALSE
+       WHERE id = $2`,
+      [authContext.userId, clientId],
+    );
+
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -26,17 +26,18 @@ export async function insertApplicant(client: PoolClient, applicant: any) {
       mobile_number, secondary_mobile, governorate, city_or_area,
       sub_area, neighborhood, detailed_address,
       academic_qualification, specialization, previous_employment, driving_license,
+      has_car,
       expected_salary, computer_skills, foreign_languages,
       years_of_experience, cv_url, photo_url, applicant_segment,
       has_whatsapp_primary, has_whatsapp_secondary
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
     RETURNING id`,
     [
       applicant.firstName, applicant.lastName, applicant.dob, applicant.gender, applicant.maritalStatus, applicant.email || null,
       applicant.mobileNumber, applicant.secondaryMobile || null,
       applicant.governorate, applicant.cityOrArea || null, applicant.subArea || null, applicant.neighborhood || null, applicant.detailedAddress || null,
       applicant.academicQualification || null, applicant.specialization || null, applicant.previousEmployment || null,
-      applicant.drivingLicense || null, applicant.expectedSalary ? parseInt(applicant.expectedSalary) : null,
+      applicant.drivingLicense || null, applicant.hasCar ?? false, applicant.expectedSalary ? parseInt(applicant.expectedSalary) : null,
       applicant.computerSkills || null, applicant.foreignLanguages || null,
       applicant.yearsOfExperience ? parseInt(applicant.yearsOfExperience) : null,
       applicant.cvUrl || null, applicant.photoUrl || null, applicant.applicantSegment || null,

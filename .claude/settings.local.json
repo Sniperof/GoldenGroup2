@@ -37,7 +37,16 @@
       "Bash(node *)",
       "mcp__Claude_Preview__preview_start",
       "Bash(pm2 restart *)",
-      "Bash(sudo *)"
+      "Bash(sudo *)",
+      "Bash(pm2 logs *)",
+      "Bash(PGPASSWORD=ASMA2026 psql -U golden_crm_staging -h localhost golden_crm_staging -c \"\\\\d employees\")",
+      "Bash(PGPASSWORD=ASMA2026 psql -U golden_crm_staging -h localhost golden_crm_staging -c \"\\\\d hr_users\")",
+      "Bash(PGPASSWORD=ASMA2026 psql *)",
+      "Bash(python3)",
+      "Bash(awk '{print $6, $7, $8, $9}')",
+      "Bash(pm2 show *)",
+      "Bash(pm2 status *)",
+      "Bash(awk -F: '{print $1}')"
     ],
     "deny": [
       "Bash(rm -rf /*)",
