@@ -14,12 +14,16 @@ import type { CustomerOwnership } from '../lib/types';
 
 const STATUS_COLORS: Record<string, string> = {
   open: 'bg-sky-50 text-sky-700 border border-sky-200',
-  in_contact_list: 'bg-blue-50 text-blue-700 border border-blue-200',
+  needs_follow_up: 'bg-amber-50 text-amber-700 border border-amber-200',
+  assigned: 'bg-violet-50 text-violet-700 border border-violet-200',
+  in_scheduling: 'bg-blue-50 text-blue-700 border border-blue-200',
   scheduled: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
-  in_visit: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+  waiting_execution: 'bg-teal-50 text-teal-700 border border-teal-200',
+  in_execution: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+  ended: 'bg-cyan-50 text-cyan-700 border border-cyan-200',
   completed: 'bg-green-50 text-green-700 border border-green-100',
+  closed: 'bg-slate-100 text-slate-700 border border-slate-200',
   cancelled: 'bg-slate-200 text-slate-600 border border-slate-300',
-  needs_reschedule: 'bg-amber-50 text-amber-700 border border-amber-200',
 };
 
 const FAMILY_COLORS: Record<string, string> = {

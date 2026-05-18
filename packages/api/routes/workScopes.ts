@@ -3,6 +3,7 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { getPlanningWorkScope } from '../services/planningMarketingTargets.js';
+import { syncAssignedTasks } from '../services/assignedTasks.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -113,39 +114,54 @@ router.post('/:id/generate-tasks', requirePermission('marketing_visits.update_re
       ? scope.date.toISOString().split('T')[0]
       : String(scope.date).split('T')[0];
 
-    // Get the full work scope data (reuse getPlanningWorkScope to resolve zone/team)
     const workScope = await getPlanningWorkScope({ date, teamKey, branchId });
 
-    let inserted = 0;
-    for (const task of workScope.tasks) {
-      const { rowCount } = await pool.query(
-        `INSERT INTO scope_tasks (scope_id, open_task_id, team_key, branch_id, added_by)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (scope_id, open_task_id) DO NOTHING`,
-        [scopeId, task.openTaskId, teamKey, branchId, authContext.userId],
-      );
-      inserted += rowCount ?? 0;
-    }
+    // FIX-2: wrap sync + scope_tasks writes in a single transaction
+    const pgClient = await pool.connect();
+    let syncResult: Awaited<ReturnType<typeof syncAssignedTasks>>;
+    try {
+      await pgClient.query('BEGIN');
+      syncResult = await syncAssignedTasks({
+        date,
+        teamKey,
+        branchId,
+        scopeId,
+        performedBy: authContext.userId,
+        db: pgClient,
+      });
 
-    // Also update open_tasks with scope reference
-    if (workScope.tasks.length > 0) {
-      await pool.query(
-        `UPDATE open_tasks SET assigned_scope_id = $1, assigned_team_key = $2, updated_at = NOW()
-         WHERE id = ANY($3::int[]) AND assigned_scope_id IS NULL`,
-        [
-          scopeId,
-          teamKey,
-          workScope.tasks.map(t => t.openTaskId),
-        ],
-      );
-    }
+      let inserted = 0;
+      for (const taskId of syncResult.eligibleTaskIds) {
+        const { rowCount } = await pgClient.query(
+          `INSERT INTO scope_tasks (scope_id, open_task_id, team_key, branch_id, added_by)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (scope_id, open_task_id) DO NOTHING`,
+          [scopeId, taskId, teamKey, branchId, authContext.userId],
+        );
+        inserted += rowCount ?? 0;
+      }
 
-    res.json({
-      scopeId,
-      totalTasks: workScope.tasks.length,
-      newlyInserted: inserted,
-      counts: workScope.counts,
-    });
+      if (syncResult.releasedIds.length > 0) {
+        await pgClient.query(
+          `DELETE FROM scope_tasks WHERE scope_id = $1 AND open_task_id = ANY($2::int[])`,
+          [scopeId, syncResult.releasedIds],
+        );
+      }
+
+      await pgClient.query('COMMIT');
+
+      res.json({
+        scopeId,
+        totalTasks: syncResult.plannedTaskIds.length,
+        newlyInserted: inserted,
+        counts: workScope.counts,
+      });
+    } catch (innerErr) {
+      await pgClient.query('ROLLBACK');
+      throw innerErr;
+    } finally {
+      pgClient.release();
+    }
   } catch (err: any) {
     console.error('[work-scopes] POST /:id/generate-tasks error:', err);
     res.status(500).json({ error: 'فشل في توليد مهام النطاق' });

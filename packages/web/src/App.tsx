@@ -49,6 +49,7 @@ import SystemLists from './pages/admin/SystemLists';
 import Roles from './pages/admin/Roles';
 import RolePermissions from './pages/admin/RolePermissions';
 import PermissionSettings from './pages/admin/PermissionSettings';
+import TaskTypes from './pages/admin/TaskTypes';
 import VisitDetailPage from './pages/visits/VisitDetailPage';
 
 
@@ -118,6 +119,7 @@ export default function App() {
                         <Route path="/admin/roles" element={<Roles />} />
                         <Route path="/admin/roles/:id/permissions" element={<RolePermissions />} />
                         <Route path="/admin/permissions-settings" element={<PermissionSettings />} />
+                        <Route path="/admin/task-types" element={<TaskTypes />} />
                     </Route>
                 </Routes>
             </ErrorBoundary>

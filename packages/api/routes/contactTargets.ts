@@ -6,7 +6,7 @@ import {
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
 
-const ACTIVE_OPEN_TASK_STATUSES = ['open', 'assigned', 'scheduled', 'in_visit', 'in_contact_list', 'needs_reschedule'];
+const ACTIVE_OPEN_TASK_STATUSES = ['open', 'needs_follow_up', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution', 'in_execution', 'ended'];
 
 const router = Router();
 
@@ -183,7 +183,7 @@ router.post('/marketing/sync', async (req, res) => {
           SELECT 1
           FROM open_tasks ot
           WHERE ot.client_id = c.id
-            AND ot.status = ANY(ARRAY['open', 'assigned', 'scheduled', 'in_visit', 'in_contact_list', 'needs_reschedule']::varchar[])
+            AND ot.status = ANY(ARRAY['open', 'needs_follow_up', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution', 'in_execution', 'ended']::varchar[])
         )
         AND NOT EXISTS (
           SELECT 1

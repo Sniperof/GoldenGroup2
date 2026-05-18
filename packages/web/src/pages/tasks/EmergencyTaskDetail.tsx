@@ -13,10 +13,15 @@ import type { EmergencyResultPayload } from '../../components/emergency/Emergenc
 
 const EMERGENCY_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   open: { label: 'جديد', color: 'bg-blue-50 text-blue-700 border border-blue-200' },
-  in_contact_list: { label: 'ضمن قائمة الاتصال', color: 'bg-indigo-50 text-indigo-700 border border-indigo-200' },
+  needs_follow_up: { label: 'بحاجة متابعة', color: 'bg-amber-50 text-amber-700 border border-amber-200' },
+  assigned: { label: 'مسندة', color: 'bg-violet-50 text-violet-700 border border-violet-200' },
+  in_scheduling: { label: 'قيد الجدولة', color: 'bg-indigo-50 text-indigo-700 border border-indigo-200' },
   scheduled: { label: 'تم تحديد موعد', color: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
-  needs_reschedule: { label: 'تم تجديد موعد', color: 'bg-amber-50 text-amber-700 border border-amber-200' },
-  completed: { label: 'انتهت', color: 'bg-green-50 text-green-700 border border-green-200' },
+  waiting_execution: { label: 'بانتظار التنفيذ', color: 'bg-teal-50 text-teal-700 border border-teal-200' },
+  in_execution: { label: 'قيد التنفيذ', color: 'bg-cyan-50 text-cyan-700 border border-cyan-200' },
+  ended: { label: 'انتهت', color: 'bg-slate-100 text-slate-700 border border-slate-200' },
+  completed: { label: 'مكتملة', color: 'bg-green-50 text-green-700 border border-green-200' },
+  closed: { label: 'مغلقة', color: 'bg-slate-200 text-slate-700 border border-slate-300' },
   cancelled: { label: 'لم تتم', color: 'bg-rose-50 text-rose-700 border border-rose-200' },
 };
 
@@ -328,9 +333,9 @@ export default function EmergencyTaskDetail() {
           <Card title="العقد والجهاز" icon={Package}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
               <InfoLine label="رقم العقد" value={contract?.contractNumber || '—'} />
-              <InfoLine label="موديل الجهاز" value={contract?.deviceModel || '—'} />
-              <InfoLine label="الرقم التسلسلي" value={contract?.serialNumber || '—'} />
-              <InfoLine label="تاريخ التركيب" value={contract?.installationDate ? formatDate(contract.installationDate) : '—'} />
+              <InfoLine label="موديل الجهاز" value={contract?.device?.modelName || '—'} />
+              <InfoLine label="الرقم التسلسلي" value={contract?.device?.serialNumber || '—'} />
+              <InfoLine label="تاريخ التركيب" value={contract?.contractDate ? formatDate(contract.contractDate) : '—'} />
               <InfoLine label="حالة العقد" value={contract?.status || '—'} />
             </div>
           </Card>

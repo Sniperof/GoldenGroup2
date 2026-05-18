@@ -50,6 +50,7 @@ import openTasksRouter from './routes/openTasks.js';
 import workScopesRouter from './routes/workScopes.js';
 import fieldVisitsRouter from './routes/fieldVisits.js';
 import customerCallsRouter from './routes/customerCalls.js';
+import taskTypeConfigRouter from './routes/taskTypeConfig.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -112,6 +113,7 @@ app.use('/api/system-lists', systemListsRouter);
 app.use('/api/departments', departmentsRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/admin', rolesRouter);
+app.use('/api/admin/task-types', taskTypeConfigRouter);
 
 // Serve uploaded files (photos, CVs) — always active
 app.use('/uploads', express.static(UPLOADS_DIR));

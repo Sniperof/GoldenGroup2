@@ -9,9 +9,9 @@ import type { OpenTask } from '@golden-crm/shared';
 
 const EMERGENCY_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   open: { label: 'جديد', color: 'bg-blue-50 text-blue-700 border border-blue-200' },
-  in_contact_list: { label: 'ضمن قائمة الاتصال', color: 'bg-indigo-50 text-indigo-700 border border-indigo-200' },
+  in_scheduling: { label: 'قيد الجدولة', color: 'bg-indigo-50 text-indigo-700 border border-indigo-200' },
   scheduled: { label: 'تم تحديد موعد', color: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
-  needs_reschedule: { label: 'تم تجديد موعد', color: 'bg-amber-50 text-amber-700 border border-amber-200' },
+  needs_follow_up: { label: 'بحاجة متابعة', color: 'bg-amber-50 text-amber-700 border border-amber-200' },
   completed: { label: 'انتهت', color: 'bg-green-50 text-green-700 border border-green-200' },
   cancelled: { label: 'لم تتم', color: 'bg-rose-50 text-rose-700 border border-rose-200' },
 };
@@ -120,7 +120,7 @@ export default function EmergencyTasks() {
       width: '180px',
       render: (t: OpenTask) => (
         <span className="text-sm text-slate-600">
-          {t.contractSnapshot?.deviceModel || '—'}
+          {t.contractSnapshot?.device?.modelName || '—'}
         </span>
       ),
     },
@@ -202,7 +202,7 @@ export default function EmergencyTasks() {
         { value: '', label: 'الكل' },
         { value: 'open', label: 'جديد' },
         { value: 'scheduled', label: 'تم تحديد موعد' },
-        { value: 'needs_reschedule', label: 'تم تجديد موعد' },
+        { value: 'needs_follow_up', label: 'بحاجة متابعة' },
         { value: 'completed', label: 'انتهت' },
         { value: 'cancelled', label: 'لم تتم' },
       ],
