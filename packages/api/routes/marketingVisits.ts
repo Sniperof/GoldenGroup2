@@ -602,14 +602,14 @@ async function applyTaskResult(req: any, res: any, visit: any, task: any) {
         if (taskResult === 'cash_offer_closed' || taskResult === 'installment_offer_closed') {
           newOpenTaskStatus = 'completed';
         } else {
-          newOpenTaskStatus = 'needs_reschedule';
+          newOpenTaskStatus = 'needs_follow_up';
         }
       } else {
-        newOpenTaskStatus = 'needs_reschedule';
+        newOpenTaskStatus = 'needs_follow_up';
       }
       const mvUpdateResult = await pgClient.query(
         `UPDATE open_tasks SET status = $1, updated_at = NOW()
-         WHERE id = $2 AND status IN ('in_visit', 'scheduled', 'in_contact_list')`,
+         WHERE id = $2 AND status IN ('in_execution', 'scheduled', 'in_scheduling')`,
         [newOpenTaskStatus, openTaskId],
       );
       if ((mvUpdateResult as any).rowCount > 0 && oldOpenTaskStatus && oldOpenTaskStatus !== newOpenTaskStatus) {
@@ -904,7 +904,8 @@ async function applyVisitLifecycleAction(
 
   const performedBy = req.authContext?.userId ?? null;
   const userRole = (req as any).user?.role ?? null;
-  const nextOpenTaskStatus = targetStatus === 'needs_reschedule' ? 'needs_reschedule' : 'open';
+  // marketing_visits.status 'needs_reschedule' → open_tasks.status 'needs_follow_up' (renamed in migration 105)
+  const nextOpenTaskStatus = targetStatus === 'needs_reschedule' ? 'needs_follow_up' : 'open';
   const pgClient = await pool.connect();
 
   try {
@@ -1440,7 +1441,7 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
              ot.task_type,
              ot.task_family,
              'follow_up',
-             'needs_reschedule',
+             'needs_follow_up',
              $2::date,
              'system',
              $3,
@@ -1475,7 +1476,7 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
            created_by,
            origin
          )
-         VALUES ($1, $2, 'device_demo', 'marketing', 'follow_up', 'needs_reschedule', $3::date, 'system', $4, $5, 'system')
+         VALUES ($1, $2, 'device_demo', 'marketing', 'follow_up', 'needs_follow_up', $3::date, 'system', $4, $5, 'system')
          RETURNING id`,
         [visit.clientId, visit.branchId, followUpDueDate, notes, completedBy],
       );

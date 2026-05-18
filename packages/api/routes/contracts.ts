@@ -17,8 +17,11 @@ const contractSelect = `
   c.final_price AS "finalPrice", c.payment_type AS "paymentType",
   c.down_payment AS "downPayment", c.installments_count AS "installmentsCount",
   c.delivery_date AS "deliveryDate", c.installation_date AS "installationDate",
-  c.status, c.created_at AS "createdAt",
-  c.branch_id AS "branchId"
+  c.status, c.created_at AS "createdAt", c.branch_id AS "branchId",
+  c.installation_geo_unit_id AS "installationGeoUnitId",
+  c.installation_address_text AS "installationAddressText",
+  c.installation_lat AS "installationLat",
+  c.installation_lng AS "installationLng"
 `;
 
 const dueSelect = `
@@ -69,18 +72,25 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const installationGeoUnitId = c.geoSelection?.neighborhoodId || null;
+    const installationAddressText = c.detailedAddress?.trim() || null;
+    const installationLat = c.mapPosition?.[0] ?? null;
+    const installationLng = c.mapPosition?.[1] ?? null;
+
     const { rows } = await client.query(
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
         source_visit, device_model_id, device_model_name, serial_number, maintenance_plan,
         base_price, final_price, payment_type, down_payment, installments_count,
-        delivery_date, installation_date, status, branch_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        delivery_date, installation_date, status, branch_id,
+        installation_geo_unit_id, installation_address_text, installation_lat, installation_lng)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
       RETURNING ${contractSelect.replace(/c\./g, '')}`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
        c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate, c.installationDate,
-       c.status || 'draft', targetBranchId]
+       c.status || 'draft', targetBranchId,
+       installationGeoUnitId, installationAddressText, installationLat, installationLng]
     );
     const contract = rows[0];
 
@@ -121,18 +131,27 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branch_id });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const c = req.body;
+  const installationGeoUnitId = c.geoSelection?.neighborhoodId || c.installationGeoUnitId || null;
+  const installationAddressText = c.detailedAddress?.trim() || c.installationAddressText || null;
+  const installationLat = c.mapPosition?.[0] ?? c.installationLat ?? null;
+  const installationLng = c.mapPosition?.[1] ?? c.installationLng ?? null;
+
   const { rows } = await pool.query(
     `UPDATE contracts SET contract_number=$1, customer_id=$2, customer_name=$3,
       contract_date=$4, source_visit=$5, device_model_id=$6, device_model_name=$7,
       serial_number=$8, maintenance_plan=$9, base_price=$10, final_price=$11,
       payment_type=$12, down_payment=$13, installments_count=$14,
-      delivery_date=$15, installation_date=$16, status=$17
-    WHERE id=$18 RETURNING ${contractSelect.replace(/c\./g, '')}`,
+      delivery_date=$15, installation_date=$16, status=$17,
+      installation_geo_unit_id=$18, installation_address_text=$19,
+      installation_lat=$20, installation_lng=$21
+    WHERE id=$22 RETURNING ${contractSelect.replace(/c\./g, '')}`,
     [c.contractNumber, c.customerId, c.customerName, c.contractDate,
      c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
      c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
      c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate, c.installationDate,
-     c.status || 'draft', req.params.id]
+     c.status || 'draft',
+     installationGeoUnitId, installationAddressText, installationLat, installationLng,
+     req.params.id]
   );
   res.json(rows[0]);
 });

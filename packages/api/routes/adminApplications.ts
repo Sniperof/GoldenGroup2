@@ -61,9 +61,9 @@ async function assertAppBranchAccess(req: any, res: any, appId: string | number)
   const authContext = req.authContext!;
   if (authContext.isSuperAdmin) return true;
   const { rows } = await pool.query('SELECT branch_id FROM job_applications WHERE id = $1', [appId]);
-  if (!rows[0]) { res.status(404).json({ error: '????? ??? ?????' }); return false; }
+  if (!rows[0]) { res.status(404).json({ error: 'الطلب غير موجود' }); return false; }
   if (!authContext.allowedBranchIds.includes(rows[0].branch_id)) {
-    res.status(403).json({ error: '??? ?????' });
+    res.status(403).json({ error: 'غير مسموح' });
     return false;
   }
   return true;
@@ -115,7 +115,7 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
       params.push(`%${search}%`);
       idx++;
     }
-    // M4.2: archived filter � default to non-archived
+    // M4.2: archived filter — default to non-archived
     if (isArchived === 'true') {
       conditions.push(`ja.is_archived = TRUE`);
     } else {
@@ -171,21 +171,21 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
   }
 });
 
-// POST /api/admin/applications � manual admin entry (Internal / External Platforms)
+// POST /api/admin/applications — manual admin entry (Internal / External Platforms)
 router.post('/', requirePermission('jobs.applications.create'), async (req, res) => {
   const client = await pool.connect();
   try {
     const body = req.body;
     const a = body.applicant || {};
 
-    if (!a.firstName?.trim()) return res.status(400).json({ error: '????? ????? ?????' });
-    if (!a.lastName?.trim()) return res.status(400).json({ error: '??? ??????? ?????' });
-    if (!a.mobileNumber?.trim()) return res.status(400).json({ error: '??? ?????? ?????' });
-    if (!/^\d{10,11}$/.test(a.mobileNumber)) return res.status(400).json({ error: '??? ?????? ??? ?? ???? 10-11 ???' });
-    if (a.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email)) return res.status(400).json({ error: '???? ?????? ?????????? ??? ?????' });
-    if (!a.dob) return res.status(400).json({ error: '????? ??????? ?????' });
-    if (!a.gender) return res.status(400).json({ error: '????? ?????' });
-    if (!a.maritalStatus) return res.status(400).json({ error: '?????? ?????????? ??????' });
+    if (!a.firstName?.trim()) return res.status(400).json({ error: 'الاسم الأول مطلوب' });
+    if (!a.lastName?.trim()) return res.status(400).json({ error: 'اسم العائلة مطلوب' });
+    if (!a.mobileNumber?.trim()) return res.status(400).json({ error: 'رقم الجوال مطلوب' });
+    if (!/^\d{10,11}$/.test(a.mobileNumber)) return res.status(400).json({ error: 'رقم الجوال يجب أن يكون من 10 إلى 11 رقمًا' });
+    if (a.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email)) return res.status(400).json({ error: 'البريد الإلكتروني غير صالح' });
+    if (!a.dob) return res.status(400).json({ error: 'تاريخ الميلاد مطلوب' });
+    if (!a.gender) return res.status(400).json({ error: 'الجنس مطلوب' });
+    if (!a.maritalStatus) return res.status(400).json({ error: 'الحالة الاجتماعية مطلوبة' });
     if (!a.governorate?.trim()) return res.status(400).json({ error: 'المحافظة مطلوبة' });
     if (!a.detailedAddress?.trim()) return res.status(400).json({ error: 'العنوان التفصيلي مطلوب' });
     if (typeof a.hasCar !== 'boolean') return res.status(400).json({ error: 'يرجى تحديد هل تمتلك سيارة' });
@@ -197,15 +197,15 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
 
     const submissionType = body.submissionType;
     if (!['Apply', 'Refer a Candidate'].includes(submissionType)) {
-      return res.status(400).json({ error: '??? ??????? ??? ????' });
+      return res.status(400).json({ error: 'نوع الإرسال غير صالح' });
     }
     const applicationSource = body.applicationSource;
     if (!applicationSource) {
-      return res.status(400).json({ error: '???? ????? ?????' });
+      return res.status(400).json({ error: 'مصدر الطلب مطلوب' });
     }
     // enteredByUserId now comes from auth context
     if (submissionType === 'Refer a Candidate' && !body.referrer?.fullName?.trim()) {
-      return res.status(400).json({ error: '??? ???????? ????? ??? ??????? ????? ?? ????' });
+      return res.status(400).json({ error: 'اسم المحيل مطلوب عند الإحالة' });
     }
 
     await client.query('BEGIN');
@@ -222,18 +222,18 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
       );
       if (vacRows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: '?????? ??? ????? ?? ??? ????? ??????? ?? ???? ?????? ???????' });
+        return res.status(400).json({ error: 'الشاغر غير موجود أو غير متاح للتقديم' });
       }
       applicationBranchId = vacRows[0].branch_id;
       if (!applicationBranchId) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: '?? ???? ????? ??? ???? ?????? ??? ?????? ??? ????? ????.' });
+        return res.status(400).json({ error: 'تعذر تحديد فرع الشاغر' });
       }
       // Branch-admin can only apply to their own branch's vacancies
       const authContext = req.authContext!;
       if (!authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(applicationBranchId)) {
         await client.query('ROLLBACK');
-        return res.status(403).json({ error: '??? ?????: ?????? ??? ????? ???' });
+        return res.status(403).json({ error: 'غير مسموح: فرع الشاغر خارج النطاق المسموح' });
       }
     } else {
       // No vacancy: resolve from scope/body
@@ -243,7 +243,7 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
     }
     if (applicationBranchId == null) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: '??? ????? ??? ???? ???? ???????.' });
+      return res.status(400).json({ error: 'تعذر تحديد فرع الطلب' });
     }
 
     // Duplicate check
@@ -365,10 +365,10 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
       `SELECT ${APP_COLS}, ja.branch_id AS "branchId" FROM job_applications ja WHERE ja.id = $1`,
       [req.params.id]
     );
-    if (appRows.length === 0) return res.status(404).json({ error: '????? ??? ?????' });
+    if (appRows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     const app = appRows[0];
     if (!authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(app.branchId)) {
-      return res.status(403).json({ error: '??? ?????' });
+    res.status(403).json({ error: 'غير مسموح' });
     }
 
     // Fetch applicant
@@ -502,7 +502,7 @@ router.patch('/:id/stage', requirePermission('jobs.applications.change_stage'), 
        WHERE ja.id = $1`,
       [appId]
     );
-    if (currentRows.length === 0) return res.status(404).json({ error: '????? ??? ?????' });
+    if (currentRows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     const current = currentRows[0];
     const blockReason = getApplicationProcessingBlockReason(req.user?.role, {
       currentStage: current.current_stage,
@@ -513,21 +513,21 @@ router.patch('/:id/stage', requirePermission('jobs.applications.change_stage'), 
     // Block: escalated applications are frozen
     if (current.is_escalated) {
       return res.status(409).json({
-        error: '?? ???? ????? ???????: ????? ???????. ??? ?? ??????? ?????.',
+        error: 'لا يمكن تعديل هذا الطلب: الطلب مصعّد. راجع مسار التصعيد أولاً.',
       });
     }
 
     // Block: Training stage transitions go exclusively through the training module
     if (isTrainingManagedStage(current.current_stage)) {
       return res.status(400).json({
-        error: '?? ???? ????? ???? ????? ?? ????? ??????? ??? ?? ???? ???? ????? ??????? ?????????',
+        error: 'لا يمكن تعديل هذا الطلب لأن المرحلة التدريبية تُدار من وحدة التدريب حصريًا.',
       });
     }
 
     // Block: Interview result transitions go exclusively through the interview module
     if (isInterviewManagedTransition(current.current_stage, current.application_status, status)) {
       return res.status(400).json({
-        error: '??? ????? ????? ???????? ???????? ?? ???? ???? ????? ????????? ???',
+        error: 'لا يمكن تعديل هذا الطلب لأن انتقالات نتيجة المقابلة تُدار من وحدة المقابلات حصريًا.',
       });
     }
 
@@ -596,7 +596,7 @@ router.patch('/:id/stage', requirePermission('jobs.applications.change_stage'), 
   }
 });
 
-// PATCH /api/admin/applications/:id/hire � Final Hired (no override allowed)
+// PATCH /api/admin/applications/:id/hire — Final Hired (no override allowed)
 router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -615,7 +615,7 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
     );
     if (appRows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ error: '????? ??? ?????' });
+      return res.status(404).json({ error: 'الطلب غير موجود' });
     }
     const app = appRows[0];
     const blockReason = getApplicationProcessingBlockReason(req.user?.role, {
@@ -631,7 +631,7 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
     if (app.is_escalated) {
       await client.query('ROLLBACK');
       return res.status(409).json({
-        error: '?? ???? ????? ???????: ????? ???????. ??? ?? ??????? ?????.',
+        error: 'لا يمكن تعديل هذا الطلب: الطلب مصعّد. راجع مسار التصعيد أولاً.',
       });
     }
 
@@ -639,16 +639,16 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
     if (app.current_stage !== 'Final Decision' || app.application_status !== 'Passed') {
       await client.query('ROLLBACK');
       return res.status(400).json({
-        error: '??? ?? ???? ????? ?? ????? "?????? ???????" ????? "????" ?????? ???????',
+        error: 'لا يمكن التوظيف إلا من حالة "القرار النهائي" مع حالة "مقبول".',
       });
     }
 
-    // Capacity check � no override allowed (FOR UPDATE lock is inside checkVacancyCapacity)
+    // Capacity check — no override allowed (FOR UPDATE lock is inside checkVacancyCapacity)
     const capacity = await checkVacancyCapacity(client, app.vacancy_id);
     if (!capacity.sufficient) {
       await client.query('ROLLBACK');
       return res.status(400).json({
-        error: '?? ???? ????? ??????. ?? ???? ???????.',
+        error: 'لا يمكن التوظيف الآن. الشاغر لا يحتوي على مقاعد كافية.',
         vacancyCount: capacity.vacancyCount,
       });
     }
@@ -703,7 +703,7 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
   }
 });
 
-// PATCH /api/admin/applications/:id/decision � New decision endpoint (stage_status/decision model)
+// PATCH /api/admin/applications/:id/decision — New decision endpoint (stage_status/decision model)
 router.post('/:id/employee', requirePermission('employees.create'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -934,7 +934,7 @@ router.post('/:id/employee-legacy-disabled', requirePermission('employees.create
 
     if (appRows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ error: '????? ??? ?????' });
+      return res.status(404).json({ error: 'الطلب غير موجود' });
     }
 
     const app = appRows[0];
@@ -950,16 +950,16 @@ router.post('/:id/employee-legacy-disabled', requirePermission('employees.create
     if (app.current_stage !== 'Final Decision' || app.application_status !== 'Final Hired') {
       await client.query('ROLLBACK');
       return res.status(400).json({
-        error: '?? ???? ????? ??? ???? ??? ??? ?????? ?????? ??????? ??????.',
+        error: 'لا يمكن إنشاء سجل موظف إلا بعد اعتماد القرار النهائي كمقبول.',
       });
     }
 
     if (app.hiredEmployeeId) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ error: '?? ????? ??? ?????? ???? ????? ??????.' });
+      return res.status(409).json({ error: 'تم إنشاء سجل الموظف لهذا الطلب مسبقًا.' });
     }
 
-    // Derive the legacy operational role � may be null for job titles outside
+    // Derive the legacy operational role — may be null for job titles outside
     // supervisor / technician / telemarketer; that is acceptable since the DB
     // CHECK constraint has been dropped and role is now nullable.
     const role = deriveEmployeeRoleFromVacancyTitle(app.vacancyTitle);
@@ -977,7 +977,7 @@ router.post('/:id/employee-legacy-disabled', requirePermission('employees.create
     const employeeBranchId = app.vacancyBranchId ?? app.applicationBranchId ?? null;
     if (!employeeBranchId) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: '???? ????? ??? ?????? ?? ?????' });
+      return res.status(400).json({ error: 'تعذر تحديد فرع الموظف من الطلب' });
     }
 
     const { rows: employeeRows } = await client.query(
@@ -1029,7 +1029,7 @@ router.patch('/:id/decision', requirePermission('jobs.applications.record_decisi
     const { decision, internalNotes } = req.body;
     const appId = req.params.id as string;
 
-    if (!decision) return res.status(400).json({ error: '?????? ?????' });
+    if (!decision) return res.status(400).json({ error: 'القرار مطلوب' });
     if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     const { rows: currentRows } = await client.query(
@@ -1041,7 +1041,7 @@ router.patch('/:id/decision', requirePermission('jobs.applications.record_decisi
        WHERE ja.id = $1`,
       [appId]
     );
-    if (currentRows.length === 0) return res.status(404).json({ error: '????? ??? ?????' });
+    if (currentRows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     const current = currentRows[0];
     const blockReason = getApplicationProcessingBlockReason(req.user?.role, {
       currentStage: current.current_stage,
@@ -1144,7 +1144,7 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: '????? ??? ????? ?? ??????? ??????' });
+      return res.status(400).json({ error: 'الطلب غير موجود ?? ?القرار مطلوب?' });
     }
 
     await insertAuditLog(client, {
@@ -1186,7 +1186,7 @@ router.patch('/:id/resolve-escalation', requireRole('HR_MANAGER'), async (req, r
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: '????? ??? ????? ?? ??? ???????' });
+      return res.status(400).json({ error: 'لا يمكن إلغاء التصعيد لأن الطلب غير مصعّد' });
     }
 
     await insertAuditLog(client, {
@@ -1221,7 +1221,7 @@ router.patch('/:id/notes', requirePermission('jobs.applications.edit_notes'), as
        RETURNING id, internal_notes AS "internalNotes"`,
       [notes ? sanitizeText(notes) : null, appId]
     );
-    if (rows.length === 0) return res.status(404).json({ error: '????? ??? ?????' });
+    if (rows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     res.json(rows[0]);
   } catch (err: any) {
     console.error('Error updating notes:', err);
@@ -1247,17 +1247,17 @@ router.patch('/:id/archive', requirePermission('jobs.applications.archive'), asy
     );
     if (current.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ error: '????? ??? ?????' });
+      return res.status(404).json({ error: 'الطلب غير موجود' });
     }
     if (!ARCHIVABLE_STATUSES.includes(current[0].applicationStatus)) {
       await client.query('ROLLBACK');
       return res.status(400).json({
-        error: `?? ???? ????? ????? ??? ?? ??????? ????????: ${ARCHIVABLE_STATUSES.join(', ')}`,
+        error: `لا يمكن أرشفة الطلب إلا عندما تكون حالته إحدى الحالات التالية: ${ARCHIVABLE_STATUSES.join(', ')}`,
       });
     }
     if (current[0].isArchived) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: '????? ????? ??????' });
+      return res.status(400).json({ error: 'الطلب مؤرشف بالفعل' });
     }
 
     const { rows } = await client.query(

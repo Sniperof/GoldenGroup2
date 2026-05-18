@@ -119,13 +119,14 @@ router.post('/', async (req, res) => {
 
     const { rows: taskRows } = await db.query(
       `INSERT INTO open_tasks (
-        client_id, branch_id, task_type, task_family, reason, status, source, notes, created_by
+        client_id, branch_id, contract_id, task_type, task_family, reason, status, source, notes, created_by
       )
-      VALUES ($1, $2, 'emergency_maintenance', 'service', 'service_request', 'open', 'emergency_ticket', $3, $4)
+      VALUES ($1, $2, $3, 'emergency_maintenance', 'emergency', 'service_request', 'open', 'emergency_ticket', $4, $5)
       RETURNING id`,
       [
         ticket.clientId,
         branchId,
+        ticket.contractId || null,
         ticket.problemDescription,
         req.user?.id ?? null,
       ],
