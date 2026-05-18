@@ -693,6 +693,12 @@ export interface Contract {
     installationDate: string;
     status: ContractStatus;
     createdAt: string;
+    branchId?: number;
+    // Installation address — specific to this contract/device, different from client address
+    installationGeoUnitId?: number | null;
+    installationAddressText?: string | null;
+    installationLat?: number | null;
+    installationLng?: number | null;
 }
 
 export type MaintenancePartType = 'Periodic' | 'Emergency' | 'Accessory';
@@ -1124,25 +1130,115 @@ export interface TrainingCourseDetail extends TrainingCourse {
 }
 
 // Open Task types
-export type OpenTaskStatus = 'open' | 'in_contact_list' | 'scheduled' | 'in_visit' | 'completed' | 'cancelled' | 'needs_reschedule';
+// 11-value lifecycle organized into 4 phases (see docs/analysis/task-model.md §2.2.1)
+export type OpenTaskStatus =
+  | 'open' | 'needs_follow_up'                              // Phase: قيد الانتظار
+  | 'assigned' | 'in_scheduling' | 'scheduled'             // Phase: التخطيط
+  | 'waiting_execution' | 'in_execution' | 'ended'         // Phase: التنفيذ
+  | 'completed' | 'closed' | 'cancelled';                  // Phase: الإغلاق
+
+export type OpenTaskPhase = 'waiting' | 'planning' | 'execution' | 'closure';
+
 export type OpenTaskType = 'device_demo' | 'emergency_maintenance';
 export type OpenTaskFamily = 'marketing' | 'service' | 'maintenance';
 export type OpenTaskReason = 'new_lead' | 'follow_up' | 'renewal' | 'service_request' | 'other';
+
+// Task type configuration (see docs/analysis/task-scheduling-patterns.md)
+export type TaskSchedulingPattern = 'immediate' | 'short_window' | 'long_window' | 'expected_window';
+export type TaskWindowBasis = 'none' | 'due_date' | 'expected_date';
+
+export interface TaskTypeConfig {
+  taskType: string;
+  taskFamily: string;
+  arabicLabel: string;
+  schedulingPattern: TaskSchedulingPattern;
+  windowBasis: TaskWindowBasis;
+  planningWindowDays: number | null;
+  contractRequired: boolean;
+  allowMultiple: boolean;
+  hasDueDate: boolean;
+  displayOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const TASK_SCHEDULING_PATTERN_LABELS: Record<TaskSchedulingPattern, string> = {
+  immediate:       'فوري',
+  short_window:    'نافذة قصيرة',
+  long_window:     'نافذة طويلة',
+  expected_window: 'نافذة الموعد المتوقع',
+};
+
+export const TASK_SCHEDULING_PATTERN_DESCRIPTIONS: Record<TaskSchedulingPattern, string> = {
+  immediate:       'لا تاريخ مستقبلي — تظهر فور إنشائها، N لا تنطبق',
+  short_window:    'لها due_date — تدخل النطاق قبل موعدها بأيام قليلة (3–7)',
+  long_window:     'لها due_date بعيد (شهور) — تدخل النطاق قبل موعدها بنافذة أطول (15–30)',
+  expected_window: 'لا due_date صارم — تستخدم expected_date من محادثة الزبون',
+};
+
+export const TASK_WINDOW_BASIS_LABELS: Record<TaskWindowBasis, string> = {
+  none:          'لا ينطبق',
+  due_date:      'تاريخ الاستحقاق',
+  expected_date: 'الموعد المتوقع',
+};
+
+/** Map each status to its lifecycle phase. Phase is derived, never stored. */
+export const STATUS_TO_PHASE: Record<OpenTaskStatus, OpenTaskPhase> = {
+  open: 'waiting',
+  needs_follow_up: 'waiting',
+  assigned: 'planning',
+  in_scheduling: 'planning',
+  scheduled: 'planning',
+  waiting_execution: 'execution',
+  in_execution: 'execution',
+  ended: 'execution',
+  completed: 'closure',
+  closed: 'closure',
+  cancelled: 'closure',
+};
+
+export function getTaskPhase(status: OpenTaskStatus): OpenTaskPhase {
+  return STATUS_TO_PHASE[status] ?? 'waiting';
+}
+
+export const OPEN_TASK_PHASE_LABELS: Record<OpenTaskPhase, string> = {
+  waiting: 'قيد الانتظار',
+  planning: 'التخطيط',
+  execution: 'التنفيذ',
+  closure: 'الإغلاق',
+};
+
+export const OPEN_TASK_PHASE_COLORS: Record<OpenTaskPhase, string> = {
+  waiting:   'bg-slate-100 text-slate-700 border-slate-200',
+  planning:  'bg-indigo-50 text-indigo-700 border-indigo-200',
+  execution: 'bg-amber-50 text-amber-700 border-amber-200',
+  closure:   'bg-emerald-50 text-emerald-700 border-emerald-200',
+};
 
 export interface OpenTask {
   id: number;
   clientId: number;
   branchId: number;
+  contractId: number | null;
   taskType: OpenTaskType;
   taskFamily: OpenTaskFamily;
   reason: OpenTaskReason;
   status: OpenTaskStatus;
   dueDate: string | null;
+  expectedDate: string | null;
+  lastWaitingStatus: 'open' | 'needs_follow_up' | null;
+  phase?: OpenTaskPhase;  // derived from status by API
+  waitingReasonId: number | null;
+  waitingReasonText: string | null;
+  attemptCount: number;
+  lastAttemptAt: string | null;
   priority: 'high' | 'medium' | 'low' | null;
   source: string;
   marketingVisitTaskId: string | null;
   contactTargetId: number | null;
   notes: string | null;
+  cancellationReason: string | null;
   createdBy: number | null;
   createdAt: string;
   updatedAt: string;
@@ -1161,10 +1257,29 @@ export interface OpenTask {
     clientType: string;
   };
   contractSnapshot?: {
+    contractId: number;
     contractNumber: string;
-    deviceModel: string;
-    serialNumber: string;
-    installationDate: string;
+    contractDate: string;
+    device: {
+      modelId: number;
+      modelName: string;
+      serialNumber: string;
+      maintenancePlan: string;
+    };
+    installationAddress: {
+      geoUnitId: number | null;
+      geoUnitName: string | null;
+      addressText: string | null;
+      lat: number | null;
+      lng: number | null;
+    } | null;
+    financials: {
+      paymentType: string;
+      finalPrice: number;
+      downPayment: number;
+      installmentsCount: number;
+      currency: string;
+    };
     status: string;
   } | null;
   teamSnapshot?: {
@@ -1186,13 +1301,21 @@ export interface OpenTask {
 }
 
 export const OPEN_TASK_STATUS_LABELS: Record<OpenTaskStatus, string> = {
-  open: 'قيد الانتظار',            // was: مفتوحة — technical value stays 'open'
-  in_contact_list: 'ضمن قائمة الاتصال',
-  scheduled: 'مجدولة',             // was: موعد مثبت
-  in_visit: 'في الزيارة',          // was: ضمن زيارة
+  // Waiting phase
+  open: 'مفتوحة',
+  needs_follow_up: 'بحاجة متابعة',
+  // Planning phase
+  assigned: 'مسندة',
+  in_scheduling: 'قيد الجدولة',
+  scheduled: 'مجدولة',
+  // Execution phase
+  waiting_execution: 'بانتظار التنفيذ',
+  in_execution: 'قيد التنفيذ',
+  ended: 'انتهت',
+  // Closure phase
   completed: 'مكتملة',
+  closed: 'مغلقة نهائياً',
   cancelled: 'ملغاة',
-  needs_reschedule: 'تحتاج متابعة', // was: تحتاج إعادة جدولة — not a terminal state, awaits follow-up
 };
 
 export const OPEN_TASK_TYPE_LABELS: Record<OpenTaskType, string> = {

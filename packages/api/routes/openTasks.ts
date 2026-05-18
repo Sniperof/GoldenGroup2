@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { getTaskPhase, type OpenTaskStatus } from '@golden-crm/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import {
@@ -11,7 +12,20 @@ import {
 const router = Router();
 router.use(requireAuth);
 
-const VALID_TASK_STATUSES = ['open', 'in_contact_list', 'scheduled', 'in_visit', 'completed', 'cancelled', 'needs_reschedule'] as const;
+const VALID_TASK_STATUSES = [
+  'open', 'needs_follow_up',
+  'assigned', 'in_scheduling', 'scheduled',
+  'waiting_execution', 'in_execution', 'ended',
+  'completed', 'closed', 'cancelled',
+] as const;
+
+// Default planning window per task type (in days). Tasks with due_date > today + N are excluded from load.
+// TODO: move to task_type_config table when implemented (G04/T04).
+const PLANNING_WINDOW_DAYS: Record<string, number> = {
+  device_demo: 7,
+  emergency_maintenance: 0, // always urgent — no future-tasks expected
+};
+const DEFAULT_PLANNING_WINDOW = 7;
 
 const OPEN_TASK_SELECT = `
   SELECT
@@ -86,16 +100,28 @@ function mapOpenTaskRow(row: any) {
     id: row.id,
     clientId: row.client_id,
     branchId: row.branch_id,
+    contractId: row.contract_id ?? null,
+    branchName: row.branchName ?? null,
+    displayBranchName: row.branchName ?? row.clientBranchName ?? row.taskBranchName ?? null,
+    displayCreatedByName: row.createdByName ?? row.createdBy?.name ?? row.createdBy?.username ?? null,
     taskType: row.task_type,
     taskFamily: row.task_family,
     reason: row.reason,
     status: row.status,
+    phase: getTaskPhase(row.status as OpenTaskStatus),
     dueDate: row.due_date,
+    expectedDate: row.expected_date ?? null,
+    lastWaitingStatus: row.last_waiting_status ?? null,
+    waitingReasonId: row.waiting_reason_id ?? null,
+    waitingReasonText: row.waiting_reason_text ?? null,
+    attemptCount: row.attempt_count ?? 0,
+    lastAttemptAt: row.last_attempt_at ?? null,
     priority: row.priority,
     source: row.source,
     marketingVisitTaskId: row.marketing_visit_task_id,
     contactTargetId: row.contact_target_id,
     notes: row.notes,
+    cancellationReason: row.cancellation_reason ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -107,7 +133,8 @@ function mapOpenTaskRow(row: any) {
     clientNeighborhood: row.clientNeighborhood ?? null,
     clientGovernorate: row.clientGovernorate ?? null,
     clientDistrict: row.clientDistrict ?? null,
-    branchName: row.branchName ?? null,
+    taskBranchName: row.taskBranchName ?? null,
+    clientBranchName: row.clientBranchName ?? null,
     createdByName: row.createdByName ?? null,
     marketingVisitId: row.marketingVisitId ?? null,
     visitStatus: row.visitStatus ?? null,
@@ -222,23 +249,46 @@ export async function buildOpenTaskSnapshots(db: Queryable, clientId: number, co
   if (contractId) {
     const { rows: contractRows } = await db.query(
       `SELECT
-        c.contract_number,
-        c.device_model_name,
-        c.serial_number,
-        c.installation_date,
-        c.status
+        c.id, c.contract_number, c.contract_date,
+        c.device_model_id, c.device_model_name, c.serial_number, c.maintenance_plan,
+        c.installation_geo_unit_id, c.installation_address_text,
+        c.installation_lat, c.installation_lng,
+        c.payment_type, c.final_price, c.down_payment, c.installments_count,
+        c.status,
+        gu.name AS installation_geo_unit_name
        FROM contracts c
+       LEFT JOIN geo_units gu ON gu.id = c.installation_geo_unit_id
        WHERE c.id = $1`,
       [contractId],
     );
 
     if (contractRows[0]) {
+      const cr = contractRows[0];
       contractSnapshot = {
-        contractNumber: contractRows[0].contract_number ?? '',
-        deviceModel: contractRows[0].device_model_name ?? '',
-        serialNumber: contractRows[0].serial_number ?? '',
-        installationDate: contractRows[0].installation_date ?? '',
-        status: contractRows[0].status ?? '',
+        contractId: cr.id,
+        contractNumber: cr.contract_number ?? '',
+        contractDate: cr.contract_date ?? '',
+        device: {
+          modelId: cr.device_model_id ?? null,
+          modelName: cr.device_model_name ?? '',
+          serialNumber: cr.serial_number ?? '',
+          maintenancePlan: cr.maintenance_plan ?? '',
+        },
+        installationAddress: {
+          geoUnitId: cr.installation_geo_unit_id ?? null,
+          geoUnitName: cr.installation_geo_unit_name ?? null,
+          addressText: cr.installation_address_text ?? null,
+          lat: cr.installation_lat ? Number(cr.installation_lat) : null,
+          lng: cr.installation_lng ? Number(cr.installation_lng) : null,
+        },
+        financials: {
+          paymentType: cr.payment_type ?? '',
+          finalPrice: Number(cr.final_price) || 0,
+          downPayment: Number(cr.down_payment) || 0,
+          installmentsCount: cr.installments_count || 0,
+          currency: 'SYP',
+        },
+        status: cr.status ?? '',
       };
     }
   }
@@ -323,6 +373,7 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
   const clientId = Number(req.body?.clientId);
   const branchId = Number(req.body?.branchId ?? authContext.actingBranchId);
   const dueDate = req.body?.dueDate ?? null;
+  const expectedDate = req.body?.expectedDate ?? null;
   const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
   const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() || null : null;
   const priority = ['high', 'medium', 'low'].includes(req.body?.priority) ? req.body.priority : null;
@@ -359,11 +410,11 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
     const { rows: taskRows } = await pgClient.query(
       `INSERT INTO open_tasks (
          client_id, branch_id, task_type, task_family, reason, status,
-         due_date, priority, source, notes, created_by, origin
+         due_date, expected_date, priority, source, notes, created_by, origin
        ) VALUES ($1, $2, 'device_demo', 'marketing', $3, 'open',
-         $4::date, $5, 'manual', $6, $7, 'manual_entry')
+         $4::date, $5::date, $6, 'manual', $7, $8, 'manual_entry')
        RETURNING id`,
-      [clientId, branchId, reason, dueDate, priority, notes, authContext.userId ?? null],
+      [clientId, branchId, reason, dueDate, expectedDate, priority, notes, authContext.userId ?? null],
     );
     const openTaskId = taskRows[0].id;
 
@@ -508,6 +559,10 @@ router.get('/device-demo', requirePermission('marketing_visits.view'), async (re
     const visitStatusFilter = req.query.visitStatus as string | undefined;
     const scheduledDateFilter = req.query.scheduledDate as string | undefined;
     const scheduledFilter = req.query.scheduled as string | undefined; // 'yes' | 'no'
+    // 'true' = hide tasks whose expected_date is in the future (snoozed by telemarketer)
+    const hideSnoozed = req.query.hideSnoozed === 'true';
+    // 'true' = exclude "لاحقة" tasks (due_date > today + N) from workload — D13
+    const hideFutureTasks = req.query.hideFutureTasks === 'true';
 
     const params: any[] = [branchId];
     let paramIdx = 2;
@@ -537,6 +592,17 @@ router.get('/device-demo', requirePermission('marketing_visits.view'), async (re
       conditions.push(`mv.id IS NULL`);
     }
 
+    // Hide snoozed: only relevant for waiting tasks (open/needs_follow_up) with a future expected_date
+    if (hideSnoozed) {
+      conditions.push(`(ot.expected_date IS NULL OR ot.expected_date <= CURRENT_DATE OR ot.status NOT IN ('open', 'needs_follow_up'))`);
+    }
+
+    // Exclude "لاحقة" — tasks whose due_date is beyond the planning window (D13)
+    if (hideFutureTasks) {
+      const windowDays = PLANNING_WINDOW_DAYS['device_demo'] ?? DEFAULT_PLANNING_WINDOW;
+      conditions.push(`(ot.due_date IS NULL OR ot.due_date <= CURRENT_DATE + INTERVAL '${windowDays} days' OR ot.status NOT IN ('open', 'needs_follow_up'))`);
+    }
+
     const whereExtra = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
 
     const query = `
@@ -549,14 +615,30 @@ router.get('/device-demo', requirePermission('marketing_visits.view'), async (re
         ot.created_at AS "createdAt",
         ot.updated_at AS "updatedAt",
         ot.client_id AS "clientId",
+        ot.due_date AS "dueDate",
+        ot.expected_date AS "expectedDate",
+        ot.priority AS "priority",
+        ot.waiting_reason_id AS "waitingReasonId",
+        ot.waiting_reason_text AS "waitingReasonText",
+        ot.attempt_count AS "attemptCount",
+        ot.last_attempt_at AS "lastAttemptAt",
+        ot.last_waiting_status AS "lastWaitingStatus",
         ot.team_snapshot AS "teamSnapshot",
         ot.client_snapshot AS "clientSnapshot",
         c.name AS "clientName",
+        c.first_name AS "clientFirstName",
+        c.father_name AS "clientFatherName",
+        c.last_name AS "clientLastName",
         c.mobile AS "clientMobile",
         c.neighborhood AS "clientNeighborhood",
         c.governorate AS "clientGovernorate",
         c.district AS "clientDistrict",
         c.detailed_address AS "clientDetailedAddress",
+        b.name AS "taskBranchName",
+        cb.name AS "clientBranchName",
+        b.name AS "branchName",
+        COALESCE(creator.name, creator.username, '') AS "createdByName",
+        ${buildCustomerOwnershipSelectColumns()},
         mv.id AS "marketingVisitId",
         mv.status AS "visitStatus",
         mv.scheduled_date AS "scheduledDate",
@@ -571,6 +653,10 @@ router.get('/device-demo', requirePermission('marketing_visits.view'), async (re
         mvt.status AS "visitTaskStatus"
       FROM open_tasks ot
       JOIN clients c ON c.id = ot.client_id
+      LEFT JOIN branches b ON b.id = ot.branch_id
+      LEFT JOIN branches cb ON cb.id = c.branch_id
+      LEFT JOIN hr_users creator ON creator.id = ot.created_by
+      ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
       LEFT JOIN LATERAL (
         SELECT mvt2.result, mvt2.status, mvt2.visit_id
         FROM marketing_visit_tasks mvt2
@@ -587,7 +673,11 @@ router.get('/device-demo', requirePermission('marketing_visits.view'), async (re
     `;
 
     const { rows } = await pool.query(query, params);
-    res.json(rows);
+    res.json(rows.map((row: any) => ({
+      ...row,
+      phase: getTaskPhase(row.taskStatus as OpenTaskStatus),
+      ownership: mapCustomerOwnership(row),
+    })));
   } catch (err: any) {
     console.error('[open-tasks] GET /device-demo error:', err);
     res.status(500).json({ error: 'فشل في تحميل مهام عروض الأجهزة' });
@@ -839,9 +929,15 @@ router.patch('/:id', requirePermission('marketing_visits.update_result'), async 
       return res.status(400).json({ error: 'حالة المهمة غير صالحة' });
     }
 
-    if (req.body.dueDate !== undefined) {
+    if (req.body.dueDate !== undefined && req.body.dueDate !== null) {
       if (!/^\d{4}-\d{2}-\d{2}/.test(String(req.body.dueDate)) || isNaN(Date.parse(req.body.dueDate))) {
         return res.status(400).json({ error: 'تاريخ الاستحقاق غير صالح' });
+      }
+    }
+
+    if (req.body.expectedDate !== undefined && req.body.expectedDate !== null) {
+      if (!/^\d{4}-\d{2}-\d{2}/.test(String(req.body.expectedDate)) || isNaN(Date.parse(req.body.expectedDate))) {
+        return res.status(400).json({ error: 'الموعد المتوقع غير صالح' });
       }
     }
 
@@ -863,9 +959,25 @@ router.patch('/:id', requirePermission('marketing_visits.update_result'), async 
       status: 'status',
       notes: 'notes',
       dueDate: 'due_date',
+      expectedDate: 'expected_date',
       priority: 'priority',
+      waitingReasonId: 'waiting_reason_id',
+      waitingReasonText: 'waiting_reason_text',
     };
-    const allowedFields = ['status', 'notes', 'dueDate', 'priority'];
+    const allowedFields = ['status', 'notes', 'dueDate', 'expectedDate', 'priority', 'waitingReasonId', 'waitingReasonText'];
+
+    const WAITING_STATES = ['open', 'needs_follow_up'];
+
+    // If client sent waitingReasonText but no waitingReasonId, try to resolve the ID from system_lists
+    if (req.body.waitingReasonText && req.body.waitingReasonId === undefined) {
+      const { rows: reasonRows } = await pool.query(
+        `SELECT id FROM system_lists WHERE category = 'telemarketing_reschedule_reason' AND value = $1 AND is_active = TRUE LIMIT 1`,
+        [req.body.waitingReasonText],
+      );
+      if (reasonRows.length > 0) {
+        req.body.waitingReasonId = reasonRows[0].id;
+      }
+    }
 
     const updates: string[] = [];
     const values: any[] = [];
@@ -875,6 +987,17 @@ router.patch('/:id', requirePermission('marketing_visits.update_result'), async 
       if (req.body[field] !== undefined) {
         updates.push(`${fieldMap[field]} = $${paramIdx}`);
         values.push(req.body[field]);
+        paramIdx++;
+      }
+    }
+
+    // Auto-write last_waiting_status: when leaving a waiting state for an active state
+    if (req.body.status !== undefined && req.body.status !== oldStatus) {
+      const wasWaiting = WAITING_STATES.includes(oldStatus);
+      const becomingActive = !WAITING_STATES.includes(req.body.status) && !['completed', 'cancelled'].includes(req.body.status);
+      if (wasWaiting && becomingActive) {
+        updates.push(`last_waiting_status = $${paramIdx}`);
+        values.push(oldStatus);
         paramIdx++;
       }
     }
@@ -955,7 +1078,7 @@ async function maybeCompleteFieldVisit(db: Queryable, fieldVisitId: bigint | str
 function mapDecisionToOpenTaskStatus(finalDecision: string): string {
   if (finalDecision === 'resolved') return 'completed';
   if (finalDecision === 'cancelled') return 'cancelled';
-  return 'needs_reschedule'; // partially_resolved | unresolved | needs_followup
+  return 'needs_follow_up'; // partially_resolved | unresolved | needs_followup
 }
 
 // GET /open-tasks/:id/emergency-result — fetch recorded emergency result
@@ -1392,6 +1515,176 @@ router.post('/:id/assign-scope', requirePermission('marketing_visits.update_resu
   }
 });
 
+// POST /open-tasks/:id/exclude — exclude a task from today's assignment and return it to waiting if needed
+router.post('/:id/exclude', requirePermission('marketing_visits.update_result'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+
+    const { rows: taskRows } = await pool.query(
+      'SELECT id, branch_id, status, last_waiting_status, assigned_scope_id FROM open_tasks WHERE id = $1',
+      [id],
+    );
+    if (taskRows.length === 0) return res.status(404).json({ error: 'المهمة غير موجودة' });
+    if (!authContext.isSuperAdmin && taskRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
+    }
+
+    const reason = typeof req.body?.reason === 'string' && req.body.reason.trim().length > 0
+      ? req.body.reason.trim()
+      : null;
+    const today = new Date().toISOString().split('T')[0];
+    const oldStatus = taskRows[0].status;
+    const newStatus = oldStatus === 'assigned'
+      ? (taskRows[0].last_waiting_status || 'open')
+      : oldStatus;
+
+    await pool.query(
+      `UPDATE open_tasks
+       SET excluded_for_date = $1,
+           excluded_reason = $2,
+           status = CASE WHEN status = 'assigned' THEN COALESCE(last_waiting_status, 'open') ELSE status END,
+           assigned_scope_id = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_scope_id END,
+           assigned_team_key = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_team_key END,
+           assigned_for_date = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_for_date END,
+           assigned_at = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_at END,
+           updated_at = NOW()
+       WHERE id = $3`,
+      [today, reason, id],
+    );
+
+    if (oldStatus === 'assigned') {
+      await pool.query(
+        `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, reason)
+         VALUES ($1, 'status_change', $2, NULL, $3, $4, $5)`,
+        [id, authContext.userId, oldStatus, newStatus, reason],
+      );
+    }
+
+    const task = await loadOpenTaskById(pool, id);
+    res.json(task);
+  } catch (err: any) {
+    console.error('[open-tasks] POST /:id/exclude error:', err);
+    res.status(500).json({ error: 'فشل في استثناء المهمة' });
+  }
+});
+
+// POST /open-tasks/:id/restore — clear today's exclusion and make the task eligible again
+router.post('/:id/restore', requirePermission('marketing_visits.update_result'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+
+    const { rows: taskRows } = await pool.query(
+      'SELECT id, branch_id FROM open_tasks WHERE id = $1',
+      [id],
+    );
+    if (taskRows.length === 0) return res.status(404).json({ error: 'المهمة غير موجودة' });
+    if (!authContext.isSuperAdmin && taskRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
+    }
+
+    await pool.query(
+      `UPDATE open_tasks
+       SET excluded_for_date = NULL,
+           excluded_reason = NULL,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [id],
+    );
+
+    const task = await loadOpenTaskById(pool, id);
+    res.json(task);
+  } catch (err: any) {
+    console.error('[open-tasks] POST /:id/restore error:', err);
+    res.status(500).json({ error: 'فشل في استرجاع المهمة' });
+  }
+});
+
+// POST /open-tasks/bulk-exclude — exclude many tasks from today's assignment
+router.post('/bulk-exclude', requirePermission('marketing_visits.update_result'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const taskIds = Array.isArray(req.body?.taskIds) ? req.body.taskIds.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id)) : [];
+    if (taskIds.length === 0) return res.status(400).json({ error: 'taskIds مطلوبة' });
+
+    const { rows: taskRows } = await pool.query(
+      'SELECT id, branch_id, status, last_waiting_status FROM open_tasks WHERE id = ANY($1::int[])',
+      [taskIds],
+    );
+    if (taskRows.length !== taskIds.length) return res.status(404).json({ error: 'بعض المهام غير موجود' });
+    if (!authContext.isSuperAdmin && taskRows.some(row => row.branch_id !== authContext.actingBranchId)) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لبعض هذه المهام' });
+    }
+
+    const reason = typeof req.body?.reason === 'string' && req.body.reason.trim().length > 0
+      ? req.body.reason.trim()
+      : null;
+    const today = new Date().toISOString().split('T')[0];
+
+    await pool.query(
+      `UPDATE open_tasks
+       SET excluded_for_date = $1,
+           excluded_reason = $2,
+           status = CASE WHEN status = 'assigned' THEN COALESCE(last_waiting_status, 'open') ELSE status END,
+           assigned_scope_id = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_scope_id END,
+           assigned_team_key = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_team_key END,
+           assigned_for_date = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_for_date END,
+           assigned_at = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_at END,
+           updated_at = NOW()
+       WHERE id = ANY($3::int[])`,
+      [today, reason, taskIds],
+    );
+
+    for (const row of taskRows.filter(row => row.status === 'assigned')) {
+      await pool.query(
+        `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, reason)
+         VALUES ($1, 'status_change', $2, NULL, 'assigned', $3, $4)`,
+        [row.id, authContext.userId, row.last_waiting_status || 'open', reason],
+      );
+    }
+
+    res.json({ updated: taskIds.length });
+  } catch (err: any) {
+    console.error('[open-tasks] POST /bulk-exclude error:', err);
+    res.status(500).json({ error: 'فشل في استثناء المهام' });
+  }
+});
+
+// POST /open-tasks/bulk-restore — restore many tasks from today's exclusion
+router.post('/bulk-restore', requirePermission('marketing_visits.update_result'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const taskIds = Array.isArray(req.body?.taskIds) ? req.body.taskIds.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id)) : [];
+    if (taskIds.length === 0) return res.status(400).json({ error: 'taskIds مطلوبة' });
+
+    const { rows: taskRows } = await pool.query(
+      'SELECT id, branch_id FROM open_tasks WHERE id = ANY($1::int[])',
+      [taskIds],
+    );
+    if (taskRows.length !== taskIds.length) return res.status(404).json({ error: 'بعض المهام غير موجود' });
+    if (!authContext.isSuperAdmin && taskRows.some(row => row.branch_id !== authContext.actingBranchId)) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لبعض هذه المهام' });
+    }
+
+    await pool.query(
+      `UPDATE open_tasks
+       SET excluded_for_date = NULL,
+           excluded_reason = NULL,
+           updated_at = NOW()
+       WHERE id = ANY($1::int[])`,
+      [taskIds],
+    );
+
+    res.json({ updated: taskIds.length });
+  } catch (err: any) {
+    console.error('[open-tasks] POST /bulk-restore error:', err);
+    res.status(500).json({ error: 'فشل في استرجاع المهام' });
+  }
+});
+
 // GET /open-tasks/:id/activity
 router.get('/:id/activity', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
@@ -1408,7 +1701,7 @@ router.get('/:id/activity', requirePermission('marketing_visits.view'), async (r
     const { rows } = await pool.query(
       `SELECT
         tal.id,
-        CASE WHEN tal.event_type = 'rescheduled' THEN 'needs_reschedule' ELSE tal.event_type END AS "eventType",
+        CASE WHEN tal.event_type IN ('rescheduled', 'needs_reschedule') THEN 'needs_follow_up' ELSE tal.event_type END AS "eventType",
         tal.performed_by AS "performedBy",
         tal.role,
         tal.old_value AS "oldValue",
@@ -1444,12 +1737,13 @@ router.post('/:id/activity', requirePermission('marketing_visits.update_result')
     }
 
     const { eventType, oldValue, newValue, reason, referenceId } = req.body ?? {};
-    const VALID_EVENT_TYPES = ['status_change', 'note_added', 'needs_reschedule', 'assigned', 'reassigned', 'call_made', 'priority_changed', 'team_assigned', 'offer_presented', 'customer_response'];
+    const VALID_EVENT_TYPES = ['status_change', 'note_added', 'needs_follow_up', 'rescheduled', 'assigned', 'reassigned', 'call_made', 'priority_changed', 'team_assigned', 'offer_presented', 'customer_response'];
     if (!eventType || !VALID_EVENT_TYPES.includes(eventType)) {
       return res.status(400).json({ error: 'نوع الحدث غير صالح' });
     }
 
-    const normalizedEventType = eventType === 'rescheduled' ? 'needs_reschedule' : eventType;
+    // Normalize incoming event type to what the DB CHECK constraint allows
+    const normalizedEventType = (eventType === 'needs_follow_up' || eventType === 'needs_reschedule') ? 'rescheduled' : eventType;
 
     const performedBy = authContext.userId;
     const userRole = (req as any).user?.role ?? null;
@@ -1469,6 +1763,19 @@ router.post('/:id/activity', requirePermission('marketing_visits.update_result')
          created_at AS "createdAt"`,
       [id, normalizedEventType, performedBy, userRole, oldValue ?? null, newValue ?? null, reason ?? null, referenceId ?? null],
     );
+
+    // Bump attempt_count + last_attempt_at on every call_made event (denormalized for fast ordering/filtering)
+    if (normalizedEventType === 'call_made') {
+      await pool.query(
+        `UPDATE open_tasks
+         SET attempt_count = attempt_count + 1,
+             last_attempt_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $1`,
+        [id],
+      );
+    }
+
     res.json(rows[0]);
   } catch (err: any) {
     console.error('[open-tasks] POST /:id/activity error:', err);
@@ -1590,35 +1897,58 @@ router.get('/:id/calls', requirePermission('marketing_visits.view'), async (req,
     const { rows } = await pool.query(
       `SELECT
         ccl.id,
-        ccl.caller_id AS "userId",
-        ccl.source_type AS "callType",
+        ccl.caller_id              AS "userId",
+        ccl.source_type            AS "callType",
         ccl.outcome,
         ccl.notes,
-        ccl.created_at AS "createdAt",
-        hu.name AS "telemarketerName"
+        ccl.call_date              AS "callDate",
+        ccl.communication_channel  AS "communicationChannel",
+        ccl.contact_label          AS "contactLabel",
+        ccl.status,
+        ccl.created_at             AS "createdAt",
+        hu.name                    AS "telemarketerName",
+        COALESCE(
+          (SELECT json_agg(jsonb_build_object(
+                   'taskId',      ot2.id,
+                   'taskType',    ot2.task_type,
+                   'arabicLabel', COALESCE(ttc2.arabic_label, ot2.task_type)
+                 ) ORDER BY ot2.id)
+             FROM call_task_links ctl2
+             JOIN open_tasks ot2 ON ot2.id = ctl2.task_id
+             LEFT JOIN task_type_config ttc2 ON ttc2.task_type = ot2.task_type
+            WHERE ctl2.call_id = ccl.id
+              AND ctl2.task_id != $1),
+          '[]'::json
+        ) AS "siblingTasks"
       FROM customer_call_logs ccl
       JOIN call_task_links ctl ON ctl.call_id = ccl.id
       LEFT JOIN hr_users hu ON hu.id = ccl.caller_id
       WHERE ctl.task_id = $1
-      ORDER BY ccl.created_at DESC`,
+      ORDER BY ccl.call_date DESC`,
       [id],
     );
     if (rows.length > 0) return res.json(rows);
 
+    // Legacy fallback: calls linked via task_list_items before call_task_links was populated
     const { rows: legacyRows } = await pool.query(
       `SELECT
         ccl.id,
-        ccl.caller_id AS "userId",
-        ccl.source_type AS "callType",
+        ccl.caller_id              AS "userId",
+        ccl.source_type            AS "callType",
         ccl.outcome,
         ccl.notes,
-        ccl.created_at AS "createdAt",
-        hu.name AS "telemarketerName"
+        ccl.call_date              AS "callDate",
+        ccl.communication_channel  AS "communicationChannel",
+        ccl.contact_label          AS "contactLabel",
+        ccl.status,
+        ccl.created_at             AS "createdAt",
+        hu.name                    AS "telemarketerName",
+        '[]'::json                 AS "siblingTasks"
       FROM telemarketing_task_list_items tli
       JOIN customer_call_logs ccl ON ccl.source_type = 'telemarketing_task' AND ccl.source_id = tli.id
       LEFT JOIN hr_users hu ON hu.id = ccl.caller_id
       WHERE tli.open_task_id = $1
-      ORDER BY ccl.created_at DESC`,
+      ORDER BY ccl.call_date DESC`,
       [id],
     );
     return res.json(legacyRows);

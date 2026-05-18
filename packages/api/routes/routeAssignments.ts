@@ -1,7 +1,21 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
+import { syncAssignedTasks } from '../services/assignedTasks.js';
 
 const router = Router();
+router.use(requireAuth);
+
+function getAuthContext(req: any) {
+  if (!req.authContext) throw new Error('AuthContext is required');
+  return req.authContext as {
+    userId: number;
+    isSuperAdmin: boolean;
+    actingBranchId: number | null;
+    [key: string]: any;
+  };
+}
+
 
 function isPositiveInteger(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) > 0;
@@ -103,17 +117,63 @@ router.get('/:key', async (req, res) => {
 });
 
 router.put('/:key', async (req, res) => {
+  const authContext = getAuthContext(req);
+  const branchId = authContext.actingBranchId;
+  if (branchId == null) {
+    return res.status(400).json({ error: 'يجب تحديد الفرع' });
+  }
+
+  const keyMatch = req.params.key.match(/^(\d{4}-\d{2}-\d{2})_((?:team|solo)_\d+)$/);
+  if (!keyMatch) {
+    return res.status(400).json({ error: 'مفتاح توزيع المسار غير صالح' });
+  }
+  const date = keyMatch[1];
+  const teamKey = keyMatch[2];
+
   const validation = validateRouteAssignmentPayload(req.body);
   if (validation.ok === false) {
     return res.status(400).json({ error: validation.error });
   }
 
+  // FIX-2: save route_assignment first (committed to pool so getPlanningWorkScope
+  // can read it immediately), then run sync in the same pgClient transaction.
+  // If sync fails, route_assignment is already committed (it's the manager's
+  // authoritative intent). A failed sync is surfaced as syncWarning in the
+  // response — the next route save will retry the reconcile.
   const { rows } = await pool.query(
     `INSERT INTO route_assignments (key, routes, extra_zones, station_order) VALUES ($1, $2, $3, $4)
     ON CONFLICT (key) DO UPDATE SET routes=$2, extra_zones=$3, station_order=$4 RETURNING *`,
     [req.params.key, JSON.stringify(validation.routes), JSON.stringify(validation.extraZones), JSON.stringify(validation.stationOrder)]
   );
-  res.json({ routes: rows[0].routes, extraZones: rows[0].extra_zones, stationOrder: rows[0].station_order || [] });
+
+  let syncResult = null;
+  let syncWarning: string | null = null;
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    syncResult = await syncAssignedTasks({
+      date,
+      teamKey,
+      branchId,
+      performedBy: authContext.userId,
+      db: pgClient,
+    });
+    await pgClient.query('COMMIT');
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    syncWarning = err?.message ?? 'تعذّر تحديث الإسنادات';
+    console.error('[route-assignments] syncAssignedTasks failed:', err);
+  } finally {
+    pgClient.release();
+  }
+
+  res.json({
+    routes: rows[0].routes,
+    extraZones: rows[0].extra_zones,
+    stationOrder: rows[0].station_order || [],
+    ...(syncResult && { syncResult }),
+    ...(syncWarning && { syncWarning }),
+  });
 });
 
 export default router;

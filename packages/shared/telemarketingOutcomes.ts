@@ -305,7 +305,7 @@ export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
     requiresPhoneStatusUpdate: false,
     requiresNotes: false,
     itemStatusAfterSave: 'called',
-    closesContactTarget: true,
+    closesContactTarget: false,  // CT stays open (تم التواصل); task creation is handled separately
     opensAppointment: false,
   },
   company_customer_missing_phone: {

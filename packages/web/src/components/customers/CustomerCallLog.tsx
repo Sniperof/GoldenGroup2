@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { Phone, Loader2, PhoneMissed, Clock, Filter, MessageSquare, Edit3 } from 'lucide-react';
+import { Phone, Loader2, PhoneMissed, Clock, Filter, MessageSquare, Edit3, Layers } from 'lucide-react';
 import { api } from '../../lib/api';
 import { getOutcomeMeta, TelemarketingOutcomeCode } from '@golden-crm/shared';
 import type { CustomerCallLog as CallLogEntry } from '@golden-crm/shared';
@@ -345,6 +345,21 @@ export default function CustomerCallLog({ customerId, refreshKey }: Props) {
                                                 </button>
                                             )}
                                         </div>
+
+                                        {/* Linked tasks — show when call covered multiple tasks */}
+                                        {Array.isArray((log as any).linkedTasks) && (log as any).linkedTasks.length > 0 && (
+                                            <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                                                <span className="flex items-center gap-1 text-[10px] text-violet-600 font-bold">
+                                                    <Layers className="w-3 h-3" />
+                                                    {(log as any).linkedTasks.length} مهام:
+                                                </span>
+                                                {(log as any).linkedTasks.map((t: any) => (
+                                                    <span key={t.taskId} className="text-[10px] bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded font-bold">
+                                                        {t.arabicLabel}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
 
                                         {log.notes && (
                                             <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{log.notes}</p>

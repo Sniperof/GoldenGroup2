@@ -14,6 +14,8 @@ import type { OpenTask, OpenTaskType, OpenTaskReason } from '@golden-crm/shared'
 import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
 import TeamAgendaPanel from '../components/telemarketing/TeamAgendaPanel';
 import OutcomeRecorderModal, { SaveExtras } from '../components/telemarketing/OutcomeRecorderModal';
+import MessageReplyOutcomeModal from '../components/customers/MessageReplyOutcomeModal';
+import { useSystemList } from '../hooks/useSystemList';
 import AppointmentSchedulerModal, { CustomerOpenTask } from '../components/telemarketing/AppointmentSchedulerModal';
 import ClientModal from '../components/ClientModal';
 import type { DaySchedule, Contract, Visit, Employee, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client } from '../lib/types';
@@ -103,26 +105,41 @@ function groupByCustomer(items: TaskListItem[]): CustomerGroup[] {
     return Array.from(map.values());
 }
 
-// ─── Status filtering ─────────────────────────────────────────────────────────
+// ─── Contact-target lifecycle stages (§6.3 task-lifecycle-analysis.md) ────────
+//
+//   ضمن القائمة  →  أُضيفت للقائمة ولم يُسجَّل أي اتصال بعد
+//   تم التواصل   →  سُجِّل اتصال واحد على الأقل، والـ CT لا تزال مفتوحة
+//   مغلقة        →  انتهت المحاولة (حجز موعد / رفض / إغلاق يدوي)
 
-type StatusFilter = 'all' | 'remaining' | 'booked' | 'contacted' | 'rejected';
+type StatusFilter = 'all' | 'in_list' | 'contacted' | 'closed';
 
 const statusFilterConfig: Record<StatusFilter, { label: string; activeBg: string; activeText: string; inactiveBg: string; inactiveText: string }> = {
-    all: { label: 'الكل', activeBg: 'bg-slate-700', activeText: 'text-white', inactiveBg: 'bg-slate-100', inactiveText: 'text-slate-600' },
-    remaining: { label: 'معلق', activeBg: 'bg-violet-600', activeText: 'text-white', inactiveBg: 'bg-violet-50', inactiveText: 'text-violet-700' },
-    booked: { label: 'محجوز', activeBg: 'bg-emerald-600', activeText: 'text-white', inactiveBg: 'bg-emerald-50', inactiveText: 'text-emerald-700' },
-    contacted: { label: 'تم التواصل', activeBg: 'bg-sky-600', activeText: 'text-white', inactiveBg: 'bg-sky-50', inactiveText: 'text-sky-700' },
-    rejected: { label: 'مرفوض', activeBg: 'bg-red-600', activeText: 'text-white', inactiveBg: 'bg-red-50', inactiveText: 'text-red-700' },
+    all:       { label: 'الكل',          activeBg: 'bg-slate-700',   activeText: 'text-white',       inactiveBg: 'bg-slate-100',   inactiveText: 'text-slate-600' },
+    in_list:   { label: 'ضمن القائمة',   activeBg: 'bg-violet-600',  activeText: 'text-white',       inactiveBg: 'bg-violet-50',   inactiveText: 'text-violet-700' },
+    contacted: { label: 'تم التواصل',    activeBg: 'bg-amber-500',   activeText: 'text-white',       inactiveBg: 'bg-amber-50',    inactiveText: 'text-amber-700' },
+    closed:    { label: 'مغلقة',         activeBg: 'bg-slate-600',   activeText: 'text-white',       inactiveBg: 'bg-slate-100',   inactiveText: 'text-slate-600' },
 };
 
-const getCustomerStatusGroup = (cg: CustomerGroup, hasAppointment: boolean): StatusFilter => {
-    if (cg.status === 'booked' || hasAppointment) return 'booked';
+/** Returns true if the contact target is closed for any reason. */
+const isContactTargetClosed = (cg: CustomerGroup, hasAppointment: boolean): boolean => {
+    if (cg.status === 'booked' || hasAppointment) return true;
     if (cg.callOutcome) {
+        if (cg.callOutcome === 'manual_close') return true;
         const meta = getOutcomeMeta(cg.callOutcome);
-        if (meta.closesContactTarget) return 'rejected';
+        if (meta.closesContactTarget) return true;
     }
-    if (cg.status === 'called') return 'contacted';
-    return 'remaining';
+    return false;
+};
+
+/**
+ * Maps a customer group to the 3 CT lifecycle stages.
+ * Requires cgCallLogs to distinguish "ضمن القائمة" (no call yet)
+ * from "تم التواصل" (attempted but not closed).
+ */
+const getCustomerStatusGroup = (cg: CustomerGroup, hasAppointment: boolean, cgCallLogs: any[]): StatusFilter => {
+    if (isContactTargetClosed(cg, hasAppointment)) return 'closed';
+    if (cgCallLogs.length > 0) return 'contacted';
+    return 'in_list';
 };
 
 const getOutcomeDisplay = (code: string): { label: string; color: string; bg: string } => {
@@ -179,6 +196,11 @@ export default function TelemarketerWorkspace() {
     const { clients, loadClients, updateClient } = useClientStore();
     const { taskLists, appointments, callLogs, loadData, addCallLog, addAppointment, updateTaskListItemStatus, getTaskList, getAppointmentsForTeamDate } = useTelemarketingStore();
     const canBook = useAuthStore(state => state.hasPermission('telemarketing.appointments.book'));
+    const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
+    const [taskTypeOptions, setTaskTypeOptions] = useState<{ taskType: string; arabicLabel: string }[]>([]);
+    useEffect(() => {
+        api.telemarketing.taskTypeOptions().then(setTaskTypeOptions).catch(() => {});
+    }, []);
     const navigate = useNavigate();
 
     const [contracts, setContracts] = useState<Contract[]>([]);
@@ -264,17 +286,23 @@ export default function TelemarketerWorkspace() {
 
     const getCustomerAppointment = useCallback((cg: CustomerGroup) => getAppointmentForCustomer(cg, teamAppointments, selectedTeamKey, date), [teamAppointments, selectedTeamKey, date]);
 
-    const counts = useMemo(() => ({
-        remaining: customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg)) === 'remaining').length,
-        booked: customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg)) === 'booked').length,
-        contacted: customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg)) === 'contacted').length,
-        rejected: customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg)) === 'rejected').length,
-    }), [customerGroups, teamAppointments, selectedTeamKey, date]);
+    const counts = useMemo(() => {
+        const cgLogs = (cg: CustomerGroup) =>
+            callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
+        return {
+            in_list:   customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg), cgLogs(cg)) === 'in_list').length,
+            contacted: customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg), cgLogs(cg)) === 'contacted').length,
+            closed:    customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg), cgLogs(cg)) === 'closed').length,
+        };
+    }, [customerGroups, teamAppointments, callLogs, selectedTeamKey, date]);
 
     const filteredGroups = useMemo(() => {
         let result = customerGroups;
         if (statusFilter !== 'all') {
-            result = result.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg)) === statusFilter);
+            result = result.filter(cg => {
+                const cgLogs = callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
+                return getCustomerStatusGroup(cg, !!getCustomerAppointment(cg), cgLogs) === statusFilter;
+            });
         }
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
@@ -284,7 +312,7 @@ export default function TelemarketerWorkspace() {
             );
         }
         return result;
-    }, [customerGroups, statusFilter, searchQuery, getCustomerAppointment]);
+    }, [customerGroups, statusFilter, searchQuery, callLogs, getCustomerAppointment]);
 
     // Auto-select first customer when list changes.
     useEffect(() => {
@@ -305,12 +333,36 @@ export default function TelemarketerWorkspace() {
     const [callLogSaveError, setCallLogSaveError] = useState<string | null>(null);
     const [openTaskDetails, setOpenTaskDetails] = useState<Record<number, OpenTask>>({});
     const [openTaskDetailsLoading, setOpenTaskDetailsLoading] = useState(false);
+    // Manual close modal (also used as step-2 after reject-scheduling)
+    const [isManualCloseOpen, setIsManualCloseOpen] = useState(false);
+    const [manualCloseReason, setManualCloseReason] = useState('');
+    const [manualCloseSaving, setManualCloseSaving] = useState(false);
+    // Service task creation modal — opens after service_request outcome
+    const [isServiceTaskOpen, setIsServiceTaskOpen] = useState(false);
+    const [serviceTaskType, setServiceTaskType] = useState('');
+    const [serviceTaskTypeLabel, setServiceTaskTypeLabel] = useState('');
+    const [serviceTaskNotes, setServiceTaskNotes] = useState('');
+    const [serviceTaskPriority, setServiceTaskPriority] = useState('');
+    const [serviceTaskSaving, setServiceTaskSaving] = useState(false);
+    // Pre-selected contact — set when user picks a number in the contact picker
+    const [preselectedContactId, setPreselectedContactId] = useState<string>('');
+    // Contact picker modal (step 1 before outcome modal)
+    const [isContactPickerOpen, setIsContactPickerOpen] = useState(false);
+    // Message reply modal — used when updating outcome of a previously sent message
+    const [isMessageReplyOpen, setIsMessageReplyOpen] = useState(false);
+    const [messageReplyContactId, setMessageReplyContactId] = useState<string>('');
 
     const selectedCustomer = useMemo(() => filteredGroups.find(cg => cg.key === selectedCustomerKey) || null, [filteredGroups, selectedCustomerKey]);
     const selectedAppointment = useMemo(() => selectedCustomer ? getCustomerAppointment(selectedCustomer) : null, [selectedCustomer, getCustomerAppointment]);
+    /** True when the appointment has been booked (controls "جدولة زيارة" button). */
     const isBookedForSelected = useMemo(() => {
         if (!selectedCustomer) return false;
         return selectedCustomer.status === 'booked' || !!selectedAppointment;
+    }, [selectedCustomer, selectedAppointment]);
+    /** True when the contact target is closed for ANY reason — disables call/close actions. */
+    const isCtClosedForSelected = useMemo(() => {
+        if (!selectedCustomer) return false;
+        return isContactTargetClosed(selectedCustomer, !!selectedAppointment);
     }, [selectedCustomer, selectedAppointment]);
 
     const entityDetails = useMemo(() => {
@@ -430,36 +482,31 @@ export default function TelemarketerWorkspace() {
             }
         }
 
-        // Not-interested: cancel open tasks (customer declined permanently)
-        const NOT_INTERESTED_CODES = ['not_interested', 'other_company_not_interested', 'seen_offer_not_interested'];
-        if (NOT_INTERESTED_CODES.includes(outcome) && selectedCustomer.entityType === 'client') {
-            await Promise.all(
-                selectedCustomer.openTasks
-                    .filter(ot => ot.openTaskId != null)
-                    .map(ot => api.openTasks.update(ot.openTaskId!, { status: 'cancelled' }).catch(() => {}))
-            );
-        }
-
-        // Reject scheduling: return task to open/pending — another agent can try later.
-        // The contact is NOT cancelled; the telemarketer is releasing it back to the pool.
-        if (extras?.rejectScheduling && selectedCustomer.entityType === 'client') {
+        // Not-interested: cancel open tasks. Reason (if provided) is stored in task notes.
+        // Legacy codes other_company_not_interested / seen_offer_not_interested are kept in
+        // OUTCOME_MAP for backward compatibility but no longer presented in the UI.
+        if (outcome === 'not_interested' && selectedCustomer.entityType === 'client') {
+            const reasonNote = extras?.rejectionReason ? `غير مهتم — ${extras.rejectionReason}` : 'غير مهتم';
             await Promise.all(
                 selectedCustomer.openTasks
                     .filter(ot => ot.openTaskId != null)
                     .map(ot => api.openTasks.update(ot.openTaskId!, {
-                        status: 'needs_reschedule',
-                        ...(extras.rejectionReason ? { notes: `رفض الجدولة — ${extras.rejectionReason}` } : {}),
+                        status: 'cancelled',
+                        notes: reasonNote,
                     }).catch(() => {}))
             );
         }
 
-        // Follow-up outcomes: set due date and optionally priority
+        // Follow-up outcomes: set expected date, priority, and structured waiting reason
         const isFollowUpOc = ['currently_busy', 'other_company_callback', 'seen_offer_callback'].includes(outcome);
         if (isFollowUpOc && selectedCustomer.entityType === 'client') {
-            const taskUpdate: Record<string, any> = { status: 'needs_reschedule' };
-            if (extras?.followUpDueDate) taskUpdate.due_date = extras.followUpDueDate;
+            const taskUpdate: Record<string, any> = { status: 'needs_follow_up' };
+            if (extras?.followUpDueDate) taskUpdate.expectedDate = extras.followUpDueDate;
             if (extras?.followUpPriority) taskUpdate.priority = extras.followUpPriority;
-            if (extras?.rescheduleReason) taskUpdate.notes = `متابعة — ${extras.rescheduleReason}`;
+            if (extras?.rescheduleReason) {
+                taskUpdate.waitingReasonText = extras.rescheduleReason;
+                taskUpdate.notes = `متابعة — ${extras.rescheduleReason}`;
+            }
             await Promise.all(
                 selectedCustomer.openTasks
                     .filter(ot => ot.openTaskId != null)
@@ -468,17 +515,27 @@ export default function TelemarketerWorkspace() {
         }
 
         const newStatus = meta.itemStatusAfterSave;
-        // Update ALL items for this customer with the same outcome status.
         await Promise.all(selectedCustomer.allItems.map(item =>
             updateTaskListItemStatus(activeTaskList.id, item.id, newStatus, outcome)
         ));
 
         setIsOutcomeModalOpen(false);
 
-        if (meta.opensAppointment) {
+        if (extras?.rejectScheduling) {
+            setManualCloseReason(extras.rejectionReason ?? '');
+            setIsManualCloseOpen(true);
+        } else if (outcome === 'service_request' && extras?.serviceTaskType) {
+            setServiceTaskType(extras.serviceTaskType);
+            // Resolve Arabic label via the already-loaded task type options (stored in modal)
+            // We pass the code; the modal shows it. Arabic label resolved on next open if needed.
+            const foundLabel = taskTypeOptions.find(t => t.taskType === extras.serviceTaskType)?.arabicLabel;
+            setServiceTaskTypeLabel(foundLabel ?? extras.serviceTaskType);
+            setServiceTaskNotes('');
+            setServiceTaskPriority('');
+            setIsServiceTaskOpen(true);
+        } else if (meta.opensAppointment) {
             setIsAppointmentModalOpen(true);
         } else if (outcome === 'address_updated' || outcome === 'new_number') {
-            // Open client edit modal immediately after data-update outcomes
             setIsClientEditModalOpen(true);
         } else if (newStatus !== 'pending') {
             setTimeout(() => {
@@ -491,6 +548,7 @@ export default function TelemarketerWorkspace() {
     // ── Appointment save handler ──────────────────────────────────────────────
 
     const handleSaveAppointment = async (data: {
+        visitDate?: string;
         visitTime: string;
         selectedTaskEntries: import('../components/telemarketing/AppointmentSchedulerModal').SelectedTaskEntry[];
         waterSource: string;
@@ -511,7 +569,7 @@ export default function TelemarketerWorkspace() {
             teamKey: selectedTeamKey,
             taskListItemId: selectedCustomer.primaryItem.id,
             taskListId: activeTaskList.id,
-            date,
+            date: data.visitDate ?? date,
             timeSlot: data.visitTime,
             occupation: '',
             waterSource: data.waterSource,
@@ -531,6 +589,50 @@ export default function TelemarketerWorkspace() {
         ));
 
         await loadData(date);
+    };
+
+    // ── Manual close handler ─────────────────────────────────────────────────
+
+    const handleCreateServiceTask = async () => {
+        if (!selectedCustomer || !serviceTaskType) return;
+        setServiceTaskSaving(true);
+        try {
+            await api.telemarketing.createServiceTask({
+                clientId: selectedCustomer.entityId,
+                taskType: serviceTaskType,
+                notes: serviceTaskNotes || undefined,
+                priority: serviceTaskPriority || undefined,
+            });
+            setIsServiceTaskOpen(false);
+            setServiceTaskType('');
+            setServiceTaskTypeLabel('');
+            setServiceTaskNotes('');
+            setServiceTaskPriority('');
+            await loadData(date);
+        } catch (err: any) {
+            console.error('Service task creation failed:', err);
+        } finally {
+            setServiceTaskSaving(false);
+        }
+    };
+
+    const handleManualClose = async () => {
+        if (!selectedCustomer || !activeTaskList) return;
+        setManualCloseSaving(true);
+        try {
+            await api.contactTargets.manualClose(
+                activeTaskList.id,
+                selectedCustomer.primaryItem.id,
+                { reason: manualCloseReason || undefined },
+            );
+            setIsManualCloseOpen(false);
+            setManualCloseReason('');
+            await loadData(date);
+        } catch (err: any) {
+            console.error('Manual close failed:', err);
+        } finally {
+            setManualCloseSaving(false);
+        }
     };
 
     // ── Journey events ────────────────────────────────────────────────────────
@@ -603,7 +705,16 @@ export default function TelemarketerWorkspace() {
                         <p className="text-xs text-slate-600 mt-2" dir="ltr">{log.contactNumber} ({log.contactLabel})</p>
                         {log.notes && <p className="text-xs text-slate-500 mt-2 border border-slate-200 bg-slate-50 p-2.5 rounded shadow-sm">ملاحظات: {log.notes}</p>}
                         {isLatest && log.outcome === 'message_sent' && (
-                            <button onClick={() => setIsOutcomeModalOpen(true)} className="mt-3 text-xs flex items-center gap-1 text-amber-700 font-bold bg-amber-50 hover:bg-amber-100 px-3 py-2 rounded-lg border border-amber-200 transition-colors w-full justify-center shadow-sm">
+                            <button
+                                onClick={() => {
+                                    const contacts = entityDetails ? ((entityDetails as any).contacts as any[] ?? []) : [];
+                                    const match = contacts.find((c: any) => c.number === log.contactNumber);
+                                    const contactId = match?.id ?? contacts.find((c: any) => c.isPrimary)?.id ?? contacts[0]?.id ?? '';
+                                    setMessageReplyContactId(contactId);
+                                    setIsMessageReplyOpen(true);
+                                }}
+                                className="mt-3 text-xs flex items-center gap-1 text-amber-700 font-bold bg-amber-50 hover:bg-amber-100 px-3 py-2 rounded-lg border border-amber-200 transition-colors w-full justify-center shadow-sm"
+                            >
                                 <Edit3 className="w-3.5 h-3.5" /> تعديل نتيجة الرسالة
                             </button>
                         )}
@@ -615,7 +726,11 @@ export default function TelemarketerWorkspace() {
                         {isLatest && log.outcome !== 'message_sent' && taskCalls.length >= 3 && !getOutcomeMeta(log.outcome).closesContactTarget && !getOutcomeMeta(log.outcome).opensAppointment && (
                             <div className="mt-3 text-xs font-bold text-amber-700 bg-amber-50 rounded-lg p-3 border border-amber-200 shadow-sm flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                                <div>استنفدت 3 محاولات.<button onClick={() => setIsOutcomeModalOpen(true)} className="block mt-1 underline text-amber-600">تغيير الرقم وتسجيل اتصال جديد</button></div>
+                                <div>
+                                    3 محاولات قد تكون كافية.
+                                    <button onClick={() => { setPreselectedContactId(''); setIsOutcomeModalOpen(true); }} className="block mt-1 underline text-amber-600">جرّب تغيير الرقم</button>
+                                    <button onClick={() => setIsManualCloseOpen(true)} className="block mt-0.5 underline text-amber-600">أو ارفض الجدولة</button>
+                                </div>
                             </div>
                         )}
                     </>
@@ -645,10 +760,16 @@ export default function TelemarketerWorkspace() {
 
     // ── Summary metrics ───────────────────────────────────────────────────────
 
-    const remainingCount = customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg)) === 'remaining').length;
-    const completedCount = customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg)) !== 'remaining').length;
-    const bookedCount = customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg)) === 'booked').length;
-    const bookingRate = completedCount > 0 ? Math.round((bookedCount / completedCount) * 100) : 0;
+    const inListCount = useMemo(() => {
+        const cgLogs = (cg: CustomerGroup) => callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
+        return customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg), cgLogs(cg)) === 'in_list').length;
+    }, [customerGroups, callLogs, getCustomerAppointment]);
+    const closedCount = useMemo(() => {
+        const cgLogs = (cg: CustomerGroup) => callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
+        return customerGroups.filter(cg => getCustomerStatusGroup(cg, !!getCustomerAppointment(cg), cgLogs(cg)) === 'closed').length;
+    }, [customerGroups, callLogs, getCustomerAppointment]);
+    const bookedCount = customerGroups.filter(cg => cg.status === 'booked' || !!getCustomerAppointment(cg)).length;
+    const bookingRate = closedCount > 0 ? Math.round((bookedCount / closedCount) * 100) : 0;
     const totalScheduled = teamAppointments.length;
     const isToday = date === getToday();
 
@@ -699,16 +820,16 @@ export default function TelemarketerWorkspace() {
                         </select>
                     </div>
 
-                    {/* Status filters */}
+                    {/* CT lifecycle filter tabs */}
                     <div className="px-2 py-2 border-b border-gray-100 flex flex-wrap gap-1">
                         {(Object.keys(statusFilterConfig) as StatusFilter[]).map(filter => {
                             const config = statusFilterConfig[filter];
-                            const count = filter === 'all' ? customerGroups.length : counts[filter];
+                            const count = filter === 'all' ? customerGroups.length : counts[filter as keyof typeof counts] ?? 0;
                             const isActive = statusFilter === filter;
                             return (
                                 <button key={filter} onClick={() => setStatusFilter(filter)}
                                     className={`px-2 py-1 rounded-md text-[11px] font-bold transition-all ${isActive ? `${config.activeBg} ${config.activeText} shadow-sm` : `${config.inactiveBg} ${config.inactiveText} hover:opacity-80`}`}>
-                                    {config.label} ({count ?? 0})
+                                    {config.label} ({count})
                                 </button>
                             );
                         })}
@@ -726,7 +847,7 @@ export default function TelemarketerWorkspace() {
                     {/* Queue header */}
                     <div className="sticky top-0 z-10 px-4 py-2.5 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
                         <h2 className="text-sm font-black text-slate-700">قائمة الزبائن</h2>
-                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-violet-100 text-violet-700 border border-violet-200">{remainingCount} معلق</span>
+                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
                     </div>
 
                     {/* Customer list */}
@@ -741,29 +862,65 @@ export default function TelemarketerWorkspace() {
                             const cgAppt = getCustomerAppointment(cg);
                             const isBooked = cg.status === 'booked' || !!cgAppt;
                             const cgLogs = callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
-                            const statusGroup = getCustomerStatusGroup(cg, isBooked);
+                            const ctStage = getCustomerStatusGroup(cg, isBooked, cgLogs);
+                            const ctClosed = isContactTargetClosed(cg, isBooked);
+
+                            // Badge for CT lifecycle stage
+                            const ctBadge = (() => {
+                                if (isBooked) return (
+                                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                                        <CheckCircle2 className="w-3 h-3" /> محجوز{cgAppt ? ` ${cgAppt.timeSlot}` : ''}
+                                    </span>
+                                );
+                                if (ctClosed) {
+                                    const isManual = cg.callOutcome === 'manual_close';
+                                    return (
+                                        <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                            {isManual ? 'مغلقة يدوياً' : 'مغلقة'}
+                                        </span>
+                                    );
+                                }
+                                if (ctStage === 'contacted') return (
+                                    <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1">
+                                        <History className="w-3 h-3" /> تم التواصل ({cgLogs.length})
+                                    </span>
+                                );
+                                return null;
+                            })();
 
                             return (
                                 <button key={cg.key} onClick={() => setSelectedCustomerKey(cg.key)}
                                     className={`w-full text-right p-2.5 rounded-xl border transition-all flex items-start gap-3 outline-none ${isActive
                                         ? 'bg-violet-50 border-violet-300 ring-2 ring-violet-500/10 shadow-sm'
                                         : isBooked ? 'bg-emerald-50 border-emerald-200'
-                                            : cg.status !== 'pending' ? 'bg-slate-50 border-transparent'
-                                                : 'bg-white border-gray-100 hover:border-violet-200 hover:bg-slate-50 hover:shadow-sm'}`}>
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shrink-0 border-2 overflow-hidden relative shadow-sm ${isBooked ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-white text-slate-600 border-slate-200'}`}>
+                                            : ctClosed ? 'bg-slate-50 border-slate-200'
+                                                : ctStage === 'contacted' ? 'bg-amber-50/40 border-amber-100'
+                                                    : 'bg-white border-gray-100 hover:border-violet-200 hover:bg-slate-50 hover:shadow-sm'}`}>
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shrink-0 border-2 overflow-hidden relative shadow-sm ${
+                                        isBooked ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                                        : ctClosed ? 'bg-slate-100 text-slate-500 border-slate-300'
+                                        : ctStage === 'contacted' ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                        : 'bg-white text-slate-600 border-slate-200'}`}>
                                         {getInitials(cg.name)}
                                         <div className={`absolute bottom-0 w-full h-1.5 ${cg.entityType === 'client' ? 'bg-sky-500' : 'bg-amber-500'}`} />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center justify-between">
-                                            <p className={`text-sm font-bold truncate ${isBooked ? 'text-emerald-800' : cg.status !== 'pending' ? 'text-slate-500' : 'text-slate-800'}`}>{cg.name}</p>
-                                            {isBooked ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> : cg.status !== 'pending' ? <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> : <Phone className="w-4 h-4 text-slate-400 shrink-0" />}
+                                            <p className={`text-sm font-bold truncate ${
+                                                isBooked ? 'text-emerald-800'
+                                                : ctClosed ? 'text-slate-400'
+                                                : ctStage === 'contacted' ? 'text-amber-800'
+                                                : 'text-slate-800'}`}>{cg.name}</p>
+                                            {isBooked
+                                                ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                                                : ctClosed
+                                                    ? <CheckCircle className="w-4 h-4 text-slate-400 shrink-0" />
+                                                    : <Phone className={`w-4 h-4 shrink-0 ${ctStage === 'contacted' ? 'text-amber-400' : 'text-slate-400'}`} />}
                                         </div>
                                         <div className="flex items-center justify-between mt-1 gap-1 flex-wrap">
                                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${cg.entityType === 'client' ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
                                                 {cg.entityType === 'client' ? 'زبون' : 'مقترح'}
                                             </span>
-                                            {/* Task count badge */}
                                             {cg.openTasks.length > 0 && (
                                                 <span className="text-[10px] px-1.5 py-0.5 rounded font-bold border bg-purple-50 text-purple-700 border-purple-100 flex items-center gap-0.5">
                                                     <Layers className="w-2.5 h-2.5" />{cg.openTasks.length}
@@ -772,17 +929,7 @@ export default function TelemarketerWorkspace() {
                                             {cg.entityType === 'client' ? (
                                                 <OwnershipBadge ownership={cg.primaryItem.ownership} />
                                             ) : null}
-                                            {isBooked ? (
-                                                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
-                                                    <CheckCircle2 className="w-3 h-3" /> محجوز{cgAppt ? ` ${cgAppt.timeSlot}` : ''}
-                                                </span>
-                                            ) : statusGroup === 'rejected' ? (
-                                                <span className="text-[10px] text-red-600 font-bold bg-red-50 px-1.5 py-0.5 rounded border border-red-100">مرفوض</span>
-                                            ) : statusGroup === 'contacted' ? (
-                                                <span className="text-[10px] text-sky-600 font-bold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100">تم التواصل</span>
-                                            ) : cgLogs.length > 0 ? (
-                                                <span className="text-[10px] text-slate-500 flex items-center gap-1 font-bold"><History className="w-3 h-3" /> {cgLogs.length}</span>
-                                            ) : null}
+                                            {ctBadge}
                                         </div>
                                     </div>
                                 </button>
@@ -845,14 +992,15 @@ export default function TelemarketerWorkspace() {
                                     )}
 
                                     {/* Contacts */}
-                                    <div className="flex flex-wrap items-center gap-3 mt-4">
+                                    <div className="flex flex-wrap items-center gap-2 mt-4">
                                         {getEntityContacts(entityDetails as any).map(contact => (
                                             <a key={contact.id} href={`tel:${contact.number}`}
-                                                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors shadow-sm font-bold">
-                                                <Phone className="w-4 h-4" />
-                                                <span className="text-base" dir="ltr">{contact.number}</span>
+                                                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors shadow-sm font-bold">
+                                                <Phone className="w-3.5 h-3.5" />
+                                                <span className="text-sm" dir="ltr">{contact.number}</span>
                                                 <span className="text-[10px] bg-white text-emerald-800 px-2 py-0.5 rounded border border-emerald-100 shadow-sm">{contact.label}</span>
                                                 {contact.isPrimary && <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded shadow-sm">أساسي</span>}
+                                                {contact.hasWhatsApp && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded border border-green-200">واتساب</span>}
                                             </a>
                                         ))}
                                     </div>
@@ -985,15 +1133,25 @@ export default function TelemarketerWorkspace() {
                             {/* Action bar */}
                             <div className="p-2 bg-white border-t border-gray-200 flex gap-2 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-20">
                                 <button
-                                    onClick={() => setIsOutcomeModalOpen(true)}
-                                    disabled={isBookedForSelected}
-                                    className={`flex-1 py-1.5 px-3 flex items-center justify-center gap-2 border-none rounded-xl transition-all shadow-sm group active:scale-[0.98] ${isBookedForSelected ? 'bg-slate-100 border border-slate-200 text-slate-400 grayscale cursor-not-allowed shadow-none' : 'bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 shadow-violet-500/10'}`}>
-                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isBookedForSelected ? 'bg-slate-200' : 'bg-white/20'}`}>
-                                        <Send className={`w-3.5 h-3.5 ${isBookedForSelected ? 'text-slate-400' : 'text-white'}`} />
+                                    onClick={() => {
+                                        if (!entityDetails) return;
+                                        const contacts = getEntityContacts(entityDetails as any);
+                                        if (contacts.length === 1) {
+                                            // Single contact — skip picker, go directly to outcome modal
+                                            setPreselectedContactId(contacts[0].id);
+                                            setIsOutcomeModalOpen(true);
+                                        } else {
+                                            setIsContactPickerOpen(true);
+                                        }
+                                    }}
+                                    disabled={isCtClosedForSelected}
+                                    className={`flex-1 py-1.5 px-3 flex items-center justify-center gap-2 border-none rounded-xl transition-all shadow-sm group active:scale-[0.98] ${isCtClosedForSelected ? 'bg-slate-100 border border-slate-200 text-slate-400 grayscale cursor-not-allowed shadow-none' : 'bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 shadow-violet-500/10'}`}>
+                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isCtClosedForSelected ? 'bg-slate-200' : 'bg-white/20'}`}>
+                                        <Send className={`w-3.5 h-3.5 ${isCtClosedForSelected ? 'text-slate-400' : 'text-white'}`} />
                                     </div>
                                     <div className="text-right overflow-hidden">
-                                        <p className={`font-black text-[11px] leading-tight truncate ${isBookedForSelected ? 'text-slate-500' : 'text-white'}`}>{isBookedForSelected ? 'تم الحجز' : 'تسجيل نتيجة التواصل'}</p>
-                                        <p className={`text-[8px] font-bold opacity-70 truncate ${isBookedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isBookedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
+                                        <p className={`font-black text-[11px] leading-tight truncate ${isCtClosedForSelected ? 'text-slate-500' : 'text-white'}`}>{isCtClosedForSelected ? 'جهة الاتصال مغلقة' : 'تسجيل نتيجة التواصل'}</p>
+                                        <p className={`text-[8px] font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
                                     </div>
                                 </button>
 
@@ -1011,7 +1169,62 @@ export default function TelemarketerWorkspace() {
                                         <p className={`text-[8px] font-bold opacity-70 truncate ${(!isBookedForSelected || !!selectedAppointment) ? 'text-slate-400' : 'text-emerald-50'}`}>{selectedAppointment ? selectedAppointment.timeSlot : 'موعد جديد'}</p>
                                     </div>
                                 </button>
+
+                                {/* Manual close button — only when CT is not yet closed */}
+                                {!isCtClosedForSelected && (
+                                    <button
+                                        onClick={() => setIsManualCloseOpen(true)}
+                                        title="إغلاق يدوي وإعادة المهمة لقيد الانتظار"
+                                        className="py-1.5 px-2.5 flex items-center justify-center rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-500 hover:text-red-700 transition-all active:scale-[0.98]">
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
+
+                            {/* Manual close modal */}
+                            {isManualCloseOpen && (
+                                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                                    onClick={e => { if (e.target === e.currentTarget) { setIsManualCloseOpen(false); setManualCloseReason(''); } }}>
+                                    <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
+                                        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
+                                            <div>
+                                                <h3 className="font-bold text-slate-900">إغلاق جهة الاتصال</h3>
+                                                <p className="text-xs text-slate-500 mt-0.5">تعود المهمة إلى مرحلة قيد الانتظار</p>
+                                            </div>
+                                            <button onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} className="text-slate-400 hover:text-slate-600">
+                                                <X className="h-4 w-4" />
+                                            </button>
+                                        </div>
+                                        <div className="px-5 py-4">
+                                            <label className="block text-xs font-bold text-slate-600 mb-1">سبب الإغلاق (اختياري)</label>
+                                            <select
+                                                value={manualCloseReason}
+                                                onChange={e => setManualCloseReason(e.target.value)}
+                                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 bg-white"
+                                            >
+                                                <option value="">— بدون سبب محدد —</option>
+                                                {rejectionReasons.map(r => (
+                                                    <option key={r} value={r}>{r}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
+                                            <button
+                                                onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }}
+                                                className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                                            >إلغاء</button>
+                                            <button
+                                                onClick={handleManualClose}
+                                                disabled={manualCloseSaving}
+                                                className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-red-600 py-2.5 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60"
+                                            >
+                                                {manualCloseSaving && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
+                                                إغلاق وإعادة للانتظار
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <div className="flex-1 flex items-center justify-center flex-col text-slate-400 bg-slate-50 relative overflow-hidden">
@@ -1031,8 +1244,8 @@ export default function TelemarketerWorkspace() {
                                 <p className="text-xl font-black text-emerald-700">{totalScheduled}</p>
                             </div>
                             <div className="bg-violet-50 rounded-xl p-3 border border-violet-100 shadow-sm flex flex-col justify-between">
-                                <p className="text-[10px] font-bold text-violet-700 mb-1 leading-tight line-clamp-2">مكالمات مكتملة</p>
-                                <p className="text-xl font-black text-violet-700">{completedCount}</p>
+                                <p className="text-[10px] font-bold text-violet-700 mb-1 leading-tight line-clamp-2">جهات مغلقة</p>
+                                <p className="text-xl font-black text-violet-700">{closedCount}</p>
                             </div>
                             <div className="bg-sky-50 rounded-xl p-3 border border-sky-100 shadow-sm flex flex-col justify-between">
                                 <p className="text-[10px] font-bold text-sky-700 mb-1 leading-tight line-clamp-2">نسبة نجاح الحجز</p>
@@ -1049,13 +1262,154 @@ export default function TelemarketerWorkspace() {
                 </div>
             </div>
 
+            {/* Message Reply Modal — updates outcome of a previously sent text message */}
+            <MessageReplyOutcomeModal
+                isOpen={isMessageReplyOpen}
+                onClose={() => { setIsMessageReplyOpen(false); setMessageReplyContactId(''); }}
+                logId=""
+                canBook={canBook}
+                onSave={async (outcome, notes) => {
+                    setIsMessageReplyOpen(false);
+                    await handleSaveOutcome(messageReplyContactId, outcome, notes, {
+                        communicationChannel: 'cellular_call',
+                        status: 'completed',
+                    });
+                    setMessageReplyContactId('');
+                }}
+            />
+
+            {/* Step-1 Contact Picker Modal — user selects which number to call */}
+            {isContactPickerOpen && selectedCustomer && entityDetails && (
+                <div
+                    className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+                    dir="rtl"
+                    onClick={e => { if (e.target === e.currentTarget) setIsContactPickerOpen(false); }}
+                >
+                    <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
+                        {/* Header */}
+                        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-100 bg-violet-50">
+                            <div>
+                                <h3 className="font-bold text-slate-800 text-base">اختر رقم التواصل</h3>
+                                <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.name}</p>
+                            </div>
+                            <button onClick={() => setIsContactPickerOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {/* Contact list */}
+                        <div className="p-3 space-y-2">
+                            {getEntityContacts(entityDetails as any).map(contact => (
+                                <button
+                                    key={contact.id}
+                                    type="button"
+                                    onClick={() => {
+                                        setPreselectedContactId(contact.id);
+                                        setIsContactPickerOpen(false);
+                                        setIsOutcomeModalOpen(true);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 hover:border-violet-300 hover:bg-violet-50 transition-all text-right group active:scale-[0.98]"
+                                >
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${contact.hasWhatsApp ? 'bg-green-100' : 'bg-slate-100'}`}>
+                                        {contact.hasWhatsApp
+                                            ? <MessageSquare className="w-4.5 h-4.5 text-green-600" />
+                                            : <Phone className="w-4.5 h-4.5 text-slate-500" />}
+                                    </div>
+                                    <div className="flex-1 min-w-0 text-right">
+                                        <p className="text-sm font-black text-slate-800" dir="ltr">{contact.number}</p>
+                                        <p className="text-xs text-slate-400 mt-0.5">
+                                            {contact.label}
+                                            {contact.hasWhatsApp && <span className="text-green-600"> · يدعم واتساب</span>}
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        {contact.isPrimary && (
+                                            <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold border border-emerald-200">أساسي</span>
+                                        )}
+                                        <Send className="w-3.5 h-3.5 text-slate-300 group-hover:text-violet-500 transition-colors" />
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Service Task Creation Modal — step-2 after service_request outcome */}
+            {isServiceTaskOpen && selectedCustomer && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+                    dir="rtl"
+                    onClick={e => { if (e.target === e.currentTarget) setIsServiceTaskOpen(false); }}
+                >
+                    <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
+                        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-100 bg-indigo-50">
+                            <div>
+                                <h3 className="font-bold text-slate-800">إنشاء مهمة خدمة</h3>
+                                <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.name}</p>
+                            </div>
+                            <button onClick={() => setIsServiceTaskOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <div className="px-5 py-4 space-y-3">
+                            {/* Task type — pre-filled, read-only display */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">نوع المهمة</label>
+                                <div className="w-full rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-sm font-bold text-indigo-800">
+                                    {serviceTaskTypeLabel || serviceTaskType}
+                                </div>
+                            </div>
+                            {/* Notes */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">ملاحظات (اختياري)</label>
+                                <textarea
+                                    value={serviceTaskNotes}
+                                    onChange={e => setServiceTaskNotes(e.target.value)}
+                                    placeholder="تفاصيل الطلب..."
+                                    rows={2}
+                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 resize-none"
+                                />
+                            </div>
+                            {/* Priority */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">الأولوية (اختياري)</label>
+                                <div className="flex gap-2">
+                                    {[{ v: 'high', label: 'عالية', cls: 'border-red-400 bg-red-500 text-white' },
+                                      { v: 'medium', label: 'متوسطة', cls: 'border-amber-400 bg-amber-500 text-white' },
+                                      { v: 'low', label: 'منخفضة', cls: 'border-slate-400 bg-slate-500 text-white' }].map(opt => (
+                                        <button key={opt.v} type="button"
+                                            onClick={() => setServiceTaskPriority(p => p === opt.v ? '' : opt.v)}
+                                            className={`flex-1 py-2 rounded-lg border-2 text-xs font-bold transition-all ${serviceTaskPriority === opt.v ? opt.cls : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
+                            <button onClick={() => setIsServiceTaskOpen(false)}
+                                className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                                تخطي
+                            </button>
+                            <button onClick={handleCreateServiceTask} disabled={serviceTaskSaving}
+                                className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-indigo-600 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60">
+                                {serviceTaskSaving && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
+                                إنشاء المهمة
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Modals */}
             <OutcomeRecorderModal
                 isOpen={isOutcomeModalOpen}
-                onClose={() => setIsOutcomeModalOpen(false)}
+                onClose={() => { setIsOutcomeModalOpen(false); setPreselectedContactId(''); setIsContactPickerOpen(false); }}
                 task={selectedCustomer?.primaryItem || null}
                 entityDetails={entityDetails}
                 canBook={canBook}
+                preselectedContactId={preselectedContactId || undefined}
                 onSave={handleSaveOutcome}
             />
 

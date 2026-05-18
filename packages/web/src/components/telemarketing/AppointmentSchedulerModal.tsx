@@ -28,6 +28,7 @@ interface AppointmentSchedulerModalProps {
     customerOpenTasks: CustomerOpenTask[];
     entityDetails: any;
     onSave: (data: {
+        visitDate: string;
         visitTime: string;
         selectedTaskEntries: SelectedTaskEntry[];
         waterSource: string;
@@ -50,6 +51,17 @@ function getTaskLabel(type: string | null): string {
     return (OPEN_TASK_TYPE_LABELS as Record<string, string>)[type as OpenTaskType] || type;
 }
 
+function getTomorrow(): string {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getToday(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function AppointmentSchedulerModal({
     isOpen,
     onClose,
@@ -59,14 +71,16 @@ export default function AppointmentSchedulerModal({
     entityDetails,
     onSave,
 }: AppointmentSchedulerModalProps) {
+    const [visitDate, setVisitDate] = useState(getTomorrow());
     const [visitTime, setVisitTime] = useState('');
     const [waterSource, setWaterSource] = useState('');
     const [technicianNotes, setTechnicianNotes] = useState('');
     const [saving, setSaving] = useState(false);
 
-    // Reset fields when opening.
+    // Reset fields when opening — default date is tomorrow.
     useEffect(() => {
         if (isOpen) {
+            setVisitDate(getTomorrow());
             setVisitTime('');
             setWaterSource(entityDetails?.waterSource || '');
             setTechnicianNotes('');
@@ -93,6 +107,7 @@ export default function AppointmentSchedulerModal({
                 taskType: t.openTaskType || 'device_demo',
             }));
             await onSave({
+                visitDate,
                 visitTime,
                 selectedTaskEntries,
                 waterSource: includesDeviceDemo ? waterSource : '',
@@ -124,7 +139,7 @@ export default function AppointmentSchedulerModal({
                         </div>
                         <div>
                             <h2 className="text-lg font-bold text-slate-800">جدولة موعد زيارة تسويقية</h2>
-                            <p className="text-xs text-slate-500">{customerName} &middot; {defaultDate}</p>
+                            <p className="text-xs text-slate-500">{customerName} &middot; {visitDate || defaultDate}</p>
                         </div>
                     </div>
                     <button onClick={onClose} disabled={saving} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-colors">
@@ -135,20 +150,35 @@ export default function AppointmentSchedulerModal({
                 {/* Body */}
                 <div className="p-5 overflow-y-auto flex-1 space-y-5 custom-scrollbar">
 
-                    {/* Visit Time */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                            <Clock className="w-4 h-4 text-emerald-500" />وقت الزيارة <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                            type="time"
-                            value={visitTime}
-                            onChange={e => setVisitTime(e.target.value)}
-                            min={`${WORKING_HOURS.start.toString().padStart(2, '0')}:00`}
-                            max={`${WORKING_HOURS.end.toString().padStart(2, '0')}:00`}
-                            className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
-                            dir="ltr"
-                        />
+                    {/* Visit Date + Time — side by side */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                                <Calendar className="w-4 h-4 text-emerald-500" />تاريخ الزيارة <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="date"
+                                value={visitDate}
+                                onChange={e => setVisitDate(e.target.value)}
+                                min={getToday()}
+                                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                                dir="ltr"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                                <Clock className="w-4 h-4 text-emerald-500" />وقت الزيارة <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="time"
+                                value={visitTime}
+                                onChange={e => setVisitTime(e.target.value)}
+                                min={`${WORKING_HOURS.start.toString().padStart(2, '0')}:00`}
+                                max={`${WORKING_HOURS.end.toString().padStart(2, '0')}:00`}
+                                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                                dir="ltr"
+                            />
+                        </div>
                     </div>
 
                     <div className="space-y-2">

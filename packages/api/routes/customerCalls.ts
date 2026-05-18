@@ -85,7 +85,19 @@ router.get(
         ccl.communication_channel  AS "communicationChannel",
         ccl.status,
         ccl.created_at             AS "createdAt",
-        COALESCE(hu.name, 'مجهول') AS "callerName"
+        COALESCE(hu.name, 'مجهول') AS "callerName",
+        COALESCE(
+          (SELECT json_agg(jsonb_build_object(
+                   'taskId',      ot.id,
+                   'taskType',    ot.task_type,
+                   'arabicLabel', COALESCE(ttc.arabic_label, ot.task_type)
+                 ) ORDER BY ot.id)
+             FROM call_task_links ctl
+             JOIN open_tasks ot ON ot.id = ctl.task_id
+             LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+            WHERE ctl.call_id = ccl.id),
+          '[]'::json
+        ) AS "linkedTasks"
       FROM customer_call_logs ccl
       LEFT JOIN hr_users hu ON hu.id = ccl.caller_id
       WHERE ccl.customer_id = $1
@@ -267,7 +279,35 @@ router.post(
         }
       }
 
-      if (openTaskId != null) {
+      // Link the call to ALL tasks in the same contact_target, not just the primary one.
+      // This allows viewing the call from any sibling task's detail page.
+      const itemKey = taskListItemId ?? sourceId;
+      if (itemKey != null) {
+        const { rows: allTaskRows } = await pool.query(
+          `SELECT DISTINCT tli2.open_task_id
+             FROM telemarketing_task_list_items tli
+             JOIN telemarketing_task_list_items tli2
+               ON tli2.contact_target_id = tli.contact_target_id
+                  AND tli2.open_task_id IS NOT NULL
+            WHERE tli.id = $1`,
+          [String(itemKey)],
+        );
+        for (const { open_task_id } of allTaskRows) {
+          if (open_task_id) {
+            await pool.query(
+              'INSERT INTO call_task_links (call_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              [call.id, open_task_id],
+            );
+          }
+        }
+        // Fallback: also link the explicitly provided taskId if not already covered
+        if (openTaskId != null) {
+          await pool.query(
+            'INSERT INTO call_task_links (call_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [call.id, openTaskId],
+          );
+        }
+      } else if (openTaskId != null) {
         await pool.query(
           'INSERT INTO call_task_links (call_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
           [call.id, openTaskId],

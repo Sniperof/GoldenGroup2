@@ -166,7 +166,6 @@ async function resolveMarketingActorHrUserIds(params: {
          WHERE u.branch_id = $1
            AND u.employee_id IS NOT NULL
            AND u.is_active = TRUE
-           AND e.is_active = TRUE
            AND e.status = 'active'
            AND e.role = 'telemarketer'
       `;
@@ -217,6 +216,51 @@ function buildEmptyResponse(params: {
     actorHrUserIds: params.actorHrUserIds ?? [],
     reason: params.reason,
   };
+}
+
+/**
+ * SQL fragment that filters open_tasks by:
+ *   - status IN ('open', 'needs_follow_up')  ← قيد الانتظار (RA-R001)
+ *   - task type is active in task_type_config
+ *   - within planning window N (derived per scheduling_pattern):
+ *       immediate                       → always eligible
+ *       short_window / long_window      → due_date IS NULL OR due_date <= today + N
+ *       expected_window                 → expected_date IS NULL OR expected_date <= today + N
+ *
+ * Caller must JOIN open_tasks (aliased as otAlias) with task_type_config (aliased as ttcAlias).
+ */
+type PlanningTargetsMode = 'planning' | 'assigned';
+
+function buildOpenTaskEligibilityPredicate(
+  otAlias: string,
+  ttcAlias: string,
+  mode: PlanningTargetsMode,
+): string {
+  const statusClause = mode === 'assigned'
+    ? `${otAlias}.status = 'assigned'`
+    : `${otAlias}.status IN ('open', 'needs_follow_up')`;
+
+  return `
+    ${statusClause}
+    AND ${ttcAlias}.is_active = TRUE
+    AND (
+      ${ttcAlias}.scheduling_pattern = 'immediate'
+      OR (
+        ${ttcAlias}.window_basis = 'due_date'
+        AND (
+          ${otAlias}.due_date IS NULL
+          OR ${otAlias}.due_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days || ' days')::INTERVAL
+        )
+      )
+      OR (
+        ${ttcAlias}.window_basis = 'expected_date'
+        AND (
+          ${otAlias}.expected_date IS NULL
+          OR ${otAlias}.expected_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days || ' days')::INTERVAL
+        )
+      )
+    )
+  `;
 }
 
 function buildTeamOwnedClientScopePredicate(clientAlias: string, assignmentAlias = 'ca'): string {
@@ -287,8 +331,9 @@ export async function getPlanningMarketingTargets(params: {
   date: string;
   teamKey: string;
   branchId: number;
+  mode?: PlanningTargetsMode;
 }): Promise<PlanningMarketingTargetsResponse> {
-  const { date, teamKey, branchId } = params;
+  const { date, teamKey, branchId, mode = 'planning' } = params;
   const keyMatch = teamKey.match(/^(team|solo)_(\d+)$/);
 
   if (!keyMatch) {
@@ -374,12 +419,13 @@ export async function getPlanningMarketingTargets(params: {
         COUNT(*)::int AS count
       FROM clients c
       LEFT JOIN LATERAL (
-        SELECT id
-        FROM open_tasks
-        WHERE open_tasks.client_id = c.id
-          AND open_tasks.task_type = 'device_demo'
-          AND open_tasks.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
-        ORDER BY open_tasks.created_at DESC
+        SELECT ot_inner.id
+        FROM open_tasks ot_inner
+        INNER JOIN task_type_config ttc_inner ON ttc_inner.task_type = ot_inner.task_type
+        WHERE ot_inner.client_id = c.id
+          AND ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', mode)}
+          AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
+        ORDER BY ot_inner.created_at DESC
         LIMIT 1
       ) ot ON TRUE
       LEFT JOIN LATERAL (
@@ -387,7 +433,6 @@ export async function getPlanningMarketingTargets(params: {
         FROM marketing_visit_tasks mvt
         JOIN marketing_visits mv ON mv.id = mvt.visit_id
         WHERE mvt.source_open_task_id = ot.id
-          AND mvt.task_type = 'device_demo'
           AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
           AND NULLIF(mv.scheduled_date, '')::date < $4::date
         LIMIT 1
@@ -413,9 +458,10 @@ export async function getPlanningMarketingTargets(params: {
           OR EXISTS (
             SELECT 1
             FROM open_tasks ot_scope
+            INNER JOIN task_type_config ttc_scope ON ttc_scope.task_type = ot_scope.task_type
             WHERE ot_scope.client_id = c.id
-              AND ot_scope.task_type = 'device_demo'
-              AND ot_scope.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+              AND ${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', mode)}
+              AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date)
           )
         )
       GROUP BY c.neighborhood::int
@@ -550,12 +596,13 @@ export async function getPlanningMarketingTargets(params: {
         LIMIT 1
       ) other_queued ON TRUE
       LEFT JOIN LATERAL (
-        SELECT id, task_type, task_family, reason, status, due_date, priority, notes
-        FROM open_tasks
-        WHERE open_tasks.client_id = c.id
-          AND open_tasks.task_type = 'device_demo'
-          AND open_tasks.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
-        ORDER BY open_tasks.created_at DESC
+        SELECT ot_inner.id, ot_inner.task_type, ot_inner.task_family, ot_inner.reason, ot_inner.status, ot_inner.due_date, ot_inner.priority, ot_inner.notes
+        FROM open_tasks ot_inner
+        INNER JOIN task_type_config ttc_inner ON ttc_inner.task_type = ot_inner.task_type
+        WHERE ot_inner.client_id = c.id
+          AND ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', mode)}
+          AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
+        ORDER BY ot_inner.created_at DESC
         LIMIT 1
       ) ot ON TRUE
       LEFT JOIN LATERAL (
@@ -563,7 +610,6 @@ export async function getPlanningMarketingTargets(params: {
         FROM marketing_visit_tasks mvt
         JOIN marketing_visits mv ON mv.id = mvt.visit_id
         WHERE mvt.source_open_task_id = ot.id
-          AND mvt.task_type = 'device_demo'
           AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
           AND NULLIF(mv.scheduled_date, '')::date < $4::date
         LIMIT 1
@@ -589,9 +635,10 @@ export async function getPlanningMarketingTargets(params: {
           OR EXISTS (
             SELECT 1
             FROM open_tasks ot_scope
+            INNER JOIN task_type_config ttc_scope ON ttc_scope.task_type = ot_scope.task_type
             WHERE ot_scope.client_id = c.id
-              AND ot_scope.task_type = 'device_demo'
-              AND ot_scope.status IN ('open', 'in_contact_list', 'scheduled', 'in_visit', 'needs_reschedule')
+              AND ${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', mode)}
+              AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date)
           )
         )
       ORDER BY c.id
@@ -730,33 +777,7 @@ export async function getPlanningWorkScope(params: {
   // Build a set of client IDs reachable by this team:
   //   1) client is company-owned in zone
   //   2) client is personally assigned to a team actor
-  const clientIdConditions: string[] = [];
-  const queryParams: any[] = [branchId];
-  let paramIdx = 2;
-
-  const ownershipClauses: string[] = [];
-
-  if (companyOwnedIds.length > 0) {
-    ownershipClauses.push(`ot.client_id = ANY($${paramIdx}::int[])`);
-    queryParams.push(companyOwnedIds);
-    paramIdx++;
-  }
-
-  if (actorHrUserIds.length > 0) {
-    ownershipClauses.push(`EXISTS (
-      SELECT 1 FROM client_assignments ca
-      WHERE ca.client_id = ot.client_id
-        AND ca.hr_user_id = ANY($${paramIdx}::int[])
-    )`);
-    queryParams.push(actorHrUserIds);
-    paramIdx++;
-  }
-
-  if (ownershipClauses.length === 0) {
-    return { ...empty, scopeId, zoneIds, supervisorHrUserId, technicianHrUserId, actorHrUserIds };
-  }
-
-  const ownerFilter = ownershipClauses.join(' OR ');
+  const queryParams: any[] = [branchId, companyOwnedIds, actorHrUserIds, date];
 
   const { rows: taskRows } = await pool.query(
     `SELECT
@@ -804,10 +825,18 @@ export async function getPlanningWorkScope(params: {
      JOIN clients c ON c.id = ot.client_id
      LEFT JOIN branches b ON b.id = c.branch_id
      WHERE ot.branch_id = $1
-       AND ot.status IN ('open', 'assigned', 'scheduled', 'in_visit', 'in_contact_list', 'needs_reschedule')
-       AND (c.is_active IS NULL OR c.is_active = TRUE)
+      AND ot.status IN ('open', 'needs_follow_up', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution', 'in_execution', 'ended')
+      AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
+      AND (c.is_active IS NULL OR c.is_active = TRUE)
        AND c.deleted_at IS NULL
-       AND (${ownerFilter})
+       AND (
+         (cardinality($2::int[]) > 0 AND ot.client_id = ANY($2::int[]))
+         OR (cardinality($3::int[]) > 0 AND EXISTS (
+           SELECT 1 FROM client_assignments ca
+           WHERE ca.client_id = ot.client_id
+             AND ca.hr_user_id = ANY($3::int[])
+         ))
+       )
      ORDER BY ot.created_at DESC`,
     queryParams,
   );
@@ -858,4 +887,135 @@ export async function getPlanningWorkScope(params: {
     technicianHrUserId,
     actorHrUserIds,
   };
+}
+
+/**
+ * Returns assigned leads for generate-from-plan by querying open_tasks directly
+ * via assigned_team_key + assigned_for_date.
+ *
+ * WHY this exists: getPlanningMarketingTargets filters clients by zone_ids from
+ * route_assignments. A task can be assigned to a team whose route does not cover
+ * the client's neighbourhood (e.g. the manager narrowed the route slice after
+ * the sync). Querying by assignment metadata rather than re-deriving the zone
+ * list ensures every assigned task is included in the generated contact list.
+ */
+export async function getAssignedLeadsForTeam(params: {
+  date: string;
+  teamKey: string;
+  branchId: number;
+}): Promise<{ leads: PlanningLead[]; supervisorHrUserId: number | null; reason: string | null }> {
+  const { date, teamKey, branchId } = params;
+
+  // Resolve supervisor for contact-target creation (same as in getPlanningMarketingTargets)
+  const keyMatch = teamKey.match(/^(team|solo)_(\d+)$/);
+  if (!keyMatch || keyMatch[1] === 'solo') {
+    return { leads: [], supervisorHrUserId: null, reason: 'SOLO_HAS_NO_MARKETING_LOAD' };
+  }
+
+  const teamIndex = Number(keyMatch[2]);
+  const { rows: scheduleRows } = await pool.query(
+    'SELECT teams FROM day_schedules WHERE date = $1',
+    [date],
+  );
+  const teams = scheduleRows[0]?.teams;
+  const team = Array.isArray(teams) ? teams[teamIndex] : null;
+
+  let supervisorHrUserId: number | null = null;
+  if (team) {
+    const scope = await resolveTeamPlanningScope({
+      supervisor: team.supervisor,
+      technician: team.technician,
+      branchId,
+    });
+    supervisorHrUserId = scope.supervisorHrUserId;
+  }
+
+  // Direct query: all assigned tasks for this team + date, joined with client data
+  const { rows: leadRows } = await pool.query(
+    `
+      SELECT
+        c.id,
+        c.first_name       AS "firstName",
+        c.father_name      AS "fatherName",
+        c.last_name        AS "lastName",
+        c.nickname,
+        c.name,
+        c.mobile,
+        c.contacts,
+        c.neighborhood,
+        c.detailed_address AS "detailedAddress",
+        c.referral_address_text AS "referralAddressText",
+        c.branch_id        AS "branchId",
+        c.is_candidate     AS "isCandidate",
+        c.target_client    AS "targetClient",
+        c.candidate_status AS "candidateStatus",
+        ct.id              AS "contactTargetId",
+        ct.status          AS "contactTargetStatus",
+        ct.latest_call_outcome AS "latestCallOutcome",
+        ot.id              AS "openTaskId",
+        ot.task_type       AS "openTaskType",
+        ot.task_family     AS "openTaskFamily",
+        ot.reason          AS "openTaskReason",
+        ot.status          AS "openTaskStatus",
+        ot.due_date        AS "openTaskDueDate",
+        ot.priority        AS "openTaskPriority",
+        ot.notes           AS "openTaskNotes",
+        ${buildCustomerOwnershipSelectColumns()}
+      FROM open_tasks ot
+      JOIN clients c ON c.id = ot.client_id
+      ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'NULL' })}
+      LEFT JOIN contact_targets ct
+        ON ct.branch_id    = c.branch_id
+       AND ct.target_type  = 'client'
+       AND ct.target_id    = c.id
+       AND ct.target_stage = 'lead'
+       AND ct.visit_type   = 'marketing'
+       AND ct.source_type  = 'lead'
+      WHERE ot.status            = 'assigned'
+        AND ot.assigned_team_key = $1
+        AND ot.assigned_for_date = $2
+        AND ot.branch_id         = $3
+      ORDER BY c.id
+    `,
+    [teamKey, date, branchId],
+  );
+
+  const leads = leadRows.map((row: any) => ({
+    ...row,
+    gpsCoordinates: null,
+    gender: null,
+    nationalId: null,
+    birthDate: null,
+    occupation: null,
+    spouseOccupation: null,
+    dataQuality: null,
+    waterSource: null,
+    notes: null,
+    rating: null,
+    sourceChannel: null,
+    referrerType: null,
+    referrerId: null,
+    referrerName: null,
+    referralNotes: null,
+    referrers: null,
+    referralEntityId: null,
+    referralDate: null,
+    referralReason: null,
+    referralSheetId: null,
+    createdAt: null,
+    governorate: null,
+    district: null,
+    latestAppointment: null,
+    dailyTaskListItemId: null,
+    dailyTaskListId: null,
+    dailyItemStatus: null,
+    dailyCallOutcome: null,
+    queuedInCurrentTeamToday: false,
+    queuedInAnotherTeamToday: null,
+    queuedTeamKeyToday: null,
+    assignments: [],
+    ownership: mapCustomerOwnership(row),
+  }));
+
+  return { leads, supervisorHrUserId, reason: null };
 }

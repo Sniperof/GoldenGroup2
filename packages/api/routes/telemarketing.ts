@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
-import { getPlanningMarketingTargets } from '../services/planningMarketingTargets.js';
+import { getPlanningMarketingTargets, getAssignedLeadsForTeam } from '../services/planningMarketingTargets.js';
 import {
   getCurrentEmployeeId,
   getCurrentEmployeeRole,
@@ -266,6 +266,56 @@ async function updateContactTargetLifecycle(
     `UPDATE contact_targets SET ${setClauses.join(', ')} WHERE id = $${paramIdx}`,
     params,
   );
+}
+
+/**
+ * When a contact_target closes WITHOUT a booking, return all associated
+ * open_tasks that are still in 'in_scheduling' back to their last_waiting_status.
+ *
+ * Per task-lifecycle-analysis.md §6.4 (Q11/Q12):
+ *   "نتيجة الاتصال (رفض/إلغاء/خطأ) → المهمة → last_waiting_status"
+ *
+ * Does NOT touch tasks that were already booked (status = 'scheduled').
+ * The performedBy parameter is used for activity log (pass null for auto-close).
+ */
+async function returnTasksToWaiting(
+  db: any,
+  contactTargetId: number,
+  performedBy: number | null,
+  eventNote: string,
+): Promise<void> {
+  // Find all open_tasks linked to this contact_target through task_list_items
+  // that are still in 'in_scheduling' (not yet booked/scheduled).
+  const { rows: taskRows } = await db.query(
+    `SELECT DISTINCT ot.id, COALESCE(ot.last_waiting_status, 'open') AS restore_status
+       FROM telemarketing_task_list_items tli
+       JOIN open_tasks ot ON ot.id = tli.open_task_id
+      WHERE tli.contact_target_id = $1
+        AND ot.status = 'in_scheduling'`,
+    [contactTargetId],
+  );
+
+  if (taskRows.length === 0) return;
+
+  const taskIds = taskRows.map((r: any) => Number(r.id));
+
+  await db.query(
+    `UPDATE open_tasks
+        SET status     = COALESCE(last_waiting_status, 'open'),
+            updated_at = NOW()
+      WHERE id = ANY($1::int[])
+        AND status = 'in_scheduling'`,
+    [taskIds],
+  );
+
+  // Activity log
+  for (const row of taskRows) {
+    await db.query(
+      `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, notes)
+       VALUES ($1, 'status_change', $2, NULL, 'in_scheduling', $3, $4)`,
+      [row.id, performedBy, row.restore_status, eventNote],
+    );
+  }
 }
 
 // One entry per task the user explicitly selected for this appointment.
@@ -895,7 +945,10 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
     return res.status(403).json({ error: generateCheck.reason || 'Not authorized to generate task lists' });
   }
 
-  const targets = await getPlanningMarketingTargets({ date, teamKey, branchId });
+  // Query assigned tasks directly by assigned_team_key + assigned_for_date instead of
+  // re-deriving zone_ids. This ensures every assigned task is included regardless of
+  // whether the manager narrowed the route slice after the sync ran.
+  const targets = await getAssignedLeadsForTeam({ date, teamKey, branchId });
   const leads = targets.leads;
   const supervisorHrUserId = targets.supervisorHrUserId ?? null;
   const skipped: { entityType: 'client'; entityId: number; reason: string; existingTeamKey?: string }[] = [];
@@ -1074,13 +1127,13 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
 
       if (openTaskId != null) {
         const tlUpdateResult = await pgClient.query(
-          `UPDATE open_tasks SET status = 'in_contact_list', updated_at = NOW() WHERE id = $1 AND status = 'open'`,
+          `UPDATE open_tasks SET status = 'in_scheduling', updated_at = NOW() WHERE id = $1 AND status = 'assigned'`,
           [openTaskId],
         );
         if ((tlUpdateResult as any).rowCount > 0) {
           await pgClient.query(
             `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value)
-             VALUES ($1, 'status_change', $2, NULL, 'open', 'in_contact_list')`,
+             VALUES ($1, 'status_change', $2, NULL, 'assigned', 'in_scheduling')`,
             [openTaskId, req.authContext?.userId ?? null],
           );
         }
@@ -1274,12 +1327,13 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
     // Normalise legacy codes for lifecycle decisions
     const normalised = normaliseOutcomeCode(outcome);
 
-    // Close outcomes: set status = closed
+    // Close outcomes: set status = closed + return tasks to waiting (§6.4 Q11)
     if (CLOSES_TARGET_OUTCOMES.includes(normalised)) {
       await updateContactTargetLifecycle(pool, contactTargetId, {
         latestCallOutcome: outcome,
         status: 'closed',
       });
+      await returnTasksToWaiting(pool, contactTargetId, calledBy, `إغلاق تلقائي بنتيجة: ${outcome}`);
     } else if (normalised === 'booked_marketing_appointment') {
       // Booked: update latest_call_outcome but do NOT set status = booked here.
       // Appointment creation handles the status transition to booked.
@@ -1378,6 +1432,98 @@ router.post('/appointments', requirePermission('telemarketing.appointments.book'
   try {
     await pgClient.query('BEGIN');
 
+    // G-PL-05 guard: every selected task must reference a valid open_task that
+    // (a) exists, (b) belongs to this customer, and (c) has a task_type that's
+    // active in task_type_config and matches the payload's declared task_type.
+    // This enforces AP-R001 ("الموعد ينتج من جهة مؤهلة ضمن قائمة العمل") at the API layer.
+    for (let i = 0; i < rawSelectedTasks.length; i++) {
+      const task = rawSelectedTasks[i];
+      if (!Number.isInteger(task.openTaskId) || !task.openTaskId || task.openTaskId <= 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json({
+          error: `كل موعد يجب أن يرتبط بمهمة مفتوحة محددة (selectedOpenTasks[${i}].openTaskId مفقود).`
+        });
+      }
+      if (!task.taskType || typeof task.taskType !== 'string') {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json({
+          error: `selectedOpenTasks[${i}].taskType مطلوب.`
+        });
+      }
+    }
+
+    // G-PL-03 guard: validate task lifecycle and contact target state BEFORE writing
+    // the appointment. "Container" rule (per product owner):
+    //   - The visit acts as a container for tasks.
+    //   - Modification is allowed while the task is in a "live" state (open/needs_follow_up/assigned/in_scheduling)
+    //     and the contact_target is not yet closed.
+    //   - Reject the booking if any selected task is already locked (scheduled/completed/closed/cancelled),
+    //     or if the contact_target is already closed.
+    const LOCKED_TASK_STATUSES = ['scheduled', 'completed', 'closed', 'cancelled'];
+
+    if (contactTargetId != null) {
+      const ctRow = await pgClient.query<{ status: string }>(
+        'SELECT status FROM contact_targets WHERE id = $1',
+        [contactTargetId],
+      );
+      if (ctRow.rows[0]?.status === 'closed') {
+        await pgClient.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'لا يمكن حجز موعد — جهة الاتصال مُقفلة بالفعل (نتيجة حجز سابق أو إغلاق).'
+        });
+      }
+    }
+
+    const candidateTaskIds = rawSelectedTasks.map(t => t.openTaskId as number);
+
+    type TaskRow = { id: number; status: string; client_id: number; task_type: string };
+    const currentTaskRows = await pgClient.query<TaskRow>(
+      `SELECT ot.id, ot.status, ot.client_id, ot.task_type
+         FROM open_tasks ot
+         INNER JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+        WHERE ot.id = ANY($1::int[])
+          AND ttc.is_active = TRUE`,
+      [candidateTaskIds],
+    );
+
+    const taskRowById = new Map<number, TaskRow>();
+    currentTaskRows.rows.forEach(row => {
+      taskRowById.set(Number(row.id), row);
+    });
+    const statusByTaskId = new Map<number, string>();
+    taskRowById.forEach((row, id) => statusByTaskId.set(id, row.status));
+
+    // Every requested task must exist with an active task_type, belong to this customer,
+    // and have a matching task_type in the payload. Otherwise the booking is invalid.
+    for (const task of rawSelectedTasks) {
+      const taskId = task.openTaskId as number;
+      const row = taskRowById.get(taskId);
+      if (!row) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json({
+          error: `المهمة #${taskId} غير موجودة أو نوعها معطّل في إعدادات أنواع المهام.`
+        });
+      }
+      if (Number(row.client_id) !== Number(taskListItem.entity_id)) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json({
+          error: `المهمة #${taskId} لا تخص هذا الزبون.`
+        });
+      }
+      if (row.task_type !== task.taskType) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json({
+          error: `نوع المهمة المُرسَل ("${task.taskType}") لا يطابق نوع المهمة الفعلي ("${row.task_type}") للمهمة #${taskId}.`
+        });
+      }
+      if (LOCKED_TASK_STATUSES.includes(row.status)) {
+        await pgClient.query('ROLLBACK');
+        return res.status(409).json({
+          error: `لا يمكن حجز موعد — المهمة #${taskId} في حالة "${row.status}" ولا تقبل التعديل.`
+        });
+      }
+    }
+
     const visitTaskTypes = rawSelectedTasks.map(t => t.taskType || 'device_demo');
 
     const { rows } = await pgClient.query(
@@ -1460,22 +1606,43 @@ router.post('/appointments', requirePermission('telemarketing.appointments.book'
 
     // Update EACH selected open task to 'scheduled' with team snapshot.
     // Unselected tasks are not touched — they remain in their current state.
+    //
+    // G-PL-03: We validated above that no candidate task is in a LOCKED status.
+    // Here we accept transitions from any "live" status (open/needs_follow_up/assigned/in_scheduling).
+    // If the prior status was not 'in_scheduling', we log it as a lifecycle_skip so we can audit
+    // out-of-band bookings (e.g., manager booking directly from an assigned task).
     for (const task of rawSelectedTasks) {
       if (task.openTaskId != null) {
+        const priorStatus = statusByTaskId.get(task.openTaskId);
         await pgClient.query(
           `UPDATE open_tasks
            SET status = 'scheduled',
                team_snapshot = $2::jsonb,
                updated_at = NOW()
-           WHERE id = $1 AND status = 'in_contact_list'`,
+           WHERE id = $1`,
           [task.openTaskId, teamSnapshotJson],
         );
+        if (priorStatus && priorStatus !== 'in_scheduling') {
+          await pgClient.query(
+            `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, notes)
+             VALUES ($1, 'lifecycle_skip', $2, NULL, $3, 'scheduled', $4)`,
+            [
+              task.openTaskId,
+              createdBy,
+              priorStatus,
+              `حجز موعد مباشر من حالة ${priorStatus} (تخطّى مرحلة in_scheduling)`,
+            ],
+          );
+        }
       }
     }
 
     if (contactTargetId != null) {
+      // AP-R007 / PC-G004: booking closes the contact target. The reason
+      // is preserved via latest_call_outcome (= 'booked_marketing_appointment')
+      // written by the upstream call-recording flow.
       await updateContactTargetLifecycle(pgClient, contactTargetId, {
-        status: 'booked',
+        status: 'closed',
         latestAppointmentId: savedAppointment.id,
       });
     }
@@ -1515,6 +1682,166 @@ router.post('/appointments', requirePermission('telemarketing.appointments.book'
     throw error;
   } finally {
     pgClient.release();
+  }
+});
+
+// ─── POST /task-lists/:taskListId/items/:itemId/close ────────────────────────
+//
+// Manual close by telemarketer (§6.4 Q11 — "يدوي من التلمارك").
+// Closes the contact_target and returns the open_task to last_waiting_status.
+// Optionally accepts expectedDate + priority so the telemarketer can set
+// the next callback window before releasing the task back to the pool.
+router.post(
+  '/task-lists/:taskListId/items/:itemId/close',
+  requirePermission('telemarketing.calls.create'),
+  async (req, res) => {
+    try {
+      const { taskListId, itemId } = req.params;
+      const { reason, expectedDate, priority } = req.body ?? {};
+      const performedBy = getCallerId(req);
+      const branchId = getBranchId(req);
+
+      const taskList = await verifyTaskListAccess(req, res, taskListId);
+      if (!taskList) return;
+      if (branchId != null && taskList.branch_id != null && taskList.branch_id !== branchId) {
+        return res.status(403).json({ error: 'غير مصرح' });
+      }
+
+      const item = await loadTaskListItem(pool, taskListId, itemId);
+      if (!item) return res.status(404).json({ error: 'العنصر غير موجود' });
+
+      const contactTargetId: number | null = item.contact_target_id ?? null;
+
+      const pgClient = await pool.connect();
+      try {
+        await pgClient.query('BEGIN');
+
+        // 1. Mark task_list_item as manually closed
+        await pgClient.query(
+          `UPDATE telemarketing_task_list_items
+              SET status = 'called', call_outcome = 'manual_close', updated_at = NOW()
+            WHERE task_list_id = $1 AND id = $2`,
+          [taskListId, itemId],
+        );
+
+        // 2. Close contact_target
+        if (contactTargetId != null) {
+          await updateContactTargetLifecycle(pgClient, contactTargetId, {
+            latestCallOutcome: 'manual_close',
+            status: 'closed',
+          });
+
+          // 3. Return associated tasks to waiting
+          await returnTasksToWaiting(
+            pgClient,
+            contactTargetId,
+            performedBy,
+            reason ? `إغلاق يدوي — ${reason}` : 'إغلاق يدوي من التلمارك',
+          );
+        }
+
+        // 4. Apply optional task updates (expectedDate / priority)
+        if (item.open_task_id != null && (expectedDate || priority)) {
+          const setClauses: string[] = ['updated_at = NOW()'];
+          const taskParams: any[] = [];
+          let paramIdx = 1;
+
+          if (expectedDate && typeof expectedDate === 'string') {
+            setClauses.push(`expected_date = $${paramIdx++}`);
+            taskParams.push(expectedDate);
+          }
+          if (priority && ['high', 'medium', 'low'].includes(priority)) {
+            setClauses.push(`priority = $${paramIdx++}`);
+            taskParams.push(priority);
+          }
+          taskParams.push(item.open_task_id);
+          await pgClient.query(
+            `UPDATE open_tasks SET ${setClauses.join(', ')} WHERE id = $${paramIdx}`,
+            taskParams,
+          );
+        }
+
+        await pgClient.query('COMMIT');
+        return res.json({ success: true, contactTargetId });
+      } catch (err) {
+        await pgClient.query('ROLLBACK');
+        throw err;
+      } finally {
+        pgClient.release();
+      }
+    } catch (err: any) {
+      console.error('[telemarketing] manual close error:', err);
+      return res.status(500).json({ error: err.message || 'فشل الإغلاق اليدوي' });
+    }
+  },
+);
+
+// ─── GET /task-type-options ──────────────────────────────────────────────────
+// Returns active task types for the service-request task creation dropdown.
+// Requires only telemarketing.calls.create — no admin access needed.
+router.get('/task-type-options', requirePermission('telemarketing.calls.create'), async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT task_type AS "taskType", arabic_label AS "arabicLabel", task_family AS "taskFamily"
+         FROM task_type_config
+        WHERE is_active = TRUE
+        ORDER BY display_order ASC, task_type ASC`,
+    );
+    return res.json(rows);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /service-tasks ─────────────────────────────────────────────────────
+// Creates a new open_task from the telemarketer context after a service_request
+// call outcome. The task is created as 'open' and linked to the client.
+router.post('/service-tasks', requirePermission('telemarketing.calls.create'), async (req, res) => {
+  try {
+    const branchId = getBranchId(req);
+    const createdBy = getCallerId(req);
+    const { clientId, taskType, notes, priority } = req.body ?? {};
+
+    if (!branchId) return res.status(400).json({ error: 'Branch context required' });
+    if (!clientId || !Number.isInteger(Number(clientId))) {
+      return res.status(400).json({ error: 'clientId is required' });
+    }
+    if (!taskType || typeof taskType !== 'string') {
+      return res.status(400).json({ error: 'taskType is required' });
+    }
+
+    // Resolve task_family from task_type_config
+    const { rows: ttcRows } = await pool.query(
+      `SELECT task_family FROM task_type_config WHERE task_type = $1 AND is_active = TRUE`,
+      [taskType],
+    );
+    if (!ttcRows[0]) {
+      return res.status(400).json({ error: `نوع المهمة "${taskType}" غير معرّف أو معطّل` });
+    }
+    const taskFamily = ttcRows[0].task_family;
+
+    const { rows } = await pool.query(
+      `INSERT INTO open_tasks
+         (client_id, branch_id, task_type, task_family, reason, status,
+          priority, source, notes, created_by, origin)
+       VALUES ($1, $2, $3, $4, 'service_request', 'open',
+               $5, 'telemarketing', $6, $7, 'telemarketing_call')
+       RETURNING id, task_type AS "taskType", status, created_at AS "createdAt"`,
+      [
+        Number(clientId),
+        branchId,
+        taskType,
+        taskFamily,
+        ['high', 'medium', 'low'].includes(priority) ? priority : null,
+        notes || null,
+        createdBy,
+      ],
+    );
+
+    return res.status(201).json(rows[0]);
+  } catch (err: any) {
+    console.error('[telemarketing] service task create error:', err);
+    return res.status(500).json({ error: err.message || 'فشل إنشاء المهمة' });
   }
 });
 

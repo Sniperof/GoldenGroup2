@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useSystemList } from '../../hooks/useSystemList';
+import { api } from '../../lib/api';
 import { motion } from 'framer-motion';
 import {
     Phone, CheckCircle2, PhoneOff, PhoneMissed, X, Send,
     MessageSquare, PhoneForwarded, UserCheck, PhoneCall,
-    MapPin, AlertTriangle, Calendar, Edit3, ChevronDown,
+    MapPin, AlertTriangle, Calendar, Edit3,
 } from 'lucide-react';
 import {
     TelemarketingOutcomeCode, OUTCOME_MAP, OUTCOMES_BY_GROUP,
@@ -42,6 +44,8 @@ export interface SaveExtras {
     followUpPriority?: 'high' | 'medium' | 'low';
     /** Reason label for follow-up/reschedule */
     rescheduleReason?: string;
+    /** Task type selected when outcome = service_request */
+    serviceTaskType?: string;
 }
 
 interface OutcomeRecorderModalProps {
@@ -106,11 +110,7 @@ const FREE_CALL_GROUPS: {
         key: 'not_interested',
         label: 'غير مهتم',
         isReached: true,
-        outcomes: [
-            'not_interested',
-            'other_company_not_interested',
-            'seen_offer_not_interested',
-        ],
+        outcomes: ['not_interested'],
     },
     {
         key: 'data_update',
@@ -123,24 +123,8 @@ const FREE_CALL_GROUPS: {
     },
 ];
 
-// ── Static reason lists (match DB seeds in migration 098) ─────────────────────
-
-const REJECTION_REASONS = [
-    'تجاوز عدد محاولات الاتصال',
-    'الرقم خاطئ أو غير صالح',
-    'طلب عدم الاتصال به',
-    'غير مهتم نهائياً',
-    'خارج نطاق الخدمة',
-    'أخرى',
-];
-
-const RESCHEDULE_REASONS = [
-    'الزبون مشغول حالياً',
-    'طلب المتابعة لاحقاً',
-    'لديه جهاز من شركة أخرى',
-    'اطّلع على العرض سابقاً',
-    'أخرى',
-];
+// Reason lists are loaded from system_lists (categories: telemarketing_rejection_reason,
+// telemarketing_reschedule_reason). Managed via Admin → إدارة القوائم.
 
 // ── Icons / colours ───────────────────────────────────────────────────────────
 
@@ -256,6 +240,16 @@ export default function OutcomeRecorderModal({
     const [followUpPriority, setFollowUpPriority] = useState<'high' | 'medium' | 'low' | ''>('');
     const [rescheduleReason, setRescheduleReason] = useState('');
     const currentUser = useAuthStore((state) => state.user);
+    const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
+    const { items: rescheduleReasons } = useSystemList('telemarketing_reschedule_reason');
+    const [taskTypeOptions, setTaskTypeOptions] = useState<{ taskType: string; arabicLabel: string }[]>([]);
+    const [serviceTaskType, setServiceTaskType] = useState('');
+
+    useEffect(() => {
+        api.telemarketing.taskTypeOptions()
+            .then(data => setTaskTypeOptions(data))
+            .catch(() => setTaskTypeOptions([]));
+    }, []);
 
     const outcomeMeta = outcome ? OUTCOME_MAP[outcome] : null;
     const isFreeCall = !task;
@@ -278,6 +272,7 @@ export default function OutcomeRecorderModal({
             setFollowUpDueDate('');
             setFollowUpPriority('');
             setRescheduleReason('');
+            setServiceTaskType('');
         }
     }, [isOpen, task, preselectedContactId]);
 
@@ -357,7 +352,11 @@ export default function OutcomeRecorderModal({
                 ? selectedPhoneStatus as Exclude<PhoneStatusUpdate, 'none'>
                 : null,
             rejectScheduling: showRejectScheduling ? rejectScheduling : undefined,
-            rejectionReason: (showRejectScheduling && rejectScheduling && rejectionReason) ? rejectionReason : undefined,
+            serviceTaskType: (finalOutcome === 'service_request' && serviceTaskType) ? serviceTaskType : undefined,
+            // rejectionReason is shared by two flows:
+            //   1. "رفض الجدولة" checkbox (not-reached outcomes)
+            //   2. "غير مهتم" reason picker (reached, telemarketer only)
+            rejectionReason: rejectionReason || undefined,
             followUpDueDate: showFollowUpDate && followUpDueDate ? followUpDueDate : undefined,
             followUpPriority: showFollowUpDate && followUpPriority ? followUpPriority as 'high' | 'medium' | 'low' : undefined,
             rescheduleReason: showFollowUpDate && rescheduleReason ? rescheduleReason : undefined,
@@ -411,8 +410,11 @@ export default function OutcomeRecorderModal({
 
                     {/* Communication method */}
                     <div className="space-y-3">
-                        <label className="text-sm font-bold text-slate-700">
-                            قناة التواصل <span className="text-red-500">*</span>
+                        <label className="text-sm font-bold text-slate-700 flex items-center justify-between">
+                            <span>قناة التواصل <span className="text-red-500">*</span></span>
+                            {preselectedContactId && !relevantContact?.hasWhatsApp && (
+                                <span className="text-[10px] text-slate-400 font-normal">واتساب غير متاح لهذا الرقم</span>
+                            )}
                         </label>
                         <div className={`grid gap-3 ${showWhatsAppOption ? 'grid-cols-2' : 'grid-cols-1'}`}>
                             <button
@@ -507,8 +509,28 @@ export default function OutcomeRecorderModal({
                         )}
                     </div>
 
-                    {/* Contact selection — hidden when preselected */}
-                    {!preselectedContactId && (
+                    {/* Contact selection */}
+                    {preselectedContactId ? (
+                        /* Contact was pre-selected by clicking a number — show it, don't let user change */
+                        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${method === 'whatsapp' ? 'bg-emerald-100' : 'bg-indigo-100'}`}>
+                                {method === 'whatsapp' ? (
+                                    <MessageSquare className="w-4 h-4 text-emerald-600" />
+                                ) : (
+                                    <Phone className="w-4 h-4 text-indigo-600" />
+                                )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-[10px] font-bold text-slate-400 mb-0.5">الرقم المختار للتواصل</p>
+                                <p className="text-sm font-black text-slate-800" dir="ltr">{relevantContact?.number}</p>
+                                <p className="text-xs text-slate-500">{relevantContact?.label}</p>
+                            </div>
+                            {relevantContact?.hasWhatsApp && (
+                                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold border border-green-200 shrink-0">واتساب ✓</span>
+                            )}
+                        </div>
+                    ) : (
+                        /* No preselection — show contact picker dropdown */
                         <div className="space-y-2">
                             <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                                 <Phone className="w-4 h-4 text-violet-500" />
@@ -607,44 +629,48 @@ export default function OutcomeRecorderModal({
                             </div>
                         )}
 
-                        {/* Step 2b: reached sub-groups */}
+                        {/* Step 2b: reached — flat main outcome buttons (no accordion) */}
                         {topLevel === 'reached' && (
-                            <div className="space-y-2">
-                                {([
-                                    { key: 'follow_up', label: 'متابعة لاحقاً', outcomes: ['currently_busy','other_company_callback','seen_offer_callback'] as TelemarketingOutcomeCode[] },
-                                    { key: 'service_request', label: 'طلب خدمة', outcomes: ['service_request'] as TelemarketingOutcomeCode[] },
-                                    { key: 'not_interested', label: 'غير مهتم', outcomes: ['not_interested','other_company_not_interested','seen_offer_not_interested'] as TelemarketingOutcomeCode[] },
-                                    { key: 'data_update', label: 'تعديل بيانات', outcomes: ['address_updated','new_number'] as TelemarketingOutcomeCode[] },
-                                    // Booking group: only shown when user has telemarketing.appointments.book permission
-                                    ...(!isFreeCall && canBook ? [{ key: 'booked', label: 'حجز موعد زيارة', outcomes: ['booked_marketing_appointment'] as TelemarketingOutcomeCode[] }] : []),
-                                ] as { key: string; label: string; outcomes: TelemarketingOutcomeCode[] }[]).map(group => {
-                                    const isExpanded = expandedGroup === group.key;
-                                    return (
-                                        <div key={group.key} className="border border-gray-200 rounded-xl overflow-hidden">
-                                            <button
-                                                type="button"
-                                                onClick={() => setExpandedGroup(isExpanded ? null : group.key)}
-                                                className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors text-right"
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    {GROUP_ICONS[group.key] ?? <PhoneCall className="w-4 h-4" />}
-                                                    <span className="text-sm font-bold text-slate-700">{group.label}</span>
-                                                </div>
-                                                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                            </button>
-                                            {isExpanded && (
-                                                <div className="p-2 space-y-1.5">
-                                                    {group.outcomes.map(code => (
-                                                        <OutcomeButton key={code} code={code} isActive={outcome===code} onClick={() => setOutcome(code)} />
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
+                            <div className="space-y-3">
+                                {/* 5 main outcome tiles */}
+                                <div className="grid grid-cols-2 gap-2">
+                                    {([
+                                        { key: 'follow_up',       code: 'currently_busy' as TelemarketingOutcomeCode,           label: 'متابعة لاحقاً',   icon: PhoneForwarded, active: 'bg-violet-600  border-violet-600  text-white  ring-2 ring-violet-300',  idle: 'bg-violet-50  border-violet-200  text-violet-700  hover:bg-violet-100'  },
+                                        { key: 'service_request', code: 'service_request' as TelemarketingOutcomeCode,           label: 'طلب خدمة',        icon: UserCheck,      active: 'bg-indigo-600  border-indigo-600  text-white  ring-2 ring-indigo-300',  idle: 'bg-indigo-50  border-indigo-200  text-indigo-700  hover:bg-indigo-100'  },
+                                        { key: 'not_interested',  code: 'not_interested'  as TelemarketingOutcomeCode,           label: 'غير مهتم',        icon: PhoneOff,       active: 'bg-red-600     border-red-600     text-white  ring-2 ring-red-300',     idle: 'bg-red-50     border-red-200     text-red-700     hover:bg-red-100'     },
+                                        { key: 'data_update',     code: null,                                                    label: 'تعديل بيانات',    icon: Edit3,          active: 'bg-sky-600     border-sky-600     text-white  ring-2 ring-sky-300',     idle: 'bg-sky-50     border-sky-200     text-sky-700     hover:bg-sky-100'     },
+                                        ...(!isFreeCall && canBook
+                                            ? [{ key: 'booked', code: 'booked_marketing_appointment' as TelemarketingOutcomeCode, label: 'حجز موعد زيارة', icon: Calendar,       active: 'bg-emerald-600 border-emerald-600 text-white  ring-2 ring-emerald-300', idle: 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100' }]
+                                            : []),
+                                    ] as { key: string; code: TelemarketingOutcomeCode | null; label: string; icon: any; active: string; idle: string }[]).map(({ key, code, label, icon: Icon, active, idle }) => (
+                                        <button
+                                            key={key}
+                                            type="button"
+                                            onClick={() => {
+                                                setExpandedGroup(key);
+                                                setRejectionReason('');
+                                                if (code) setOutcome(code);
+                                                else setOutcome(null); // data_update: sub-choice below
+                                            }}
+                                            className={`flex items-center justify-center gap-2 p-3.5 rounded-xl border-2 transition-all text-sm font-bold ${expandedGroup === key ? active : idle}`}
+                                        >
+                                            <Icon className="w-4 h-4 shrink-0" />
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* تعديل بيانات sub-options (inline, no accordion) */}
+                                {expandedGroup === 'data_update' && (
+                                    <div className="grid grid-cols-2 gap-2 p-3 bg-sky-50 rounded-xl border border-sky-200">
+                                        <OutcomeButton code="address_updated" isActive={outcome === 'address_updated'} onClick={() => setOutcome('address_updated')} />
+                                        <OutcomeButton code="new_number"      isActive={outcome === 'new_number'}      onClick={() => setOutcome('new_number')} />
+                                    </div>
+                                )}
+
                                 <button
                                     type="button"
-                                    onClick={() => { setTopLevel(null); setOutcome(null); setExpandedGroup(null); }}
+                                    onClick={() => { setTopLevel(null); setOutcome(null); setExpandedGroup(null); setRejectionReason(''); }}
                                     className="w-full text-xs text-slate-400 font-bold py-2 hover:text-slate-600"
                                 >
                                     ← تغيير
@@ -652,6 +678,50 @@ export default function OutcomeRecorderModal({
                             </div>
                         )}
                     </div>
+                    )}
+
+                    {/* نوع الخدمة المطلوبة — telemarketer only, when service_request is selected */}
+                    {outcome === 'service_request' && !isFreeCall && !isTextMessage && taskTypeOptions.length > 0 && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700 flex items-center justify-between">
+                                <span>نوع الخدمة المطلوبة</span>
+                                <span className="text-xs text-slate-400 font-normal">اختياري</span>
+                            </label>
+                            <select
+                                value={serviceTaskType}
+                                onChange={e => setServiceTaskType(e.target.value)}
+                                className="w-full bg-slate-50 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"
+                            >
+                                <option value="">— اختر نوع الخدمة —</option>
+                                {taskTypeOptions.map(t => (
+                                    <option key={t.taskType} value={t.taskType}>{t.arabicLabel}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    {/* سبب عدم الاهتمام — telemarketer only, when not_interested is selected */}
+                    {outcome === 'not_interested' && !isFreeCall && !isTextMessage && rejectionReasons.length > 0 && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700 flex items-center justify-between">
+                                <span>سبب عدم الاهتمام</span>
+                                <span className="text-xs text-slate-400 font-normal">اختياري</span>
+                            </label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {rejectionReasons.map(r => (
+                                    <button
+                                        key={r}
+                                        type="button"
+                                        onClick={() => setRejectionReason(v => v === r ? '' : r)}
+                                        className={`px-2.5 py-2 rounded-lg border text-xs font-bold text-right transition-all ${rejectionReason === r
+                                            ? 'bg-slate-700 border-slate-700 text-white shadow-sm'
+                                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                                    >
+                                        {r}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                     )}
 
                     {/* من ردّ؟ — shown for reached calls (phone or whatsapp voice) */}
@@ -740,7 +810,7 @@ export default function OutcomeRecorderModal({
                                 <div className="bg-red-50 px-4 py-3 border-t border-red-200 space-y-2">
                                     <label className="text-xs font-bold text-red-700">سبب الرفض <span className="text-red-500">*</span></label>
                                     <div className="grid grid-cols-2 gap-1.5">
-                                        {REJECTION_REASONS.map(r => (
+                                        {rejectionReasons.map(r => (
                                             <button
                                                 key={r}
                                                 type="button"
@@ -772,7 +842,7 @@ export default function OutcomeRecorderModal({
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-bold text-violet-700">سبب المتابعة</label>
                                     <div className="grid grid-cols-2 gap-1.5">
-                                        {RESCHEDULE_REASONS.map(r => (
+                                        {rescheduleReasons.map(r => (
                                             <button
                                                 key={r}
                                                 type="button"
@@ -790,7 +860,7 @@ export default function OutcomeRecorderModal({
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-bold text-violet-700 flex items-center gap-1.5">
                                         <Calendar className="w-3.5 h-3.5" />
-                                        تاريخ المتابعة <span className="text-violet-400 font-normal">(اختياري)</span>
+                                        الموعد المتوقع <span className="text-violet-400 font-normal">(اختياري)</span>
                                     </label>
                                     <input
                                         type="date"

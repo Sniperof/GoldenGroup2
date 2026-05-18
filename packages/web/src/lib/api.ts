@@ -1,6 +1,7 @@
 import type {
   MarketingVisitCancelRequest,
   MarketingVisitRescheduleRequest,
+  TaskTypeConfig,
 } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
 
@@ -80,6 +81,17 @@ export const api = {
     hrUsers: {
       list: () => request<any[]>('/admin/hr-users'),
       assignable: () => request<any[]>('/admin/hr-users/assignable'),
+    },
+    taskTypes: {
+      list: (activeOnly = false) => {
+        const qs = activeOnly ? '?activeOnly=true' : '';
+        return request<TaskTypeConfig[]>(`/admin/task-types${qs}`);
+      },
+      update: (taskType: string, data: { planningWindowDays?: number | null; isActive?: boolean }) =>
+        request<TaskTypeConfig>(`/admin/task-types/${encodeURIComponent(taskType)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }),
     },
   },
   employees: {
@@ -184,12 +196,13 @@ export const api = {
     getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
     submitEmergencyResult: (id: number, data: any) =>
       request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),
-    listDeviceDemo: (params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no' }) => {
+    listDeviceDemo: (params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true' }) => {
       const q = new URLSearchParams({ branchId: String(params.branchId) });
       if (params.status) q.set('status', params.status);
       if (params.visitStatus) q.set('visitStatus', params.visitStatus);
       if (params.scheduledDate) q.set('scheduledDate', params.scheduledDate);
       if (params.scheduled) q.set('scheduled', params.scheduled);
+      if (params.hideSnoozed) q.set('hideSnoozed', params.hideSnoozed);
       return request<any[]>(`/open-tasks/device-demo?${q}`);
     },
     getActivity: (id: number) => request<any[]>(`/open-tasks/${id}/activity`),
@@ -197,6 +210,21 @@ export const api = {
     getDevices: (id: number) => request<any[]>(`/open-tasks/${id}/devices`),
     addDevices: (id: number, data: any) => request<any>(`/open-tasks/${id}/devices`, { method: 'POST', body: JSON.stringify(data) }),
     getCalls: (id: number) => request<any[]>(`/open-tasks/${id}/calls`),
+    exclude: (id: number, reason?: string) =>
+      request<any>(`/open-tasks/${id}/exclude`, { method: 'POST', body: JSON.stringify({ reason: reason ?? null }) }),
+    restore: (id: number) =>
+      request<any>(`/open-tasks/${id}/restore`, { method: 'POST', body: JSON.stringify({}) }),
+    bulkExclude: (taskIds: number[], reason?: string) =>
+      request<{ updated: number }>('/open-tasks/bulk-exclude', { method: 'POST', body: JSON.stringify({ taskIds, reason: reason ?? null }) }),
+    bulkRestore: (taskIds: number[]) =>
+      request<{ updated: number }>('/open-tasks/bulk-restore', { method: 'POST', body: JSON.stringify({ taskIds }) }),
+  },
+  contactTargets: {
+    manualClose: (taskListId: string, itemId: string, data: { reason?: string; expectedDate?: string; priority?: string }) =>
+      request<{ success: boolean }>(`/telemarketing/task-lists/${encodeURIComponent(taskListId)}/items/${encodeURIComponent(itemId)}/close`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
   visits: {
     list: () => request<any[]>('/visits'),
@@ -213,8 +241,12 @@ export const api = {
     save: (key: string, data: any) => request<any>(`/route-assignments/${key}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   planning: {
-    marketingTargets: (date: string, teamKey: string) => {
+    assignedTasks: (date: string, teamKey: string) => {
       const query = new URLSearchParams({ date, teamKey });
+      return request<any>(`/planning/assigned-tasks?${query.toString()}`);
+    },
+    marketingTargets: (date: string, teamKey: string, mode: 'planning' | 'assigned' = 'planning') => {
+      const query = new URLSearchParams({ date, teamKey, mode });
       return request<any>(`/planning/marketing-targets?${query.toString()}`);
     },
   },
@@ -280,6 +312,9 @@ telemarketing: {
     updateTaskListItem: (taskListId: string, itemId: string, data: any) => request<any>(`/telemarketing/task-lists/${taskListId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     createCallLog: (data: any) => request<any>('/telemarketing/call-logs', { method: 'POST', body: JSON.stringify(data) }),
     createAppointment: (data: any) => request<any>('/telemarketing/appointments', { method: 'POST', body: JSON.stringify(data) }),
+    taskTypeOptions: () => request<{ taskType: string; arabicLabel: string; taskFamily: string }[]>('/telemarketing/task-type-options'),
+    createServiceTask: (data: { clientId: number; taskType: string; notes?: string; priority?: string }) =>
+      request<any>('/telemarketing/service-tasks', { method: 'POST', body: JSON.stringify(data) }),
   },
   systemLists: {
     list: (params?: { category?: string; activeOnly?: boolean }) => {

@@ -6,7 +6,7 @@ import {
   Settings2, Plus, Edit, Trash2, Save, X, ListPlus,
   ToggleLeft, ToggleRight, Search, ChevronLeft, GraduationCap,
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
-  Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu,
+  Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu, Phone,
 } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
@@ -135,6 +135,25 @@ const CATEGORIES: CategoryMeta[] = [
     usedIn: [
       { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
       { label: 'قبول نهائي ثم إنشاء موظف', route: 'الوظائف ← تفاصيل الطلب ← إنشاء سجل موظف', icon: <Briefcase className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'telemarketing_rejection_reason',
+    label: 'أسباب رفض الجدولة',
+    description: 'أسباب إغلاق جهة الاتصال بدون حجز موعد — تظهر عند اختيار "غير مهتم" أو "رفض الجدولة" في مودال تسجيل نتيجة التواصل.',
+    impact: 'medium' as const,
+    usedIn: [
+      { label: 'مودال نتيجة التواصل — غير مهتم', route: 'التيلماركتر ← تسجيل نتيجة', icon: <Phone className="w-3 h-3" /> },
+      { label: 'نافذة الإغلاق اليدوي', route: 'التيلماركتر ← إغلاق جهة الاتصال', icon: <Phone className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'telemarketing_reschedule_reason',
+    label: 'أسباب المتابعة',
+    description: 'أسباب طلب المتابعة لاحقاً — تظهر عند اختيار "متابعة لاحقاً" في مودال تسجيل نتيجة التواصل.',
+    impact: 'low' as const,
+    usedIn: [
+      { label: 'مودال نتيجة التواصل — متابعة لاحقاً', route: 'التيلماركتر ← تسجيل نتيجة', icon: <Phone className="w-3 h-3" /> },
     ],
   },
   {
