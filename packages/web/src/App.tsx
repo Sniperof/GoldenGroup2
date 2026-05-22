@@ -26,6 +26,7 @@ import DeviceManagement from './pages/DeviceManagement';
 import DeviceDetail from './pages/DeviceDetail';
 import ContractList from './pages/contracts/ContractList';
 import ContractForm from './pages/contracts/ContractForm';
+import ContractDetail from './pages/contracts/ContractDetail';
 import TelemarketerWorkspace from './pages/TelemarketerWorkspace';
 import TeamTasksDetail from './pages/planning/TeamTasksDetail';
 import DeviceDemo from './pages/tasks/DeviceDemo';
@@ -50,6 +51,7 @@ import Roles from './pages/admin/Roles';
 import RolePermissions from './pages/admin/RolePermissions';
 import PermissionSettings from './pages/admin/PermissionSettings';
 import TaskTypes from './pages/admin/TaskTypes';
+import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
 import VisitDetailPage from './pages/visits/VisitDetailPage';
 
 
@@ -97,6 +99,7 @@ export default function App() {
                         <Route path="/field-visits/:id" element={<VisitDetailPage />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />
+                        <Route path="/contracts/:id" element={<ContractDetail />} />
 
                         <Route path="/telemarketer" element={<TelemarketerWorkspace />} />
                         <Route path="/settings" element={<SystemSettings />} />
@@ -120,6 +123,7 @@ export default function App() {
                         <Route path="/admin/roles/:id/permissions" element={<RolePermissions />} />
                         <Route path="/admin/permissions-settings" element={<PermissionSettings />} />
                         <Route path="/admin/task-types" element={<TaskTypes />} />
+                        <Route path="/admin/emergency-action-types" element={<EmergencyActionTypes />} />
                     </Route>
                 </Routes>
             </ErrorBoundary>

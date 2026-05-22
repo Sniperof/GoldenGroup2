@@ -158,13 +158,26 @@ export async function updateTrainingCourseEndDateFlow(courseId: string, body: an
     const endDate = typeof body?.endDate === 'string' ? body.endDate.trim() : '';
     if (!endDate) throw createServiceError(400, { error: 'تاريخ نهاية الدورة مطلوب' });
 
-    const course = await getTrainingCourseById(courseId, client);
+    const course = await getTrainingCourseById(courseId);
     if (!course) throw createServiceError(404, { error: 'الدورة التدريبية غير موجودة' });
 
+    const attendanceRows = await getTrainingCourseAttendance(courseId);
+    const latestAttendanceDate = attendanceRows.length > 0
+      ? attendanceRows.reduce((latest, row) => {
+          const current = normalizeDateOnly(row.attendance_date || row.attendanceDate);
+          return !latest || current > latest ? current : latest;
+        }, null as Date | null)
+      : null;
+
     const startDate = normalizeDateOnly(course.start_date);
+    const baselineDate = latestAttendanceDate || startDate;
     const newEndDate = normalizeDateOnly(endDate);
-    if (newEndDate < startDate) {
-      throw createServiceError(400, { error: 'يجب أن يكون تاريخ نهاية الدورة مساوياً أو بعد تاريخ البداية' });
+    if (newEndDate < baselineDate) {
+      throw createServiceError(400, {
+        error: latestAttendanceDate
+          ? 'يجب أن يكون تاريخ نهاية الدورة مساوياً أو بعد آخر يوم حضور مسجل'
+          : 'يجب أن يكون تاريخ نهاية الدورة مساوياً أو بعد تاريخ البداية',
+      });
     }
 
     await client.query('BEGIN');

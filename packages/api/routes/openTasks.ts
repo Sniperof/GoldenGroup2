@@ -379,6 +379,9 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
   const priority = ['high', 'medium', 'low'].includes(req.body?.priority) ? req.body.priority : null;
   const devices = req.body?.devices as any[] | undefined;
   const preOffers = req.body?.preOffers as any[] | undefined;
+  const taskType = typeof req.body?.taskType === 'string' ? req.body.taskType.trim() : 'device_demo';
+  const taskFamily = typeof req.body?.taskFamily === 'string' ? req.body.taskFamily.trim() : 'marketing';
+  const contractId = Number(req.body?.contractId) || null;
 
   if (!clientId || !Number.isInteger(clientId)) {
     return res.status(400).json({ error: 'clientId is required' });
@@ -410,11 +413,11 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
     const { rows: taskRows } = await pgClient.query(
       `INSERT INTO open_tasks (
          client_id, branch_id, task_type, task_family, reason, status,
-         due_date, expected_date, priority, source, notes, created_by, origin
-       ) VALUES ($1, $2, 'device_demo', 'marketing', $3, 'open',
-         $4::date, $5::date, $6, 'manual', $7, $8, 'manual_entry')
+         due_date, expected_date, priority, source, notes, created_by, origin, contract_id
+       ) VALUES ($1, $2, $3, $4, $5, 'open',
+         $6::date, $7::date, $8, 'manual', $9, $10, 'manual_entry', $11)
        RETURNING id`,
-      [clientId, branchId, reason, dueDate, expectedDate, priority, notes, authContext.userId ?? null],
+      [clientId, branchId, taskType, taskFamily, reason, dueDate, expectedDate, priority, notes, authContext.userId ?? null, contractId],
     );
     const openTaskId = taskRows[0].id;
 
@@ -442,8 +445,8 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
           `INSERT INTO open_task_pre_offers (
              open_task_id, device_model_id, offer_type, quantity, total_amount,
              first_payment_amount, installment_months, currency,
-             discount_percentage, closed_by_employee_id, no_closing_reason
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+             discount_percentage, applied_device_discount_id, closed_by_employee_id, no_closing_reason
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
           [
             openTaskId,
             offer.deviceModelId,
@@ -454,6 +457,7 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
             offer.installmentMonths ?? null,
             offer.currency,
             offer.discountPercentage ?? null,
+            offer.appliedDeviceDiscountId ?? null,
             offer.closedByEmployeeId ?? null,
             offer.noClosingReason ?? null,
           ],
@@ -461,7 +465,7 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
       }
     }
 
-    await persistOpenTaskSnapshots(pgClient, openTaskId, clientId, null);
+    await persistOpenTaskSnapshots(pgClient, openTaskId, clientId, contractId);
     await pgClient.query('COMMIT');
     return res.json({ id: openTaskId, success: true });
   } catch (err: any) {
@@ -502,6 +506,10 @@ router.get('/client/:clientId', requirePermission('marketing_visits.view'), asyn
        ot.client_snapshot AS "clientSnapshot",
        ot.assigned_scope_id AS "assignedScopeId",
        ot.assigned_team_key AS "assignedTeamKey",
+       latest_visit.id AS "marketingVisitId",
+       latest_visit.status AS "visitStatus",
+       latest_visit.scheduled_date AS "scheduledDate",
+       latest_visit.scheduled_time AS "scheduledTime",
        COALESCE(
          (SELECT json_agg(json_build_object(
            'id', otd.id,
@@ -521,11 +529,25 @@ router.get('/client/:clientId', requirePermission('marketing_visits.view'), asyn
            'firstPaymentAmount', otpo.first_payment_amount,
            'installmentMonths', otpo.installment_months,
            'currency', otpo.currency,
-           'discountPercentage', otpo.discount_percentage
+           'discountPercentage', otpo.discount_percentage,
+           'appliedDeviceDiscountId', otpo.applied_device_discount_id
          )) FROM open_task_pre_offers otpo WHERE otpo.open_task_id = ot.id),
          '[]'::json
        ) AS "preOffers"
      FROM open_tasks ot
+     LEFT JOIN LATERAL (
+       SELECT
+         mv.id,
+         mv.status,
+         mv.scheduled_date,
+         mv.scheduled_time
+       FROM marketing_visit_tasks mvt
+       JOIN marketing_visits mv ON mv.id = mvt.visit_id
+       WHERE mvt.source_open_task_id = ot.id
+         AND mvt.task_type = 'device_demo'
+       ORDER BY mvt.updated_at DESC
+       LIMIT 1
+     ) latest_visit ON true
      ${whereClause}
      ORDER BY ot.created_at DESC`,
     params,
@@ -898,6 +920,7 @@ router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) 
         otpo.installment_months AS "installmentMonths",
         otpo.currency,
         otpo.discount_percentage::float AS "discountPercentage",
+        otpo.applied_device_discount_id AS "appliedDeviceDiscountId",
         otpo.closed_by_employee_id AS "closedByEmployeeId",
         otpo.no_closing_reason AS "noClosingReason"
       FROM open_task_pre_offers otpo
@@ -1048,6 +1071,10 @@ router.patch('/:id', requirePermission('marketing_visits.update_result'), async 
       await Promise.all(activityPromises);
     }
 
+    if (req.body.status === 'completed') {
+      await updateContractDeviceStatusOnTaskCompletion(pool, updated.id);
+    }
+
     const task = await loadOpenTaskById(pool, updated.id);
     res.json(task);
   } catch (err: any) {
@@ -1073,6 +1100,42 @@ async function maybeCompleteFieldVisit(db: Queryable, fieldVisitId: bigint | str
        )`,
     [fieldVisitId],
   );
+}
+
+async function updateContractDeviceStatusOnTaskCompletion(db: Queryable, taskId: number) {
+  const { rows: tasks } = await db.query(
+    'SELECT contract_id, task_type, status FROM open_tasks WHERE id = $1',
+    [taskId]
+  );
+  if (!tasks[0] || !tasks[0].contract_id || tasks[0].status !== 'completed') return;
+  const contractId = tasks[0].contract_id;
+  const taskType = tasks[0].task_type;
+  
+  let newDeviceStatus: string | null = null;
+  let newContractStatus: string | null = null;
+  
+  if (taskType === 'device_delivery') {
+    newDeviceStatus = 'delivered';
+  } else if (taskType === 'device_installation') {
+    newDeviceStatus = 'installed';
+  } else if (taskType === 'device_activation') {
+    newDeviceStatus = 'active';
+    newContractStatus = 'active';
+  }
+  
+  if (newDeviceStatus) {
+    if (newContractStatus) {
+      await db.query(
+        'UPDATE contracts SET device_status = $1, status = $2 WHERE id = $3',
+        [newDeviceStatus, newContractStatus, contractId]
+      );
+    } else {
+      await db.query(
+        'UPDATE contracts SET device_status = $1 WHERE id = $2',
+        [newDeviceStatus, contractId]
+      );
+    }
+  }
 }
 
 function mapDecisionToOpenTaskStatus(finalDecision: string): string {
@@ -1404,6 +1467,11 @@ router.post('/:id/emergency-result', requirePermission('marketing_visits.update_
           ],
         );
       }
+      
+      // Capture contract device snapshot if applicable
+      if (taskRow.contract_id) {
+        await persistContractDeviceSnapshot(db, taskRow.contract_id, visitTaskResultId);
+      }
 
       // 7. Phase 4 finalization rule: complete the field visit when all tasks resolved
       await maybeCompleteFieldVisit(db, fieldVisitId);
@@ -1428,6 +1496,10 @@ router.post('/:id/emergency-result', requirePermission('marketing_visits.update_
            VALUES ($1, 'status_change', $2, NULL, $3, $4)`,
           [id, closedBy, oldOpenTaskStatus, newOpenTaskStatus],
         );
+      }
+
+      if (newOpenTaskStatus === 'completed') {
+        await updateContractDeviceStatusOnTaskCompletion(db, id);
       }
 
       await db.query('COMMIT');

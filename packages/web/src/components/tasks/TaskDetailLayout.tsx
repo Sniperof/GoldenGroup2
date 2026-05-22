@@ -207,7 +207,7 @@ export default function TaskDetailLayout({
 
       {/* Tabs */}
       <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 shrink-0">
-        <div className="max-w-5xl mx-auto flex flex-wrap gap-2">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-2">
           {allTabIds.map(tabId => {
             const label = BASE_TAB_LABELS[tabId] ?? extraTabs.find(t => t.id === tabId)?.label ?? tabId;
             return (
@@ -219,6 +219,9 @@ export default function TaskDetailLayout({
               />
             );
           })}
+          {hasResult && extension?.tabBarActions && (
+            <div className="mr-auto">{extension.tabBarActions(data)}</div>
+          )}
         </div>
       </div>
 

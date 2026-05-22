@@ -1,25 +1,30 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Download, Loader2, Plus, Printer, Share2, Trash2, X } from 'lucide-react';
 import { api } from '../../lib/api';
-import type { Client, DeviceModel, Employee, SystemList } from '../../lib/types';
+import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
 
 type PreOfferDraft = {
   deviceModelId: string;
   offerType: '' | 'cash' | 'installment';
   quantity: string;
-  totalAmount: string;
+  unitPrice: string;
   firstPaymentAmount: string;
   installmentMonths: string;
-  currency: string;
   discountPercentage: string;
+  appliedDeviceDiscountId: string;
   closedByEmployeeId: string;
   noClosingReason: string;
 };
 
-type CreationReasonOption = {
-  value: string;
-  label: string;
+type SelectedDevice = {
+  deviceModelId: number;
+  quantity: number;
+  deviceName: string;
 };
+
+type Closer = { id: number; name: string; roleDisplayName?: string };
+
+type CreationReasonOption = { value: string; label: string };
 
 const FALLBACK_CREATION_REASONS: CreationReasonOption[] = [
   { value: 'new_lead', label: 'عميل جديد' },
@@ -29,25 +34,16 @@ const FALLBACK_CREATION_REASONS: CreationReasonOption[] = [
   { value: 'other', label: 'أخرى' },
 ];
 
-const NO_CLOSING_REASON_OPTIONS: CreationReasonOption[] = [
-  { value: '', label: 'بدون سبب' },
-  { value: 'not_closed', label: 'لم يتم التسكير' },
-  { value: 'follow_up', label: 'متابعة لاحقة' },
-  { value: 'customer_busy', label: 'العميل مشغول' },
-  { value: 'price_issue', label: 'سبب سعري' },
-  { value: 'other', label: 'أخرى' },
-];
-
 function createPreOfferDraft(): PreOfferDraft {
   return {
     deviceModelId: '',
     offerType: '',
     quantity: '1',
-    totalAmount: '',
+    unitPrice: '',
     firstPaymentAmount: '',
     installmentMonths: '',
-    currency: 'SYP',
     discountPercentage: '',
+    appliedDeviceDiscountId: '',
     closedByEmployeeId: '',
     noClosingReason: '',
   };
@@ -65,8 +61,8 @@ function parsePositiveInteger(value: string): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function formatAmount(amount: number, currency: string): string {
-  return `${new Intl.NumberFormat('en-US').format(amount)} ${currency}`;
+function formatAmount(amount: number): string {
+  return new Intl.NumberFormat('en-US').format(amount);
 }
 
 function getOfferLabel(offerType: '' | 'cash' | 'installment'): string {
@@ -77,17 +73,16 @@ function getOfferLabel(offerType: '' | 'cash' | 'installment'): string {
 
 function formatOfferAmountDetails(offer: PreOfferDraft): string {
   const quantity = parsePositiveInteger(offer.quantity) ?? 1;
-  const totalAmount = parsePositiveNumber(offer.totalAmount) ?? 0;
+  const unitPrice = parsePositiveNumber(offer.unitPrice) ?? 0;
   const discount = parsePositiveNumber(offer.discountPercentage) ?? 0;
-  const currency = offer.currency || 'SYP';
-  const unitLabel = formatAmount(totalAmount, currency);
+  const unitLabel = formatAmount(unitPrice);
   const discountLabel = discount > 0 ? ` (حسم ${discount}%)` : '';
-  const totalLabel = quantity > 1 ? `${unitLabel} × ${quantity} = ${formatAmount(totalAmount * quantity, currency)}` : unitLabel;
+  const totalLabel = quantity > 1 ? `${unitLabel} × ${quantity} = ${formatAmount(unitPrice * quantity)}` : unitLabel;
 
   if (offer.offerType === 'installment') {
     const firstPayment = parsePositiveNumber(offer.firstPaymentAmount) ?? 0;
     const months = parsePositiveInteger(offer.installmentMonths) ?? 0;
-    return `${totalLabel}${discountLabel} | دفعة أولى: ${formatAmount(firstPayment, currency)} | أشهر: ${months}`;
+    return `${totalLabel}${discountLabel} | دفعة أولى: ${formatAmount(firstPayment)} | أشهر: ${months}`;
   }
 
   return `${totalLabel}${discountLabel}`;
@@ -95,11 +90,10 @@ function formatOfferAmountDetails(offer: PreOfferDraft): string {
 
 function offerSummaryText(offer: PreOfferDraft, deviceName: string): string {
   const quantity = parsePositiveInteger(offer.quantity) ?? 1;
-  const totalAmount = parsePositiveNumber(offer.totalAmount) ?? 0;
+  const unitPrice = parsePositiveNumber(offer.unitPrice) ?? 0;
   const discount = parsePositiveNumber(offer.discountPercentage) ?? 0;
-  const currency = offer.currency || 'SYP';
-  const unitAmountLabel = formatAmount(totalAmount, currency);
-  const totalLabel = quantity > 1 ? `${unitAmountLabel} × ${quantity} = ${formatAmount(totalAmount * quantity, currency)}` : unitAmountLabel;
+  const unitAmountLabel = formatAmount(unitPrice);
+  const totalLabel = quantity > 1 ? `${unitAmountLabel} × ${quantity} = ${formatAmount(unitPrice * quantity)}` : unitAmountLabel;
   const discountLabel = discount > 0 ? `خصم ${discount}%` : 'بدون حسم';
 
   if (offer.offerType === 'installment') {
@@ -110,27 +104,19 @@ function offerSummaryText(offer: PreOfferDraft, deviceName: string): string {
       `الكمية: ${quantity}`,
       `نوع العرض: تقسيط`,
       `القيمة: ${totalLabel}`,
-      `الدفعة الأولى: ${formatAmount(firstPayment, currency)}`,
+      `الدفعة الأولى: ${formatAmount(firstPayment)}`,
       `الأشهر: ${months}`,
       `الحسم: ${discountLabel}`,
-      offer.closedByEmployeeId ? `الموظف: ${offer.closedByEmployeeId}` : '',
-      offer.noClosingReason ? `سبب عدم التسكير: ${getNoClosingReasonLabel(offer.noClosingReason)}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
+    ].filter(Boolean).join('\n');
   }
 
   return [
     `الجهاز: ${deviceName}`,
     `الكمية: ${quantity}`,
-    `نوع العرض: كاش` ,
+    `نوع العرض: كاش`,
     `القيمة: ${totalLabel}`,
     `الحسم: ${discountLabel}`,
-    offer.closedByEmployeeId ? `الموظف: ${offer.closedByEmployeeId}` : '',
-    offer.noClosingReason ? `سبب عدم التسكير: ${getNoClosingReasonLabel(offer.noClosingReason)}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function getReasonLabel(value: string): string {
@@ -139,14 +125,10 @@ function getReasonLabel(value: string): string {
 
 function buildReasonOptions(listItems: SystemList[]): CreationReasonOption[] {
   const mapped = listItems
-    .map((item) => ({ value: item.value, label: getReasonLabel(item.value) }))
+    .map((item) => ({ value: item.value, label: item.value }))
     .filter((item) => item.value.trim().length > 0);
   const merged = [...mapped, ...FALLBACK_CREATION_REASONS.filter((fallback) => !mapped.some((item) => item.value === fallback.value))];
   return merged;
-}
-
-function getNoClosingReasonLabel(value: string): string {
-  return NO_CLOSING_REASON_OPTIONS.find((item) => item.value === value)?.label ?? value;
 }
 
 function buildReceiptHtml(args: {
@@ -156,18 +138,18 @@ function buildReceiptHtml(args: {
   dueDate: string;
   priority: string;
   reasonLabel: string;
-  employeeName?: string | null;
+  closerName?: string | null;
+  noClosingReasonLabel?: string;
 }) {
-  const { client, deviceName, offer, dueDate, priority, reasonLabel, employeeName } = args;
+  const { client, deviceName, offer, dueDate, priority, reasonLabel, closerName, noClosingReasonLabel } = args;
   const quantity = parsePositiveInteger(offer.quantity) ?? 1;
-  const totalAmount = parsePositiveNumber(offer.totalAmount) ?? 0;
+  const unitPrice = parsePositiveNumber(offer.unitPrice) ?? 0;
   const discount = parsePositiveNumber(offer.discountPercentage) ?? 0;
-  const currency = offer.currency || 'SYP';
-  const unitAmountLabel = formatAmount(totalAmount, currency);
-  const grandTotal = quantity > 1 ? formatAmount(totalAmount * quantity, currency) : unitAmountLabel;
+  const unitAmountLabel = formatAmount(unitPrice);
+  const grandTotal = quantity > 1 ? formatAmount(unitPrice * quantity) : unitAmountLabel;
   const paymentBlock = offer.offerType === 'installment'
     ? `
-      <div class="row"><span>الدفعة الأولى</span><strong>${formatAmount(parsePositiveNumber(offer.firstPaymentAmount) ?? 0, currency)}</strong></div>
+      <div class="row"><span>الدفعة الأولى</span><strong>${formatAmount(parsePositiveNumber(offer.firstPaymentAmount) ?? 0)}</strong></div>
       <div class="row"><span>عدد الأشهر</span><strong>${parsePositiveInteger(offer.installmentMonths) ?? 0}</strong></div>
     `
     : '';
@@ -216,12 +198,12 @@ function buildReceiptHtml(args: {
         <h2>تفاصيل العرض</h2>
         <div class="row"><span>الجهاز</span><strong>${deviceName}</strong></div>
         <div class="row"><span>الكمية</span><strong>${quantity}</strong></div>
-        <div class="row"><span>سعر الوحدة</span><strong>${unitAmountLabel}</strong></div>
+        <div class="row"><span>السعر الإفرادي</span><strong>${unitAmountLabel}</strong></div>
         <div class="row"><span>الإجمالي</span><strong>${grandTotal}</strong></div>
         <div class="row"><span>الحسم</span><strong>${discount > 0 ? `${discount}%` : 'بدون حسم'}</strong></div>
         ${paymentBlock}
-        <div class="row"><span>الموظف</span><strong>${employeeName ?? '—'}</strong></div>
-        <div class="row"><span>سبب عدم التسكير</span><strong>${offer.noClosingReason ? getNoClosingReasonLabel(offer.noClosingReason) : '—'}</strong></div>
+        <div class="row"><span>الموظف</span><strong>${closerName ?? '—'}</strong></div>
+        <div class="row"><span>سبب عدم التسكير</span><strong>${noClosingReasonLabel || '—'}</strong></div>
       </div>
 
       <div class="section">
@@ -244,24 +226,28 @@ function ReceiptModal(props: {
   client: Client;
   deviceName: string;
   offer: PreOfferDraft;
-  employees: Employee[];
+  closers: Closer[];
+  noClosingReasons: CreationReasonOption[];
   dueDate: string;
   priority: string;
   reasonLabel: string;
 }) {
-  const { isOpen, onClose, client, deviceName, offer, employees, dueDate, priority, reasonLabel } = props;
+  const { isOpen, onClose, client, deviceName, offer, closers, noClosingReasons, dueDate, priority, reasonLabel } = props;
   if (!isOpen) return null;
 
-  const employeeName = offer.closedByEmployeeId
-    ? employees.find((employee) => String(employee.id) === offer.closedByEmployeeId)?.name ?? offer.closedByEmployeeId
+  const closerName = offer.closedByEmployeeId
+    ? closers.find((c) => String(c.id) === offer.closedByEmployeeId)?.name ?? offer.closedByEmployeeId
     : null;
 
+  const noClosingReasonLabel = offer.noClosingReason
+    ? noClosingReasons.find((r) => r.value === offer.noClosingReason)?.label ?? offer.noClosingReason
+    : '';
+
   const quantity = parsePositiveInteger(offer.quantity) ?? 1;
-  const totalAmount = parsePositiveNumber(offer.totalAmount) ?? 0;
+  const unitPrice = parsePositiveNumber(offer.unitPrice) ?? 0;
   const discount = parsePositiveNumber(offer.discountPercentage) ?? 0;
-  const currency = offer.currency || 'SYP';
-  const unitAmountLabel = formatAmount(totalAmount, currency);
-  const grandTotal = quantity > 1 ? formatAmount(totalAmount * quantity, currency) : unitAmountLabel;
+  const unitAmountLabel = formatAmount(unitPrice);
+  const grandTotal = quantity > 1 ? formatAmount(unitPrice * quantity) : unitAmountLabel;
 
   const handlePrint = () => window.print();
 
@@ -283,20 +269,11 @@ function ReceiptModal(props: {
       await navigator.share({ title: 'إيصال عرض جهاز', text });
       return;
     }
-
     await navigator.clipboard.writeText(text);
   };
 
   const handleDownload = () => {
-    const html = buildReceiptHtml({
-      client,
-      deviceName,
-      offer,
-      dueDate,
-      priority,
-      reasonLabel,
-      employeeName,
-    });
+    const html = buildReceiptHtml({ client, deviceName, offer, dueDate, priority, reasonLabel, closerName, noClosingReasonLabel });
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -326,26 +303,13 @@ function ReceiptModal(props: {
             <div className="flex items-center gap-2 text-sky-700 font-bold">
               <CheckCircle2 className="h-4 w-4" /> العرض جاهز للتثبيت
             </div>
-            <p className="mt-1 text-sm text-sky-700/90">هذا الملخص يعرض بيانات العرض كما ستظهر في الإيصال أو ملف الحفظ.</p>
           </div>
 
           <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
-            <div>
-              <p className="text-xs font-bold text-slate-500">الزبون</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{client.name}</p>
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-500">سبب إنشاء المهمة</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{reasonLabel}</p>
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-500">تاريخ الاستحقاق</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{dueDate}</p>
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-500">الأولوية</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{priority || 'غير محددة'}</p>
-            </div>
+            <div><p className="text-xs font-bold text-slate-500">الزبون</p><p className="mt-1 text-sm font-semibold text-slate-800">{client.name}</p></div>
+            <div><p className="text-xs font-bold text-slate-500">سبب إنشاء المهمة</p><p className="mt-1 text-sm font-semibold text-slate-800">{reasonLabel}</p></div>
+            <div><p className="text-xs font-bold text-slate-500">تاريخ الاستحقاق</p><p className="mt-1 text-sm font-semibold text-slate-800">{dueDate}</p></div>
+            <div><p className="text-xs font-bold text-slate-500">الأولوية</p><p className="mt-1 text-sm font-semibold text-slate-800">{priority || 'غير محددة'}</p></div>
           </div>
 
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -354,17 +318,17 @@ function ReceiptModal(props: {
               <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">الجهاز</span><strong className="text-slate-800">{deviceName}</strong></div>
               <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">الكمية</span><strong className="text-slate-800">{quantity}</strong></div>
               <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">نوع العرض</span><strong className="text-slate-800">{offer.offerType === 'installment' ? 'تقسيط' : 'كاش'}</strong></div>
-              <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">سعر الوحدة</span><strong className="text-slate-800">{unitAmountLabel}</strong></div>
+              <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">السعر الإفرادي</span><strong className="text-slate-800">{unitAmountLabel}</strong></div>
               <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">الإجمالي</span><strong className="text-slate-800">{grandTotal}</strong></div>
               <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">الحسم</span><strong className="text-slate-800">{discount > 0 ? `${discount}%` : 'بدون حسم'}</strong></div>
               {offer.offerType === 'installment' && (
                 <>
-                  <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">الدفعة الأولى</span><strong className="text-slate-800">{formatAmount(parsePositiveNumber(offer.firstPaymentAmount) ?? 0, currency)}</strong></div>
+                  <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">الدفعة الأولى</span><strong className="text-slate-800">{formatAmount(parsePositiveNumber(offer.firstPaymentAmount) ?? 0)}</strong></div>
                   <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">عدد الأشهر</span><strong className="text-slate-800">{parsePositiveInteger(offer.installmentMonths) ?? 0}</strong></div>
                 </>
               )}
-              <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">الموظف</span><strong className="text-slate-800">{employeeName ?? '—'}</strong></div>
-              <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">سبب عدم التسكير</span><strong className="text-slate-800">{offer.noClosingReason ? getNoClosingReasonLabel(offer.noClosingReason) : '—'}</strong></div>
+              <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">الموظف</span><strong className="text-slate-800">{closerName ?? '—'}</strong></div>
+              <div className="flex items-center justify-between gap-4 py-3"><span className="text-slate-500">سبب عدم التسكير</span><strong className="text-slate-800">{noClosingReasonLabel || '—'}</strong></div>
             </div>
           </div>
         </div>
@@ -394,43 +358,70 @@ interface DeviceOfferModalProps {
 
 export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }: DeviceOfferModalProps) {
   const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [closers, setClosers] = useState<Closer[]>([]);
+  const [noClosingReasons, setNoClosingReasons] = useState<CreationReasonOption[]>([]);
   const [creationReasons, setCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_CREATION_REASONS);
+
+  // Top section — selected devices (mandatory)
+  const [selectedDevices, setSelectedDevices] = useState<SelectedDevice[]>([]);
+  const [devicePickerId, setDevicePickerId] = useState('');
+  const [devicePickerQty, setDevicePickerQty] = useState('1');
+
+  // Pre-offers section
   const [preOffers, setPreOffers] = useState<PreOfferDraft[]>([]);
   const [draftOffer, setDraftOffer] = useState<PreOfferDraft>(createPreOfferDraft());
+  const [deviceDiscounts, setDeviceDiscounts] = useState<DeviceDiscount[]>([]);
+
+  // Task meta
   const [dueDate, setDueDate] = useState('');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [priority, setPriority] = useState<'' | 'high' | 'medium' | 'low'>('');
+
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [receiptOfferIndex, setReceiptOfferIndex] = useState<number | null>(null);
 
+  // Load reference data on open
   useEffect(() => {
     if (!isOpen) return;
-
     setLoading(true);
     setError('');
     Promise.all([
       api.deviceModels.list(),
-      api.employees.list(),
+      api.employees.closers(),
       api.systemLists.getItemsByCode('open_task_reasons'),
+      api.systemLists.getItemsByCode('no_closing_reasons'),
     ])
-      .then(([models, employeeRows, reasonRows]) => {
+      .then(([models, closerRows, reasonRows, noClosingRows]) => {
         setDeviceModels(models);
-        setEmployees(employeeRows.filter((employee) => employee.status === 'active'));
+        setClosers(closerRows);
         setCreationReasons(buildReasonOptions(reasonRows as SystemList[]));
-        setReason((current) => current || '');
+        const ncr = (noClosingRows as SystemList[])
+          .filter(r => r.value?.trim())
+          .map(r => ({ value: r.value, label: r.value }));
+        setNoClosingReasons(ncr.length > 0 ? ncr : [
+          { value: 'لم يتم التسكير', label: 'لم يتم التسكير' },
+          { value: 'متابعة لاحقة', label: 'متابعة لاحقة' },
+          { value: 'العميل مشغول', label: 'العميل مشغول' },
+          { value: 'سبب سعري', label: 'سبب سعري' },
+          { value: 'أخرى', label: 'أخرى' },
+        ]);
       })
       .catch((err: any) => setError(err.message || 'فشل في تحميل البيانات'))
       .finally(() => setLoading(false));
   }, [isOpen]);
 
+  // Reset all state on open
   useEffect(() => {
     if (!isOpen) return;
+    setSelectedDevices([]);
+    setDevicePickerId('');
+    setDevicePickerQty('1');
     setPreOffers([]);
     setDraftOffer(createPreOfferDraft());
+    setDeviceDiscounts([]);
     setDueDate('');
     setReason('');
     setNotes('');
@@ -439,109 +430,107 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     setError('');
   }, [isOpen]);
 
+  // Load discounts when draft device changes
+  useEffect(() => {
+    updateDraftOffer('discountPercentage', '');
+    updateDraftOffer('appliedDeviceDiscountId', '');
+    updateDraftOffer('unitPrice', '');
+    if (!draftOffer.deviceModelId) {
+      setDeviceDiscounts([]);
+      return;
+    }
+    // Auto-fill unit price from device base price
+    const device = deviceModels.find(d => String(d.id) === draftOffer.deviceModelId);
+    if (device?.basePrice) updateDraftOffer('unitPrice', String(device.basePrice));
+    api.deviceModels.getDiscounts(Number(draftOffer.deviceModelId))
+      .then(setDeviceDiscounts)
+      .catch(() => setDeviceDiscounts([]));
+  }, [draftOffer.deviceModelId]);
+
   if (!isOpen) return null;
 
   const reasonLabel = creationReasons.find((item) => item.value === reason)?.label || '—';
-  const usedOfferDeviceIds = new Set(preOffers.map((offer) => offer.deviceModelId));
-  const availableDraftDeviceModels = deviceModels.filter((model) => !usedOfferDeviceIds.has(String(model.id)));
 
-  const handleAddOffer = () => {
-    if (deviceModels.length === 0) {
-      setError('لا توجد أجهزة متاحة');
-      return;
-    }
-
-    const validationError = validateOfferDraft(draftOffer, 'العرض الجديد');
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    if (preOffers.some((item) => item.deviceModelId === draftOffer.deviceModelId)) {
-      setError('هذا الجهاز مستخدم في عرض آخر');
-      return;
-    }
-
-    setPreOffers((current) => [...current, { ...draftOffer }]);
-    setDraftOffer(createPreOfferDraft());
-    setError('');
-  };
+  // Devices already in pre-offers (for unique constraint)
+  const usedOfferDeviceIds = new Set(preOffers.map((o) => o.deviceModelId));
 
   const updateDraftOffer = (field: keyof PreOfferDraft, value: string) => {
     setDraftOffer((current) => ({ ...current, [field]: value }));
   };
 
+  // ── Add device to top list ──
+  const handleAddDevice = () => {
+    if (!devicePickerId) { setError('اختر جهازاً'); return; }
+    const qty = parsePositiveInteger(devicePickerQty) ?? 1;
+    const device = deviceModels.find(d => d.id === Number(devicePickerId));
+    if (!device) return;
+    if (selectedDevices.some(d => d.deviceModelId === Number(devicePickerId))) {
+      setError('هذا الجهاز مضاف بالفعل'); return;
+    }
+    setSelectedDevices(prev => [...prev, { deviceModelId: device.id, quantity: qty, deviceName: device.nameAr || device.name }]);
+    setDevicePickerId('');
+    setDevicePickerQty('1');
+    setError('');
+  };
+
+  // ── Pre-offer form ──
   const validateOfferDraft = (offer: PreOfferDraft, label: string): string => {
     if (!offer.deviceModelId) return `يرجى اختيار الجهاز في ${label}`;
     if (!offer.offerType) return `يرجى اختيار نوع العرض في ${label}`;
-    if (!parsePositiveNumber(offer.totalAmount)) return `يرجى إدخال قيمة العرض في ${label}`;
-    if (!offer.currency.trim()) return `يرجى إدخال العملة في ${label}`;
+    if (!parsePositiveNumber(offer.unitPrice)) return `يرجى إدخال السعر الإفرادي في ${label}`;
     if (offer.offerType === 'installment') {
       if (!parsePositiveNumber(offer.firstPaymentAmount) || !parsePositiveInteger(offer.installmentMonths)) {
         return `يرجى استكمال بيانات التقسيط في ${label}`;
       }
     }
+    if (!offer.closedByEmployeeId && !offer.noClosingReason) {
+      return `كل عرض يجب أن يحتوي إما على موظف تسكير أو سبب عدم التسكير في ${label}`;
+    }
     return '';
+  };
+
+  const handleAddOffer = () => {
+    if (selectedDevices.length === 0) { setError('يجب اختيار جهاز واحد على الأقل من قائمة الأجهزة'); return; }
+    const validationError = validateOfferDraft(draftOffer, 'العرض الجديد');
+    if (validationError) { setError(validationError); return; }
+    if (preOffers.some((item) => item.deviceModelId === draftOffer.deviceModelId)) {
+      setError('هذا الجهاز مستخدم في عرض آخر'); return;
+    }
+    setPreOffers((current) => [...current, { ...draftOffer }]);
+    setDraftOffer(createPreOfferDraft());
+    setError('');
   };
 
   const openReceipt = (index: number) => {
     const offer = preOffers[index];
     if (!offer) return;
     const validationError = validateOfferDraft(offer, `العرض رقم ${index + 1}`);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
+    if (validationError) { setError(validationError); return; }
     setError('');
     setReceiptOfferIndex(index);
   };
 
   const handleSubmit = async () => {
     setError('');
+    if (selectedDevices.length === 0) { setError('يجب اختيار جهاز واحد على الأقل'); return; }
+    if (!dueDate) { setError('تاريخ مستحق مطلوب'); return; }
+    if (!reason) { setError('سبب إنشاء المهمة مطلوب'); return; }
 
-    if (!dueDate) {
-      setError('تاريخ مستحق مطلوب');
-      return;
-    }
-    if (!reason) {
-      setError('سبب إنشاء المهمة مطلوب');
-      return;
-    }
-    if (preOffers.length === 0) {
-      setError('أضف عرضًا واحدًا على الأقل');
-      return;
-    }
-
-    const seenDevices = new Set<string>();
     for (const [index, offer] of preOffers.entries()) {
       const validationError = validateOfferDraft(offer, `العرض رقم ${index + 1}`);
-      if (validationError) {
-        setError(validationError);
-        return;
-      }
-      if (seenDevices.has(offer.deviceModelId)) {
-        setError('لا يمكن تكرار نفس الجهاز في أكثر من عرض');
-        return;
-      }
-      seenDevices.add(offer.deviceModelId);
+      if (validationError) { setError(validationError); return; }
     }
-
-    const normalizedDevices = Array.from(new Set(preOffers.map((offer) => offer.deviceModelId)))
-      .map((deviceModelId) => ({
-        deviceModelId: Number(deviceModelId),
-        quantity: 1,
-      }))
-      .filter((item) => Number.isInteger(item.deviceModelId) && item.deviceModelId > 0);
 
     const normalizedOffers = preOffers.map((offer) => ({
       deviceModelId: Number(offer.deviceModelId),
       offerType: offer.offerType,
       quantity: parsePositiveInteger(offer.quantity) ?? 1,
-      totalAmount: parsePositiveNumber(offer.totalAmount) ?? 0,
+      totalAmount: parsePositiveNumber(offer.unitPrice) ?? 0,
       firstPaymentAmount: offer.firstPaymentAmount ? parsePositiveNumber(offer.firstPaymentAmount) : null,
       installmentMonths: offer.installmentMonths ? parsePositiveInteger(offer.installmentMonths) : null,
-      currency: offer.currency,
+      currency: 'SYP',
       discountPercentage: offer.discountPercentage ? Number(offer.discountPercentage) : null,
+      appliedDeviceDiscountId: offer.appliedDeviceDiscountId ? Number(offer.appliedDeviceDiscountId) : null,
       closedByEmployeeId: offer.closedByEmployeeId ? Number(offer.closedByEmployeeId) : null,
       noClosingReason: offer.noClosingReason.trim() || null,
     }));
@@ -555,7 +544,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
         reason,
         priority: priority || null,
         notes: notes.trim() || null,
-        devices: normalizedDevices,
+        devices: selectedDevices.map(d => ({ deviceModelId: d.deviceModelId, quantity: d.quantity })),
         preOffers: normalizedOffers,
       });
       onCreated();
@@ -566,7 +555,8 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     }
   };
 
-  const reasonOptions = creationReasons;
+  // Devices available for pre-offer dropdown: only from selectedDevices, not yet used
+  const availableOfferDevices = selectedDevices.filter(d => !usedOfferDeviceIds.has(String(d.deviceModelId)));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
@@ -586,159 +576,226 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
             <div className="py-16 text-center"><Loader2 className="mx-auto w-8 h-8 animate-spin text-slate-300" /></div>
           ) : (
             <>
+              {/* ══ Section 1: Selected Devices (MANDATORY) ══ */}
+              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
+                <div>
+                  <h4 className="text-sm font-black text-slate-800">الأجهزة المراد عرضها <span className="text-red-500">*</span></h4>
+                  <p className="text-xs text-slate-500">اختر الأجهزة التي ستُعرض على الزبون. يجب اختيار جهاز واحد على الأقل.</p>
+                </div>
+
+                {/* Picker row */}
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-xs font-bold text-slate-600">الجهاز</label>
+                    <select
+                      value={devicePickerId}
+                      onChange={e => setDevicePickerId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
+                    >
+                      <option value="">اختر الجهاز...</option>
+                      {deviceModels
+                        .filter(m => !selectedDevices.some(d => d.deviceModelId === m.id))
+                        .map(m => (
+                          <option key={m.id} value={m.id}>{m.nameAr || m.name}</option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="w-24 space-y-1">
+                    <label className="text-xs font-bold text-slate-600">الكمية</label>
+                    <input type="number" min={1} value={devicePickerQty}
+                      onChange={e => setDevicePickerQty(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm" />
+                  </div>
+                  <button type="button" onClick={handleAddDevice}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100">
+                    <Plus className="w-4 h-4" /> إضافة للقائمة
+                  </button>
+                </div>
+
+                {/* Selected devices table */}
+                {selectedDevices.length > 0 && (
+                  <div className="overflow-hidden rounded-xl border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-100 text-sm">
+                      <thead className="bg-slate-50 text-slate-600">
+                        <tr>
+                          <th className="px-4 py-2.5 text-right font-bold">#</th>
+                          <th className="px-4 py-2.5 text-right font-bold">الجهاز</th>
+                          <th className="px-4 py-2.5 text-right font-bold">الكمية</th>
+                          <th className="px-4 py-2.5 text-right font-bold">حذف</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50 bg-white">
+                        {selectedDevices.map((d, i) => (
+                          <tr key={d.deviceModelId}>
+                            <td className="px-4 py-2.5 text-slate-400">{i + 1}</td>
+                            <td className="px-4 py-2.5 font-semibold text-slate-800">{d.deviceName}</td>
+                            <td className="px-4 py-2.5 text-slate-600">{d.quantity}</td>
+                            <td className="px-4 py-2.5">
+                              <button type="button"
+                                onClick={() => setSelectedDevices(prev => prev.filter((_, idx) => idx !== i))}
+                                className="text-red-400 hover:text-red-600">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {selectedDevices.length === 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                    يجب اختيار جهاز واحد على الأقل
+                  </div>
+                )}
+              </section>
+
+              {/* ══ Section 2: Pre-Offers (OPTIONAL) ══ */}
               <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h4 className="text-sm font-black text-slate-800">العروض المسبقة</h4>
-                    <p className="text-xs text-slate-500">أضف العرض في النموذج التالي، ثم يظهر مباشرة داخل جدول منظم مع إمكانية فتح الإيصال من نفس السطر.</p>
+                    <p className="text-xs text-slate-500">اختياري — أضف عروضاً مفصّلة للأجهزة المختارة أعلاه.</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleAddOffer}
-                    className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={deviceModels.length === 0}
-                  >
+                  <button type="button" onClick={handleAddOffer}
+                    disabled={selectedDevices.length === 0}
+                    className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40">
                     <Plus className="w-3.5 h-3.5" /> تثبيت العرض
                   </button>
                 </div>
 
-                {deviceModels.length === 0 ? (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                    لا توجد أجهزة متاحة الآن.
+                {selectedDevices.length === 0 ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
+                    اختر جهازاً من القائمة أعلاه أولاً لإضافة عروض.
                   </div>
                 ) : (
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {/* Device dropdown — only from selectedDevices */}
                     <div className="space-y-2 xl:col-span-2">
                       <label className="text-sm font-bold text-slate-700">الجهاز</label>
                       <select
                         value={draftOffer.deviceModelId}
-                        onChange={(event) => updateDraftOffer('deviceModelId', event.target.value)}
+                        onChange={e => updateDraftOffer('deviceModelId', e.target.value)}
                         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
                       >
                         <option value="">اختر الجهاز...</option>
-                        {availableDraftDeviceModels.map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.nameAr || model.name}
-                          </option>
+                        {availableOfferDevices.map(d => (
+                          <option key={d.deviceModelId} value={d.deviceModelId}>{d.deviceName}</option>
                         ))}
                       </select>
-                      {availableDraftDeviceModels.length === 0 && (
-                        <p className="text-xs text-slate-400">كل الأجهزة الحالية لديها عروض مثبتة بالفعل.</p>
+                      {availableOfferDevices.length === 0 && (
+                        <p className="text-xs text-slate-400">كل الأجهزة المختارة لديها عروض مثبتة.</p>
                       )}
                     </div>
+
+                    {/* Offer type */}
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700">نوع العرض</label>
-                      <select
-                        value={draftOffer.offerType}
-                        onChange={(event) => updateDraftOffer('offerType', event.target.value as PreOfferDraft['offerType'])}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                      >
+                      <select value={draftOffer.offerType}
+                        onChange={e => updateDraftOffer('offerType', e.target.value as PreOfferDraft['offerType'])}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
                         <option value="">اختر نوع العرض...</option>
                         <option value="cash">كاش</option>
                         <option value="installment">تقسيط</option>
                       </select>
                     </div>
+
+                    {/* Quantity */}
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700">الكمية</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={draftOffer.quantity}
-                        onChange={(event) => updateDraftOffer('quantity', event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                        placeholder="1"
-                      />
+                      <input type="number" min="1" value={draftOffer.quantity}
+                        onChange={e => updateDraftOffer('quantity', e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" placeholder="1" />
                     </div>
+
+                    {/* Unit price (renamed from totalAmount) */}
                     <div className="space-y-2">
-                      <label className="text-sm font-bold text-slate-700">العملة</label>
-                      <input
-                        value={draftOffer.currency}
-                        onChange={(event) => updateDraftOffer('currency', event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                        placeholder="SYP"
-                      />
+                      <label className="text-sm font-bold text-slate-700">السعر الإفرادي</label>
+                      <input type="number" min="0" step="0.01" value={draftOffer.unitPrice}
+                        onChange={e => updateDraftOffer('unitPrice', e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" placeholder="0" />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-slate-700">سعر الوحدة</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={draftOffer.totalAmount}
-                        onChange={(event) => updateDraftOffer('totalAmount', event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                        placeholder="0"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-slate-700">الحسم %</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={draftOffer.discountPercentage}
-                        onChange={(event) => updateDraftOffer('discountPercentage', event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                        placeholder="0"
-                      />
-                    </div>
+
+                    {/* Discount — dropdown if discounts exist, else manual */}
+                    {deviceDiscounts.length > 0 ? (
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-slate-700">حسم الجهاز</label>
+                        <select value={draftOffer.appliedDeviceDiscountId}
+                          onChange={e => {
+                            const selectedId = e.target.value;
+                            const disc = deviceDiscounts.find(d => String(d.id) === selectedId);
+                            updateDraftOffer('appliedDeviceDiscountId', selectedId);
+                            updateDraftOffer('discountPercentage', disc ? String(disc.percentage) : '');
+                          }}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
+                          <option value="">بدون حسم</option>
+                          {deviceDiscounts.map(d => (
+                            <option key={d.id} value={String(d.id)}>{d.label} ({d.percentage}%)</option>
+                          ))}
+                        </select>
+                        {draftOffer.appliedDeviceDiscountId && deviceDiscounts.find(d => String(d.id) === draftOffer.appliedDeviceDiscountId) && (
+                          <p className="text-xs text-slate-400">
+                            صالح حتى {new Date(deviceDiscounts.find(d => String(d.id) === draftOffer.appliedDeviceDiscountId)!.endDate).toLocaleDateString('ar-SY')}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-slate-700">الحسم %</label>
+                        <input type="number" min="0" max="100" step="0.01" value={draftOffer.discountPercentage}
+                          onChange={e => { updateDraftOffer('discountPercentage', e.target.value); updateDraftOffer('appliedDeviceDiscountId', ''); }}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" placeholder="0" />
+                      </div>
+                    )}
+
+                    {/* Closing employee */}
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700">موظف التسكير</label>
-                      <select
-                        value={draftOffer.closedByEmployeeId}
-                        onChange={(event) => updateDraftOffer('closedByEmployeeId', event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                      >
+                      <select value={draftOffer.closedByEmployeeId}
+                        onChange={e => updateDraftOffer('closedByEmployeeId', e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
                         <option value="">اختياري</option>
-                        {employees.map((employee) => (
-                          <option key={employee.id} value={employee.id}>{employee.name}</option>
+                        {closers.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </select>
                     </div>
+
+                    {/* No-closing reason */}
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700">سبب عدم التسكير</label>
-                      <select
-                        value={draftOffer.noClosingReason}
-                        onChange={(event) => updateDraftOffer('noClosingReason', event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                      >
-                        {NO_CLOSING_REASON_OPTIONS.map((option) => (
-                          <option key={option.value || 'empty'} value={option.value}>
-                            {option.label}
-                          </option>
+                      <select value={draftOffer.noClosingReason}
+                        onChange={e => updateDraftOffer('noClosingReason', e.target.value)}
+                        disabled={!!draftOffer.closedByEmployeeId}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                        <option value="">بدون سبب</option>
+                        {noClosingReasons.map(r => (
+                          <option key={r.value} value={r.value}>{r.label}</option>
                         ))}
                       </select>
                     </div>
+
+                    {/* Installment fields */}
                     {draftOffer.offerType === 'installment' && (
                       <>
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-slate-700">الدفعة الأولى</label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={draftOffer.firstPaymentAmount}
-                            onChange={(event) => updateDraftOffer('firstPaymentAmount', event.target.value)}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                            placeholder="0"
-                          />
+                          <input type="number" min="0" step="0.01" value={draftOffer.firstPaymentAmount}
+                            onChange={e => updateDraftOffer('firstPaymentAmount', e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" placeholder="0" />
                         </div>
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-slate-700">عدد الأشهر</label>
-                          <input
-                            type="number"
-                            min="1"
-                            value={draftOffer.installmentMonths}
-                            onChange={(event) => updateDraftOffer('installmentMonths', event.target.value)}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                            placeholder="12"
-                          />
+                          <input type="number" min="1" value={draftOffer.installmentMonths}
+                            onChange={e => updateDraftOffer('installmentMonths', e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" placeholder="12" />
                         </div>
                       </>
                     )}
                   </div>
                 )}
 
+                {/* Pre-offers table */}
                 <div className="overflow-hidden rounded-2xl border border-slate-200">
                   <table className="min-w-full divide-y divide-slate-200 text-sm">
                     <thead className="bg-slate-50 text-slate-600">
@@ -761,13 +818,13 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                         </tr>
                       ) : (
                         preOffers.map((offer, index) => {
-                          const deviceName = deviceModels.find((model) => String(model.id) === offer.deviceModelId)?.nameAr
-                            || deviceModels.find((model) => String(model.id) === offer.deviceModelId)?.name
+                          const deviceName = selectedDevices.find(d => String(d.deviceModelId) === offer.deviceModelId)?.deviceName
+                            || deviceModels.find(m => String(m.id) === offer.deviceModelId)?.nameAr
                             || '—';
                           const closingLabel = offer.closedByEmployeeId
-                            ? employees.find((employee) => String(employee.id) === offer.closedByEmployeeId)?.name || offer.closedByEmployeeId
+                            ? closers.find(c => String(c.id) === offer.closedByEmployeeId)?.name || offer.closedByEmployeeId
                             : offer.noClosingReason
-                              ? getNoClosingReasonLabel(offer.noClosingReason)
+                              ? noClosingReasons.find(r => r.value === offer.noClosingReason)?.label || offer.noClosingReason
                               : '—';
                           return (
                             <tr key={`${offer.deviceModelId}-${index}`} className="align-top">
@@ -779,18 +836,12 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                               <td className="px-4 py-3 text-slate-600">{closingLabel}</td>
                               <td className="px-4 py-3">
                                 <div className="flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => openReceipt(index)}
-                                    className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-100"
-                                  >
+                                  <button type="button" onClick={() => openReceipt(index)}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-100">
                                     <CheckCircle2 className="h-3.5 w-3.5" /> فتح الإيصال
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreOffers((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100"
-                                  >
+                                  <button type="button" onClick={() => setPreOffers(current => current.filter((_, i) => i !== index))}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100">
                                     <Trash2 className="h-3.5 w-3.5" /> حذف
                                   </button>
                                 </div>
@@ -804,23 +855,25 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                 </div>
               </section>
 
+              {/* ══ Section 3: Task Meta ══ */}
               <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-3">
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">سبب إنشاء المهمة <span className="text-red-500">*</span></label>
-                  <select value={reason} onChange={(event) => setReason(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
+                  <select value={reason} onChange={e => setReason(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
                     <option value="">اختر السبب...</option>
-                    {reasonOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
+                    {creationReasons.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">تاريخ مستحق <span className="text-red-500">*</span></label>
-                  <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" />
+                  <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">الأولوية</label>
-                  <select value={priority} onChange={(event) => setPriority(event.target.value as '' | 'high' | 'medium' | 'low')} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
+                  <select value={priority} onChange={e => setPriority(e.target.value as '' | 'high' | 'medium' | 'low')}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
                     <option value="">غير محددة</option>
                     <option value="high">عالية</option>
                     <option value="medium">متوسطة</option>
@@ -829,7 +882,8 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                 </div>
                 <div className="space-y-2 md:col-span-3">
                   <label className="text-sm font-bold text-slate-700">ملاحظات</label>
-                  <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" />
+                  <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" />
                 </div>
               </section>
 
@@ -844,7 +898,8 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
           <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50">
             إلغاء
           </button>
-          <button onClick={handleSubmit} disabled={saving || loading} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60">
+          <button onClick={handleSubmit} disabled={saving || loading}
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             إنشاء المهمة
           </button>
@@ -856,11 +911,14 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
           isOpen={receiptOfferIndex != null}
           onClose={() => setReceiptOfferIndex(null)}
           client={client}
-          deviceName={deviceModels.find((model) => String(model.id) === preOffers[receiptOfferIndex].deviceModelId)?.nameAr
-            || deviceModels.find((model) => String(model.id) === preOffers[receiptOfferIndex].deviceModelId)?.name
-            || '—'}
+          deviceName={
+            selectedDevices.find(d => String(d.deviceModelId) === preOffers[receiptOfferIndex].deviceModelId)?.deviceName
+            || deviceModels.find(m => String(m.id) === preOffers[receiptOfferIndex].deviceModelId)?.nameAr
+            || '—'
+          }
           offer={preOffers[receiptOfferIndex]}
-          employees={employees}
+          closers={closers}
+          noClosingReasons={noClosingReasons}
           dueDate={dueDate}
           priority={priority}
           reasonLabel={reasonLabel}

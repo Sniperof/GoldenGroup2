@@ -174,11 +174,19 @@ export default function Interviews() {
 
   const validateScheduleForm = () => {
     const nextErrors: Record<string, string> = {};
-    if (!form.jobVacancyId) nextErrors.jobVacancyId = interviewFieldMessages.jobVacancyId;
+
+    if (!form.jobVacancyId) {
+      nextErrors.jobVacancyId = interviewFieldMessages.jobVacancyId;
+      setFieldErrors(nextErrors);
+      setFormError('');
+      return false;
+    }
+
     if (!form.applicationId) nextErrors.applicationId = interviewFieldMessages.applicationId;
     if (!form.interviewerUserId) nextErrors.interviewerUserId = interviewFieldMessages.interviewerUserId;
     if (!form.interviewDate) nextErrors.interviewDate = interviewFieldMessages.interviewDate;
     if (!form.interviewTime) nextErrors.interviewTime = interviewFieldMessages.interviewTime;
+
     setFieldErrors(nextErrors);
     setFormError('');
     return Object.keys(nextErrors).length === 0;

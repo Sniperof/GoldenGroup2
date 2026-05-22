@@ -118,10 +118,24 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                         </div>
                     </div>
                     <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <span className="text-xs text-slate-400 block mb-1">عدد الأسماء</span>
+                        <span className="text-xs text-slate-400 block mb-1">الأسماء المدخلة / المستهدف</span>
                         <div className="font-bold text-slate-700 flex items-center gap-2">
                             <User className="w-4 h-4 text-emerald-500" />
-                            {sheet.stats?.totalCandidates || 0}
+                            {(sheet.stats?.targetCandidates ?? 0) > 0 ? (
+                                <span>
+                                    <span className={
+                                        (sheet.stats?.totalCandidates || 0) >= (sheet.stats?.targetCandidates ?? 0)
+                                            ? 'text-emerald-600'
+                                            : 'text-amber-600'
+                                    }>
+                                        {sheet.stats?.totalCandidates || 0}
+                                    </span>
+                                    <span className="text-slate-400 font-normal mx-1">/</span>
+                                    <span className="text-slate-500">{sheet.stats.targetCandidates}</span>
+                                </span>
+                            ) : (
+                                sheet.stats?.totalCandidates || 0
+                            )}
                         </div>
                     </div>
                 </div>

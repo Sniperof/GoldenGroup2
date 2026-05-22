@@ -20,6 +20,9 @@ const SELECT_FIELDS = `
   et.status AS "ticketStatus",
   et.assigned_technician_id AS "assignedTechnicianId",
   et.open_task_id AS "openTaskId",
+  et.action_type_id AS "actionTypeId",
+  eat.arabic_label AS "actionTypeLabel",
+  et.due_within_hours AS "dueWithinHours",
   et.created_at AS "createdAt",
   ot.status AS "openTaskStatus"
 `;
@@ -33,6 +36,7 @@ async function loadTicketById(db: Queryable, ticketId: number) {
     `SELECT ${SELECT_FIELDS}
      FROM emergency_tickets et
      LEFT JOIN open_tasks ot ON ot.id = et.open_task_id
+     LEFT JOIN emergency_action_types eat ON eat.id = et.action_type_id
      WHERE et.id = $1`,
     [ticketId],
   );
@@ -60,6 +64,7 @@ router.get('/', async (req, res) => {
     `SELECT ${SELECT_FIELDS}
      FROM emergency_tickets et
      LEFT JOIN open_tasks ot ON ot.id = et.open_task_id
+     LEFT JOIN emergency_action_types eat ON eat.id = et.action_type_id
      ${whereClause}
      ORDER BY et.id DESC`,
     params,
@@ -78,9 +83,9 @@ router.post('/', async (req, res) => {
       `INSERT INTO emergency_tickets (
         client_id, client_name, client_address, client_rating, contract_id,
         device_model_name, problem_description, call_notes, attachments,
-        call_receiver, priority, status
+        call_receiver, priority, status, action_type_id, due_within_hours
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14)
       RETURNING id`,
       [
         ticket.clientId,
@@ -89,12 +94,14 @@ router.post('/', async (req, res) => {
         ticket.clientRating || 'Undefined',
         ticket.contractId || null,
         ticket.deviceModelName || null,
-        ticket.problemDescription,
+        ticket.problemDescription || null,
         ticket.callNotes || null,
         JSON.stringify(ticket.attachments || []),
-        req.user?.name || req.user?.username || '—',
-        ticket.priority || 'Normal',
+        req.user?.name || (req.authContext as any)?.userId?.toString() || '—',
+        ticket.priority || 'High',
         'New',
+        ticket.actionTypeId || null,
+        ticket.dueWithinHours || 48,
       ],
     );
 

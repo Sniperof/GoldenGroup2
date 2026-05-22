@@ -135,7 +135,8 @@
 ### 4.1 `Vacancy`
 الشاغر هو سجل الوظيفة المفتوحة.
 - هو الأصل التشغيلي الأول في الدومين.
-- يملك حالة، نافذة تاريخ، عدد شواغر، وفرعًا وقسمًا ومتطلبات.
+- يملك حالة، نافذة تاريخ، عدد شواغر متبقٍ (`vacancyCount`)، وفرعًا وقسمًا ومتطلبات.
+- عند عرض التفاصيل الإدارية، يُعاد أيضًا `remainingSlots` كمرآة مباشرة للقيمة الحالية من الشاغر.
 - يملك مسار تعديل متدرج بحسب وجود الطلبات ومرحلتها.
 
 ### 4.2 `Public Job`
@@ -153,7 +154,9 @@
 ### 4.4 `Referrer`
 الوسيط أو المُعرّف.
 - يظهر فقط في مسار `Refer a Candidate`.
-- قد يكون موظفًا أو وسيطًا خارجيًا.
+- الأنواع المعتمدة: `Personal`، `Unknown`، `Employee`، `Client`.
+- يحمل `sourceChannel` واسمًا snapshot للوسيط.
+- إذا كان `Employee` أو `Client` فيجب أن يملك `referralEntityId` مرتبطًا بكيان فعلي.
 - ليس جزءًا من المرشح نفسه.
 
 ### 4.5 `Job Application`
@@ -401,6 +404,7 @@
 - `jobs.applications.hire`
 - `jobs.applications.record_decision`
 - `jobs.applications.escalate`
+- `jobs.applications.resolve_escalation`
 - `jobs.applications.edit_notes`
 - `jobs.applications.archive`
 - `jobs.applications.view_audit_logs`

@@ -175,8 +175,9 @@ export default function VacancyDetail() {
   const inTrainingCount = applications.filter(a => a.currentStage === 'Training').length;
   const hiredCount = applications.filter(a => a.decision === 'Hired' || a.applicationStatus === 'Final Hired').length;
   
-  const fillRate = (detail && detail.vacancyCount > 0)
-    ? Math.min(100, Math.round((hiredCount / detail.vacancyCount) * 100))
+  const totalSlots = detail ? hiredCount + detail.remainingSlots : 0;
+  const fillRate = totalSlots > 0
+    ? Math.min(100, Math.round((hiredCount / totalSlots) * 100))
     : 0;
 
   if (loading) return (
@@ -293,7 +294,7 @@ export default function VacancyDetail() {
                   className={`h-full rounded-full ${fillRate >= 100 ? 'bg-emerald-500' : fillRate >= 60 ? 'bg-sky-500' : 'bg-amber-400'}`}
                 />
               </div>
-              <p className="text-xs text-slate-400 mt-1">{hiredCount} / {detail.vacancyCount} شاغر</p>
+              <p className="text-xs text-slate-400 mt-1">المتبقي: {detail.remainingSlots} شاغر من أصل {totalSlots}</p>
             </div>
 
             {/* Actions */}

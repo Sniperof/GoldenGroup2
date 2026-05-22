@@ -68,18 +68,25 @@
 القواعد:
 - يظهر فقط في مسار `Refer a Candidate`.
 - ليس جزءًا من المرشح نفسه.
-- يوجد نمطان: وسيط موظف ووسيط خارجي/عميل.
+- الأنواع المعتمدة: `Personal`، `Unknown`، `Employee`، `Client`.
+- `sourceChannel` / طريقة التواصل جزء أساسي من عقد الوسيط.
+- `referrerName` هو الاسم المُلخّص (snapshot) الخاص بالوسيط.
+- `referralEntityId` يُحفظ فقط عندما يكون الوسيط مرتبطًا بكيان فعلي (`Employee` أو `Client`).
 
 الحقول الظاهرة عند وجوده:
 - `type` — إلزامي
+- `sourceChannel` — إلزامي
+- `referrerName` — إلزامي؛ يتعبأ تلقائيًا في `Personal` و`Unknown` ونتيجة lookup في `Employee` و`Client`
 - `employeeId` — إلزامي إذا كان النوع `Employee`
-- `fullName` — إلزامي إذا كان النوع `Customer` أو وسيطًا خارجيًا
-- `lastName` — إلزامي إذا كان النوع `Customer` أو وسيطًا خارجيًا
-- `mobileNumber` — إلزامي إذا كان النوع `Customer` أو وسيطًا خارجيًا
-- `governorate` / `cityOrArea` / `subArea` / `neighborhood` — إلزامية تشغيليًا في المسار الخارجي
-- `detailedAddress` — إلزامي في المسار الخارجي
-- `referrerWork` — إلزامي في المسار الخارجي
-- `referrerNotes` — اختياري
+- `referralEntityId` — إلزامي تشغيليًا في `Employee` و`Client`
+- `referrerNotes` — ثابت وغني بالنصوص (Rich Text)
+
+الحقول التراثية التالية ليست جزءًا من عقد الوسيط المرجعي ولا يجب اعتبارها إلزامية في نماذج التوظيف:
+- `lastName`
+- `mobileNumber` — اختياري ولا يمنع الحفظ
+- `governorate` / `cityOrArea` / `subArea` / `neighborhood`
+- `detailedAddress`
+- `referrerWork`
 
 ### 2.6 نافذة التأهيل
 - نافذة المراجعة تفتح عندما يدخل الطلب مرحلة `Submitted` ويبدأ التدقيق.
@@ -145,7 +152,7 @@
 - إذا لم يكن الطلب مصعّدًا سابقًا، يضع النظام `isEscalated = true` و`escalatedAt = NOW()`.
 - عند التصعيد، يتجمّد الطلب تشغيليًا في كثير من الشاشات والمسارات.
 - فكّ التصعيد يتم عبر `PATCH /api/admin/applications/:id/resolve-escalation`.
-- فكّ التصعيد محصور بدور `HR_MANAGER`.
+- الصلاحية المطلوبة لفكّ التصعيد هي `jobs.applications.resolve_escalation`.
 - كل من التصعيد وفكّه يُسجل في `audit_logs`.
 
 ما يترتب على التصعيد:
@@ -185,6 +192,7 @@
 - التأكد أن المحافظة والعنوان التفصيلي هما فقط حقلا العنوان الإلزاميان، وأن المنطقة والناحية والحي يمكن تركها فارغة.
 - التأكد أن كل انتقال مهم يترك أثرًا في سجل التدقيق.
 - التأكد أن التصعيد، وفك التصعيد، والانسحاب، والأرشفة تظهر كسيناريوهات مستقلة لا كرسائل عامة.
+- أثناء `Training Started` لا تظهر أزرار اتخاذ القرار أو إعادة التدريب؛ هذه الخيارات تبقى محصورة بعد `Training Completed`.
 - التأكد أن تاب التدريب في تفاصيل الطلب يبقى للعرض والتنقل فقط، بدون إنشاء دورة جديدة.
 
 ### 2.13 مسار تحويل مقدم الطلب إلى سجل الموظفين
@@ -227,17 +235,15 @@
 
 حقول الوسيط:
 - `type`
+- `sourceChannel`
 - `employeeId`
-- `fullName`
-- `lastName`
-- `mobileNumber`
-- `governorate`
-- `cityOrArea`
-- `subArea`
-- `neighborhood`
-- `detailedAddress`
-- `referrerWork`
+- `referrerName`
+- `referralEntityId`
 - `referrerNotes`
+- `Personal` = اسم المستخدم الحالي / الشخصي
+- `Unknown` = مجهول
+- `Employee` = lookup بالرقم الوظيفي
+- `Client` = lookup بالزبون
 
 حقول الطلب:
 - `id`

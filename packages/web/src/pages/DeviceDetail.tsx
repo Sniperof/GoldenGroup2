@@ -3,10 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     ChevronRight, Loader2, Package, Clock, Wrench, PenTool, GraduationCap,
     Truck, Gem, Star, Image, Video, FileText, AlertCircle, RefreshCw,
-    Zap, Tag,
+    Zap, Tag, Plus, Pencil, Trash2, X, Save,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import type { DeviceModel, SparePart, MaintenancePartType } from '../lib/types';
+import type { DeviceModel, DeviceDiscount, SparePart, MaintenancePartType } from '../lib/types';
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                              */
@@ -18,11 +18,10 @@ const categoryLabels: Record<string, { label: string; icon: string; color: strin
 };
 
 const serviceLabels: Record<string, { label: string; Icon: any; color: string; bg: string }> = {
-    'تركيب':        { label: 'تركيب',        Icon: Wrench,        color: 'text-blue-600',   bg: 'bg-blue-50' },
-    'صيانة':        { label: 'صيانة',        Icon: PenTool,       color: 'text-violet-600', bg: 'bg-violet-50' },
-    'تعليم':        { label: 'تعليم',        Icon: GraduationCap, color: 'text-amber-600',  bg: 'bg-amber-50' },
-    'تسليم':        { label: 'تسليم',        Icon: Truck,         color: 'text-sky-600',    bg: 'bg-sky-50' },
-    'تعليم تسليم':  { label: 'تعليم تسليم',  Icon: GraduationCap, color: 'text-amber-600',  bg: 'bg-amber-50' },
+    'تسليم': { label: 'تسليم', Icon: Truck,         color: 'text-sky-600',    bg: 'bg-sky-50' },
+    'تركيب': { label: 'تركيب', Icon: Wrench,        color: 'text-blue-600',   bg: 'bg-blue-50' },
+    'صيانة': { label: 'صيانة', Icon: PenTool,       color: 'text-violet-600', bg: 'bg-violet-50' },
+    'تعليم': { label: 'تعليم', Icon: GraduationCap, color: 'text-amber-600',  bg: 'bg-amber-50' },
 };
 
 const partTypeConfig: Record<MaintenancePartType, { label: string; color: string; bg: string; border: string; Icon: any }> = {
@@ -86,6 +85,9 @@ export default function DeviceDetail() {
     const [allParts, setAllParts] = useState<SparePart[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [discounts, setDiscounts] = useState<DeviceDiscount[]>([]);
+    const [discountModalOpen, setDiscountModalOpen] = useState(false);
+    const [editingDiscount, setEditingDiscount] = useState<DeviceDiscount | null>(null);
 
     useEffect(() => {
         (async () => {
@@ -103,6 +105,13 @@ export default function DeviceDetail() {
             }
         })();
     }, [id]);
+
+    useEffect(() => {
+        if (!device) return;
+        api.deviceModels.getAllDiscounts(device.id)
+            .then(setDiscounts)
+            .catch(() => setDiscounts([]));
+    }, [device?.id]);
 
     if (loading) {
         return (
@@ -132,6 +141,35 @@ export default function DeviceDetail() {
     const periodicParts = compatibleParts.filter(p => p.maintenanceType === 'Periodic');
     const emergencyParts = compatibleParts.filter(p => p.maintenanceType === 'Emergency');
     const accessoryParts = compatibleParts.filter(p => p.maintenanceType === 'Accessory');
+
+    const refetchDiscounts = () => {
+        api.deviceModels.getAllDiscounts(device.id)
+            .then(setDiscounts)
+            .catch(() => setDiscounts([]));
+    };
+
+    const handleDeleteDiscount = async (discountId: number) => {
+        if (!window.confirm('هل أنت متأكد من حذف هذه الحملة؟')) return;
+        await api.deviceModels.deleteDiscount(device.id, discountId);
+        refetchDiscounts();
+    };
+
+    const handleEditClick = (discount: DeviceDiscount) => {
+        setEditingDiscount(discount);
+        setDiscountModalOpen(true);
+    };
+
+    const handleAddClick = () => {
+        setEditingDiscount(null);
+        setDiscountModalOpen(true);
+    };
+
+    const getDiscountStatus = (d: DeviceDiscount): { label: string; color: string } => {
+        const today = new Date().toISOString().slice(0, 10);
+        if (!d.isActive || d.endDate < today) return { label: 'غير فعّال', color: 'text-slate-500 bg-slate-100' };
+        if (d.startDate > today) return { label: 'قادم', color: 'text-yellow-700 bg-yellow-50' };
+        return { label: 'فعّال', color: 'text-emerald-700 bg-emerald-50' };
+    };
 
     return (
         <div className="h-full flex flex-col overflow-hidden bg-slate-50" dir="rtl">
@@ -187,7 +225,15 @@ export default function DeviceDetail() {
                                         </span>
                                     </div>
                                     {device.nameEn && <p className="text-sm text-slate-400 font-mono">{device.nameEn}</p>}
+                                    {device.code && (
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-xs font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">الرمز: {device.code}</span>
+                                        </div>
+                                    )}
                                     {device.description && <p className="text-sm text-slate-500 mt-2 leading-relaxed">{device.description}</p>}
+                                    {device.descriptionEn && (
+                                        <p className="text-sm text-slate-500 mt-2 leading-relaxed" dir="ltr">{device.descriptionEn}</p>
+                                    )}
                                 </div>
 
                                 {/* Price */}
@@ -195,17 +241,9 @@ export default function DeviceDetail() {
                                     <div>
                                         <span className="text-xs text-slate-400 block mb-0.5">السعر</span>
                                         <span className="text-2xl font-bold text-slate-900 font-mono">
-                                            {formatPrice(device.discountedPrice ?? device.basePrice)}
+                                            {formatPrice(device.basePrice)}
                                         </span>
                                     </div>
-                                    {(device.discountPercent || 0) > 0 && (
-                                        <div className="mb-1">
-                                            <span className="text-xs line-through text-slate-400 font-mono block">{formatPrice(device.basePrice)}</span>
-                                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                                                خصم {device.discountPercent}%
-                                            </span>
-                                        </div>
-                                    )}
                                 </div>
 
                                 {/* Badges row */}
@@ -223,9 +261,9 @@ export default function DeviceDetail() {
                                             )}
                                         </span>
                                     )}
-                                    {device.isOfferIncluded && (
+                                    {device.isFeatured && (
                                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-50 text-sky-700 border border-sky-200">
-                                            مشمول بالعروض
+                                            جهاز بارز
                                         </span>
                                     )}
                                 </div>
@@ -371,6 +409,230 @@ export default function DeviceDetail() {
                         )}
                     </div>
 
+                </div>
+
+                    {/* ── Time-Based Discounts ── */}
+                    <div className="bg-white rounded-xl border border-slate-200 p-5">
+                        <div className="flex items-center justify-between mb-5">
+                            <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                                <Tag className="w-4 h-4 text-emerald-500" />
+                                الحسومات الزمنية
+                                <span className="mr-auto text-xs font-normal text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full">
+                                    {discounts.length}
+                                </span>
+                            </h2>
+                            <button
+                                onClick={handleAddClick}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition-colors"
+                            >
+                                <Plus className="w-3.5 h-3.5" /> إضافة حملة
+                            </button>
+                        </div>
+
+                        {discounts.length === 0 ? (
+                            <div className="text-center py-10 text-slate-300">
+                                <Tag className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                                <p className="text-sm">لا توجد حسومات زمنية</p>
+                            </div>
+                        ) : (
+                            <div className="overflow-hidden rounded-xl border border-slate-200">
+                                <table className="min-w-full divide-y divide-slate-100 text-sm">
+                                    <thead className="bg-slate-50 text-slate-600">
+                                        <tr>
+                                            <th className="px-4 py-3 text-right font-bold">الحملة</th>
+                                            <th className="px-4 py-3 text-right font-bold">%</th>
+                                            <th className="px-4 py-3 text-right font-bold">من تاريخ</th>
+                                            <th className="px-4 py-3 text-right font-bold">حتى تاريخ</th>
+                                            <th className="px-4 py-3 text-right font-bold">حالة</th>
+                                            <th className="px-4 py-3 text-right font-bold">إجراءات</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 bg-white">
+                                        {discounts.map(d => {
+                                            const status = getDiscountStatus(d);
+                                            return (
+                                                <tr key={d.id} className="align-middle">
+                                                    <td className="px-4 py-3 font-semibold text-slate-800">{d.label}</td>
+                                                    <td className="px-4 py-3 text-slate-600 font-mono">{d.percentage}%</td>
+                                                    <td className="px-4 py-3 text-slate-500 text-xs">{d.startDate}</td>
+                                                    <td className="px-4 py-3 text-slate-500 text-xs">{d.endDate}</td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${status.color}`}>
+                                                            {status.label}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => handleEditClick(d)}
+                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"
+                                                                title="تعديل"
+                                                            >
+                                                                <Pencil className="w-3.5 h-3.5" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteDiscount(d.id)}
+                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                                title="حذف"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+
+                </div>
+
+            {/* Discount Modal */}
+            {discountModalOpen && (
+                <DiscountModal
+                    deviceId={device.id}
+                    editingDiscount={editingDiscount}
+                    onClose={() => { setDiscountModalOpen(false); setEditingDiscount(null); }}
+                    onSaved={() => { refetchDiscounts(); setDiscountModalOpen(false); setEditingDiscount(null); }}
+                />
+            )}
+        </div>
+    );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Discount Modal                                                      */
+/* ------------------------------------------------------------------ */
+
+function DiscountModal({ deviceId, editingDiscount, onClose, onSaved }: {
+    deviceId: number;
+    editingDiscount: DeviceDiscount | null;
+    onClose: () => void;
+    onSaved: () => void;
+}) {
+    const [label, setLabel] = useState(editingDiscount?.label ?? '');
+    const [percentage, setPercentage] = useState(String(editingDiscount?.percentage ?? ''));
+    const [startDate, setStartDate] = useState(editingDiscount?.startDate?.slice(0, 10) ?? '');
+    const [endDate, setEndDate] = useState(editingDiscount?.endDate?.slice(0, 10) ?? '');
+    const [isActive, setIsActive] = useState(editingDiscount?.isActive ?? true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleSave = async () => {
+        if (!label.trim()) { setError('اسم الحملة مطلوب'); return; }
+        const pct = Number(percentage);
+        if (!Number.isFinite(pct) || pct < 0 || pct > 100) { setError('نسبة الحسم يجب أن تكون بين 0 و 100'); return; }
+        if (!startDate || !endDate) { setError('يرجى تحديد تواريخ البداية والنهاية'); return; }
+        if (startDate > endDate) { setError('تاريخ البداية يجب أن يكون قبل أو يساوي تاريخ النهاية'); return; }
+
+        setSaving(true);
+        setError('');
+        try {
+            const data = { label: label.trim(), percentage: pct, startDate, endDate, isActive };
+            if (editingDiscount) {
+                await api.deviceModels.updateDiscount(deviceId, editingDiscount.id, data);
+            } else {
+                await api.deviceModels.createDiscount(deviceId, data);
+            }
+            onSaved();
+        } catch {
+            setError('حدث خطأ أثناء الحفظ');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                    <h3 className="text-base font-bold text-slate-800">
+                        {editingDiscount ? 'تعديل حملة الخصم' : 'إضافة حملة خصم'}
+                    </h3>
+                    <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div className="px-5 py-5 space-y-4">
+                    {error && (
+                        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                            {error}
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">اسم الحملة <span className="text-red-500">*</span></label>
+                        <input
+                            type="text"
+                            value={label}
+                            onChange={e => setLabel(e.target.value)}
+                            className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                            placeholder="مثال: عرض رمضان"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">نسبة الحسم % <span className="text-red-500">*</span></label>
+                        <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={percentage}
+                            onChange={e => setPercentage(e.target.value)}
+                            className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                            placeholder="0–100"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">من تاريخ <span className="text-red-500">*</span></label>
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={e => setStartDate(e.target.value)}
+                                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">حتى تاريخ <span className="text-red-500">*</span></label>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={e => setEndDate(e.target.value)}
+                                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                            />
+                        </div>
+                    </div>
+
+                    <label className="flex items-center gap-3 cursor-pointer px-3 py-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors">
+                        <input
+                            type="checkbox"
+                            checked={isActive}
+                            onChange={e => setIsActive(e.target.checked)}
+                            className="w-4 h-4 accent-emerald-600"
+                        />
+                        <span className="text-sm font-medium text-slate-700">فعّال</span>
+                    </label>
+                </div>
+
+                <div className="flex gap-3 px-5 pb-5">
+                    <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 text-sm font-semibold">
+                        إلغاء
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        disabled={saving}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 text-sm font-semibold disabled:opacity-60"
+                    >
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {saving ? 'جاري الحفظ...' : 'حفظ'}
+                    </button>
                 </div>
             </div>
         </div>

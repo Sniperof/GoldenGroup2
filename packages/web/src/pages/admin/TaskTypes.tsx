@@ -10,8 +10,11 @@ import {
   TASK_SCHEDULING_PATTERN_LABELS,
   TASK_SCHEDULING_PATTERN_DESCRIPTIONS,
   TASK_WINDOW_BASIS_LABELS,
+  TASK_LOCATION_BASIS_LABELS,
+  TASK_LOCATION_BASIS_DESCRIPTIONS,
   type TaskTypeConfig,
   type TaskSchedulingPattern,
+  type TaskLocationBasis,
 } from '@golden-crm/shared';
 
 const PATTERN_ICONS: Record<TaskSchedulingPattern, React.ReactNode> = {
@@ -42,6 +45,7 @@ const FAMILY_LABELS: Record<string, string> = {
 type DraftState = {
   planningWindowDays: string;
   isActive: boolean;
+  locationBasis: TaskLocationBasis;
 };
 
 export default function TaskTypes() {
@@ -66,6 +70,7 @@ export default function TaskTypes() {
           initialDrafts[c.taskType] = {
             planningWindowDays: c.planningWindowDays != null ? String(c.planningWindowDays) : '',
             isActive: c.isActive,
+            locationBasis: c.locationBasis ?? 'client',
           };
         });
         setDrafts(initialDrafts);
@@ -93,7 +98,9 @@ export default function TaskTypes() {
     const draft = drafts[config.taskType];
     if (!draft) return false;
     const currentDays = config.planningWindowDays != null ? String(config.planningWindowDays) : '';
-    return draft.planningWindowDays !== currentDays || draft.isActive !== config.isActive;
+    return draft.planningWindowDays !== currentDays
+      || draft.isActive !== config.isActive
+      || draft.locationBasis !== (config.locationBasis ?? 'client');
   };
 
   const handleSave = async (config: TaskTypeConfig) => {
@@ -104,7 +111,7 @@ export default function TaskTypes() {
     setSuccessMessage(null);
     setSavingType(config.taskType);
     try {
-      const payload: { planningWindowDays?: number | null; isActive?: boolean } = {};
+      const payload: { planningWindowDays?: number | null; isActive?: boolean; locationBasis?: TaskLocationBasis } = {};
 
       if (config.schedulingPattern !== 'immediate') {
         const days = Number(draft.planningWindowDays);
@@ -114,6 +121,7 @@ export default function TaskTypes() {
         payload.planningWindowDays = days;
       }
       payload.isActive = draft.isActive;
+      payload.locationBasis = draft.locationBasis;
 
       const updated = await api.admin.taskTypes.update(config.taskType, payload);
       setConfigs(prev => prev.map(c => (c.taskType === updated.taskType ? updated : c)));
@@ -210,6 +218,7 @@ export default function TaskTypes() {
                       <th className="text-right p-3 font-bold">نوع المهمة</th>
                       <th className="text-right p-3 font-bold">العائلة</th>
                       <th className="text-right p-3 font-bold">الفلتر على</th>
+                      <th className="text-right p-3 font-bold w-40">موقع الزيارة</th>
                       <th className="text-center p-3 font-bold w-32">N (أيام)</th>
                       <th className="text-center p-3 font-bold w-24">مفعّل</th>
                       <th className="text-center p-3 font-bold w-24">إجراء</th>
@@ -237,6 +246,36 @@ export default function TaskTypes() {
                           </td>
                           <td className="p-3 text-slate-600 text-xs">
                             {TASK_WINDOW_BASIS_LABELS[config.windowBasis]}
+                          </td>
+                          {/* Location basis selector */}
+                          <td className="p-3">
+                            {canManage ? (
+                              <select
+                                value={draft.locationBasis}
+                                onChange={e => setDrafts(prev => ({
+                                  ...prev,
+                                  [config.taskType]: { ...prev[config.taskType], locationBasis: e.target.value as TaskLocationBasis },
+                                }))}
+                                className={`w-full text-xs rounded-lg border px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500/20 ${
+                                  draft.locationBasis === 'contract'
+                                    ? 'border-violet-200 bg-violet-50 text-violet-700'
+                                    : 'border-sky-200 bg-sky-50 text-sky-700'
+                                }`}
+                                title={TASK_LOCATION_BASIS_DESCRIPTIONS[draft.locationBasis]}
+                              >
+                                {(Object.keys(TASK_LOCATION_BASIS_LABELS) as TaskLocationBasis[]).map(b => (
+                                  <option key={b} value={b}>{TASK_LOCATION_BASIS_LABELS[b]}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                                config.locationBasis === 'contract'
+                                  ? 'border-violet-200 bg-violet-50 text-violet-700'
+                                  : 'border-sky-200 bg-sky-50 text-sky-700'
+                              }`}>
+                                {TASK_LOCATION_BASIS_LABELS[config.locationBasis ?? 'client']}
+                              </span>
+                            )}
                           </td>
                           <td className="p-3 text-center">
                             {isImmediate ? (

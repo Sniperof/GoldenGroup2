@@ -18,8 +18,8 @@ const selectFields = `
   referral_origin_channel AS "referralOriginChannel", referral_notes AS "referralNotes",
   referral_date AS "referralDate", owner_user_id AS "ownerUserId", status,
   assigned_hr_user_id AS "assignedHrUserId",
-  total_candidates AS "totalCandidates", quality_percentage AS "qualityPercentage",
-  conversion_percentage AS "conversionPercentage",
+  total_candidates AS "totalCandidates", target_candidates AS "targetCandidates",
+  quality_percentage AS "qualityPercentage", conversion_percentage AS "conversionPercentage",
   created_at AS "createdAt", created_by AS "createdBy",
   branch_id AS "branchId"
 `;
@@ -31,7 +31,8 @@ const selectFieldsList = `
   rs.referral_date AS "referralDate", rs.owner_user_id AS "ownerUserId", rs.status,
   rs.assigned_hr_user_id AS "assignedHrUserId",
   hu.name AS "assignedHrUserName",
-  rs.total_candidates AS "totalCandidates", rs.quality_percentage AS "qualityPercentage",
+  rs.total_candidates AS "totalCandidates", rs.target_candidates AS "targetCandidates",
+  rs.quality_percentage AS "qualityPercentage",
   rs.conversion_percentage AS "conversionPercentage",
   rs.created_at AS "createdAt", rs.created_by AS "createdBy",
   rs.branch_id AS "branchId",
@@ -52,9 +53,10 @@ function mapRow(r: any) {
   return {
     ...r,
     stats: {
-      totalCandidates: r.totalCandidates,
-      qualityPercentage: r.qualityPercentage,
-      conversionPercentage: r.conversionPercentage,
+      totalCandidates: r.totalCandidates ?? 0,
+      targetCandidates: r.targetCandidates ?? 0,
+      qualityPercentage: r.qualityPercentage ?? 0,
+      conversionPercentage: r.conversionPercentage ?? 0,
     },
     assignedHrUserName: r.assignedHrUserName ?? null,
     branchName: r.branchName ?? null,
@@ -225,17 +227,20 @@ router.post('/', requirePermission('candidates.name_lists.create', 'referral_she
     }
 
     const s = enforcePersonalReferralSheet(req.body ?? {}, { name: req.user?.name || '' });
+    const targetCandidates = Number.isInteger(req.body?.targetCandidates) ? req.body.targetCandidates : 0;
     const { rows } = await pool.query(
       `INSERT INTO referral_sheets (referral_type, referral_entity_id, referral_name_snapshot,
         referral_address_text, referral_origin_channel, referral_notes, referral_date,
-        owner_user_id, status, assigned_hr_user_id, total_candidates, quality_percentage, conversion_percentage, created_by, branch_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      RETURNING ${selectFields}`,
+        owner_user_id, status, assigned_hr_user_id, total_candidates, target_candidates,
+        quality_percentage, conversion_percentage, created_by, branch_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+      RETURNING ${selectFields}, target_candidates AS "targetCandidates"`,
       [s.referralType, s.referralEntityId || null, s.referralNameSnapshot || '',
        s.referralAddressText || '', s.referralOriginChannel || null, s.referralNotes || null,
        s.referralDate || null, s.ownerUserId ?? authContext.userId, s.status || 'New',
        assignedHrUserCheck.assignedHrUserId,
-       s.stats?.totalCandidates || 0, s.stats?.qualityPercentage || 0,
+       s.stats?.totalCandidates || 0, targetCandidates,
+       s.stats?.qualityPercentage || 0,
        s.stats?.conversionPercentage || 0, s.createdBy ?? authContext.userId, targetBranchId],
     );
     res.json(mapRow(rows[0]));
