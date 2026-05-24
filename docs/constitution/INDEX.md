@@ -21,6 +21,7 @@
 | الأجهزة والصيانة | [domains/devices-maintenance.md](domains/devices-maintenance.md) | ⚠️ فاضي | 241 بايت | — | — |
 | المناطق الجغرافية (Geo Units) | [domains/geo-units.md](domains/geo-units.md) | ✅ مكتمل | 240 سطر | 10+ | 7 |
 | التسويق الهاتفي (Telemarketing) | [domains/telemarketing.md](domains/telemarketing.md) | ✅ مكتمل | 311 سطر | 7+ | 5 |
+| الفروع (Branches) | [domains/branches.md](domains/branches.md) | ✅ مكتمل | 323 سطر | 12+ | 5 |
 | البنية التنظيمية | [domains/org-structure.md](domains/org-structure.md) | ⚠️ فاضي | 218 بايت | — | — |
 | الصلاحيات والأدوار (Permissions & Roles) | [domains/permissions.md](domains/permissions.md) | ✅ مكتمل | 382 سطر | 12+ | 9 |
 | الإعدادات الإدارية | [domains/admin-settings.md](domains/admin-settings.md) | ⚠️ فاضي | 221 بايت | — | — |
