@@ -306,6 +306,65 @@ router.get('/:id/source', requirePermission('marketing_visits.view'), async (req
   }
 });
 
+// ─── LIST ─────────────────────────────────────────────────────────────────────
+
+// GET /api/field-visits/?clientId=X  — visits for a specific client
+// GET /api/field-visits/?date=YYYY-MM-DD  — visits for a specific date
+router.get('/', requirePermission('marketing_visits.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const clientId = req.query.clientId ? Number(req.query.clientId) : null;
+    const date = typeof req.query.date === 'string' ? req.query.date : null;
+
+    if (clientId === null && date === null) {
+      return res.status(400).json({ error: 'يجب تحديد clientId أو date' });
+    }
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (clientId !== null) {
+      conditions.push(`fv.client_id = $${idx++}`);
+      params.push(clientId);
+    }
+    if (date !== null) {
+      conditions.push(`fv.scheduled_date = $${idx++}`);
+      params.push(date);
+    }
+    if (!authContext.isSuperAdmin && authContext.actingBranchId != null) {
+      conditions.push(`fv.branch_id = $${idx++}`);
+      params.push(authContext.actingBranchId);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await pool.query(
+      `SELECT
+         fv.id,
+         fv.visit_type AS "visitType",
+         fv.visit_family AS "visitFamily",
+         fv.status,
+         fv.scheduled_date AS "scheduledDate",
+         fv.scheduled_time AS "scheduledTime",
+         fv.client_id AS "clientId",
+         fv.branch_id AS "branchId",
+         fv.team_snapshot AS "teamSnapshot",
+         fv.customer_snapshot AS "customerSnapshot",
+         fv.field_notes AS "fieldNotes",
+         fv.created_at AS "createdAt",
+         fv.updated_at AS "updatedAt"
+       FROM field_visits fv
+       ${where}
+       ORDER BY fv.scheduled_date DESC, fv.scheduled_time ASC, fv.created_at DESC`,
+      params,
+    );
+    return res.json(rows);
+  } catch (err: any) {
+    console.error('[field-visits] GET / error:', err);
+    res.status(500).json({ error: 'فشل في تحميل الزيارات' });
+  }
+});
+
 // ─── FULL VISIT DETAILS ───────────────────────────────────────────────────────
 
 // GET /api/field-visits/:id — full visit with tasks, geo, source

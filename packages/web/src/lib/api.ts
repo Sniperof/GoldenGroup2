@@ -128,6 +128,10 @@ export const api = {
     delete: (id: number) => request<any>(`/clients/${id}`, { method: 'DELETE' }),
     bulkDelete: (ids: number[]) => request<any>('/clients/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
   },
+  customers: {
+    getPurchaseHistory: (customerId: number) =>
+      request<any>(`/customers/${customerId}/purchase-history`),
+  },
   customerCalls: {
     list: (customerId: number) => request<any[]>(`/customers/${customerId}/calls`),
     listByContact: (customerId: number, contactId: string) =>
@@ -308,6 +312,12 @@ export const api = {
       request<any>(`/work-scopes/${id}/generate-tasks`, { method: 'POST' }),
   },
   fieldVisits: {
+    list: (params: { clientId?: number; date?: string }) => {
+      const qs = new URLSearchParams();
+      if (params.clientId) qs.append('clientId', String(params.clientId));
+      if (params.date) qs.append('date', params.date);
+      return request<any[]>(`/field-visits/?${qs.toString()}`);
+    },
     get: (id: number) => request<any>(`/field-visits/${id}`),
     start: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
       request<any>(`/field-visits/${id}/start`, { method: 'POST', body: JSON.stringify(data ?? {}) }),

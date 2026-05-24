@@ -1,12 +1,5 @@
 import type { TaskResultRendererProps } from '../../components/tasks/types';
-import InstallationResultForm from './InstallationResultForm';
 
-export default function InstallationResultRenderer({ task }: TaskResultRendererProps) {
-  const canRecord = !['completed', 'closed', 'cancelled'].includes(task.status);
-  return (
-    <InstallationResultForm
-      taskId={task.id}
-      readOnly={!canRecord}
-    />
-  );
+export default function InstallationResultRenderer({ task: _task }: TaskResultRendererProps) {
+  return <div className="text-slate-400 text-sm p-4">نتيجة التركيب غير متوفرة</div>;
 }

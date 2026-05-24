@@ -123,7 +123,6 @@ export default function MainLayout() {
     const isGeoActive = location.pathname === '/geo' || location.pathname === '/routes';
     const isRecordsActive = visibleRecordsChildren.some(child => location.pathname.startsWith(child.path));
     const isAppointmentsActive = location.pathname.startsWith('/telemarketer');
-    const isMarketingVisitsActive = location.pathname.startsWith('/marketing-visits');
     const isJobsActive = location.pathname.startsWith('/jobs');
 
     const [planningOpen, setPlanningOpen] = useState(isPlanningActive);
@@ -285,22 +284,6 @@ export default function MainLayout() {
                     >
                         <Headset className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
                         <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إدارة المواعيد</span>
-                    </NavLink>
-                    )}
-
-                    {canSeeBranchModules && can('marketing_visits.view') && (
-                    <NavLink
-                        to="/marketing-visits"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive || isMarketingVisitsActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
-                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                            } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
-                        }
-                    >
-                        <Calendar className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
-                        <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>زيارات التسويق</span>
                     </NavLink>
                     )}
 

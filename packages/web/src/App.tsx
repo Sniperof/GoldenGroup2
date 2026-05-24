@@ -31,8 +31,6 @@ import TelemarketerWorkspace from './pages/TelemarketerWorkspace';
 import TeamTasksDetail from './pages/planning/TeamTasksDetail';
 import DeviceDemo from './pages/tasks/DeviceDemo';
 import DeviceDemoDetail from './pages/tasks/DeviceDemoDetail';
-import MarketingVisitsPage from './pages/MarketingVisitsPage';
-import MarketingVisitDetailsPage from './pages/MarketingVisitDetailsPage';
 import OpenTasks from './pages/OpenTasks';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
@@ -94,8 +92,6 @@ export default function App() {
                         <Route path="/tasks/device-demo" element={<DeviceDemo />} />
                         <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
                         <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
-                        <Route path="/marketing-visits" element={<MarketingVisitsPage />} />
-                        <Route path="/marketing-visits/:id" element={<MarketingVisitDetailsPage />} />
                         <Route path="/field-visits/:id" element={<VisitDetailPage />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />

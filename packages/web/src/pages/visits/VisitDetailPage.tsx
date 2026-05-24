@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-    ArrowRight, MapPin, Clock, AlertTriangle, CheckCircle2,
+    ArrowRight, MapPin, Clock, AlertTriangle, CheckCircle2, AlertCircle,
     User, Building2, Users, Play, Square, Flag, Loader2,
-    ClipboardList, Phone, UserPlus, Navigation, Ruler
+    ClipboardList, Phone, UserPlus, Navigation, Ruler,
+    ShoppingCart, Smartphone, Wrench, Zap, Puzzle
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import NameCollectionModal from '../../components/NameCollectionModal';
@@ -60,6 +61,10 @@ export default function VisitDetailPage() {
     // Direct suggestions per task (local state)
     const [suggestions, setSuggestions] = useState<Record<string, any[]>>({});
 
+    // Purchase history
+    const [purchaseHistory, setPurchaseHistory] = useState<{ records: any[]; summary: any } | null>(null);
+    const [purchaseLoading, setPurchaseLoading] = useState(false);
+
     const visitId = Number(id);
 
     const load = useCallback(async () => {
@@ -82,6 +87,15 @@ export default function VisitDetailPage() {
     }, [visitId]);
 
     useEffect(() => { load(); }, [load]);
+
+    useEffect(() => {
+        if (!visit?.client_id) return;
+        setPurchaseLoading(true);
+        api.customers.getPurchaseHistory(visit.client_id)
+            .then(res => setPurchaseHistory(res))
+            .catch(() => setPurchaseHistory(null))
+            .finally(() => setPurchaseLoading(false));
+    }, [visit?.client_id]);
 
     // GPS capture helper
     const captureGps = (): Promise<{ lat: number; lng: number; accuracy: number } | null> =>
@@ -161,6 +175,120 @@ export default function VisitDetailPage() {
     const canStart = ['scheduled'].includes(visit.status);
     const canEnd   = ['in_progress'].includes(visit.status);
     const canComplete = ['ended'].includes(visit.status);
+
+    function PurchaseRecordCard({ record: r }: { record: any }) {
+        const isDevice = r.itemType === 'device';
+        const isEmergency = r.itemType === 'emergency_part';
+
+        const typeConfig: Record<string, { label: string; icon: any; iconClass: string; badgeClass: string }> = {
+            device:         { label: 'جهاز',              icon: Smartphone, iconClass: 'text-blue-500',    badgeClass: 'bg-blue-50 text-blue-600'    },
+            periodic_part:  { label: 'قطعة صيانة دورية', icon: Wrench,      iconClass: 'text-emerald-500', badgeClass: 'bg-emerald-50 text-emerald-600' },
+            emergency_part: { label: 'قطعة صيانة طوارئ', icon: Zap,         iconClass: 'text-orange-500',  badgeClass: 'bg-orange-50 text-orange-600' },
+            accessory:      { label: 'اكسسوار',           icon: Puzzle,      iconClass: 'text-purple-500',  badgeClass: 'bg-purple-50 text-purple-600' },
+        };
+        const tc = typeConfig[r.itemType] ?? typeConfig.accessory;
+        const TypeIcon = tc.icon;
+
+        const warrantyLabels: Record<string, string> = {
+            contract_warranty: 'كفالة العقد',
+            golden_warranty:   'كفالة ذهبية',
+            no_warranty:       'بدون كفالة',
+        };
+        const paymentLabels: Record<string, string> = {
+            cash:              'نقدي',
+            installment:       'أقساط',
+            maintenance_paid:  'مدفوع صيانة',
+            warranty_free:     'مجاني (كفالة)',
+        };
+
+        return (
+            <div className={`rounded-2xl border p-4 ${
+                isDevice    ? 'bg-blue-50/50 border-blue-200' :
+                isEmergency ? 'bg-orange-50/50 border-orange-200' :
+                              'bg-slate-50 border-slate-200'
+            }`}>
+                {/* Row 1: source + date */}
+                <div className="flex items-center gap-2 mb-2">
+                    <TypeIcon className={`w-3.5 h-3.5 ${tc.iconClass}`} />
+                    <span className="text-xs font-bold text-slate-700">{r.sourceLabel}</span>
+                    <span className="text-[10px] text-slate-400">{r.purchaseDate}</span>
+                </div>
+
+                {/* Row 2: name + code + type badge */}
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-black text-slate-800">{r.itemName}</span>
+                    {r.itemCode && (
+                        <span className="text-[10px] font-mono text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                            {r.itemCode}
+                        </span>
+                    )}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${tc.badgeClass}`}>
+                        {tc.label}
+                    </span>
+                </div>
+
+                {/* Row 3: price + quantity + payment + warranty + install + old-part */}
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <span className="text-xs font-black text-slate-700">
+                        {Number(r.totalPrice).toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س
+                    </span>
+
+                    {r.discountInfo && (
+                        <>
+                            <span className="text-[10px] text-slate-400 line-through">
+                                {Number(r.discountInfo.originalPrice).toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س
+                            </span>
+                            <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 rounded">
+                                حسم: {Number(r.discountInfo.discountAmount).toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س
+                            </span>
+                        </>
+                    )}
+
+                    {r.quantity > 1 && (
+                        <span className="text-[10px] text-slate-500">كمية: {r.quantity}</span>
+                    )}
+
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        r.paymentType === 'cash'         ? 'bg-slate-100 text-slate-600' :
+                        r.paymentType === 'installment'  ? 'bg-amber-50 text-amber-600'  :
+                        r.paymentType === 'warranty_free'? 'bg-emerald-50 text-emerald-600' :
+                                                           'bg-slate-100 text-slate-600'
+                    }`}>
+                        {paymentLabels[r.paymentType] ?? r.paymentType}
+                    </span>
+
+                    {r.warrantyContext && r.warrantyContext !== 'no_warranty' && (
+                        <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                            {warrantyLabels[r.warrantyContext]}
+                            {r.warrantyUntil && ` حتى ${r.warrantyUntil}`}
+                        </span>
+                    )}
+
+                    {!isDevice && r.isInstalled === true && (
+                        <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 rounded flex items-center gap-0.5">
+                            <CheckCircle2 className="w-3 h-3" /> مركّب
+                        </span>
+                    )}
+                    {!isDevice && r.isInstalled === false && (
+                        <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 rounded flex items-center gap-0.5">
+                            <Clock className="w-3 h-3" /> غير مركّب
+                        </span>
+                    )}
+
+                    {isEmergency && r.oldPartRemoved === true && (
+                        <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 rounded flex items-center gap-0.5">
+                            <CheckCircle2 className="w-3 h-3" /> تم سحب القديم
+                        </span>
+                    )}
+                    {isEmergency && r.oldPartRemoved === false && (
+                        <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 rounded flex items-center gap-0.5">
+                            <AlertCircle className="w-3 h-3" /> لم يتم السحب
+                        </span>
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     const allTasksHaveResult = tasks.every((t: any) => t.result_id != null);
     const noBlockingNC = tasks.every((t: any) =>
@@ -452,6 +580,64 @@ export default function VisitDetailPage() {
                         </div>
                     )}
                 </div>
+
+                {/* ── Purchase History ── */}
+                {visit.client_id && (
+                    <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
+                                <ShoppingCart className="w-4 h-4 text-slate-400" />
+                                سجل المشتريات
+                            </h4>
+                            {purchaseHistory && purchaseHistory.summary && (
+                                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
+                                    {purchaseHistory.summary.totalPurchases} مشتريات
+                                </span>
+                            )}
+                        </div>
+
+                        {purchaseLoading && (
+                            <div className="flex items-center justify-center py-4">
+                                <Loader2 className="w-5 h-5 animate-spin text-sky-500" />
+                            </div>
+                        )}
+
+                        {!purchaseLoading && purchaseHistory && purchaseHistory.summary && purchaseHistory.records.length > 0 && (
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200">
+                                    <span className="text-xs font-bold text-blue-700">{purchaseHistory.summary.totalDevices}</span>
+                                    <span className="text-[10px] text-blue-600">أجهزة</span>
+                                </div>
+                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200">
+                                    <span className="text-xs font-bold text-emerald-700">{purchaseHistory.summary.totalParts}</span>
+                                    <span className="text-[10px] text-emerald-600">قطع</span>
+                                </div>
+                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200">
+                                    <span className="text-xs font-bold text-slate-700">
+                                        {Number(purchaseHistory.summary.totalSpent).toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س
+                                    </span>
+                                    <span className="text-[10px] text-slate-600">الإجمالي</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {!purchaseLoading && purchaseHistory && purchaseHistory.records.length === 0 && (
+                            <p className="text-sm text-slate-400 text-center py-4">لا توجد مشتريات مسجّلة لهذا الزبون</p>
+                        )}
+
+                        {!purchaseLoading && purchaseHistory && purchaseHistory.records.length > 0 && (
+                            <div className="space-y-3">
+                                {purchaseHistory.records.map((record: any) => (
+                                    <PurchaseRecordCard key={record.id} record={record} />
+                                ))}
+                            </div>
+                        )}
+
+                        {!purchaseLoading && !purchaseHistory && (
+                            <p className="text-sm text-slate-400 text-center py-4">تعذّر تحميل سجل المشتريات</p>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Name Collection Modal */}

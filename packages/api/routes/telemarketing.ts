@@ -344,7 +344,7 @@ async function createMarketingVisitForAppointment(
     createdBy: number | null;
     selectedTasks: SelectedTask[];
   },
-): Promise<string | null> {
+): Promise<number | null> {
   if (params.entityType !== 'client') {
     return null;
   }
@@ -355,137 +355,118 @@ async function createMarketingVisitForAppointment(
 
   const schedule = await loadDaySchedule(params.date);
   const teamContext = getTeamSnapshotForVisit(schedule, params.teamKey);
-  const visitId = `mv_${params.appointmentId}`;
+
+  const POST_SALE_TYPES = ['device_delivery', 'device_installation', 'device_activation'];
+  const isPostSale = params.selectedTasks.length > 0 &&
+    params.selectedTasks.every(t => POST_SALE_TYPES.includes(t.taskType));
+  const visitFamily = isPostSale ? 'service' : 'marketing';
+
+  const customerSnapshot = {
+    name: params.customerName,
+    address: params.customerAddress,
+    mobile: params.customerMobile,
+    contactTargetId: params.contactTargetId,
+    taskListId: params.taskListId,
+    taskListItemId: params.taskListItemId,
+    teamKey: params.teamKey,
+    requestedDeviceModelId: params.requestedDeviceModelId,
+    requestedDeviceName: params.requestedDeviceName,
+    waterSource: params.waterSource,
+  };
 
   const { rows: visitRows } = await db.query(
     `
-      INSERT INTO marketing_visits (
-        id,
+      INSERT INTO field_visits (
+        visit_type,
+        visit_family,
         branch_id,
         client_id,
-        visit_type,
         status,
         scheduled_date,
         scheduled_time,
-        source_type,
-        source_id,
-        contact_target_id,
-        task_list_id,
-        task_list_item_id,
-        team_key,
-        requested_device_model_id,
-        requested_device_name,
-        water_source,
-        technician_notes,
-        customer_name,
-        customer_address,
-        customer_mobile,
-        supervisor_employee_id,
-        technician_employee_id,
-        trainee_employee_id,
+        source_legacy_type,
+        source_legacy_id,
         team_snapshot,
+        customer_snapshot,
+        field_notes,
         created_by
       )
       VALUES (
-        $1,$2,$3,'marketing','scheduled',$4,$5,'telemarketing_appointment',$6,$7,$8,$9,$10,
-        $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+        'marketing', $1, $2, $3, 'scheduled', $4, $5,
+        'telemarketing_appointment', $6, $7, $8, $9, $10
       )
-      ON CONFLICT (source_type, source_id)
-      DO UPDATE SET source_id = EXCLUDED.source_id
+      ON CONFLICT (source_legacy_type, source_legacy_id)
+      DO UPDATE SET updated_at = NOW()
       RETURNING id
     `,
     [
-      visitId,
+      visitFamily,
       params.branchId,
       params.entityId,
       params.date,
       params.timeSlot,
       params.appointmentId,
-      params.contactTargetId,
-      params.taskListId,
-      params.taskListItemId,
-      params.teamKey,
-      params.requestedDeviceModelId,
-      params.requestedDeviceName,
-      params.waterSource,
-      params.technicianNotes,
-      params.customerName,
-      params.customerAddress,
-      params.customerMobile,
-      teamContext.supervisorEmployeeId,
-      teamContext.technicianEmployeeId,
-      teamContext.traineeEmployeeId,
       teamContext.teamSnapshot ? JSON.stringify(teamContext.teamSnapshot) : null,
+      JSON.stringify(customerSnapshot),
+      params.technicianNotes,
       params.createdBy,
     ],
   );
 
-  const marketingVisitId = visitRows[0]?.id ?? null;
-  if (!marketingVisitId) {
+  const fieldVisitId: number | null = visitRows[0]?.id ?? null;
+  if (!fieldVisitId) {
     return null;
   }
 
-  // Create one visit task per selected task — allows multi-task visits including
+  // Create one visit_task per selected task — allows multi-task visits including
   // multiple tasks of the same type (e.g. two device_demo open tasks in one visit).
   for (let i = 0; i < params.selectedTasks.length; i++) {
     const task = params.selectedTasks[i];
     const taskType = task.taskType || 'device_demo';
+    const taskFamily = POST_SALE_TYPES.includes(taskType) ? 'service' : 'marketing';
 
     if (task.openTaskId != null) {
-      // Identity is anchored to the open task instance — stable and collision-free
-      // even when multiple tasks share the same task_type in one visit.
-      const taskId = `${marketingVisitId}_ot${task.openTaskId}`;
+      const legacyId = `fv${fieldVisitId}_ot${task.openTaskId}`;
       await db.query(
         `
-          INSERT INTO marketing_visit_tasks (
-            id,
-            visit_id,
+          INSERT INTO visit_tasks (
+            field_visit_id,
+            source_open_task_id,
             task_type,
+            task_family,
+            sequence_no,
             status,
-            result,
-            cash_offer_amount,
-            installment_amount,
-            installment_months,
-            closed_by_employee_id,
-            result_notes,
-            contract_id,
-            completed_at,
-            source_open_task_id
+            source_legacy_type,
+            source_legacy_id
           )
-          VALUES ($1,$2,$3,'pending',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,$4)
-          ON CONFLICT (visit_id, source_open_task_id) WHERE source_open_task_id IS NOT NULL DO NOTHING
+          VALUES ($1, $2, $3, $4, $5, 'pending', 'telemarketing_visit_task', $6)
+          ON CONFLICT (source_legacy_type, source_legacy_id) DO NOTHING
         `,
-        [taskId, marketingVisitId, taskType, task.openTaskId],
+        [fieldVisitId, task.openTaskId, taskType, taskFamily, i + 1, legacyId],
       );
     } else {
-      // Fallback for tasks without a linked open_task: stable id by type + position.
-      const taskId = `${marketingVisitId}_${taskType}_${i}`;
+      const legacyId = `fv${fieldVisitId}_${taskType}_${i}`;
       await db.query(
         `
-          INSERT INTO marketing_visit_tasks (
-            id,
-            visit_id,
+          INSERT INTO visit_tasks (
+            field_visit_id,
+            source_open_task_id,
             task_type,
+            task_family,
+            sequence_no,
             status,
-            result,
-            cash_offer_amount,
-            installment_amount,
-            installment_months,
-            closed_by_employee_id,
-            result_notes,
-            contract_id,
-            completed_at,
-            source_open_task_id
+            source_legacy_type,
+            source_legacy_id
           )
-          VALUES ($1,$2,$3,'pending',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)
-          ON CONFLICT (id) DO NOTHING
+          VALUES ($1, NULL, $2, $3, $4, 'pending', 'telemarketing_visit_task', $5)
+          ON CONFLICT (source_legacy_type, source_legacy_id) DO NOTHING
         `,
-        [taskId, marketingVisitId, taskType],
+        [fieldVisitId, taskType, taskFamily, i + 1, legacyId],
       );
     }
   }
 
-  return marketingVisitId;
+  return fieldVisitId;
 }
 
 /**

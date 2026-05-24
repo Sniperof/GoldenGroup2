@@ -5,7 +5,7 @@ import {
     ChevronRight, Phone, MapPin, Share2,
     History, ArrowLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
-    X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers
+    X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
@@ -645,19 +645,27 @@ function VisitsTab({ client }: { client: Client }) {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [taskData, visitData, contractData] = await Promise.all([
-                api.openTasks.listByClient(client.id),
-                api.marketingVisits.list('', client.id),
-                api.contracts.list().then((all: any[]) => all.filter(c => c.customerId === client.id && c.status !== 'cancelled')),
-            ]);
+            const taskData = await api.openTasks.listByClient(client.id);
             setTasks(taskData);
-            setVisits(visitData);
-            setContracts(contractData);
         } catch (err) {
-            console.error(err);
-        } finally {
-            setLoading(false);
+            console.error('Failed to fetch tasks:', err);
+            setTasks([]);
         }
+        try {
+            const visitData = await api.fieldVisits.list({ clientId: client.id });
+            setVisits(visitData);
+        } catch (err) {
+            console.error('Failed to fetch visits:', err);
+            setVisits([]);
+        }
+        try {
+            const contractData = await api.contracts.list();
+            setContracts((contractData as any[]).filter((c: any) => c.customerId === client.id && c.status !== 'cancelled'));
+        } catch (err) {
+            console.error('Failed to fetch contracts:', err);
+            setContracts([]);
+        }
+        setLoading(false);
     }, [client.id]);
 
     useEffect(() => {
@@ -899,6 +907,58 @@ function NetworkTab({ client, clients, candidates }: any) {
     );
 }
 
+function PartCard({ item, contract, installed }: { item: any; contract: any; installed: boolean }) {
+    const label = item.description || item.name || 'قطعة ملحقة';
+    const code = item.code || item.sparePartCode;
+    const qty = item.quantity || 1;
+    const price = item.unitPrice != null ? Number(item.unitPrice) : null;
+    const totalPrice = price != null ? price * qty : null;
+
+    return (
+        <div className={`flex items-start p-4 rounded-2xl border transition-colors ${
+            installed ? 'bg-slate-50 border-slate-100' : 'bg-amber-50 border-amber-200'
+        }`}>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-xs font-bold ${installed ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                        {label}
+                    </span>
+                    {code && (
+                        <span className="text-[10px] text-slate-400 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                            {code}
+                        </span>
+                    )}
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        installed ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                        {installed ? '✓ مركّب' : '⏳ بانتظار التركيب'}
+                    </span>
+                </div>
+                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                    <span className="text-[11px] text-slate-500">الكمية: {qty}</span>
+                    {totalPrice != null && (
+                        <span className="text-[11px] text-slate-500">
+                            السعر: {totalPrice.toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س
+                            {qty > 1 && price != null && (
+                                <span className="text-slate-400"> ({price.toLocaleString('ar-SY', { numberingSystem: 'latn' })} × {qty})</span>
+                            )}
+                        </span>
+                    )}
+                    <span className="text-[11px] text-slate-400">
+                        تاريخ الشراء: {contract?.contractDate ? new Date(contract.contractDate).toLocaleDateString('ar-SY') : '—'}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                        المصدر: عقد #{contract?.contractNumber || contract?.id}
+                    </span>
+                    {item.oldPartRemoved === true && (
+                        <span className="text-[11px] text-emerald-600 font-medium">✓ تم تبديل القطعة القديمة</span>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 interface ContractsTabProps {
     client: Client;
     getFullLocationStr: (neighborhoodId?: string) => string;
@@ -916,20 +976,25 @@ function ContractsTab({ client, getFullLocationStr }: ContractsTabProps) {
 
     const fetchData = useCallback(async () => {
         setLoading(true);
+
         try {
-            const [contractData, taskData] = await Promise.all([
-                api.contracts.list({ customerId: client.id }),
-                api.openTasks.listByClient(client.id)
-            ]);
-            // Filter contracts for this client
+            const contractData = await api.contracts.list({ customerId: client.id });
             const filteredContracts = contractData.filter((c: any) => c.customerId === client.id && c.status !== 'cancelled');
             setContracts(filteredContracts);
+        } catch (err) {
+            console.error('Failed to fetch contracts:', err);
+            setContracts([]);
+        }
+
+        try {
+            const taskData = await api.openTasks.listByClient(client.id);
             setTasks(taskData);
         } catch (err) {
-            console.error('Failed to fetch contracts or tasks', err);
-        } finally {
-            setLoading(false);
+            console.error('Failed to fetch tasks:', err);
+            setTasks([]);
         }
+
+        setLoading(false);
     }, [client.id]);
 
     useEffect(() => {
@@ -995,6 +1060,13 @@ function ContractsTab({ client, getFullLocationStr }: ContractsTabProps) {
             setLineItemUpdatingId(null);
         }
     };
+
+    const lineItemsAll = (selectedContractDetails?.lineItems ?? []).filter((item: any) => item.itemType !== 'device');
+    const installedItems = lineItemsAll.filter((item: any) => !!item.isInstalled);
+    const pendingItems = lineItemsAll.filter((item: any) => !item.isInstalled);
+    const installedCount = installedItems.length;
+    const pendingCount = pendingItems.length;
+    const totalCount = lineItemsAll.length;
 
     if (loading) {
         return (
@@ -1318,52 +1390,60 @@ function ContractsTab({ client, getFullLocationStr }: ContractsTabProps) {
                                     </div>
                                 </div>
 
-                                {/* Line Items Installation Checklist */}
+                                {/* Line Items — قطع وملحقات الجهاز */}
                                 <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
                                     <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
                                         <Wrench className="w-4 h-4 text-slate-400" />
-                                        قائمة القطع والملحقات (التثبيت الفردي)
+                                        قطع وملحقات الجهاز
                                     </h4>
                                     {detailsLoading ? (
                                         <div className="text-center py-4">
                                             <Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-300" />
                                         </div>
-                                    ) : !selectedContractDetails?.lineItems || selectedContractDetails.lineItems.length === 0 ? (
-                                        <p className="text-xs text-slate-400 font-bold text-center py-4">لا توجد قطع ملحقة أو إضافية مسجلة.</p>
                                     ) : (
-                                        <div className="space-y-3">
-                                            {selectedContractDetails.lineItems.map((item: any) => {
-                                                const label = item.description || (item.itemType === 'device' ? 'الجهاز الأساسي' : 'قطعة ملحقة');
-                                                const isInstalled = !!item.isInstalled;
-                                                const isUpdating = lineItemUpdatingId === item.id;
-
-                                                return (
-                                                    <div
-                                                        key={item.id}
-                                                        className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors"
-                                                    >
-                                                        <div className="flex items-center gap-3">
-                                                            <input
-                                                                type="checkbox"
-                                                                id={`item-${item.id}`}
-                                                                checked={isInstalled}
-                                                                disabled={isUpdating}
-                                                                onChange={() => handleToggleInstallation(item.id, isInstalled)}
-                                                                className="w-4.5 h-4.5 text-sky-600 border-slate-300 rounded focus:ring-sky-500 cursor-pointer disabled:opacity-50"
-                                                            />
-                                                            <label
-                                                                htmlFor={`item-${item.id}`}
-                                                                className={`text-xs font-bold cursor-pointer select-none transition-colors ${isInstalled ? 'text-slate-400 line-through' : 'text-slate-700'}`}
-                                                            >
-                                                                {label}
-                                                                <span className="text-[10px] text-slate-400 font-medium mr-2">({item.quantity} قطع)</span>
-                                                            </label>
-                                                        </div>
-                                                        {isUpdating && <Loader2 className="w-4 h-4 animate-spin text-sky-600" />}
+                                        <>
+                                            {totalCount > 0 && (
+                                                <div className="flex items-center gap-3 flex-wrap">
+                                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                                                        <span className="text-xs font-bold text-emerald-700">{installedCount}</span>
+                                                        <span className="text-[10px] text-emerald-600">مركّب</span>
                                                     </div>
-                                                );
-                                            })}
-                                        </div>
+                                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200">
+                                                        <span className="text-xs font-bold text-amber-700">{pendingCount}</span>
+                                                        <span className="text-[10px] text-amber-600">باقي</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200">
+                                                        <span className="text-xs font-bold text-slate-700">{totalCount}</span>
+                                                        <span className="text-[10px] text-slate-600">الإجمالي</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {pendingItems.length > 0 && (
+                                                <div className="space-y-2">
+                                                    <h5 className="text-xs font-bold text-amber-700 flex items-center gap-1.5">
+                                                        <AlertCircle className="w-3.5 h-3.5" />
+                                                        بانتظار التركيب ({pendingItems.length})
+                                                    </h5>
+                                                    {pendingItems.map((item: any) => (
+                                                        <PartCard key={item.id} item={item} contract={selectedContract} installed={false} />
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {installedItems.length > 0 && (
+                                                <div className="space-y-2">
+                                                    <h5 className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
+                                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                                        مركّب ({installedItems.length})
+                                                    </h5>
+                                                    {installedItems.map((item: any) => (
+                                                        <PartCard key={item.id} item={item} contract={selectedContract} installed={true} />
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {totalCount === 0 && (
+                                                <p className="text-xs text-slate-400 font-bold text-center py-4">لا توجد قطع أو ملحقات مسجلة.</p>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             </div>

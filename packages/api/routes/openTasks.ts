@@ -64,15 +64,15 @@ const OPEN_TASK_SELECT = `
   LEFT JOIN hr_users creator ON creator.id = ot.created_by
   LEFT JOIN LATERAL (
     SELECT
-      mv.id,
-      mv.status,
-      mv.scheduled_date,
-      mv.scheduled_time
-    FROM marketing_visit_tasks mvt
-    JOIN marketing_visits mv ON mv.id = mvt.visit_id
-    WHERE mvt.source_open_task_id = ot.id
-      AND mvt.task_type = 'device_demo'
-    ORDER BY mvt.updated_at DESC
+      fv.id,
+      fv.status,
+      fv.scheduled_date,
+      fv.scheduled_time
+    FROM visit_tasks vt
+    JOIN field_visits fv ON fv.id = vt.field_visit_id
+    WHERE vt.source_open_task_id = ot.id
+      AND vt.task_type = 'device_demo'
+    ORDER BY vt.updated_at DESC
     LIMIT 1
   ) latest_visit ON true
   ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
@@ -537,15 +537,15 @@ router.get('/client/:clientId', requirePermission('marketing_visits.view'), asyn
      FROM open_tasks ot
      LEFT JOIN LATERAL (
        SELECT
-         mv.id,
-         mv.status,
-         mv.scheduled_date,
-         mv.scheduled_time
-       FROM marketing_visit_tasks mvt
-       JOIN marketing_visits mv ON mv.id = mvt.visit_id
-       WHERE mvt.source_open_task_id = ot.id
-         AND mvt.task_type = 'device_demo'
-       ORDER BY mvt.updated_at DESC
+         fv.id,
+         fv.status,
+         fv.scheduled_date,
+         fv.scheduled_time
+       FROM visit_tasks vt
+       JOIN field_visits fv ON fv.id = vt.field_visit_id
+       WHERE vt.source_open_task_id = ot.id
+         AND vt.task_type = 'device_demo'
+       ORDER BY vt.updated_at DESC
        LIMIT 1
      ) latest_visit ON true
      ${whereClause}
@@ -665,12 +665,12 @@ router.get('/device-demo', requirePermission('marketing_visits.view'), async (re
         mv.status AS "visitStatus",
         mv.scheduled_date AS "scheduledDate",
         mv.scheduled_time AS "scheduledTime",
-        mv.requested_device_name AS "requestedDeviceName",
-        mv.requested_device_model_id AS "requestedDeviceModelId",
+        (mv.customer_snapshot->>'requestedDeviceName') AS "requestedDeviceName",
+        (mv.customer_snapshot->>'requestedDeviceModelId')::integer AS "requestedDeviceModelId",
         mv.team_snapshot AS "visitTeamSnapshot",
-        mv.customer_name AS "customerName",
-        mv.customer_mobile AS "customerMobile",
-        mv.customer_address AS "customerAddress",
+        (mv.customer_snapshot->>'name') AS "customerName",
+        (mv.customer_snapshot->>'mobile') AS "customerMobile",
+        (mv.customer_snapshot->>'address') AS "customerAddress",
         mvt.result AS "latestResult",
         mvt.status AS "visitTaskStatus"
       FROM open_tasks ot
@@ -680,14 +680,14 @@ router.get('/device-demo', requirePermission('marketing_visits.view'), async (re
       LEFT JOIN hr_users creator ON creator.id = ot.created_by
       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
       LEFT JOIN LATERAL (
-        SELECT mvt2.result, mvt2.status, mvt2.visit_id
-        FROM marketing_visit_tasks mvt2
-        WHERE mvt2.source_open_task_id = ot.id
-          AND mvt2.task_type = 'device_demo'
-        ORDER BY mvt2.updated_at DESC
+        SELECT vt2.legacy_result AS result, vt2.status, vt2.field_visit_id
+        FROM visit_tasks vt2
+        WHERE vt2.source_open_task_id = ot.id
+          AND vt2.task_type = 'device_demo'
+        ORDER BY vt2.updated_at DESC
         LIMIT 1
       ) mvt ON true
-      LEFT JOIN marketing_visits mv ON mv.id = mvt.visit_id
+      LEFT JOIN field_visits mv ON mv.id = mvt.field_visit_id
       WHERE ot.branch_id = $1
         AND ot.task_type = 'device_demo'
         ${whereExtra}
@@ -823,89 +823,38 @@ router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) 
       };
     }
 
-    async function loadResultData(mvtId: number) {
-      const { rows: mvtRows } = await pool.query(
+    async function loadResultData(openTaskId: number) {
+      const { rows: vtRows } = await pool.query(
         `SELECT
-          mvt.result,
-          mvt.status AS "resultStatus",
-          mvt.cash_offer_amount AS "cashOfferAmount",
-          mvt.installment_amount AS "installmentAmount",
-          mvt.installment_months AS "installmentMonths",
-          mvt.currency,
-          mvt.discount_percentage AS "discountPercentage",
-          mvt.closed_by_employee_id AS "closedByEmployeeId",
+          vt.status AS "resultStatus",
+          vt.legacy_result AS result,
+          vtr.final_decision AS "finalDecision",
+          vtr.reason_code AS "cancellationReason",
+          vtr.closing_notes AS "resultNotes",
+          vtr.closed_at AS "completedAt",
+          vtdr.offer_type AS "offerType",
+          vtdr.offer_amount AS "cashOfferAmount",
+          vtdr.installment_months AS "installmentMonths",
+          vtdr.closed_by_employee_id AS "closedByEmployeeId",
           closer.name AS "closedByEmployeeName",
-          mvt.result_notes AS "resultNotes",
-          mvt.no_closing_reason AS "noClosingReason",
-          mvt.sold_device_model_id AS "soldDeviceModelId",
-          dm.name AS "soldDeviceModelName",
-          mvt.contract_id AS "contractId",
-          mvt.completed_at AS "completedAt",
-          mvt.outcome,
-          mvt.offer_type AS "offerType",
-          mvt.has_discount AS "hasDiscount",
-          mvt.is_device_sold AS "isDeviceSold",
-          mvt.sale_reference_number AS "saleReferenceNumber",
-          mvt.follow_up_due_date AS "followUpDueDate",
-          mvt.cancellation_reason_id AS "cancellationReasonId",
-          cancel_reason.value AS "cancellationReasonName",
-          mvt.reschedule_reason_id AS "rescheduleReasonId",
-          reschedule_reason.value AS "rescheduleReasonName",
-          mvt.cancellation_reason AS "cancellationReason",
-          mvt.reschedule_reason AS "rescheduleReason"
-        FROM marketing_visit_tasks mvt
-        LEFT JOIN employees closer ON closer.id = mvt.closed_by_employee_id
-        LEFT JOIN device_models dm ON dm.id = mvt.sold_device_model_id
-        LEFT JOIN system_lists cancel_reason ON cancel_reason.id = mvt.cancellation_reason_id
-        LEFT JOIN system_lists reschedule_reason ON reschedule_reason.id = mvt.reschedule_reason_id
-        WHERE mvt.id = $1`,
-        [mvtId],
+          vtdr.contract_id AS "contractId"
+        FROM visit_tasks vt
+        LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+        LEFT JOIN visit_task_device_demo_results vtdr ON vtdr.visit_task_result_id = vtr.id
+        LEFT JOIN employees closer ON closer.id = vtdr.closed_by_employee_id
+        WHERE vt.source_open_task_id = $1
+          AND vt.task_type = 'device_demo'
+        ORDER BY vt.updated_at DESC
+        LIMIT 1`,
+        [openTaskId],
       );
-      if (mvtRows[0]) {
-        Object.assign(taskData, mvtRows[0]);
-        // Load actual offers submitted during the visit
-        const { rows: offerRows } = await pool.query(
-          `SELECT
-            mvto.id,
-            mvto.device_model_id AS "deviceModelId",
-            COALESCE(dm2.name_ar, dm2.name) AS "deviceName",
-            mvto.offer_type AS "offerType",
-            mvto.quantity,
-            mvto.total_amount::float AS "totalAmount",
-            mvto.currency,
-            mvto.discount_percentage::float AS "discountPercentage",
-            mvto.no_closing_reason AS "noClosingReason",
-            e.name AS "closedByEmployeeName",
-            mvto.customer_response AS "customerResponse"
-          FROM marketing_visit_task_offers mvto
-          LEFT JOIN device_models dm2 ON dm2.id = mvto.device_model_id
-          LEFT JOIN employees e ON e.id = mvto.closed_by_employee_id
-          WHERE mvto.task_id = $1
-          ORDER BY mvto.id`,
-          [mvtId],
-        );
-        (taskData as any).offers = offerRows;
+      if (vtRows[0]) {
+        Object.assign(taskData, vtRows[0]);
+        (taskData as any).offers = [];
       }
     }
 
-    // Try to find result data only from the task linked to THIS open task.
-    if (taskData.marketingVisitTaskId) {
-      await loadResultData(Number(taskData.marketingVisitTaskId));
-    } else if (taskData.marketingVisitId) {
-      const { rows: linkRows } = await pool.query(
-        `SELECT id
-         FROM marketing_visit_tasks
-         WHERE visit_id = $1
-           AND task_type = 'device_demo'
-           AND source_open_task_id = $2
-         ORDER BY updated_at DESC
-         LIMIT 1`,
-        [taskData.marketingVisitId, id],
-      );
-      if (linkRows[0]) {
-        await loadResultData(linkRows[0].id);
-      }
-    }
+    await loadResultData(id);
 
     // Load pre-offers defined at task creation
     const { rows: preOfferRows } = await pool.query(
@@ -1896,18 +1845,18 @@ router.get('/:id/devices', requirePermission('marketing_visits.view'), async (re
     );
     if (taRows.length > 0) return res.json(taRows);
 
-    // Fallback 2: marketing_visits device name via marketing_visit_tasks link
+    // Fallback 2: field_visits device name via visit_tasks link
     const { rows: mvRows } = await pool.query(
       `SELECT
-        mv.id,
-        mv.requested_device_model_id AS "deviceModelId",
-        mv.requested_device_name AS "deviceName",
+        fv.id,
+        (fv.customer_snapshot->>'requestedDeviceModelId')::integer AS "deviceModelId",
+        (fv.customer_snapshot->>'requestedDeviceName') AS "deviceName",
         1 AS quantity
-      FROM marketing_visits mv
-      JOIN marketing_visit_tasks mvt ON mvt.visit_id = mv.id
-      WHERE mvt.source_open_task_id = $1
-        AND mv.requested_device_name IS NOT NULL
-      ORDER BY mv.created_at
+      FROM field_visits fv
+      JOIN visit_tasks vt ON vt.field_visit_id = fv.id
+      WHERE vt.source_open_task_id = $1
+        AND fv.customer_snapshot->>'requestedDeviceName' IS NOT NULL
+      ORDER BY fv.created_at
       LIMIT 1`,
       [id],
     );

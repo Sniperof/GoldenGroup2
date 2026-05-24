@@ -394,4 +394,205 @@ router.patch(
   },
 );
 
+// ── GET /api/customers/:id/purchase-history ───────────────────────────────────
+
+router.get(
+  '/:id/purchase-history',
+  requirePermission('clients.view'),
+  async (req, res) => {
+    const customerId = parseInt(req.params['id'] as string, 10);
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
+    }
+
+    try {
+      const { rows: clientRows } = await pool.query(
+        'SELECT id FROM clients WHERE id = $1',
+        [customerId],
+      );
+      if (clientRows.length === 0) {
+        return res.status(404).json({ error: 'الزبون غير موجود' });
+      }
+
+      const { rows: records } = await pool.query(
+        `
+        (
+          SELECT
+            'contract_device_' || c.id::text AS id,
+            c.customer_id,
+            c.branch_id,
+            c.contract_date::text AS purchase_date,
+            'contract' AS source_type,
+            c.id::text AS source_id,
+            'عقد #' || COALESCE(c.contract_number, c.id::text) AS source_label,
+            'device' AS item_type,
+            c.device_model_id AS item_id,
+            c.device_model_name AS item_name,
+            NULL::varchar AS item_code,
+            1 AS quantity,
+            c.base_price AS unit_price,
+            c.base_price AS total_price,
+            'SYP' AS currency,
+            c.payment_type,
+            TRUE AS is_installed,
+            NULL::boolean AS old_part_removed,
+            CASE
+              WHEN c.is_golden_warranty = TRUE THEN 'golden_warranty'
+              ELSE 'contract_warranty'
+            END AS warranty_context,
+            CASE
+              WHEN c.is_golden_warranty = TRUE THEN c.golden_warranty_end_date
+              ELSE c.contract_warranty_end_date
+            END AS warranty_until,
+            c.id AS device_context_id,
+            c.device_model_name AS device_context_name,
+            CASE
+              WHEN c.base_price > c.final_price THEN jsonb_build_object(
+                'originalPrice', c.base_price,
+                'discountAmount', c.base_price - c.final_price,
+                'finalContractPrice', c.final_price
+              )
+              ELSE NULL
+            END AS discount_info,
+            NULL::text AS notes
+          FROM contracts c
+          WHERE c.customer_id = $1
+            AND c.device_model_id IS NOT NULL
+        )
+        UNION ALL
+        (
+          SELECT
+            'contract_item_' || cli.id::text AS id,
+            c.customer_id,
+            c.branch_id,
+            c.contract_date::text AS purchase_date,
+            'contract' AS source_type,
+            c.id::text AS source_id,
+            'عقد #' || COALESCE(c.contract_number, c.id::text) AS source_label,
+            CASE
+              WHEN sp.maintenance_type = 'Periodic' THEN 'periodic_part'
+              WHEN sp.maintenance_type = 'Emergency' THEN 'emergency_part'
+              ELSE 'accessory'
+            END AS item_type,
+            cli.spare_part_id AS item_id,
+            COALESCE(cli.description, sp.name, 'قطعة ملحقة') AS item_name,
+            sp.code AS item_code,
+            cli.quantity,
+            cli.unit_price,
+            cli.total_price,
+            'SYP' AS currency,
+            c.payment_type,
+            cli.is_installed,
+            NULL::boolean AS old_part_removed,
+            'contract_warranty' AS warranty_context,
+            c.contract_warranty_end_date AS warranty_until,
+            c.id AS device_context_id,
+            c.device_model_name AS device_context_name,
+            NULL::jsonb AS discount_info,
+            NULL::text AS notes
+          FROM contract_line_items cli
+          JOIN contracts c ON c.id = cli.contract_id
+          LEFT JOIN spare_parts sp ON sp.id = cli.spare_part_id
+          WHERE c.customer_id = $1
+            AND cli.item_type = 'accessory'
+        )
+        UNION ALL
+        (
+          SELECT
+            'emergency_' || vtepu.id::text AS id,
+            fv.client_id AS customer_id,
+            fv.branch_id,
+            COALESCE(vtr.closed_at::date::text, fv.scheduled_date::text) AS purchase_date,
+            'emergency_maintenance' AS source_type,
+            vt.id::text AS source_id,
+            'صيانة طارئة #' || vt.id::text AS source_label,
+            'emergency_part' AS item_type,
+            vtepu.spare_part_id AS item_id,
+            COALESCE(vtepu.part_name_snapshot, sp.name, 'قطعة صيانة') AS item_name,
+            sp.code AS item_code,
+            vtepu.quantity,
+            vtepu.unit_price,
+            (vtepu.quantity * COALESCE(vtepu.unit_price, 0)) AS total_price,
+            'SYP' AS currency,
+            COALESCE(vtef.payment_method, 'maintenance_paid') AS payment_type,
+            TRUE AS is_installed,
+            vtepu.old_part_removed,
+            CASE
+              WHEN c.is_golden_warranty = TRUE
+                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= c.golden_warranty_end_date
+                THEN 'golden_warranty'
+              WHEN c.contract_warranty_end_date IS NOT NULL
+                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= c.contract_warranty_end_date
+                THEN 'contract_warranty'
+              ELSE 'no_warranty'
+            END AS warranty_context,
+            CASE
+              WHEN c.is_golden_warranty = TRUE
+                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= c.golden_warranty_end_date
+                THEN c.golden_warranty_end_date
+              WHEN c.contract_warranty_end_date IS NOT NULL
+                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= c.contract_warranty_end_date
+                THEN c.contract_warranty_end_date
+              ELSE NULL
+            END AS warranty_until,
+            c.id AS device_context_id,
+            c.device_model_name AS device_context_name,
+            NULL::jsonb AS discount_info,
+            NULL::text AS notes
+          FROM visit_task_emergency_parts_used vtepu
+          JOIN visit_tasks vt ON vt.id = vtepu.visit_task_id
+          JOIN field_visits fv ON fv.id = vt.field_visit_id
+          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+          LEFT JOIN visit_task_emergency_financials vtef ON vtef.visit_task_id = vt.id
+          LEFT JOIN spare_parts sp ON sp.id = vtepu.spare_part_id
+          LEFT JOIN contracts c ON c.id = vt.contract_id
+          WHERE fv.client_id = $1
+        )
+        ORDER BY purchase_date DESC NULLS LAST
+        `,
+        [customerId],
+      );
+
+      return res.json({
+        customerId,
+        records: records.map(r => ({
+          ...r,
+          purchaseDate: r.purchase_date,
+          sourceType: r.source_type,
+          sourceId: r.source_id,
+          sourceLabel: r.source_label,
+          itemType: r.item_type,
+          itemId: r.item_id,
+          itemName: r.item_name,
+          itemCode: r.item_code,
+          quantity: r.quantity,
+          unitPrice: r.unit_price,
+          totalPrice: r.total_price,
+          currency: r.currency,
+          paymentType: r.payment_type,
+          isInstalled: r.is_installed,
+          oldPartRemoved: r.old_part_removed,
+          warrantyContext: r.warranty_context,
+          warrantyUntil: r.warranty_until,
+          deviceContext: {
+            contractId: r.device_context_id,
+            deviceModelName: r.device_context_name,
+          },
+          discountInfo: r.discount_info,
+          notes: r.notes,
+        })),
+        summary: {
+          totalPurchases: records.length,
+          totalDevices: records.filter(r => r.item_type === 'device').length,
+          totalParts: records.filter(r => r.item_type !== 'device').length,
+          totalSpent: records.reduce((sum, r) => sum + Number(r.total_price || 0), 0),
+        },
+      });
+    } catch (err: any) {
+      console.error('[customers] GET /:id/purchase-history error:', err);
+      return res.status(500).json({ error: 'خطأ في جلب سجل المشتريات' });
+    }
+  },
+);
+
 export default router;
