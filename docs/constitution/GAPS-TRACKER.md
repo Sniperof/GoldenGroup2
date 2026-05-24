@@ -738,6 +738,73 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
 
+### GAP-062: Geo unit status has no operational effect — cascade, scope, tasks, blocks all missing ⭐ عالية
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | geo_units + open_tasks + field_visits + clients + geoScopeService |
+| **الموقع** | `routes/geoUnits.ts` · `services/geoScopeService.ts` · `routes/clients.ts` · `routes/openTasks.ts` · `routes/contracts.ts` |
+| **الوصف** | حقل `geo_units.status` موجود بالـ DB والـ badge ظاهر في الواجهة، لكن تغيير الحالة لـ `inactive` **لا يفعل أي شيء** فعلياً — لا cascade للأبناء، لا تأثير على نطاق الفروع، لا منع لتسجيل زبائن جدد، لا منع لإنشاء مهام، ولا إلغاء للمهام القائمة. |
+| **التأثير** | `inactive` مجرد cosmetic badge — لا يوقف أي عمليات في المنطقة المعطّلة. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [geo-units.md §3 BR-5](domains/geo-units.md#br-5-قاعدة-حالة-الوحدة-الجغرافية-geo-unit-status) |
+
+**المكونات الخمسة المطلوبة للتنفيذ الكامل:**
+
+**1. Cascade الحالة للأبناء** — `routes/geoUnits.ts` → `PATCH /:id/status`
+```sql
+WITH RECURSIVE descendants AS (
+  SELECT id FROM geo_units WHERE id = $geoUnitId
+  UNION ALL
+  SELECT g.id FROM geo_units g INNER JOIN descendants d ON g.parent_id = d.id
+)
+UPDATE geo_units SET status = $status WHERE id IN (SELECT id FROM descendants)
+```
+- تعطيل أب → يُعطّل كل أبنائه وأبناء أبنائه
+- إعادة تفعيل أب → يُفعّل كل الأبناء (السلوك المتفق عليه)
+
+**2. إلغاء المهام القائمة** — نفس endpoint `PATCH /:id/status` عند `status='inactive'`
+- بعد UPDATE الـ geo units، نجمع كل IDs المتأثرة
+- نُلغي `open_tasks` غير المنتهية عبر JOIN على `clients.neighborhood` أو `contracts.installation_geo_unit_id`:
+```sql
+UPDATE open_tasks SET status='cancelled',
+  notes = COALESCE(notes,'')||' | إلغاء تلقائي — إيقاف العمل في المنطقة'
+WHERE status NOT IN ('completed','closed','cancelled')
+  AND (client IN affected_neighborhood OR contract IN affected_geo)
+```
+- حالات المهام النشطة: `open, needs_follow_up, assigned, in_scheduling, scheduled, waiting_execution, in_execution, ended`
+- نُلغي أيضاً `field_visits` بحالة `scheduled`
+
+**3. استبعاد inactive من نطاق الفرع** — `services/geoScopeService.ts`
+- `effectiveCoveredIds`: تصفية الوحدات المعطّلة
+- `buildServiceGeoIds`: تخطي الوحدة المعطّلة وكل أبنائها في الـ recursion:
+```typescript
+const addDescendants = (unitId: number) => {
+  const unit = byId.get(unitId);
+  if (!unit || unit.status === 'inactive') return; // ← يوقف الـ recursion كاملاً
+  service.add(unitId);
+  for (const child of childrenByParent.get(unitId) ?? []) addDescendants(child.id);
+};
+```
+
+**4. منع تسجيل زبون جديد في منطقة معطّلة** — `routes/clients.ts` POST
+```typescript
+if (neighborhood) {
+  const { rows } = await pool.query('SELECT status FROM geo_units WHERE id=$1', [neighborhood]);
+  if (rows[0]?.status === 'inactive')
+    return res.status(400).json({ error: 'لا يمكن تسجيل زبون في منطقة موقوفة العمل' });
+}
+```
+
+**5. منع إنشاء مهمة جديدة في منطقة معطّلة** — `routes/openTasks.ts` POST + `routes/contracts.ts` POST
+- للمهام المبنية على العميل: فحص `client.neighborhood` قبل INSERT
+- للمهام المبنية على العقد: فحص `contract.installation_geo_unit_id` قبل INSERT
+
+**ملاحظات التنفيذ:**
+- الـ PATCH endpoint يحتاج transaction كاملة: BEGIN → cascade geo → cancel tasks → cancel visits → COMMIT
+- يجب إرجاع عداد الوحدات المتأثرة والمهام الملغاة في الـ response للواجهة
+- الواجهة تحتاج confirm modal قبل التعطيل تُظهر عدد الوحدات والمهام المتأثرة (يُحسب أولاً بـ dry-run query بدون commit)
+
 ---
 
 ## الثغرات المحلولة (Resolved Gaps)
@@ -792,9 +859,9 @@
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 54 |
+| **عدد الثغرات المفتوحة** | 55 |
 | **عدد الثغرات المحلولة** | 7 (GAP-003, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039) |
-| **عالية الخطورة** | 11 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059) |
+| **عالية الخطورة** | 12 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059, GAP-062) |
 | **متوسطة** | 25 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-045, GAP-046, GAP-049, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
 | **منخفضة** | 17 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-047, GAP-048, GAP-061) |
 | **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (4 مفتوحة) / geo_units (3 مفتوحة) |
