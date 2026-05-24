@@ -54,6 +54,7 @@
 | `contracts` | `VARCHAR(50)` | `draft`, `active`, `completed`, `cancelled` | ✅ نعم |
 | `contract_installments` | `VARCHAR(50)` | `pending`, `paid`, `partial`, `overdue` (حروف صغيرة) | ✅ نعم |
 | `dues` | `VARCHAR(50)` | `Pending`, `Partial`, `Paid`, `Overdue` (أول حرف كبير - GAP-013) | ✅ نعم |
+| `open_tasks` | `VARCHAR(50)` | `open`, `needs_follow_up`, `assigned`, `in_scheduling`, `scheduled`, `waiting_execution`, `in_execution`, `ended`, `completed`, `closed`, `cancelled` | ✅ نعم |
 | `tasks` | `VARCHAR(50)` | `pending`, `in-progress`, `completed` | ✅ نعم |
 | `visits` | `VARCHAR(50)` | `Pending`, `Completed`, `Cancelled` | ✅ نعم |
 | `emergency_tickets` | `VARCHAR(50)` | `New`, `Assigned`, `In Progress`, `Completed`, `Cancelled` | ✅ نعم |
@@ -68,6 +69,7 @@
 |---|---|---|---|---|---|
 | `clients` | ✅ TIMESTAMPTZ | ✅ FK → hr_users | ❌ | ✅ | ✅ نعم |
 | `contracts` | ✅ TIMESTAMPTZ | — | — | — | ❌ لا |
+| `open_tasks` | ✅ TIMESTAMPTZ | ✅ FK → hr_users | ✅ TIMESTAMPTZ | — | ❌ لا |
 | `employees` | ✅ TIMESTAMPTZ | — | — | — | ❌ لا |
 | `candidates` | ✅ TIMESTAMPTZ | ✅ FK → hr_users | — | — | ❌ لا |
 | `referral_sheets` | ✅ TIMESTAMPTZ | ✅ FK → hr_users | — | — | ❌ لا |
@@ -140,14 +142,16 @@ referral_sheets (1) ──────► (N) candidates
 ### 2.2 الجداول الربطية (Junction Tables)
 
 | الجدول الربطي | يربط | مع | الغرض |
-|---|---|---|---|
+|---|---|---|---|---|
 | `client_assignments` | `clients` | `hr_users` | تخصيص موظفين لزبون |
 | `candidate_assignments` | `candidates` | `hr_users` | تخصيص موظفين لمرشح |
 | `contract_line_items` | `contracts` | `device_models` + `spare_parts` | بنود العقد |
 | `contract_payment_entries` | `contracts` | — | دفعات العقد |
 | `visit_tasks` | `field_visits` | `task_type_config` | مهام الزيارة |
 | `role_permission_grants` | `roles` | `permissions` | صلاحيات الدور |
-| `user_branch_assignments` | `hr_users` | `branches` | فروع الموظف |
+| `user_branch_assignments` | `hr_users` | `branches` | فروع المستخدم |
+| `call_task_links` | `open_tasks` | `customer_call_logs` | ربط الاتصالات بالتكليفات |
+| `open_task_devices` | `open_tasks` | `device_models` | أجهزة المهمة الميدانية |
 
 ---
 
@@ -170,6 +174,7 @@ referral_sheets (1) ──────► (N) candidates
 | `clients` | `gps_coordinates` | إحداثيات |
 | `clients` | `referrers` | قائمة الوسطاء |
 | `contracts` | — | — |
+| `open_tasks` | `client_snapshot`, `contract_snapshot`, `team_snapshot` | لقطات فدائية لبيانات الزبائن والعقود والفرق |
 | `employees` | — | — |
 | `branches` | `covered_geo_ids` | مناطق التغطية |
 | `branches` | `contact_info` | معلومات التواصل |
@@ -192,6 +197,18 @@ referral_sheets (1) ──────► (N) candidates
 | `contract_payment_entries` | `method` | `cash`, `sham_cash`, `syriatel_cash`, `mtn_cash`, `alharam`, `bank_transfer`, `barter`, `usd_cash` | ✅ نعم |
 | `contract_installments` | `status` | `pending`, `paid`, `partial`, `overdue` | ✅ نعم |
 | `dues` | `status` | `Pending`, `Partial`, `Paid`, `Overdue` | ✅ نعم |
+| `open_tasks` | `status` | `open`, `needs_follow_up`, `assigned`, `in_scheduling`, `scheduled`, `waiting_execution`, `in_execution`, `ended`, `completed`, `closed`, `cancelled` | ✅ نعم |
+| `open_tasks` | `task_family` | `marketing`, `service`, `maintenance`, `emergency` | ✅ نعم |
+| `open_tasks` | `reason` | `new_lead`, `follow_up`, `renewal`, `service_request`, `other` | ✅ نعم |
+| `open_tasks` | `priority` | `high`, `medium`, `low` | ✅ نعم |
+| `open_tasks` | `last_waiting_status` | `open`, `needs_follow_up` | ✅ نعم |
+| `task_activity_log` | `event_type` | `status_change, note_added, rescheduled, assigned, reassigned, call_made, priority_changed, team_assigned, team_changed, lifecycle_skip` | ✅ نعم |
+| `open_task_pre_offers` | `offer_type` | `cash`, `installment` | ✅ نعم |
+| `task_type_config` | `scheduling_pattern` | `immediate`, `short_window`, `long_window`, `expected_window` | ✅ نعم |
+| `task_type_config` | `window_basis` | `none`, `due_date`, `expected_date` | ✅ نعم |
+| `task_type_config` | `location_basis` | `client`, `contract` | ✅ نعم |
+| `device_technical_states` | `phase` | `pre`, `post`, `standalone` | ✅ نعم |
+| `emergency_result_costs` | `final_decision` | `resolved`, `partially_resolved`, `unresolved`, `needs_followup`, `cancelled` | ✅ نعم |
 | `tasks` | `type` | `emergency`, `dues`, `periodic`, `returns`, `followup` | ✅ نعم |
 | `tasks` | `status` | `pending`, `in-progress`, `completed` | ✅ نعم |
 | `tasks` | `priority` | `high`, `medium`, `low` | ✅ نعم |
@@ -250,7 +267,7 @@ referral_sheets (1) ──────► (N) candidates
 | 13 | `device_models` | `id` | — | موديلات الأجهزة |
 | 14 | `spare_parts` | `id` | — | قطع الغيار |
 | 15 | `device_discounts` | `id` | `device_model_id` | خصومات الأجهزة |
-| 16 | `device_technical_states` | `id` | — | الحالات التقنية |
+| 16 | [`device_technical_states`](domains/open-tasks.md) | `id` | `contract_id`, `open_task_id` | الحالات التقنية للأجهزة (طوارئ/صيانة) |
 
 ### 5.3 الزيارات والمهام (Visits & Tasks)
 
@@ -263,8 +280,8 @@ referral_sheets (1) ──────► (N) candidates
 | 21 | `visit_name_collections` | `id` | `client_id`, `field_visit_id` | جمع أسماء |
 | 22 | `direct_suggestions` | `id` | `client_id` | ترشيحات مباشرة |
 | 23 | `tasks` | `id` | — | المهام القديمة |
-| 24 | `open_tasks` | `id` | `client_id`, `contract_id` | المهام المفتوحة |
-| 25 | `task_type_config` | `id` | — | إعدادات أنواع المهام |
+| 24 | [`open_tasks`](domains/open-tasks.md) | `id` | `client_id`, `contract_id`, `branch_id`, `task_type` | المهام المفتوحة والتشغيل الميداني |
+| 25 | [`task_type_config`](domains/open-tasks.md) | `task_type` | — | إعدادات أنواع المهام والنافذة الزمنية |
 | 26 | `schedules` | `date` | — | جداول الفرق |
 | 27 | `route_assignments` | `key` | — | تخصيص المسارات |
 | 28 | `routes` | `id` | — | المسارات الجغرافية |
@@ -274,11 +291,11 @@ referral_sheets (1) ──────► (N) candidates
 | 32 | `maintenance_requests` | `id` | `customer_id`, `contract_id` | طلبات الصيانة |
 | 33 | `emergency_tickets` | `id` | `client_id`, `contract_id` | بلاغات الطوارئ |
 | 34 | `emergency_action_types` | `id` | — | أنواع إجراءات الطوارئ |
-| 35 | `emergency_result_parts` | `id` | — | قطع طوارئ |
-| 36 | `emergency_result_costs` | `id` | — | تكاليف طوارئ |
-| 37 | `emergency_maintenance_actions` | `id` | — | إجراءات صيانة طوارئ |
-| 38 | `emergency_payment_entries` | `id` | — | دفعات طوارئ |
-| 39 | `emergency_installments` | `id` | — | أقساط طوارئ |
+| 35 | [`emergency_result_parts`](domains/open-tasks.md) | `id` | `open_task_id`, `spare_part_id` | قطع غيار الطوارئ المستهلكة |
+| 36 | [`emergency_result_costs`](domains/open-tasks.md) | `id` | `open_task_id`, `closing_employee_id` | التكاليف والقرارات النهائية للطوارئ |
+| 37 | [`emergency_maintenance_actions`](domains/open-tasks.md) | `id` | `open_task_id`, `action_type_id` | الإجراءات الميدانية الفنية للصيانة |
+| 38 | [`emergency_payment_entries`](domains/open-tasks.md) | `id` | `costs_id`, `transfer_company_id` | دفعات ومقبوضات الطوارئ المتعددة |
+| 39 | [`emergency_installments`](domains/open-tasks.md) | `id` | `costs_id`, `open_task_id`, `due_id` | جدولة أقساط صيانة الطوارئ |
 | 40 | `visit_task_device_delivery_results` | `id` | — | نتائج توصيل |
 | 41 | `visit_task_device_installation_results` | `id` | — | نتائج تركيب |
 | 42 | `visit_task_device_demo_results` | `id` | — | نتائج عرض |
@@ -288,10 +305,13 @@ referral_sheets (1) ──────► (N) candidates
 | 46 | `visit_task_emergency_financials` | `id` | — | أمور مالية |
 | 47 | `open_task_delivery_results` | `id` | — | نتائج توصيل مفتوحة |
 | 48 | `open_task_installation_results` | `id` | — | نتائج تركيب مفتوحة |
-| 49 | `open_task_pre_offers` | `id` | — | عروض مسبقة |
+| 49 | [`open_task_pre_offers`](domains/open-tasks.md) | `id` | `open_task_id`, `closed_by_employee_id` | عروض أسعار ودراسات مالية مسبقة |
 | 50 | `marketing_visit_tasks` | `id` | — | مهام زيارة تسويق |
 | 51 | `marketing_visit_task_offers` | `id` | — | عروض زيارة تسويق |
 | 52 | `marketing_visits` | `id` | — | زيارات تسويق (legacy) |
+| 52a | [`task_activity_log`](domains/open-tasks.md) | `id` | `task_id`, `performed_by` | سجل أنشطة وتغير حالات المهمة |
+| 52b | [`open_task_devices`](domains/open-tasks.md) | `id` | `task_id`, `device_model_id` | الأجهزة المادية الملحقة بالمهمة |
+| 52c | [`call_task_links`](domains/open-tasks.md) | `call_id`, `task_id` | `call_id`, `task_id` | ربط الاتصالات بالتكليفات الجارية |
 
 ### 5.4 التسويق (Telemarketing)
 
