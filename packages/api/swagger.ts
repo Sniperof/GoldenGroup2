@@ -38,6 +38,14 @@ const options: swaggerJsdoc.Options = {
     path.join(__dirname, 'routes', 'employees.ts'),
     path.join(__dirname, 'routes', 'systemLists.ts'),
     path.join(__dirname, 'routes', 'dashboard.ts'),
+    path.join(__dirname, 'routes', 'clients.ts'),
+    path.join(__dirname, 'routes', 'candidates.ts'),
+    path.join(__dirname, 'routes', 'contracts.ts'),
+    path.join(__dirname, 'routes', 'deviceModels.ts'),
+    path.join(__dirname, 'routes', 'spareParts.ts'),
+    path.join(__dirname, 'routes', 'dues.ts'),
+    path.join(__dirname, 'routes', 'routes.ts'),
+    path.join(__dirname, 'routes', 'referralSheets.ts'),
   ],
 };
 

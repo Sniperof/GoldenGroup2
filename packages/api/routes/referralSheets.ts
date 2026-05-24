@@ -148,6 +148,102 @@ async function assertAssignedHrUserExists(
   return { ok: true, assignedHrUserId: normalized };
 }
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     ReferralSheet:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         referralType:
+ *           type: string
+ *         referralEntityId:
+ *           type: integer
+ *         referralNameSnapshot:
+ *           type: string
+ *         referralAddressText:
+ *           type: string
+ *         referralOriginChannel:
+ *           type: string
+ *         referralNotes:
+ *           type: string
+ *         referralDate:
+ *           type: string
+ *         ownerUserId:
+ *           type: integer
+ *         status:
+ *           type: string
+ *         assignedHrUserId:
+ *           type: integer
+ *         totalCandidates:
+ *           type: integer
+ *         targetCandidates:
+ *           type: integer
+ *         qualityPercentage:
+ *           type: number
+ *         conversionPercentage:
+ *           type: number
+ *         createdAt:
+ *           type: string
+ *         createdBy:
+ *           type: integer
+ *         branchId:
+ *           type: integer
+ */
+
+/**
+ * @swagger
+ * /api/referral-sheets:
+ *   get:
+ *     tags: [Referral Sheets]
+ *     summary: Retrieve list of referral sheets
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/ReferralSheet'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No permission or outside branch scope)
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('candidates.name_lists.view_list', 'referral_sheets.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -202,6 +298,53 @@ router.get('/', requirePermission('candidates.name_lists.view_list', 'referral_s
   }
 });
 
+/**
+ * @swagger
+ * /api/referral-sheets:
+ *   post:
+ *     tags: [Referral Sheets]
+ *     summary: Create new referral sheet
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [referralType]
+ *             properties:
+ *               referralType:
+ *                 type: string
+ *               referralEntityId:
+ *                 type: integer
+ *               referralNameSnapshot:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ReferralSheet'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No permission or outside branch scope)
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('candidates.name_lists.create', 'referral_sheets.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -249,6 +392,56 @@ router.post('/', requirePermission('candidates.name_lists.create', 'referral_she
   }
 });
 
+/**
+ * @swagger
+ * /api/referral-sheets/{id}:
+ *   put:
+ *     tags: [Referral Sheets]
+ *     summary: Update referral sheet details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Referral Sheet ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               referralType:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ReferralSheet'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No permission or outside branch scope)
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('candidates.name_lists.edit', 'referral_sheets.edit'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);

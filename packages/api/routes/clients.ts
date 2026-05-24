@@ -442,6 +442,149 @@ async function insertClientAssignments(
   );
 }
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Client:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         firstName:
+ *           type: string
+ *         fatherName:
+ *           type: string
+ *         lastName:
+ *           type: string
+ *         nickname:
+ *           type: string
+ *         mobile:
+ *           type: string
+ *         contacts:
+ *           type: array
+ *           items:
+ *             type: object
+ *         governorate:
+ *           type: string
+ *         district:
+ *           type: string
+ *         neighborhood:
+ *           type: string
+ *         detailedAddress:
+ *           type: string
+ *         gpsCoordinates:
+ *           type: object
+ *         gender:
+ *           type: string
+ *         nationalId:
+ *           type: string
+ *         birthDate:
+ *           type: string
+ *         occupation:
+ *           type: string
+ *         spouseOccupation:
+ *           type: string
+ *         dataQuality:
+ *           type: string
+ *         waterSource:
+ *           type: string
+ *         notes:
+ *           type: string
+ *         rating:
+ *           type: integer
+ *         sourceChannel:
+ *           type: string
+ *         referrerType:
+ *           type: string
+ *         referrerId:
+ *           type: integer
+ *         referrerName:
+ *           type: string
+ *         createdAt:
+ *           type: string
+ *         branchId:
+ *           type: integer
+ *         branchName:
+ *           type: string
+ *         assignments:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               userId:
+ *                 type: integer
+ *               userName:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *               assignedAt:
+ *                 type: string
+ *         ownershipType:
+ *           type: string
+ */
+
+/**
+ * @swagger
+ * /api/clients:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Retrieve list of clients
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: dataQuality
+ *         schema:
+ *           type: string
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Client'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('clients.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -499,6 +642,55 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/clients/smart-match:
+ *   post:
+ *     tags: [Clients]
+ *     summary: Smart match client duplication check
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               phone:
+ *                 type: string
+ *               nationalId:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                 matched:
+ *                   type: boolean
+ *                 visible:
+ *                   type: boolean
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.post('/smart-match', requirePermission('clients.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -520,6 +712,43 @@ router.post('/smart-match', requirePermission('clients.create'), async (req, res
   }
 });
 
+/**
+ * @swagger
+ * /api/clients/{id}:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get client details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Client ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Client'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id', requirePermission('clients.view'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -541,6 +770,59 @@ router.get('/:id', requirePermission('clients.view'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/clients:
+ *   post:
+ *     tags: [Clients]
+ *     summary: Create new client
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               fatherName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               mobile:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Client'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       409:
+ *         description: Duplicate phone conflict
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('clients.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -630,6 +912,64 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/clients/{id}:
+ *   put:
+ *     tags: [Clients]
+ *     summary: Update client details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Client ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               fatherName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               mobile:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Client'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       409:
+ *         description: Duplicate phone conflict
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -766,6 +1106,46 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/clients/{id}:
+ *   delete:
+ *     tags: [Clients]
+ *     summary: Delete client by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Client ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -836,6 +1216,50 @@ router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/clients/bulk-delete:
+ *   post:
+ *     tags: [Clients]
+ *     summary: Bulk delete clients
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [ids]
+ *             properties:
+ *               ids:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/bulk-delete', requirePermission('clients.delete'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);

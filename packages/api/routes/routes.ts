@@ -5,6 +5,83 @@ import { areRoutePointsInsideScope, listAllGeoUnits, resolveGeoScope } from '../
 
 const router = Router();
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     GeoRoute:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         status:
+ *           type: string
+ *         points:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               geoUnitId:
+ *                 type: integer
+ *               level:
+ *                 type: integer
+ *               order:
+ *                 type: integer
+ */
+
+/**
+ * @swagger
+ * /api/routes:
+ *   get:
+ *     tags: [Geo Routes]
+ *     summary: Retrieve list of routes (geo routes)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/GeoRoute'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No geo.view permission or outside branch scope)
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('geo.view'), async (req, res) => {
   const { rows: routes } = await pool.query('SELECT * FROM routes ORDER BY id');
   const { rows: points } = await pool.query(
@@ -23,6 +100,60 @@ router.get('/', requirePermission('geo.view'), async (req, res) => {
   res.json(result);
 });
 
+/**
+ * @swagger
+ * /api/routes:
+ *   post:
+ *     tags: [Geo Routes]
+ *     summary: Create new route and route points
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *               points:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     geoUnitId:
+ *                       type: integer
+ *                     level:
+ *                       type: integer
+ *                     order:
+ *                       type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GeoRoute'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No geo.manage permission or outside branch geo scope)
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('geo.manage'), async (req, res) => {
   const { name, points, status } = req.body;
   const geoUnits = await listAllGeoUnits();
@@ -59,6 +190,67 @@ router.post('/', requirePermission('geo.manage'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/routes/{id}:
+ *   put:
+ *     tags: [Geo Routes]
+ *     summary: Update route and points by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Route ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *               points:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     geoUnitId:
+ *                       type: integer
+ *                     level:
+ *                       type: integer
+ *                     order:
+ *                       type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GeoRoute'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No geo.manage permission or outside branch geo scope)
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
   const { name, points, status } = req.body;
   const routeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -101,6 +293,46 @@ router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/routes/{id}:
+ *   delete:
+ *     tags: [Geo Routes]
+ *     summary: Delete route by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Route ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No geo.manage permission or outside branch geo scope)
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('geo.manage'), async (req, res) => {
   const routeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const routeId = parseInt(routeIdParam, 10);

@@ -3,6 +3,78 @@ import pool from '../db.js';
 
 const router = Router();
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     SparePart:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         code:
+ *           type: string
+ *         basePrice:
+ *           type: number
+ *         maintenanceType:
+ *           type: string
+ *         compatibleDeviceIds:
+ *           type: array
+ *           items:
+ *             type: integer
+ */
+
+/**
+ * @swagger
+ * /api/spare-parts:
+ *   get:
+ *     tags: [Spare Parts]
+ *     summary: Retrieve list of spare parts
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/SparePart'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/', async (_req, res) => {
   const { rows } = await pool.query(`
     SELECT id, name, code, base_price AS "basePrice",
@@ -13,6 +85,55 @@ router.get('/', async (_req, res) => {
   res.json(rows.map(r => ({ ...r, basePrice: Number(r.basePrice) })));
 });
 
+/**
+ * @swagger
+ * /api/spare-parts:
+ *   post:
+ *     tags: [Spare Parts]
+ *     summary: Create new spare part
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, basePrice]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               code:
+ *                 type: string
+ *               basePrice:
+ *                 type: number
+ *               maintenanceType:
+ *                 type: string
+ *               compatibleDeviceIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SparePart'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.post('/', async (req, res) => {
   const s = req.body;
   const { rows } = await pool.query(
@@ -24,6 +145,56 @@ router.post('/', async (req, res) => {
   res.json({ ...rows[0], basePrice: Number(rows[0].basePrice) });
 });
 
+/**
+ * @swagger
+ * /api/spare-parts/{id}:
+ *   put:
+ *     tags: [Spare Parts]
+ *     summary: Update spare part details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Spare Part ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               code:
+ *                 type: string
+ *               basePrice:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SparePart'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', async (req, res) => {
   const s = req.body;
   const { rows } = await pool.query(
@@ -36,6 +207,44 @@ router.put('/:id', async (req, res) => {
   res.json({ ...rows[0], basePrice: Number(rows[0].basePrice) });
 });
 
+/**
+ * @swagger
+ * /api/spare-parts/{id}:
+ *   delete:
+ *     tags: [Spare Parts]
+ *     summary: Delete spare part by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Spare Part ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', async (req, res) => {
   await pool.query('DELETE FROM spare_parts WHERE id = $1', [req.params.id]);
   res.json({ success: true });

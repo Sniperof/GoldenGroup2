@@ -157,6 +157,127 @@ async function loadCandidateSubject(candidateId: string | number): Promise<Candi
   return rows[0] ?? null;
 }
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Candidate:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         firstName:
+ *           type: string
+ *         lastName:
+ *           type: string
+ *         nickname:
+ *           type: string
+ *         mobile:
+ *           type: string
+ *         contacts:
+ *           type: array
+ *           items:
+ *             type: object
+ *         addressText:
+ *           type: string
+ *         geoUnitId:
+ *           type: integer
+ *         ownerUserId:
+ *           type: integer
+ *         status:
+ *           type: string
+ *         referralSheetId:
+ *           type: integer
+ *         referralDate:
+ *           type: string
+ *         referralReason:
+ *           type: string
+ *         referralType:
+ *           type: string
+ *         referralOriginChannel:
+ *           type: string
+ *         referralNameSnapshot:
+ *           type: string
+ *         referralEntityId:
+ *           type: integer
+ *         referralConfirmationStatus:
+ *           type: string
+ *         occupation:
+ *           type: string
+ *         candidateNotes:
+ *           type: string
+ *         duplicateFlag:
+ *           type: boolean
+ *         duplicateType:
+ *           type: string
+ *         duplicateReferenceId:
+ *           type: integer
+ *         convertedToLeadId:
+ *           type: integer
+ *         createdAt:
+ *           type: string
+ *         createdBy:
+ *           type: integer
+ *         branchId:
+ *           type: integer
+ */
+
+/**
+ * @swagger
+ * /api/candidates:
+ *   get:
+ *     tags: [Candidates]
+ *     summary: Retrieve list of candidates
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Candidate'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -213,6 +334,59 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/candidates:
+ *   post:
+ *     tags: [Candidates]
+ *     summary: Create new candidate
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [firstName]
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               nickname:
+ *                 type: string
+ *               mobile:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *               assignmentUserIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Candidate'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('candidates.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -283,6 +457,60 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/candidates/{id}:
+ *   put:
+ *     tags: [Candidates]
+ *     summary: Update candidate details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Candidate ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               nickname:
+ *                 type: string
+ *               mobile:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Candidate'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -346,6 +574,46 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/candidates/{id}:
+ *   delete:
+ *     tags: [Candidates]
+ *     summary: Delete candidate by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Candidate ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('candidates.delete'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);

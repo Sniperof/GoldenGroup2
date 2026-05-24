@@ -10,11 +10,139 @@ const selectFields = `
   status, escalated
 `;
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Due:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         contractId:
+ *           type: integer
+ *         type:
+ *           type: string
+ *         scheduledDate:
+ *           type: string
+ *         adjustedDate:
+ *           type: string
+ *         originalAmount:
+ *           type: number
+ *         remainingBalance:
+ *           type: number
+ *         assignedTelemarketerId:
+ *           type: integer
+ *         status:
+ *           type: string
+ *         escalated:
+ *           type: boolean
+ */
+
+/**
+ * @swagger
+ * /api/dues:
+ *   get:
+ *     tags: [Dues]
+ *     summary: Retrieve list of dues
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Due'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/', async (_req, res) => {
   const { rows } = await pool.query(`SELECT ${selectFields} FROM dues ORDER BY id`);
   res.json(rows.map(d => ({ ...d, originalAmount: Number(d.originalAmount), remainingBalance: Number(d.remainingBalance) })));
 });
 
+/**
+ * @swagger
+ * /api/dues/{id}:
+ *   put:
+ *     tags: [Dues]
+ *     summary: Update due details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Due ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               type:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *               escalated:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Due'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', async (req, res) => {
   const d = req.body;
   const id = req.params.id;

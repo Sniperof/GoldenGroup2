@@ -63,6 +63,181 @@ const dueSelect = `
   status, escalated
 `;
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Contract:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         contractNumber:
+ *           type: string
+ *         customerId:
+ *           type: integer
+ *         customerName:
+ *           type: string
+ *         contractDate:
+ *           type: string
+ *         sourceVisit:
+ *           type: integer
+ *         deviceModelId:
+ *           type: integer
+ *         deviceModelName:
+ *           type: string
+ *         serialNumber:
+ *           type: string
+ *         maintenancePlan:
+ *           type: string
+ *         basePrice:
+ *           type: number
+ *         finalPrice:
+ *           type: number
+ *         paymentType:
+ *           type: string
+ *         downPayment:
+ *           type: number
+ *         installmentsCount:
+ *           type: integer
+ *         deliveryDate:
+ *           type: string
+ *         installationDate:
+ *           type: string
+ *         status:
+ *           type: string
+ *         createdAt:
+ *           type: string
+ *         branchId:
+ *           type: integer
+ *         saleType:
+ *           type: string
+ *         saleSource:
+ *           type: string
+ *         discountId:
+ *           type: integer
+ *         closingEmployeeId:
+ *           type: integer
+ *         closingDate:
+ *           type: string
+ *         invoiceNotes:
+ *           type: string
+ *         installationGeoUnitId:
+ *           type: integer
+ *         installationAddressText:
+ *           type: string
+ *         installationLat:
+ *           type: number
+ *         installationLng:
+ *           type: number
+ *         appliedDeviceDiscountId:
+ *           type: integer
+ *         buyerMotherName:
+ *           type: string
+ *         buyerNationalIdRegistry:
+ *           type: string
+ *         buyerNationalIdIssuedBy:
+ *           type: string
+ *         buyerNationalIdIssueDate:
+ *           type: string
+ *         buyerNationalIdBox:
+ *           type: string
+ *         buyerBirthDate:
+ *           type: string
+ *         buyerGender:
+ *           type: string
+ *         sourceOpenTaskId:
+ *           type: integer
+ *         sourceTaskOfferId:
+ *           type: integer
+ *         saleReferenceNumber:
+ *           type: string
+ *         contractType:
+ *           type: string
+ *         noClosingReasonId:
+ *           type: integer
+ *         saleSubtype:
+ *           type: string
+ *         deviceStatus:
+ *           type: string
+ *         dues:
+ *           type: array
+ *           items:
+ *             type: object
+ *         client:
+ *           type: object
+ *         lineItems:
+ *           type: array
+ *           items:
+ *             type: object
+ *         paymentEntries:
+ *           type: array
+ *           items:
+ *             type: object
+ *         installments:
+ *           type: array
+ *           items:
+ *             type: object
+ *         discount:
+ *           type: object
+ */
+
+/**
+ * @swagger
+ * /api/contracts:
+ *   get:
+ *     tags: [Contracts]
+ *     summary: Retrieve list of contracts
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: customerId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Contract'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
   const params: any[] = [];
@@ -87,6 +262,43 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   res.json(contracts.map((c: any) => ({ ...mapContract(c), dues: dues.filter((d: any) => d.contractId === c.id).map(mapDue) })));
 });
 
+/**
+ * @swagger
+ * /api/contracts/{id}:
+ *   get:
+ *     tags: [Contracts]
+ *     summary: Get contract details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Contract ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Contract'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id', requirePermission('contracts.view_list'), async (req, res) => {
   const { rows } = await pool.query(`SELECT ${contractSelect} FROM contracts c WHERE c.id = $1`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ message: 'العقد غير موجود' });
@@ -155,6 +367,63 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
   });
 });
 
+/**
+ * @swagger
+ * /api/contracts:
+ *   post:
+ *     tags: [Contracts]
+ *     summary: Create new contract
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [contractNumber, customerId, customerName, basePrice, finalPrice]
+ *             properties:
+ *               contractNumber:
+ *                 type: string
+ *               customerId:
+ *                 type: integer
+ *               customerName:
+ *                 type: string
+ *               contractDate:
+ *                 type: string
+ *               deviceModelId:
+ *                 type: integer
+ *               deviceModelName:
+ *                 type: string
+ *               basePrice:
+ *                 type: number
+ *               finalPrice:
+ *                 type: number
+ *               paymentType:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Contract'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const c = req.body;
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
@@ -281,6 +550,56 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/contracts/{id}:
+ *   put:
+ *     tags: [Contracts]
+ *     summary: Update contract details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Contract ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               contractNumber:
+ *                 type: string
+ *               customerName:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Contract'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const authContext = req.authContext!;
   const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [req.params.id]);
@@ -335,6 +654,65 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   res.json(rows[0]);
 });
 
+/**
+ * @swagger
+ * /api/contracts/{id}/payment-entries:
+ *   post:
+ *     tags: [Contracts]
+ *     summary: Replace payment entries for contract
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Contract ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [entries]
+ *             properties:
+ *               entries:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     method:
+ *                       type: string
+ *                     amountValue:
+ *                       type: number
+ *                     amountSyp:
+ *                       type: number
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (req, res) => {
   const contractId = Number(req.params.id);
   const { entries } = req.body;
@@ -366,6 +744,65 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
   }
 });
 
+/**
+ * @swagger
+ * /api/contracts/{id}/installments:
+ *   post:
+ *     tags: [Contracts]
+ *     summary: Replace unconfirmed installments for contract
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Contract ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [installments]
+ *             properties:
+ *               installments:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     installmentNumber:
+ *                       type: integer
+ *                     dueDate:
+ *                       type: string
+ *                     amountSyp:
+ *                       type: number
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/:id/installments', requirePermission('contracts.edit'), async (req, res) => {
   const contractId = Number(req.params.id);
   const { installments } = req.body;
@@ -392,6 +829,44 @@ router.post('/:id/installments', requirePermission('contracts.edit'), async (req
   }
 });
 
+/**
+ * @swagger
+ * /api/contracts/{id}/installments/confirm:
+ *   post:
+ *     tags: [Contracts]
+ *     summary: Confirm all installments for contract
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Contract ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/:id/installments/confirm', requirePermission('contracts.edit'), async (req, res) => {
   const contractId = Number(req.params.id);
   await pool.query(
@@ -401,6 +876,46 @@ router.post('/:id/installments/confirm', requirePermission('contracts.edit'), as
   res.json({ success: true });
 });
 
+/**
+ * @swagger
+ * /api/contracts/{id}:
+ *   delete:
+ *     tags: [Contracts]
+ *     summary: Delete contract by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Contract ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('contracts.delete'), async (req, res) => {
   const authContext = req.authContext!;
   const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [req.params.id]);
@@ -411,6 +926,66 @@ router.delete('/:id', requirePermission('contracts.delete'), async (req, res) =>
   res.json({ success: true });
 });
 
+/**
+ * @swagger
+ * /api/contracts/{id}/line-items/{itemId}/installation:
+ *   put:
+ *     tags: [Contracts]
+ *     summary: Update contract line item installation status
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Contract ID
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Line Item ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [isInstalled]
+ *             properties:
+ *               isInstalled:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 isInstalled:
+ *                   type: boolean
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id/line-items/:itemId/installation', requirePermission('contracts.edit'), async (req, res) => {
   const contractId = Number(req.params.id);
   const itemId = Number(req.params.itemId);

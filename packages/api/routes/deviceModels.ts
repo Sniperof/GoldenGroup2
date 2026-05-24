@@ -57,11 +57,169 @@ function normalizeDevicePayload(body: any) {
   };
 }
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     DeviceModel:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         brand:
+ *           type: string
+ *         nameAr:
+ *           type: string
+ *         nameEn:
+ *           type: string
+ *         category:
+ *           type: string
+ *         maintenanceInterval:
+ *           type: string
+ *         basePrice:
+ *           type: number
+ *         supportedVisitTypes:
+ *           type: array
+ *           items:
+ *             type: string
+ *         isGoldenWarranty:
+ *           type: boolean
+ *         goldenWarrantyPeriods:
+ *           type: array
+ *           items:
+ *             type: string
+ *         isFeatured:
+ *           type: boolean
+ *         description:
+ *           type: string
+ *         descriptionEn:
+ *           type: string
+ *         images:
+ *           type: array
+ *           items:
+ *             type: string
+ *         primaryImageId:
+ *           type: string
+ *         videos:
+ *           type: array
+ *           items:
+ *             type: string
+ *         documents:
+ *           type: array
+ *           items:
+ *             type: string
+ *         code:
+ *           type: string
+ */
+
+/**
+ * @swagger
+ * /api/device-models:
+ *   get:
+ *     tags: [Device Models]
+ *     summary: Retrieve list of all device models (public)
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/DeviceModel'
+ *       500:
+ *         description: Server error
+ */
 router.get('/', async (_req, res) => {
   const { rows } = await pool.query(`SELECT ${selectFields} FROM device_models ORDER BY id`);
   res.json(rows.map(serializeDevice));
 });
 
+/**
+ * @swagger
+ * /api/device-models/for-sale:
+ *   get:
+ *     tags: [Device Models]
+ *     summary: Retrieve authorized device models for sale
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   name:
+ *                     type: string
+ *                   category:
+ *                     type: string
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/for-sale', requireAuth, async (req, res) => {
   try {
     if (req.user?.isSuperAdmin === true) {
@@ -116,6 +274,51 @@ router.get('/for-sale', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/device-models:
+ *   post:
+ *     tags: [Device Models]
+ *     summary: Create new device model
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [nameAr, nameEn, basePrice]
+ *             properties:
+ *               nameAr:
+ *                 type: string
+ *               nameEn:
+ *                 type: string
+ *               basePrice:
+ *                 type: number
+ *               category:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DeviceModel'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.post('/', async (req, res) => {
   const d = normalizeDevicePayload(req.body);
   if (!d.nameAr) return res.status(400).json({ error: 'اسم الجهاز باللغة العربية مطلوب' });
@@ -145,6 +348,57 @@ router.post('/', async (req, res) => {
   res.json(serializeDevice(rows[0]));
 });
 
+/**
+ * @swagger
+ * /api/device-models/{id}:
+ *   put:
+ *     tags: [Device Models]
+ *     summary: Update device model details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Device Model ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [nameAr, nameEn, basePrice]
+ *             properties:
+ *               nameAr:
+ *                 type: string
+ *               nameEn:
+ *                 type: string
+ *               basePrice:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DeviceModel'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', async (req, res) => {
   const d = normalizeDevicePayload(req.body);
   if (!d.nameAr) return res.status(400).json({ error: 'اسم الجهاز باللغة العربية مطلوب' });
@@ -173,12 +427,96 @@ router.put('/:id', async (req, res) => {
   res.json(serializeDevice(rows[0]));
 });
 
+/**
+ * @swagger
+ * /api/device-models/{id}:
+ *   delete:
+ *     tags: [Device Models]
+ *     summary: Delete device model by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Device Model ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', async (req, res) => {
   await pool.query('DELETE FROM device_models WHERE id = $1', [req.params.id]);
   res.json({ success: true });
 });
 
 // GET /:id/discounts — active discounts for this device today
+/**
+ * @swagger
+ * /api/device-models/{id}/discounts:
+ *   get:
+ *     tags: [Device Models]
+ *     summary: Retrieve active discounts for today for a device model
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Device Model ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   label:
+ *                     type: string
+ *                   percentage:
+ *                     type: number
+ *                   startDate:
+ *                     type: string
+ *                   endDate:
+ *                     type: string
+ *       410:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id/discounts', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT id, label, percentage, start_date AS "startDate", end_date AS "endDate"
@@ -194,6 +532,56 @@ router.get('/:id/discounts', requireAuth, async (req, res) => {
 });
 
 // GET /:id/discounts/all — all discounts (admin management view)
+/**
+ * @swagger
+ * /api/device-models/{id}/discounts/all:
+ *   get:
+ *     tags: [Device Models]
+ *     summary: Retrieve all discounts for a device model (admin view)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Device Model ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   label:
+ *                     type: string
+ *                   percentage:
+ *                     type: number
+ *                   startDate:
+ *                     type: string
+ *                   endDate:
+ *                     type: string
+ *                   isActive:
+ *                     type: boolean
+ *                   createdAt:
+ *                     type: string
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id/discounts/all', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT id, label, percentage, start_date AS "startDate", end_date AS "endDate", is_active AS "isActive", created_at AS "createdAt"
@@ -206,6 +594,70 @@ router.get('/:id/discounts/all', requireAuth, async (req, res) => {
 });
 
 // POST /:id/discounts — create discount
+/**
+ * @swagger
+ * /api/device-models/{id}/discounts:
+ *   post:
+ *     tags: [Device Models]
+ *     summary: Create a new discount campaign for a device model
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Device Model ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [label, percentage, startDate, endDate]
+ *             properties:
+ *               label:
+ *                 type: string
+ *               percentage:
+ *                 type: number
+ *               startDate:
+ *                 type: string
+ *               endDate:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 label:
+ *                   type: string
+ *                 percentage:
+ *                   type: number
+ *                 startDate:
+ *                   type: string
+ *                 endDate:
+ *                   type: string
+ *                 isActive:
+ *                   type: boolean
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.post('/:id/discounts', requireAuth, async (req, res) => {
   const { label, percentage, startDate, endDate } = req.body;
   if (!label || !percentage || !startDate || !endDate) {
@@ -232,6 +684,79 @@ router.post('/:id/discounts', requireAuth, async (req, res) => {
 });
 
 // PUT /:id/discounts/:discountId — update discount
+/**
+ * @swagger
+ * /api/device-models/{id}/discounts/{discountId}:
+ *   put:
+ *     tags: [Device Models]
+ *     summary: Update discount campaign details
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Device Model ID
+ *       - in: path
+ *         name: discountId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Discount ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               label:
+ *                 type: string
+ *               percentage:
+ *                 type: number
+ *               startDate:
+ *                 type: string
+ *               endDate:
+ *                 type: string
+ *               isActive:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 label:
+ *                   type: string
+ *                 percentage:
+ *                   type: number
+ *                 startDate:
+ *                   type: string
+ *                 endDate:
+ *                   type: string
+ *                 isActive:
+ *                   type: boolean
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id/discounts/:discountId', requireAuth, async (req, res) => {
   const { label, percentage, startDate, endDate, isActive } = req.body;
   if (startDate && endDate && startDate > endDate) {
@@ -263,6 +788,48 @@ router.put('/:id/discounts/:discountId', requireAuth, async (req, res) => {
 });
 
 // DELETE /:id/discounts/:discountId
+/**
+ * @swagger
+ * /api/device-models/{id}/discounts/{discountId}:
+ *   delete:
+ *     tags: [Device Models]
+ *     summary: Delete discount campaign by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Device Model ID
+ *       - in: path
+ *         name: discountId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Discount ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id/discounts/:discountId', requireAuth, async (req, res) => {
   await pool.query(
     'DELETE FROM device_discounts WHERE id = $1 AND device_model_id = $2',
