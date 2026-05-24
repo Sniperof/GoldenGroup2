@@ -534,29 +534,27 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [permissions.md §9.8](domains/permissions.md#gap-044-تعارض-فحوصات-الصلاحيات-بين-الداتابيز-والسياسة-البرمجية) |
 
-### GAP-045: Lack of permission check on branches GET endpoints 🟡 متوسطة — **جديد**
+### GAP-045: Lack of permission check on branches GET endpoints 🟡 متوسطة
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | branches |
 | **الموقع** | `packages/api/routes/branches.ts` (GET / and GET /:id) |
 | **الوصف** | تكتفي مسارات القراءة واستعراض الفروع بالتحقق من تسجيل الدخول فقط `requireAuth` دون التحقق من صلاحية قراءة مخصصة للكيان. |
-| **التأثير** | يتيح لأي حساب تشغيلي مصرح له بالوصول (حتى الموظف الميداني البسيط) استعراض وقراءة عناوين وهواتف وتفاصيل ومصفوفة نطاق التغطية الجغرافية الكاملة لكافة فروع الشركة دون قيود، وهو ما يمثل فجوة تسريب للمعلومات التنظيمية. |
-| **الحل المقترح** | إدخال وبذر صلاحية `branches.view` وإلحاق فحصها بمسارات الاستعلام. |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [branches.md §9.1](domains/branches.md#gap-045-غياب-فحص-الصلاحيات-الأمنية-عن-مسارات-استعلام-الفروع) |
+| **التأثير** | يتيح لأي حساب تشغيلي مصرح له بالوصول (حتى الموظف الميداني البسيط) استعراض وقراءة عناوين وهواتف وتفاصيل ومصفوفة نطاق التغطية الجغرافية الكاملة لكافة فروع الشركة دون قيود. |
+| **الحالة** | ✅ محلول — `requirePermission('branches.view')` على GET / وGET /:id |
+| **ملف الدستور** | [branches.md §9.1](domains/branches.md#gap-045-محلول--إضافة-branchesview-لمسارات-الاستعلام) |
 
-### GAP-046: No referential integrity on covered_geo_ids JSONB array 🟡 متوسطة — **جديد**
+### GAP-046: No referential integrity on covered_geo_ids JSONB array 🟡 متوسطة
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | branches |
 | **الموقع** | `migrations/001_core_tables.sql` (branches.covered_geo_ids) |
 | **الوصف** | يتم حفظ التغطية التشغيلية للفرع الجغرافي كـ JSONB Array دون فرض أي قيد مرجعي (Foreign Key) بجدول التقسيمات الجغرافية الرئيسي `geo_units`. |
-| **التأثير** | بقاء وتراكم معرفات لأحياء جغرافية يتيمة وتالفة داخل مصفوفات تغطية الفروع عند قيام مسؤولي النظام بمسح أو تعديل الهيكلية الجغرافية، مما يتسبب بأخطاء وتوقف بعمليات عزل الفلترة الجغرافية بالخلفية. |
-| **الحل المقترح** | استبدال حقل مصفوفة الـ JSONB بجدول ربط مستقل (Junction Table) يسمى `branch_geo_coverage` يفرض الربط المباشر مع الحذف المتتالي والنزاهة الفيزيائية. |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [branches.md §9.2](domains/branches.md#gap-046-انعدام-قيود-الفحص-والنزاهة-على-مصفوفة-التغطية-الجغرافية-بجدول-الفروع) |
+| **التأثير** | بقاء وتراكم معرفات لأحياء جغرافية يتيمة وتالفة عند مسح وحدات جغرافية. |
+| **الحالة** | ✅ محلول — `migrations/169_branch_geo_coverage_table.sql` (junction table مع CASCADE) |
+| **ملف الدستور** | [branches.md §9.2](domains/branches.md#gap-046-محلول--استبدال-covered_geo_ids-jsonb-بجدول-branch_geo_coverage) |
 
 ### GAP-047: Lack of validation schema on contact_info JSONB structure 🟢 منخفضة — **جديد**
 
@@ -818,6 +816,8 @@ if (neighborhood) {
 | GAP-038 | branches / geo_units | استبدال `covered_geo_ids` JSONB بجدول `branch_geo_coverage` مع FK | 2026-05-24 | `migrations/169_branch_geo_coverage_table.sql` + `geoScopeService.ts` + `branches.ts` |
 | GAP-003 | clients | تحويل `governorate`, `district`, `neighborhood` من VARCHAR → INTEGER FK → geo_units | 2026-05-24 | `migrations/170_clients_geo_integer.sql` + `routes/clients.ts` |
 | GAP-034 | employees | حذف `employees.residence` النصي — أعمدة `residence_*_id` FK كانت موجودة بالفعل | 2026-05-24 | `migrations/171_drop_employees_residence_text.sql` + `routes/adminApplications.ts` |
+| GAP-045 | branches | استبدال `requireAuth` بـ `requirePermission('branches.view')` على GET / وGET /:id | 2026-05-24 | `routes/branches.ts` |
+| GAP-046 | branches | استبدال `covered_geo_ids` JSONB بـ `branch_geo_coverage` junction table مع CASCADE | 2026-05-24 | `migrations/169_branch_geo_coverage_table.sql` + `branches.ts` + `geoScopeService.ts` |
 
 ---
 
@@ -859,10 +859,10 @@ if (neighborhood) {
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 55 |
-| **عدد الثغرات المحلولة** | 7 (GAP-003, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039) |
+| **عدد الثغرات المفتوحة** | 53 |
+| **عدد الثغرات المحلولة** | 9 (GAP-003, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046) |
 | **عالية الخطورة** | 12 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059, GAP-062) |
-| **متوسطة** | 25 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-045, GAP-046, GAP-049, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
+| **متوسطة** | 23 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-049, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
 | **منخفضة** | 17 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-047, GAP-048, GAP-061) |
-| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (4 مفتوحة) / geo_units (3 مفتوحة) |
+| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (2 مفتوحة) / geo_units (1 مفتوحة) |
 | **قرارات معلقة** | 1 (multi-branch client) |

@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
@@ -64,7 +63,7 @@ async function syncBranchGeoCoverage(
  *       500:
  *         description: Server error
  */
-router.get('/', requireAuth, async (_req, res) => {
+router.get('/', requirePermission('branches.view'), async (_req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT b.id, b.name,
@@ -114,7 +113,7 @@ router.get('/', requireAuth, async (_req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/:id', requireAuth, async (req, res) => {
+router.get('/:id', requirePermission('branches.view'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT b.id, b.name,
@@ -306,7 +305,7 @@ router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
 
     if (rows.length === 0) {
       await client.query('ROLLBACK');
-      res.status(404).json({ error: 'Branch not found' });
+      res.status(404).json({ error: 'الفرع غير موجود' });
       return;
     }
 
@@ -354,9 +353,15 @@ router.delete('/:id', requirePermission('branches.manage'), async (req, res) => 
   try {
     const { id } = req.params;
     const { rowCount } = await pool.query('DELETE FROM branches WHERE id = $1', [id]);
-    if (rowCount === 0) return res.status(404).json({ error: 'Branch not found' });
+    if (rowCount === 0) return res.status(404).json({ error: 'الفرع غير موجود' });
     res.json({ success: true });
   } catch (err: any) {
+    if (err.code === '23503') {
+      res.status(409).json({
+        error: 'لا يمكن حذف هذا الفرع — يوجد عملاء أو موظفون أو عقود مرتبطة به. أرشف الفرع بدلاً من حذفه.',
+      });
+      return;
+    }
     console.error('Error deleting branch:', err);
     res.status(500).json({ error: err.message });
   }
