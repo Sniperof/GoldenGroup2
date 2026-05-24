@@ -272,7 +272,7 @@ export default function GeoSettings() {
             </div>
 
             {/* Table Content */}
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
                 <SmartTable<GeoUnit>
                     title={currentTab.label}
                     icon={currentTab.icon}
@@ -281,6 +281,7 @@ export default function GeoSettings() {
                     searchKeys={['name']}
                     searchPlaceholder={`بحث في ${currentTab.label}...`}
                     getId={(u) => u.id}
+                    tableMinWidth={520}
                     actions={(u) => (
                         <div className="flex items-center gap-1">
                             {canManageGeo && (
