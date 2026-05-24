@@ -41,6 +41,48 @@ function resolveEmployeeTargetBranch(req: any, requestedBranchId?: number | stri
   });
 }
 
+/**
+ * @swagger
+ * /api/employees:
+ *   get:
+ *     tags: [Employees]
+ *     summary: List employees
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     responses:
+ *       200:
+ *         description: List of employees
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   name:
+ *                     type: string
+ *                   mobile:
+ *                     type: string
+ *                   status:
+ *                     type: string
+ *                   branchId:
+ *                     type: integer
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('employees.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -177,6 +219,33 @@ router.get('/closers', requirePermission('employees.view_list'), async (req, res
   }
 });
 
+/**
+ * @swagger
+ * /api/employees/{id}:
+ *   get:
+ *     tags: [Employees]
+ *     summary: Get employee by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Employee ID
+ *     responses:
+ *       200:
+ *         description: Employee details
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Employee not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id', requirePermission('employees.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -205,6 +274,54 @@ router.get('/:id', requirePermission('employees.view_list'), async (req, res) =>
   }
 });
 
+/**
+ * @swagger
+ * /api/employees:
+ *   post:
+ *     tags: [Employees]
+ *     summary: Create a new employee
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, branchId]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               mobile:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *               departmentId:
+ *                 type: integer
+ *               roleId:
+ *                 type: integer
+ *               status:
+ *                 type: string
+ *                 enum: [active, inactive]
+ *     responses:
+ *       200:
+ *         description: Created employee
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('employees.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -243,6 +360,51 @@ router.post('/', requirePermission('employees.create'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/employees/{id}:
+ *   put:
+ *     tags: [Employees]
+ *     summary: Update an employee
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Employee ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               mobile:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *               departmentId:
+ *                 type: integer
+ *               status:
+ *                 type: string
+ *                 enum: [active, inactive]
+ *     responses:
+ *       200:
+ *         description: Updated employee
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Employee not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -314,6 +476,33 @@ router.put('/:id/system-account', requirePermission('admin.roles.manage'), async
   }
 });
 
+/**
+ * @swagger
+ * /api/employees/{id}:
+ *   delete:
+ *     tags: [Employees]
+ *     summary: Delete an employee
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Employee ID
+ *     responses:
+ *       200:
+ *         description: Deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Employee not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('employees.delete'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);

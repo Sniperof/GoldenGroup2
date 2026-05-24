@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/router.js';
+import { setupSwagger } from './swagger.js';
 import { createContext } from './trpc/init.js';
 import { NODE_ENV, PORT, CORS_ORIGINS } from './config/env.js';
 import { UPLOADS_DIR } from './storage/uploader.js';
@@ -59,6 +60,24 @@ const app = express();
 app.use(cors(CORS_ORIGINS.length ? { origin: CORS_ORIGINS } : undefined));
 app.use(express.json({ limit: '10mb' }));
 
+/**
+ * @swagger
+ * /api/health:
+ *   get:
+ *     tags: [Health]
+ *     summary: Health check
+ *     responses:
+ *       200:
+ *         description: Server is running
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ */
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
@@ -119,6 +138,9 @@ app.use('/api/emergency-result', emergencyResultRouter);
 
 // Serve uploaded files (photos, CVs) — always active
 app.use('/uploads', express.static(UPLOADS_DIR));
+
+// ── Swagger API Documentation ─────────────────────────────────────────────────
+setupSwagger(app);
 
 // Serve frontend only in production.
 // In development, Vite runs independently on port 5000 and proxies /api here.

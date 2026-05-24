@@ -26,7 +26,59 @@ LEFT JOIN roles r ON r.id = sl.linked_role_id
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
-// GET /api/system-lists
+/**
+ * @swagger
+ * /api/system-lists:
+ *   get:
+ *     tags: [System Lists]
+ *     summary: List all system list items
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: category
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Filter by category
+ *       - in: query
+ *         name: activeOnly
+ *         schema:
+ *           type: string
+ *           enum: ["true", "false"]
+ *         required: false
+ *         description: Show only active items
+ *     responses:
+ *       200:
+ *         description: List of system list items
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   category:
+ *                     type: string
+ *                   value:
+ *                     type: string
+ *                   isActive:
+ *                     type: boolean
+ *                   displayOrder:
+ *                     type: integer
+ *                   linkedRoleId:
+ *                     type: integer
+ *                   linkedRoleName:
+ *                     type: string
+ *                   metadata:
+ *                     type: object
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requireAuth, async (req, res) => {
   try {
     const { category, activeOnly } = req.query;
@@ -73,7 +125,46 @@ router.get('/:code/items', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/system-lists
+/**
+ * @swagger
+ * /api/system-lists:
+ *   post:
+ *     tags: [System Lists]
+ *     summary: Create a new system list item
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [category, value]
+ *             properties:
+ *               category:
+ *                 type: string
+ *               value:
+ *                 type: string
+ *               isActive:
+ *                 type: boolean
+ *               displayOrder:
+ *                 type: integer
+ *               linkedRoleId:
+ *                 type: integer
+ *               metadata:
+ *                 type: object
+ *     responses:
+ *       201:
+ *         description: Created system list item
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('admin.system_lists.manage'), async (req, res) => {
   try {
     const { category, value, isActive, displayOrder, linkedRoleId, metadata } = req.body;
@@ -105,7 +196,52 @@ router.post('/', requirePermission('admin.system_lists.manage'), async (req, res
   }
 });
 
-// PUT /api/system-lists/:id
+/**
+ * @swagger
+ * /api/system-lists/{id}:
+ *   put:
+ *     tags: [System Lists]
+ *     summary: Update a system list item
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: System list item ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               category:
+ *                 type: string
+ *               value:
+ *                 type: string
+ *               isActive:
+ *                 type: boolean
+ *               displayOrder:
+ *                 type: integer
+ *               linkedRoleId:
+ *                 type: integer
+ *               metadata:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Updated system list item
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Item not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('admin.system_lists.manage'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -158,7 +294,40 @@ router.put('/:id', requirePermission('admin.system_lists.manage'), async (req, r
   }
 });
 
-// DELETE /api/system-lists/:id
+/**
+ * @swagger
+ * /api/system-lists/{id}:
+ *   delete:
+ *     tags: [System Lists]
+ *     summary: Delete a system list item
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: System list item ID
+ *     responses:
+ *       200:
+ *         description: Deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Item not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('admin.system_lists.manage'), async (req, res) => {
   try {
     const { id } = req.params;

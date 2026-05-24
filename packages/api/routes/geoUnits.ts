@@ -5,6 +5,46 @@ import { filterGeoUnitsByScope, listAllGeoUnits, resolveGeoScope } from '../serv
 
 const router = Router();
 
+/**
+ * @swagger
+ * /api/geo-units:
+ *   get:
+ *     tags: [Geo Units]
+ *     summary: List all geo units
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     responses:
+ *       200:
+ *         description: List of geo units
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   name:
+ *                     type: string
+ *                   level:
+ *                     type: integer
+ *                   parentId:
+ *                     type: integer
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('geo.view'), async (req, res) => {
   const geoUnits = await listAllGeoUnits();
   const scope = req.authContext
@@ -13,6 +53,53 @@ router.get('/', requirePermission('geo.view'), async (req, res) => {
   res.json(filterGeoUnitsByScope(geoUnits, scope));
 });
 
+/**
+ * @swagger
+ * /api/geo-units:
+ *   post:
+ *     tags: [Geo Units]
+ *     summary: Create a new geo unit
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, level]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               level:
+ *                 type: integer
+ *               parentId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Created geo unit
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 name:
+ *                   type: string
+ *                 level:
+ *                   type: integer
+ *                 parentId:
+ *                   type: integer
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       409:
+ *         description: Duplicate name
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('geo.manage'), async (req, res) => {
   const { name, level, parentId } = req.body;
   try {
@@ -30,6 +117,38 @@ router.post('/', requirePermission('geo.manage'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/geo-units/{id}:
+ *   delete:
+ *     tags: [Geo Units]
+ *     summary: Delete a geo unit
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Geo unit ID
+ *     responses:
+ *       200:
+ *         description: Deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('geo.manage'), async (req, res) => {
   await pool.query('DELETE FROM geo_units WHERE id = $1', [req.params.id]);
   res.json({ success: true });

@@ -5,8 +5,50 @@ import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
 
-// Reading the branch list is open to any authenticated user — the UI needs
-// it for labels/dropdowns. Write operations are HQ-only.
+/**
+ * @swagger
+ * /api/branches:
+ *   get:
+ *     tags: [Branches]
+ *     summary: List all branches
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of branches
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   name:
+ *                     type: string
+ *                   locationGeoId:
+ *                     type: integer
+ *                   detailedAddress:
+ *                     type: string
+ *                   coveredGeoIds:
+ *                     type: array
+ *                     items:
+ *                       type: integer
+ *                   contactInfo:
+ *                     type: array
+ *                   status:
+ *                     type: string
+ *                   createdAt:
+ *                     type: string
+ *                     format: date-time
+ *                   locationGeoName:
+ *                     type: string
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requireAuth, async (_req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -29,7 +71,44 @@ router.get('/', requireAuth, async (_req, res) => {
   }
 });
 
-// GET /api/branches/:id — any authenticated user (for detail views).
+/**
+ * @swagger
+ * /api/branches/{id}:
+ *   get:
+ *     tags: [Branches]
+ *     summary: Get a branch by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *     responses:
+ *       200:
+ *         description: Branch details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 name:
+ *                   type: string
+ *                 locationGeoId:
+ *                   type: integer
+ *                 status:
+ *                   type: string
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Branch not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -54,9 +133,47 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/branches — HQ only.
-// On create, we also clone all role templates into the new branch so the
-// branch starts with a full role/permission matrix that its admin can tune.
+/**
+ * @swagger
+ * /api/branches:
+ *   post:
+ *     tags: [Branches]
+ *     summary: Create a new branch
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               locationGeoId:
+ *                 type: integer
+ *               detailedAddress:
+ *                 type: string
+ *               coveredGeoIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               contactInfo:
+ *                 type: array
+ *               status:
+ *                 type: string
+ *                 enum: [active, inactive]
+ *     responses:
+ *       200:
+ *         description: Created branch
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('branches.manage'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -93,7 +210,55 @@ router.post('/', requirePermission('branches.manage'), async (req, res) => {
   }
 });
 
-// PUT /api/branches/:id — HQ only.
+/**
+ * @swagger
+ * /api/branches/{id}:
+ *   put:
+ *     tags: [Branches]
+ *     summary: Update a branch
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               locationGeoId:
+ *                 type: integer
+ *               detailedAddress:
+ *                 type: string
+ *               coveredGeoIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               contactInfo:
+ *                 type: array
+ *               status:
+ *                 type: string
+ *                 enum: [active, inactive]
+ *     responses:
+ *       200:
+ *         description: Updated branch
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Branch not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -132,7 +297,40 @@ router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
   }
 });
 
-// DELETE /api/branches/:id — HQ only.
+/**
+ * @swagger
+ * /api/branches/{id}:
+ *   delete:
+ *     tags: [Branches]
+ *     summary: Delete a branch
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *     responses:
+ *       200:
+ *         description: Deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Branch not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('branches.manage'), async (req, res) => {
   try {
     const { id } = req.params;

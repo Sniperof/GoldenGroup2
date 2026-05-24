@@ -3,6 +3,45 @@ import { loginUser } from '../services/authService.js';
 
 const router = Router();
 
+/**
+ * @swagger
+ * /api/auth/login:
+ *   post:
+ *     tags: [Authentication]
+ *     summary: Login with username and password
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [username, password]
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 example: admin
+ *               password:
+ *                 type: string
+ *                 example: "123456"
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                 user:
+ *                   type: object
+ *       400:
+ *         description: Missing credentials
+ *       401:
+ *         description: Invalid credentials
+ *       500:
+ *         description: Server error
+ */
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
