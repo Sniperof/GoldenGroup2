@@ -889,7 +889,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       RETURNING id`,
       [
         c.firstName || null, c.fatherName || null, c.lastName || null, c.nickname || null,
-        c.name, c.mobile, toJson(c.contacts, []), c.governorate || '', c.district || '', c.neighborhood || '',
+        c.name, c.mobile, toJson(c.contacts, []), Number(c.governorate) || null, Number(c.district) || null, Number(c.neighborhood) || null,
         c.detailedAddress || null, c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
         c.gender || null, c.nationalId || null, c.birthDate || null, c.occupation || null,
         c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null, c.rating || null,
@@ -1053,7 +1053,7 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
       WHERE id=$41`,
       [
         c.firstName || null, c.fatherName || null, c.lastName || null, c.nickname || null,
-        c.name, c.mobile, toJson(c.contacts, []), c.governorate || '', c.district || '', c.neighborhood || '',
+        c.name, c.mobile, toJson(c.contacts, []), Number(c.governorate) || null, Number(c.district) || null, Number(c.neighborhood) || null,
         c.detailedAddress || null, c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
         c.gender || null, c.nationalId || null, c.birthDate || null, c.occupation || null,
         c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null, c.rating || null,

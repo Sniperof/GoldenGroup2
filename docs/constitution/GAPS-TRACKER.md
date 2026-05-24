@@ -39,9 +39,9 @@
 | **الموقع** | `migrations/001_core_tables.sql` (clients.governorate, district, neighborhood) |
 | **الوصف** | `governorate`, `district`, `neighborhood` مخزنة كـ `VARCHAR(255)` بس هي فعلياً `geo_units.id` (INTEGER). Migration `167` بيعمل `::int` casting قسري. |
 | **التأثير** | ممكن يتخزن نص غير رقمي → بيكسر الـ queries اللي بتحتاج joining مع `geo_units` |
-| **الحل المقترح** | ALTER TABLE → `INTEGER` + `FK → geo_units(id)` + `ON DELETE RESTRICT` |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [clients.md §9.3](domains/clients.md#93-الثغرة-الثالثة) |
+| **الحل المقترح** | ALTER TABLE → `INTEGER` + `FK → geo_units(id)` + `ON DELETE SET NULL` |
+| **الحالة** | ✅ محلول — `migrations/170_clients_geo_integer.sql` + `routes/clients.ts` |
+| **ملف الدستور** | [geo-units.md §9.1](domains/geo-units.md#gap-003-محلول--تحويل-حقول-عناوين-الزبائن-من-varchar-إلى-integer-fk) |
 
 ### GAP-004: Stale single-ownership column 🟢 منخفضة
 
@@ -404,17 +404,17 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [field-visits.md §9.7](domains/field-visits.md#97-الثغرة-السابعة) |
 
-### GAP-034: Employee residence stored as VARCHAR not INTEGER 🟡 متوسطة — **جديد**
+### GAP-034: Employee residence is free-text — cannot auto-migrate 🟡 متوسطة — **يتطلب قرار منتج**
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | employees |
-| **الموقع** | `migrations/001_core_tables.sql` (employees.residence) |
-| **الوصف** | يتم تخزين حقل سكن وموقع الموظفين في جدول `employees` كـ `VARCHAR(255)` نصي بدلاً من ربطه كـ `INTEGER` بالوحدات الجغرافية لجدول `geo_units`. |
-| **التأثير** | تداخل البيانات ونشوء قيم يتيمة، بالإضافة لصعوبة وجدولة وتوزيع الفنيين ميدانياً وفق نطاق سكنهم الفعلي بشكل أوتوماتيكي ومستقر. |
-| **الحل المقترح** | تحويل نوع حقل السكن إلى `INTEGER REFERENCES geo_units(id)` وتطهير وتعديل إجراءات بذر وبناء الموظفين. |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [geo-units.md §9.2](domains/geo-units.md#gap-034-تخزين-سكن-الموظفين-كـ-varchar) |
+| **الموقع** | `migrations/001_core_tables.sql` (employees.residence) + `routes/adminApplications.ts:1259` |
+| **الوصف** | `employees.residence` نص حر مُجمَّع من حقول طلب التوظيف: `[governorate, cityOrArea, subArea, neighborhood, detailedAddress].join(' - ')`. مثال: `"طرطوس - صافيتا - الجروية - السعن"`. ليس ID لـ `geo_unit`. |
+| **التأثير** | يستحيل ترحيل الحقل آلياً إلى INTEGER دون خسارة بيانات — 43 موظف بقيم نصية حرة. |
+| **الحل المقترح** | قرار من Product Owner: (أ) إضافة `residence_geo_unit_id INTEGER` بجانب `residence` كأرشيف، أو (ب) إعادة تصميم نموذج التوظيف. |
+| **الحالة** | 🔴 معلّق — يتطلب قرار منتج قبل التنفيذ |
+| **ملف الدستور** | [geo-units.md §9.2](domains/geo-units.md#gap-034-يتطلب-قرار-منتج--سكن-الموظفين-نص-حر-غير-قابل-للترحيل-الآلي) |
 
 ### GAP-035: Missing CHECK constraints on level values 🟢 منخفضة — **محلول**
 
@@ -751,6 +751,7 @@
 | GAP-037 | geo_units | إضافة `GET /:id` + `PUT /:id` (تعديل الاسم فقط) | 2026-05-24 | `packages/api/routes/geoUnits.ts` |
 | GAP-039 | geo_units | استبدال `ON DELETE CASCADE` بـ `ON DELETE RESTRICT` + معالجة 23503 | 2026-05-24 | `migrations/168_geo_units_constraints.sql` + `geoUnits.ts` |
 | GAP-038 | branches / geo_units | استبدال `covered_geo_ids` JSONB بجدول `branch_geo_coverage` مع FK | 2026-05-24 | `migrations/169_branch_geo_coverage_table.sql` + `geoScopeService.ts` + `branches.ts` |
+| GAP-003 | clients | تحويل `governorate`, `district`, `neighborhood` من VARCHAR → INTEGER FK → geo_units | 2026-05-24 | `migrations/170_clients_geo_integer.sql` + `routes/clients.ts` |
 
 ---
 
@@ -792,10 +793,11 @@
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 56 |
-| **عدد الثغرات المحلولة** | 5 (GAP-035, GAP-036, GAP-037, GAP-038, GAP-039) |
+| **عدد الثغرات المفتوحة** | 55 |
+| **عدد الثغرات المحلولة** | 6 (GAP-003, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039) |
+| **معلّقة — تتطلب قرار منتج** | 1 (GAP-034) |
 | **عالية الخطورة** | 11 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059) |
-| **متوسطة** | 27 (GAP-003, GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-034, GAP-042, GAP-044, GAP-045, GAP-046, GAP-049, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
+| **متوسطة** | 26 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-045, GAP-046, GAP-049, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
 | **منخفضة** | 17 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-047, GAP-048, GAP-061) |
 | **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (4 مفتوحة) / geo_units (3 مفتوحة) |
 | **قرارات معلقة** | 1 (multi-branch client) |

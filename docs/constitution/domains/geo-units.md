@@ -195,20 +195,20 @@ erDiagram
 
 ## 9. الثغرات والتضاربات المكتشفة (Gaps & Contradictions)
 
-### GAP-003: تخزين حقول عناوين الزبائن كـ VARCHAR
-* **الموقع:** `migrations/001_core_tables.sql` (clients.governorate, clients.district, clients.neighborhood)
-* **الوصف:** يتم تخزين العناوين الجغرافية للزبائن في جدول `clients` كسلاسل نصية (`VARCHAR(255)`) تحوي أرقام التقسيمات كنص (مثل `"12"`) بدلاً من أن تكون أرقام صحيحة مع قيد الربط (`INTEGER REFERENCES geo_units(id)`).
-* **التأثير:** 
-  - انعدام تام للربط المرجعي والنزاهة الفيزيائية بالـ DB.
-  - تعطل تتبع التغييرات الجغرافية وتخلف بيانات يتيمة ومغلوطة بالبحث.
-  - إجبار المطورين على القيام بعمليات تحويل قسري صعبة ومكلفة مثل `NULLIF(governorate, '')::int` في الفحوصات واللقطات كالمسجل في الهجرة `167`.
-* **الحل المقترح:** تعديل هيكلي شامل لحقول العملاء الجغرافية لتتحول إلى `INTEGER` مع فرض قيد الربط وعمل migration لتطهير البيانات القديمة.
+### GAP-003: ✅ محلول — تحويل حقول عناوين الزبائن من VARCHAR إلى INTEGER FK
+* **الموقع:** `migrations/170_clients_geo_integer.sql` + `packages/api/routes/clients.ts`
+* **الحل المُطبَّق:**
+  - تحويل `clients.governorate`, `clients.district`, `clients.neighborhood` من `VARCHAR(255)` → `INTEGER`
+  - ترحيل البيانات الموجودة: `governorate` (36 قيمة صحيحة محفوظة)، `district` (كانت فارغة → `NULL`)، `neighborhood` (36 قيمة صحيحة محفوظة)
+  - إضافة `FK → geo_units(id) ON DELETE SET NULL` لكل حقل
+  - تصحيح `routes/clients.ts` سطر 892 و 1056: `c.governorate || ''` → `Number(c.governorate) || null`
+* **التاريخ:** 2026-05-24
 
-### GAP-034: تخزين سكن الموظفين كـ VARCHAR
-* **الموقع:** `migrations/001_core_tables.sql` (employees.residence)
-* **الوصف:** امتداداً لثغرة `GAP-003` السابقة، يتم تخزين حقل سكن وموقع الموظفين في جدول `employees` كـ `VARCHAR(255)` بدلاً من ربطه كـ `INTEGER` بالوحدات الجغرافية.
-* **التأثير:** تداخل البيانات وصعوبة مطابقة وجدولة وتوزيع الفنيين ميدانياً وفق نطاق سكنهم الحقيقي بشكل أوتوماتيكي ومستقر.
-* **الحل المقترح:** تحويل الحقل إلى `INTEGER REFERENCES geo_units(id)` وتحديث إجراءات بذر الموظفين.
+### GAP-034: 🔴 يتطلب قرار منتج — سكن الموظفين نص حر غير قابل للترحيل الآلي
+* **الموقع:** `migrations/001_core_tables.sql` (employees.residence) + `packages/api/routes/adminApplications.ts` سطر 1259
+* **الوصف:** حقل `employees.residence` يُخزَّن كنص حر مُجمَّع من حقول طلب التوظيف في `adminApplications.ts`: `[app.governorate, app.cityOrArea, app.subArea, app.neighborhood, app.detailedAddress].filter(Boolean).join(' - ')`. مثال: `"طرطوس - صافيتا - الجروية - السعن"`. ليس `geo_unit_id` بل نص لا يمكن تحويله للـ ID دون إعادة هيكلة واجهة التوظيف.
+* **التأثير:** يستحيل ترحيل هذا الحقل آلياً دون خسارة بيانات.
+* **ما يلزم:** قرار من Product Owner حول: (أ) إضافة حقل `residence_geo_unit_id` بجانب `residence` المحفوظ كأرشيف، أو (ب) إعادة تصميم نموذج طلب التوظيف ليختار الموظف منطقته من قائمة `geo_units`.
 
 ### GAP-035: ✅ محلول — إضافة CHECK constraint على `level`
 * **الموقع:** `migrations/168_geo_units_constraints.sql`
@@ -260,3 +260,4 @@ erDiagram
 | **2026-05-24** | `167_snapshot_backfill.sql`| ترحيل ونسخ البيانات التاريخية لـ snapshots مع تصفية وعمل casting لحقول VARCHAR الجغرافية لعملاء CRM. |
 | **2026-05-24** | `168_geo_units_constraints.sql`| **GAP-035 + GAP-039:** إضافة `CHECK (level IN (1,2,3,4))` + استبدال `ON DELETE CASCADE` بـ `ON DELETE RESTRICT` على `parent_id`. |
 | **2026-05-24** | `169_branch_geo_coverage_table.sql`| **GAP-038:** إنشاء جدول `branch_geo_coverage` + ترحيل بيانات `covered_geo_ids` + حذف العمود القديم. |
+| **2026-05-24** | `170_clients_geo_integer.sql`| **GAP-003:** تحويل `clients.governorate`, `district`, `neighborhood` من `VARCHAR` → `INTEGER` + إضافة `FK → geo_units(id) ON DELETE SET NULL`. |
