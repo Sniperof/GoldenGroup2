@@ -120,6 +120,110 @@ const marketingTargetSelect = `
   ORDER BY c.id
 `;
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     ContactTarget:
+ *       type: object
+ *       properties:
+ *         contactTargetId:
+ *           type: integer
+ *         branchId:
+ *           type: integer
+ *         clientId:
+ *           type: integer
+ *         customerName:
+ *           type: string
+ *         phone:
+ *           type: string
+ *         supervisorHrUserId:
+ *           type: integer
+ *         supervisorEmployeeId:
+ *           type: string
+ *         supervisorName:
+ *           type: string
+ *         supervisors:
+ *           type: array
+ *           items:
+ *             type: object
+ *         zoneId:
+ *           type: integer
+ *         zoneName:
+ *           type: string
+ *         routeName:
+ *           type: string
+ *         status:
+ *           type: string
+ *         latestCallOutcome:
+ *           type: string
+ *         latestAppointment:
+ *           type: object
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         updatedAt:
+ *           type: string
+ *           format: date-time
+ *         ownership:
+ *           type: object
+ */
+
+/**
+ * @swagger
+ * /api/contact-targets/marketing:
+ *   get:
+ *     tags: [Contact Targets]
+ *     summary: Retrieve marketing contact targets
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/ContactTarget'
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/marketing', async (req, res) => {
   const branchId = getBranchId(req);
   if (branchId == null) {
@@ -130,6 +234,42 @@ router.get('/marketing', async (req, res) => {
   return res.json(rows.map((row: any) => ({ ...row, ownership: mapCustomerOwnership(row) })));
 });
 
+/**
+ * @swagger
+ * /api/contact-targets/marketing/sync:
+ *   post:
+ *     tags: [Contact Targets]
+ *     summary: Sync marketing contact targets
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 targets:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/ContactTarget'
+ *                 count:
+ *                   type: integer
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/marketing/sync', async (req, res) => {
   const branchId = getBranchId(req);
   if (branchId == null) {

@@ -98,6 +98,78 @@ function validateRouteAssignmentPayload(body: any): { ok: true; routes: any[]; e
   return { ok: true, routes, extraZones, stationOrder };
 }
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     RouteAssignment:
+ *       type: object
+ *       properties:
+ *         key:
+ *           type: string
+ *         routes:
+ *           type: array
+ *           items:
+ *             type: object
+ *         extraZones:
+ *           type: array
+ *           items:
+ *             type: integer
+ *         stationOrder:
+ *           type: array
+ *           items:
+ *             type: integer
+ */
+
+/**
+ * @swagger
+ * /api/route-assignments:
+ *   get:
+ *     tags: [Route Assignments]
+ *     summary: Retrieve all route assignments
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         description: Optional branch ID filter
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Optional search query
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Optional page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Optional page size limit
+ *     responses:
+ *       200:
+ *         description: Map of route assignments retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               additionalProperties:
+ *                 $ref: '#/components/schemas/RouteAssignment'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/', async (_req, res) => {
   const { rows } = await pool.query('SELECT * FROM route_assignments');
   const result: Record<string, any> = {};
@@ -107,6 +179,39 @@ router.get('/', async (_req, res) => {
   res.json(result);
 });
 
+/**
+ * @swagger
+ * /api/route-assignments/{key}:
+ *   get:
+ *     tags: [Route Assignments]
+ *     summary: Retrieve route assignment for a specific key
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The assignment key (e.g. YYYY-MM-DD_team_X)
+ *     responses:
+ *       200:
+ *         description: Route assignment details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RouteAssignment'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/:key', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM route_assignments WHERE key = $1', [req.params.key]);
   if (rows.length > 0) {
@@ -116,6 +221,47 @@ router.get('/:key', async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/route-assignments/{key}:
+ *   put:
+ *     tags: [Route Assignments]
+ *     summary: Create or update route assignment for a specific key
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The assignment key (e.g. YYYY-MM-DD_team_X)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/RouteAssignment'
+ *     responses:
+ *       200:
+ *         description: Route assignment updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RouteAssignment'
+ *       400:
+ *         description: Validation failed (e.g. duplicate routes/zones or invalid key format)
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.put('/:key', async (req, res) => {
   const authContext = getAuthContext(req);
   const branchId = authContext.actingBranchId;

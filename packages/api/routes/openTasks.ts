@@ -312,8 +312,124 @@ export async function persistOpenTaskSnapshots(db: Queryable, openTaskId: number
   );
 }
 
-// GET /open-tasks — list open tasks filtered by branch_id (required), status, task_type
-// TODO: replace with dedicated open_tasks permissions when created
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     OpenTask:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         taskType:
+ *           type: string
+ *         taskFamily:
+ *           type: string
+ *         reason:
+ *           type: string
+ *         status:
+ *           type: string
+ *         dueDate:
+ *           type: string
+ *         notes:
+ *           type: string
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         updatedAt:
+ *           type: string
+ *           format: date-time
+ *         clientSnapshot:
+ *           type: object
+ *         assignedScopeId:
+ *           type: integer
+ *         assignedTeamKey:
+ *           type: string
+ *         marketingVisitId:
+ *           type: integer
+ *         visitStatus:
+ *           type: string
+ *         scheduledDate:
+ *           type: string
+ *         scheduledTime:
+ *           type: string
+ *         devices:
+ *           type: array
+ *           items:
+ *             type: object
+ *         preOffers:
+ *           type: array
+ *           items:
+ *             type: object
+ */
+
+/**
+ * @swagger
+ * /api/open-tasks:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: List open tasks
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Filter by status
+ *       - in: query
+ *         name: taskType
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Filter by task type
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/OpenTask'
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -368,6 +484,68 @@ router.get('/', requirePermission('marketing_visits.view'), async (req, res) => 
   }
 });
 
+/**
+ * @swagger
+ * /api/open-tasks:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Create an open task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [clientId]
+ *             properties:
+ *               clientId:
+ *                 type: integer
+ *               branchId:
+ *                 type: integer
+ *               dueDate:
+ *                 type: string
+ *               expectedDate:
+ *                 type: string
+ *               reason:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *                 enum: [high, medium, low]
+ *               devices:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *               preOffers:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *               taskType:
+ *                 type: string
+ *               taskFamily:
+ *                 type: string
+ *               contractId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/', requirePermission('marketing_visits.update_result'), async (req, res) => {
   const authContext = getAuthContext(req);
   const clientId = Number(req.body?.clientId);
@@ -476,6 +654,67 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
   }
 });
 
+/**
+ * @swagger
+ * /api/open-tasks/client/{clientId}:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: Retrieve open tasks for a client
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: clientId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Client ID
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/OpenTask'
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/client/:clientId', requirePermission('marketing_visits.view'), async (req, res) => {
   const authContext = getAuthContext(req);
   const clientId = Number(req.params.clientId);
@@ -556,9 +795,86 @@ router.get('/client/:clientId', requirePermission('marketing_visits.view'), asyn
   return res.json(rows);
 });
 
-// GET /open-tasks/device-demo — device demo operational workspace
-// Returns device_demo open tasks joined with their latest marketing visit and task result.
-// Filters: status (open task status), visitStatus, scheduledDate, branchId
+/**
+ * @swagger
+ * /api/open-tasks/device-demo:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: Get device demo open tasks workspace
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: visitStatus
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: scheduledDate
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: scheduled
+ *         schema:
+ *           type: string
+ *           enum: [yes, no]
+ *         required: false
+ *       - in: query
+ *         name: hideSnoozed
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: hideFutureTasks
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/device-demo', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -706,7 +1022,52 @@ router.get('/device-demo', requirePermission('marketing_visits.view'), async (re
   }
 });
 
-// POST /open-tasks/:id/assign-team — assign snapshot team and schedule task
+/**
+ * @swagger
+ * /api/open-tasks/{id}/assign-team:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Assign team to task and schedule
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               supervisorId:
+ *                 type: integer
+ *               technicianId:
+ *                 type: integer
+ *               traineeId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/:id/assign-team', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -785,8 +1146,43 @@ router.post('/:id/assign-team', requirePermission('marketing_visits.update_resul
   }
 });
 
-// GET /open-tasks/:id — single task
-// TODO: replace with dedicated open_tasks permissions when created
+/**
+ * @swagger
+ * /api/open-tasks/{id}:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: Retrieve details of a single open task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OpenTask'
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -887,8 +1283,62 @@ router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) 
   }
 });
 
-// PATCH /open-tasks/:id — update status, notes, dueDate, priority
-// TODO: replace with dedicated open_tasks permissions when created
+/**
+ * @swagger
+ * /api/open-tasks/{id}:
+ *   patch:
+ *     tags: [Open Tasks]
+ *     summary: Update an open task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *               dueDate:
+ *                 type: string
+ *               expectedDate:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *               assignedScopeId:
+ *                 type: integer
+ *               assignedTeamKey:
+ *                 type: string
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.patch('/:id', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1093,7 +1543,37 @@ function mapDecisionToOpenTaskStatus(finalDecision: string): string {
   return 'needs_follow_up'; // partially_resolved | unresolved | needs_followup
 }
 
-// GET /open-tasks/:id/emergency-result — fetch recorded emergency result
+/**
+ * @swagger
+ * /api/open-tasks/{id}/emergency-result:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: Get emergency result for a task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/:id/emergency-result', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1215,8 +1695,54 @@ router.get('/:id/emergency-result', requirePermission('marketing_visits.view'), 
   }
 });
 
-// POST /open-tasks/:id/emergency-result — record or update emergency maintenance result
-// Phase 4 finalization rule: task is only resolved when result is recorded here.
+/**
+ * @swagger
+ * /api/open-tasks/{id}/emergency-result:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Create emergency result for a task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               decision:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *               reasonCode:
+ *                 type: string
+ *               closedByEmployeeId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/:id/emergency-result', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1467,7 +1993,59 @@ router.post('/:id/emergency-result', requirePermission('marketing_visits.update_
   }
 });
 
-// GET /open-tasks/scope/:scopeId — list tasks linked to a work scope
+/**
+ * @swagger
+ * /api/open-tasks/scope/{scopeId}:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: Retrieve open tasks in a scope
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: scopeId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Scope ID
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/scope/:scopeId', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const scopeId = Number(req.params.scopeId);
@@ -1490,7 +2068,48 @@ router.get('/scope/:scopeId', requirePermission('marketing_visits.view'), async 
   }
 });
 
-// POST /open-tasks/:id/assign-scope — assign task to a work scope + team_key
+/**
+ * @swagger
+ * /api/open-tasks/{id}/assign-scope:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Assign scope to a task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               scopeId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/:id/assign-scope', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1536,7 +2155,50 @@ router.post('/:id/assign-scope', requirePermission('marketing_visits.update_resu
   }
 });
 
-// POST /open-tasks/:id/exclude — exclude a task from today's assignment and return it to waiting if needed
+/**
+ * @swagger
+ * /api/open-tasks/{id}/exclude:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Exclude task from list for a date
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               date:
+ *                 type: string
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/:id/exclude', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1591,7 +2253,39 @@ router.post('/:id/exclude', requirePermission('marketing_visits.update_result'),
   }
 });
 
-// POST /open-tasks/:id/restore — clear today's exclusion and make the task eligible again
+/**
+ * @swagger
+ * /api/open-tasks/{id}/restore:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Restore an excluded task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/:id/restore', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1624,7 +2318,46 @@ router.post('/:id/restore', requirePermission('marketing_visits.update_result'),
   }
 });
 
-// POST /open-tasks/bulk-exclude — exclude many tasks from today's assignment
+/**
+ * @swagger
+ * /api/open-tasks/bulk-exclude:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Bulk exclude tasks
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               taskIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               date:
+ *                 type: string
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/bulk-exclude', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1674,7 +2407,42 @@ router.post('/bulk-exclude', requirePermission('marketing_visits.update_result')
   }
 });
 
-// POST /open-tasks/bulk-restore — restore many tasks from today's exclusion
+/**
+ * @swagger
+ * /api/open-tasks/bulk-restore:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Bulk restore tasks
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               taskIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/bulk-restore', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1706,7 +2474,61 @@ router.post('/bulk-restore', requirePermission('marketing_visits.update_result')
   }
 });
 
-// GET /open-tasks/:id/activity
+/**
+ * @swagger
+ * /api/open-tasks/{id}/activity:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: Get task activity log
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/:id/activity', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1744,7 +2566,54 @@ router.get('/:id/activity', requirePermission('marketing_visits.view'), async (r
   }
 });
 
-// POST /open-tasks/:id/activity
+/**
+ * @swagger
+ * /api/open-tasks/{id}/activity:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Add activity log entry to task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               eventType:
+ *                 type: string
+ *               oldValue:
+ *                 type: string
+ *               newValue:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/:id/activity', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1804,7 +2673,61 @@ router.post('/:id/activity', requirePermission('marketing_visits.update_result')
   }
 });
 
-// GET /open-tasks/:id/devices
+/**
+ * @swagger
+ * /api/open-tasks/{id}/devices:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: Get devices assigned to a task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/:id/devices', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1867,7 +2790,50 @@ router.get('/:id/devices', requirePermission('marketing_visits.view'), async (re
   }
 });
 
-// POST /open-tasks/:id/devices
+/**
+ * @swagger
+ * /api/open-tasks/{id}/devices:
+ *   post:
+ *     tags: [Open Tasks]
+ *     summary: Update devices for a task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               devices:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/:id/devices', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1902,7 +2868,61 @@ router.post('/:id/devices', requirePermission('marketing_visits.update_result'),
   }
 });
 
-// GET /open-tasks/:id/calls
+/**
+ * @swagger
+ * /api/open-tasks/{id}/calls:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: Get calls associated with a task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Task ID
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/:id/calls', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);

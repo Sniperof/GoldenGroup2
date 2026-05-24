@@ -108,6 +108,178 @@ async function resolveVisitSource(visitId: number): Promise<{
 // ─── GEO TRACKING ────────────────────────────────────────────────────────────
 
 // POST /api/field-visits/:id/start
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     FieldVisit:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         visitType:
+ *           type: string
+ *         visitFamily:
+ *           type: string
+ *         status:
+ *           type: string
+ *         scheduledDate:
+ *           type: string
+ *         scheduledTime:
+ *           type: string
+ *         clientId:
+ *           type: integer
+ *         branchId:
+ *           type: integer
+ *         teamSnapshot:
+ *           type: object
+ *         customerSnapshot:
+ *           type: object
+ *         fieldNotes:
+ *           type: string
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         updatedAt:
+ *           type: string
+ *           format: date-time
+ *     VisitGeoLog:
+ *       type: object
+ *       properties:
+ *         visit_id:
+ *           type: integer
+ *         actual_start_time:
+ *           type: string
+ *           format: date-time
+ *         actual_start_lat:
+ *           type: number
+ *         actual_start_lng:
+ *           type: number
+ *         actual_start_accuracy:
+ *           type: number
+ *         actual_end_time:
+ *           type: string
+ *           format: date-time
+ *         actual_end_lat:
+ *           type: number
+ *         actual_end_lng:
+ *           type: number
+ *         actual_end_accuracy:
+ *           type: number
+ *         duration_minutes:
+ *           type: integer
+ *         distance_meters:
+ *           type: number
+ *         location_missing:
+ *           type: boolean
+ *     VisitSource:
+ *       type: object
+ *       properties:
+ *         visit_id:
+ *           type: integer
+ *         source_type:
+ *           type: string
+ *         source_label:
+ *           type: string
+ *         actor_employee_ids:
+ *           type: array
+ *           items:
+ *             type: integer
+ *     VisitNameCollection:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         visit_task_id:
+ *           type: integer
+ *         client_id:
+ *           type: integer
+ *         proposed_count:
+ *           type: integer
+ *         actual_count:
+ *           type: integer
+ *         referral_sheet_id:
+ *           type: integer
+ *         status:
+ *           type: string
+ *         notes:
+ *           type: string
+ *     DirectSuggestion:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         visit_task_id:
+ *           type: integer
+ *         client_id:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         phone:
+ *           type: string
+ *         is_direct:
+ *           type: boolean
+ *         notes:
+ *           type: string
+ */
+
+/**
+ * @swagger
+ * /api/field-visits/{id}/start:
+ *   post:
+ *     tags: [Field Visits]
+ *     summary: Start a field visit
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Field Visit ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               lat:
+ *                 type: number
+ *               lng:
+ *                 type: number
+ *               accuracy:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Start recorded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 geo:
+ *                   $ref: '#/components/schemas/VisitGeoLog'
+ *       400:
+ *         description: Invalid visit ID
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Visit not found
+ *       500:
+ *         description: Server error
+ */
 router.post('/:id/start', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -174,6 +346,63 @@ router.post('/:id/start', requirePermission('marketing_visits.update_result'), a
 });
 
 // POST /api/field-visits/:id/end
+/**
+ * @swagger
+ * /api/field-visits/{id}/end:
+ *   post:
+ *     tags: [Field Visits]
+ *     summary: End a field visit
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Field Visit ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               lat:
+ *                 type: number
+ *               lng:
+ *                 type: number
+ *               accuracy:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: End recorded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 geo:
+ *                   $ref: '#/components/schemas/VisitGeoLog'
+ *       400:
+ *         description: Invalid visit ID
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Visit not found
+ *       500:
+ *         description: Server error
+ */
 router.post('/:id/end', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -254,6 +483,41 @@ router.post('/:id/end', requirePermission('marketing_visits.update_result'), asy
 });
 
 // GET /api/field-visits/:id/geo
+/**
+ * @swagger
+ * /api/field-visits/{id}/geo:
+ *   get:
+ *     tags: [Field Visits]
+ *     summary: Get geo log for a field visit
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Field Visit ID
+ *     responses:
+ *       200:
+ *         description: Geo log retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/VisitGeoLog'
+ *       400:
+ *         description: Invalid visit ID
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id/geo', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const visitId = Number(req.params.id);
@@ -273,6 +537,43 @@ router.get('/:id/geo', requirePermission('marketing_visits.view'), async (req, r
 // ─── VISIT SOURCE ─────────────────────────────────────────────────────────────
 
 // GET /api/field-visits/:id/source
+/**
+ * @swagger
+ * /api/field-visits/{id}/source:
+ *   get:
+ *     tags: [Field Visits]
+ *     summary: Get source info for a field visit
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Field Visit ID
+ *     responses:
+ *       200:
+ *         description: Visit source retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/VisitSource'
+ *       400:
+ *         description: Invalid visit ID
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Visit not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id/source', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const visitId = Number(req.params.id);
@@ -310,6 +611,67 @@ router.get('/:id/source', requirePermission('marketing_visits.view'), async (req
 
 // GET /api/field-visits/?clientId=X  — visits for a specific client
 // GET /api/field-visits/?date=YYYY-MM-DD  — visits for a specific date
+/**
+ * @swagger
+ * /api/field-visits:
+ *   get:
+ *     tags: [Field Visits]
+ *     summary: Retrieve a list of field visits
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: query
+ *         name: clientId
+ *         schema:
+ *           type: integer
+ *         description: Filter by client ID
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *         description: Filter by date (YYYY-MM-DD)
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         description: Optional branch ID filter
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Optional search query
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Optional page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Optional page size limit
+ *     responses:
+ *       200:
+ *         description: List of field visits retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/FieldVisit'
+ *       400:
+ *         description: Must specify clientId or date
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -368,6 +730,45 @@ router.get('/', requirePermission('marketing_visits.view'), async (req, res) => 
 // ─── FULL VISIT DETAILS ───────────────────────────────────────────────────────
 
 // GET /api/field-visits/:id — full visit with tasks, geo, source
+/**
+ * @swagger
+ * /api/field-visits/{id}:
+ *   get:
+ *     tags: [Field Visits]
+ *     summary: Get full field visit details
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Field Visit ID
+ *     responses:
+ *       200:
+ *         description: Full visit details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *       400:
+ *         description: Invalid visit ID
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Visit not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -462,6 +863,54 @@ router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) 
 // ─── NAME COLLECTION ──────────────────────────────────────────────────────────
 
 // POST /api/field-visits/visit-tasks/:taskId/name-collection
+/**
+ * @swagger
+ * /api/field-visits/visit-tasks/{taskId}/name-collection:
+ *   post:
+ *     tags: [Field Visits]
+ *     summary: Create a name collection task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               proposed_count:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: Created name collection task
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/VisitNameCollection'
+ *       400:
+ *         description: Invalid input or taskId
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Task not found
+ *       500:
+ *         description: Server error
+ */
 router.post('/visit-tasks/:taskId/name-collection', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -532,6 +981,56 @@ router.post('/visit-tasks/:taskId/name-collection', requirePermission('marketing
 });
 
 // PUT /api/field-visits/name-collections/:id/record-names
+/**
+ * @swagger
+ * /api/field-visits/name-collections/{id}/record-names:
+ *   put:
+ *     tags: [Field Visits]
+ *     summary: Record actual names collected
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Name Collection ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               actual_count:
+ *                 type: integer
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Names recorded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/VisitNameCollection'
+ *       400:
+ *         description: Invalid input or ID
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Name collection not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/name-collections/:id/record-names', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -584,6 +1083,43 @@ router.put('/name-collections/:id/record-names', requirePermission('marketing_vi
 });
 
 // GET /api/field-visits/name-collections/:id
+/**
+ * @swagger
+ * /api/field-visits/name-collections/{id}:
+ *   get:
+ *     tags: [Field Visits]
+ *     summary: Get name collection details
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Name Collection ID
+ *     responses:
+ *       200:
+ *         description: Name collection retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/VisitNameCollection'
+ *       400:
+ *         description: Invalid ID
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Name collection not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/name-collections/:id', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -604,6 +1140,58 @@ router.get('/name-collections/:id', requirePermission('marketing_visits.view'), 
 // ─── DIRECT SUGGESTIONS ───────────────────────────────────────────────────────
 
 // POST /api/field-visits/visit-tasks/:taskId/direct-suggestions
+/**
+ * @swagger
+ * /api/field-visits/visit-tasks/:taskId/direct-suggestions:
+ *   post:
+ *     tags: [Field Visits]
+ *     summary: Create a direct suggestion
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Direct suggestion created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DirectSuggestion'
+ *       400:
+ *         description: Invalid input or taskId
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Task not found
+ *       500:
+ *         description: Server error
+ */
 router.post('/visit-tasks/:taskId/direct-suggestions', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -644,6 +1232,43 @@ router.post('/visit-tasks/:taskId/direct-suggestions', requirePermission('market
 });
 
 // GET /api/field-visits/visit-tasks/:taskId/direct-suggestions
+/**
+ * @swagger
+ * /api/field-visits/visit-tasks/{taskId}/direct-suggestions:
+ *   get:
+ *     tags: [Field Visits]
+ *     summary: Get all direct suggestions for a visit task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Task ID
+ *     responses:
+ *       200:
+ *         description: Direct suggestions retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/DirectSuggestion'
+ *       400:
+ *         description: Invalid taskId
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/visit-tasks/:taskId/direct-suggestions', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -663,6 +1288,48 @@ router.get('/visit-tasks/:taskId/direct-suggestions', requirePermission('marketi
 // ─── COMPLETION GUARD ─────────────────────────────────────────────────────────
 
 // POST /api/field-visits/:id/complete
+/**
+ * @swagger
+ * /api/field-visits/{id}/complete:
+ *   post:
+ *     tags: [Field Visits]
+ *     summary: Complete a field visit
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Field Visit ID
+ *     responses:
+ *       200:
+ *         description: Visit completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       400:
+ *         description: Guard checks failed (e.g. pending tasks or incomplete name collection)
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Visit not found
+ *       500:
+ *         description: Server error
+ */
 router.post('/:id/complete', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);

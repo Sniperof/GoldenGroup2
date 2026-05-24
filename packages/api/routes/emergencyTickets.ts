@@ -4,6 +4,60 @@ import { persistOpenTaskSnapshots } from './openTasks.js';
 
 const router = Router();
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     EmergencyTicket:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         clientId:
+ *           type: integer
+ *         clientName:
+ *           type: string
+ *         clientAddress:
+ *           type: string
+ *         clientRating:
+ *           type: string
+ *         contractId:
+ *           type: integer
+ *         deviceModelName:
+ *           type: string
+ *         problemDescription:
+ *           type: string
+ *         callNotes:
+ *           type: string
+ *         attachments:
+ *           type: array
+ *           items:
+ *             type: string
+ *         callReceiver:
+ *           type: string
+ *         priority:
+ *           type: string
+ *         ticketStatus:
+ *           type: string
+ *         status:
+ *           type: string
+ *         assignedTechnicianId:
+ *           type: integer
+ *         openTaskId:
+ *           type: integer
+ *         actionTypeId:
+ *           type: integer
+ *         actionTypeLabel:
+ *           type: string
+ *         dueWithinHours:
+ *           type: integer
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         openTaskStatus:
+ *           type: string
+ */
+
 const SELECT_FIELDS = `
   et.id,
   et.client_id AS "clientId",
@@ -50,6 +104,61 @@ function mapTicketRow(row: any) {
   };
 }
 
+/**
+ * @swagger
+ * /api/emergency-tickets:
+ *   get:
+ *     tags: [Emergency]
+ *     summary: List emergency tickets
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: query
+ *         name: openTaskId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Optional task ID to filter by
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: A list of emergency tickets
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/EmergencyTicket'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/', async (req, res) => {
   const openTaskId = req.query.openTaskId;
   let whereClause = '';
@@ -72,6 +181,41 @@ router.get('/', async (req, res) => {
   res.json(rows.map(mapTicketRow));
 });
 
+/**
+ * @swagger
+ * /api/emergency-tickets:
+ *   post:
+ *     tags: [Emergency]
+ *     summary: Create an emergency ticket
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EmergencyTicket'
+ *     responses:
+ *       200:
+ *         description: Created emergency ticket
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/EmergencyTicket'
+ *       400:
+ *         description: Bad request / validation error
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.post('/', async (req, res) => {
   const ticket = req.body;
   const db = await pool.connect();
@@ -160,6 +304,47 @@ router.post('/', async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/emergency-tickets/{id}:
+ *   put:
+ *     tags: [Emergency]
+ *     summary: Update an emergency ticket
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Emergency ticket ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EmergencyTicket'
+ *     responses:
+ *       200:
+ *         description: Updated emergency ticket
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/EmergencyTicket'
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Emergency ticket not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', async (req, res) => {
   const ticket = req.body;
   const { rows } = await pool.query(

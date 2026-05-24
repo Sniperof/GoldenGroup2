@@ -248,6 +248,60 @@ async function validateSchedulePayload(req: any, teams: unknown, solos: unknown)
   return { ok: true };
 }
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     DaySchedule:
+ *       type: object
+ *       properties:
+ *         date:
+ *           type: string
+ *           format: date
+ *         teams:
+ *           type: array
+ *           items:
+ *             type: object
+ *         solos:
+ *           type: array
+ *           items:
+ *             type: object
+ */
+
+/**
+ * @swagger
+ * /api/schedules/{date}:
+ *   get:
+ *     tags: [Schedules]
+ *     summary: Retrieve day schedule for a specific date
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: date
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Date (YYYY-MM-DD)
+ *     responses:
+ *       200:
+ *         description: Day schedule retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DaySchedule'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/:date', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM day_schedules WHERE date = $1', [req.params.date]);
   if (rows.length > 0) {
@@ -257,6 +311,48 @@ router.get('/:date', async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/schedules/{date}:
+ *   put:
+ *     tags: [Schedules]
+ *     summary: Create or update day schedule for a specific date
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Branch ID
+ *       - in: path
+ *         name: date
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Date (YYYY-MM-DD)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/DaySchedule'
+ *     responses:
+ *       200:
+ *         description: Day schedule updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DaySchedule'
+ *       400:
+ *         description: Validation failed (e.g. inactive employee or missing roles)
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.put('/:date', async (req, res) => {
   const { teams = [], solos = [] } = req.body ?? {};
   const validation = await validateSchedulePayload(req, teams, solos);

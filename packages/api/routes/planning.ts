@@ -6,6 +6,140 @@ import { syncAssignedTasks } from '../services/assignedTasks.js';
 
 const router = Router();
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     PlanningMarketingTarget:
+ *       type: object
+ *       properties:
+ *         clientId:
+ *           type: integer
+ *         clientName:
+ *           type: string
+ *         phone:
+ *           type: string
+ *         zoneId:
+ *           type: integer
+ *         zoneName:
+ *           type: string
+ *         status:
+ *           type: string
+ *         tasks:
+ *           type: array
+ *           items:
+ *             type: object
+ *     AssignedTaskClient:
+ *       type: object
+ *       properties:
+ *         clientId:
+ *           type: integer
+ *         clientName:
+ *           type: string
+ *         primaryPhone:
+ *           type: string
+ *         candidateStatus:
+ *           type: string
+ *         stationName:
+ *           type: string
+ *         tasks:
+ *           type: array
+ *           items:
+ *             type: object
+ *         assignedCount:
+ *           type: integer
+ *         excludedCount:
+ *           type: integer
+ *         taskPhase:
+ *           type: string
+ *         contactTargetStatus:
+ *           type: string
+ *         taskListItemStatus:
+ *           type: string
+ *         latestCallOutcome:
+ *           type: string
+ *         appointmentDate:
+ *           type: string
+ *         appointmentTime:
+ *           type: string
+ *         attemptCount:
+ *           type: integer
+ */
+
+/**
+ * @swagger
+ * /api/planning/marketing-targets:
+ *   get:
+ *     tags: [Planning]
+ *     summary: Get planning marketing targets
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Date in YYYY-MM-DD format
+ *       - in: query
+ *         name: teamKey
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Team key (team_X or solo_X)
+ *       - in: query
+ *         name: mode
+ *         schema:
+ *           type: string
+ *           enum: [assigned, planning]
+ *         required: false
+ *         description: Mode
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/PlanningMarketingTarget'
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/marketing-targets', requirePermission('planning.manage'), async (req, res) => {
   try {
     const date = typeof req.query.date === 'string' ? req.query.date : '';
@@ -62,6 +196,95 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
 //   latestCallOutcome     — most recent outcome from call logs / task_list_item
 //   appointmentDate/Time  — if appointment exists for this team today
 //   attemptCount          — how many times telemarketer tried today
+/**
+ * @swagger
+ * /api/planning/assigned-tasks:
+ *   get:
+ *     tags: [Planning]
+ *     summary: Retrieve assigned tasks for a team and date
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Date in YYYY-MM-DD format
+ *       - in: query
+ *         name: teamKey
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Team key (team_X or solo_X)
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 teamKey:
+ *                   type: string
+ *                 date:
+ *                   type: string
+ *                 taskListGenerated:
+ *                   type: boolean
+ *                 clients:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/AssignedTaskClient'
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     assigned:
+ *                       type: integer
+ *                     inList:
+ *                       type: integer
+ *                     booked:
+ *                       type: integer
+ *                     closed:
+ *                       type: integer
+ *                     excluded:
+ *                       type: integer
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, res) => {
   try {
     const date = typeof req.query.date === 'string' ? req.query.date : '';

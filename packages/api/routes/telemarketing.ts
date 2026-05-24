@@ -547,8 +547,118 @@ const mapTaskListRows = (rows: any[]) => {
   return Array.from(taskLists.values());
 };
 
-// ─── GET /snapshot ───
-// Scope: branch filter + team membership filter for telemarketers
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     TelemarketingTaskListItem:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *         taskListId:
+ *           type: string
+ *         entityType:
+ *           type: string
+ *         entityId:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         mobile:
+ *           type: string
+ *         contactNumber:
+ *           type: string
+ *         contactLabel:
+ *           type: string
+ *         addressText:
+ *           type: string
+ *         geoUnitId:
+ *           type: integer
+ *         status:
+ *           type: string
+ *         callOutcome:
+ *           type: string
+ *         contactTargetId:
+ *           type: integer
+ *     TelemarketingTaskList:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *         teamKey:
+ *           type: string
+ *         date:
+ *           type: string
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         items:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/TelemarketingTaskListItem'
+ */
+
+/**
+ * @swagger
+ * /api/telemarketing/snapshot:
+ *   get:
+ *     tags: [Telemarketing]
+ *     summary: Retrieve telemarketing snapshot of task lists
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Date in YYYY-MM-DD format
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/TelemarketingTaskList'
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (req, res) => {
   const branchId = getBranchId(req);
   const dateParam = req.query.date as string | undefined;
@@ -825,6 +935,52 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
 // by any new code path. It will be removed once all callers migrate to
 // generate-from-plan. contact_target_id is explicitly set to NULL because
 // legacy upsert has no way to resolve contact targets.
+/**
+ * @swagger
+ * /api/telemarketing/task-lists/upsert:
+ *   post:
+ *     tags: [Telemarketing]
+ *     summary: Upsert a telemarketing task list (Legacy)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: string
+ *               teamKey:
+ *                 type: string
+ *               date:
+ *                 type: string
+ *               createdAt:
+ *                 type: string
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/task-lists/upsert', requirePermission('telemarketing.lists.generate'), async (req, res) => {
   const { id, teamKey, date, createdAt, items } = req.body;
   const branchId = getBranchId(req);
@@ -904,6 +1060,46 @@ router.post('/task-lists/upsert', requirePermission('telemarketing.lists.generat
   }
 });
 
+/**
+ * @swagger
+ * /api/telemarketing/task-lists/generate-from-plan:
+ *   post:
+ *     tags: [Telemarketing]
+ *     summary: Generate a task list from today's planning
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               date:
+ *                 type: string
+ *                 description: Date in YYYY-MM-DD format
+ *               teamKey:
+ *                 type: string
+ *                 description: Team key
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.lists.generate'), async (req, res) => {
   const { date, teamKey } = req.body || {};
   const branchId = getBranchId(req);
@@ -1177,6 +1373,60 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
 
 // ─── PATCH task list item ───
 // Scope: verify user can act on this item's task list
+/**
+ * @swagger
+ * /api/telemarketing/task-lists/{taskListId}/items/{itemId}:
+ *   patch:
+ *     tags: [Telemarketing]
+ *     summary: Update a task list item status/outcome
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskListId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Task List ID
+ *       - in: path
+ *         name: itemId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Item ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *               callOutcome:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/TelemarketingTaskListItem'
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.patch(
   '/task-lists/:taskListId/items/:itemId',
   requirePermission('telemarketing.calls.create'),
@@ -1219,8 +1469,58 @@ router.patch(
   },
 );
 
-// ─── POST /call-logs ───
-// Scope: verify branch + team membership for telemarketers
+/**
+ * @swagger
+ * /api/telemarketing/call-logs:
+ *   post:
+ *     tags: [Telemarketing]
+ *     summary: Log a telemarketing call
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               taskListId:
+ *                 type: string
+ *               taskListItemId:
+ *                 type: string
+ *               entityType:
+ *                 type: string
+ *               entityId:
+ *                 type: integer
+ *               teamKey:
+ *                 type: string
+ *               outcome:
+ *                 type: string
+ *               contactLabel:
+ *                 type: string
+ *               contactNumber:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *               communicationMethod:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/call-logs', requirePermission('telemarketing.calls.create'), async (req, res) => {
   const log = req.body;
 
@@ -1342,8 +1642,64 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
   res.json(rows[0]);
 });
 
-// ─── POST /appointments ───
-// Scope: verify branch + team membership for telemarketers
+/**
+ * @swagger
+ * /api/telemarketing/appointments:
+ *   post:
+ *     tags: [Telemarketing]
+ *     summary: Book an appointment
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               taskListId:
+ *                 type: string
+ *               taskListItemId:
+ *                 type: string
+ *               entityType:
+ *                 type: string
+ *               entityId:
+ *                 type: integer
+ *               teamKey:
+ *                 type: string
+ *               date:
+ *                 type: string
+ *               timeSlot:
+ *                 type: string
+ *               technicianNotes:
+ *                 type: string
+ *               requestedDeviceModelId:
+ *                 type: integer
+ *               requestedDeviceName:
+ *                 type: string
+ *               selectedOpenTasks:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       409:
+ *         description: Conflict
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/appointments', requirePermission('telemarketing.appointments.book'), async (req, res) => {
   const appointment = req.body;
 
@@ -1677,12 +2033,58 @@ router.post('/appointments', requirePermission('telemarketing.appointments.book'
   }
 });
 
-// ─── POST /task-lists/:taskListId/items/:itemId/close ────────────────────────
-//
-// Manual close by telemarketer (§6.4 Q11 — "يدوي من التلمارك").
-// Closes the contact_target and returns the open_task to last_waiting_status.
-// Optionally accepts expectedDate + priority so the telemarketer can set
-// the next callback window before releasing the task back to the pool.
+/**
+ * @swagger
+ * /api/telemarketing/task-lists/{taskListId}/items/{itemId}/close:
+ *   post:
+ *     tags: [Telemarketing]
+ *     summary: Manually close a task list item
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskListId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Task List ID
+ *       - in: path
+ *         name: itemId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Item ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *               expectedDate:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post(
   '/task-lists/:taskListId/items/:itemId/close',
   requirePermission('telemarketing.calls.create'),
@@ -1768,9 +2170,66 @@ router.post(
   },
 );
 
-// ─── GET /task-type-options ──────────────────────────────────────────────────
-// Returns active task types for the service-request task creation dropdown.
-// Requires only telemarketing.calls.create — no admin access needed.
+/**
+ * @swagger
+ * /api/telemarketing/task-type-options:
+ *   get:
+ *     tags: [Telemarketing]
+ *     summary: Retrieve active task types for options dropdown
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   taskType:
+ *                     type: string
+ *                   arabicLabel:
+ *                     type: string
+ *                   taskFamily:
+ *                     type: string
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/task-type-options', requirePermission('telemarketing.calls.create'), async (_req, res) => {
   try {
     const { rows } = await pool.query(
@@ -1785,9 +2244,46 @@ router.get('/task-type-options', requirePermission('telemarketing.calls.create')
   }
 });
 
-// ─── POST /service-tasks ─────────────────────────────────────────────────────
-// Creates a new open_task from the telemarketer context after a service_request
-// call outcome. The task is created as 'open' and linked to the client.
+/**
+ * @swagger
+ * /api/telemarketing/service-tasks:
+ *   post:
+ *     tags: [Telemarketing]
+ *     summary: Create a service task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               clientId:
+ *                 type: integer
+ *               taskType:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Created
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/service-tasks', requirePermission('telemarketing.calls.create'), async (req, res) => {
   try {
     const branchId = getBranchId(req);

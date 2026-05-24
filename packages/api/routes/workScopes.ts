@@ -18,7 +18,85 @@ function getAuthContext(req: any) {
   };
 }
 
-// POST /api/work-scopes — create or upsert a work scope for a team/date
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     WorkScope:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         branchId:
+ *           type: integer
+ *         date:
+ *           type: string
+ *         teamKey:
+ *           type: string
+ *         zoneIds:
+ *           type: array
+ *           items:
+ *             type: integer
+ *         scopeType:
+ *           type: string
+ *         status:
+ *           type: string
+ *         generatedAt:
+ *           type: string
+ *           format: date-time
+ *         generatedBy:
+ *           type: integer
+ */
+
+/**
+ * @swagger
+ * /api/work-scopes:
+ *   post:
+ *     tags: [Work Scopes]
+ *     summary: Create or upsert a work scope
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [date, teamKey]
+ *             properties:
+ *               branchId:
+ *                 type: integer
+ *               date:
+ *                 type: string
+ *               teamKey:
+ *                 type: string
+ *               zoneIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               scopeType:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/WorkScope'
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -55,7 +133,67 @@ router.post('/', requirePermission('marketing_visits.view'), async (req, res) =>
   }
 });
 
-// GET /api/work-scopes/:date/:teamKey — fetch scope + tasks
+/**
+ * @swagger
+ * /api/work-scopes/{date}/{teamKey}:
+ *   get:
+ *     tags: [Work Scopes]
+ *     summary: Fetch scope and tasks for a team and date
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: date
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Date (YYYY-MM-DD)
+ *       - in: path
+ *         name: teamKey
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Team key
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter by branch ID
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search term
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
+ */
 router.get('/:date/:teamKey', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -75,7 +213,43 @@ router.get('/:date/:teamKey', requirePermission('marketing_visits.view'), async 
   }
 });
 
-// PUT /api/work-scopes/:id/activate — set scope status to active
+/**
+ * @swagger
+ * /api/work-scopes/{id}/activate:
+ *   put:
+ *     tags: [Work Scopes]
+ *     summary: Set scope status to active
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Work Scope ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/WorkScope'
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.put('/:id/activate', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -94,7 +268,39 @@ router.put('/:id/activate', requirePermission('marketing_visits.update_result'),
   }
 });
 
-// POST /api/work-scopes/:id/generate-tasks — populate scope_tasks from matching open_tasks
+/**
+ * @swagger
+ * /api/work-scopes/{id}/generate-tasks:
+ *   post:
+ *     tags: [Work Scopes]
+ *     summary: Generate scope tasks from open tasks
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Work Scope ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *       400:
+ *         description: Bad Request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not Found
+ *       500:
+ *         description: Internal Server Error
+ */
 router.post('/:id/generate-tasks', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);

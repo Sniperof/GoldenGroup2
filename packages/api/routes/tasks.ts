@@ -13,6 +13,123 @@ const selectFields = `
   branch_id AS "branchId"
 `;
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Task:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         type:
+ *           type: string
+ *         customerName:
+ *           type: string
+ *         context:
+ *           type: string
+ *         location:
+ *           type: string
+ *         dueDate:
+ *           type: string
+ *           format: date-time
+ *         status:
+ *           type: string
+ *         priority:
+ *           type: string
+ *         branchId:
+ *           type: integer
+ */
+
+/**
+ * @swagger
+ * /api/tasks:
+ *   get:
+ *     tags: [Tasks]
+ *     summary: Retrieve a list of tasks
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The branch ID context header
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         description: Optional branch ID filter
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Optional search query
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Optional page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Optional page size limit
+ *     responses:
+ *       200:
+ *         description: List of tasks
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Task'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
+
+/**
+ * @swagger
+ * /api/tasks/{id}:
+ *   get:
+ *     tags: [Tasks]
+ *     summary: Retrieve a specific task by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The branch ID context header
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The task ID
+ *     responses:
+ *       200:
+ *         description: The task details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Task'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Task not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('tasks.view_list'), async (req, res) => {
   const authContext = req.authContext!;
   if (authContext.isSuperAdmin) {
@@ -28,6 +145,41 @@ router.get('/', requirePermission('tasks.view_list'), async (req, res) => {
   res.json(rows);
 });
 
+/**
+ * @swagger
+ * /api/tasks:
+ *   post:
+ *     tags: [Tasks]
+ *     summary: Create a new task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The branch ID context header
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/Task'
+ *     responses:
+ *       201:
+ *         description: Created task
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Task'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('tasks.create'), async (req, res) => {
   const t = req.body;
   const targetBranchId = resolveTargetBranchId(req, res, t.branchId);
@@ -40,6 +192,49 @@ router.post('/', requirePermission('tasks.create'), async (req, res) => {
   res.json(rows[0]);
 });
 
+/**
+ * @swagger
+ * /api/tasks/{id}:
+ *   put:
+ *     tags: [Tasks]
+ *     summary: Update an existing task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The branch ID context header
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/Task'
+ *     responses:
+ *       200:
+ *         description: Updated task
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Task'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Task not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('tasks.edit'), async (req, res) => {
   const authContext = req.authContext!;
   const { rows: existing } = await pool.query('SELECT branch_id FROM tasks WHERE id = $1', [req.params.id]);
@@ -55,6 +250,60 @@ router.put('/:id', requirePermission('tasks.edit'), async (req, res) => {
   res.json(rows[0]);
 });
 
+/**
+ * @swagger
+ * /api/tasks/{id}:
+ *   delete:
+ *     tags: [Tasks]
+ *     summary: Delete a task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The branch ID context header
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The task ID
+ *     responses:
+ *       200:
+ *         description: Delete confirmation
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: Task not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('tasks.delete'), async (req, res) => {
   const authContext = req.authContext!;
   const { rows: existing } = await pool.query('SELECT branch_id FROM tasks WHERE id = $1', [req.params.id]);

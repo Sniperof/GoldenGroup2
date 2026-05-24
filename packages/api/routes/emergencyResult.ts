@@ -15,6 +15,230 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     DeviceTechnicalState:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         contractId:
+ *           type: integer
+ *         openTaskId:
+ *           type: integer
+ *         phase:
+ *           type: string
+ *         waterSourceType:
+ *           type: string
+ *         waterSourceTds:
+ *           type: number
+ *         waterPressure:
+ *           type: string
+ *         hasPressureRegulator:
+ *           type: boolean
+ *         tapTdsBefore:
+ *           type: number
+ *         pumpPressure:
+ *           type: number
+ *         membraneOutputTds:
+ *           type: number
+ *         membraneInputTds:
+ *           type: number
+ *         membraneFlow:
+ *           type: string
+ *         flowCupSize:
+ *           type: string
+ *         sterilizationTransformer:
+ *           type: string
+ *         uvLamp:
+ *           type: string
+ *         sterilizationSleeve:
+ *           type: string
+ *         highPressureTds:
+ *           type: number
+ *         lowPressureSwitch:
+ *           type: string
+ *         tankTds:
+ *           type: number
+ *         valveType:
+ *           type: string
+ *         pumpTransformer:
+ *           type: string
+ *         hasFifthTap:
+ *           type: boolean
+ *         deviceConnection:
+ *           type: string
+ *         additionalNotes:
+ *           type: string
+ *         recordedBy:
+ *           type: integer
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         membraneEfficiency:
+ *           type: number
+ *     EmergencyMaintenanceAction:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         actionTypeId:
+ *           type: integer
+ *         actionTypeLabel:
+ *           type: string
+ *         actionsTaken:
+ *           type: string
+ *         partsUsed:
+ *           type: array
+ *           items:
+ *             type: object
+ *         technicianNotes:
+ *           type: string
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         updatedAt:
+ *           type: string
+ *           format: date-time
+ *     EmergencyResultCosts:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         finalDecision:
+ *           type: string
+ *         closingNotes:
+ *           type: string
+ *         laborCost:
+ *           type: number
+ *         partsCost:
+ *           type: number
+ *         totalCost:
+ *           type: number
+ *         transportFee:
+ *           type: number
+ *         assemblyFee:
+ *           type: number
+ *         discountPercentage:
+ *           type: number
+ *         discountReasonId:
+ *           type: integer
+ *         paymentMethod:
+ *           type: string
+ *         collectedAmount:
+ *           type: number
+ *         invoiceNotes:
+ *           type: string
+ *         decisionReasonId:
+ *           type: integer
+ *         followUpPriority:
+ *           type: string
+ *         followUpExpectedDate:
+ *           type: string
+ *           format: date
+ *         paymentType:
+ *           type: string
+ *         installmentMonths:
+ *           type: integer
+ *         paymentDelivery:
+ *           type: string
+ *         transferCompanyId:
+ *           type: integer
+ *         barterDescription:
+ *           type: string
+ *         barterValueSyp:
+ *           type: number
+ *         pay1Currency:
+ *           type: string
+ *         pay1Amount:
+ *           type: number
+ *         pay1ExchangeRate:
+ *           type: number
+ *         pay2Currency:
+ *           type: string
+ *         pay2Amount:
+ *           type: number
+ *         pay2ExchangeRate:
+ *           type: number
+ *         closingNote:
+ *           type: string
+ *         closingEmployeeId:
+ *           type: integer
+ *         closingEmployeeName:
+ *           type: string
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *     EmergencyResultPart:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         sparePartId:
+ *           type: integer
+ *         partNameSnapshot:
+ *           type: string
+ *         partCodeSnapshot:
+ *           type: string
+ *         maintenanceType:
+ *           type: string
+ *         unitPrice:
+ *           type: number
+ *         quantity:
+ *           type: integer
+ *         lineTotal:
+ *           type: number
+ *         retrieved:
+ *           type: boolean
+ *         noRetrievalReasonId:
+ *           type: integer
+ *         noRetrievalReasonText:
+ *           type: string
+ *         noRetrievalReasonLabel:
+ *           type: string
+ *     EmergencyPaymentEntry:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         method:
+ *           type: string
+ *         amountValue:
+ *           type: number
+ *         currency:
+ *           type: string
+ *         exchangeRate:
+ *           type: number
+ *         amountSyp:
+ *           type: number
+ *         transferCompanyId:
+ *           type: integer
+ *         transferCompanyName:
+ *           type: string
+ *         barterDescription:
+ *           type: string
+ *         sortOrder:
+ *           type: integer
+ *     EmergencyInstallment:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         installmentNumber:
+ *           type: integer
+ *         dueDate:
+ *           type: string
+ *           format: date
+ *         amountSyp:
+ *           type: number
+ *         status:
+ *           type: string
+ *         dueId:
+ *           type: integer
+ */
 router.use(requireAuth);
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -70,6 +294,37 @@ async function getTaskMeta(taskId: number) {
 }
 
 // ── GET /emergency-result/:taskId — full result ───────────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}:
+ *   get:
+ *     tags: [Emergency Results]
+ *     summary: Retrieve full emergency result
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     responses:
+ *       200:
+ *         description: Successful retrieval
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Task not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -160,6 +415,47 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
 });
 
 // ── PUT /:taskId/pre-state — save Phase 1 ────────────────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/pre-state:
+ *   put:
+ *     tags: [Emergency Results]
+ *     summary: Save or update phase 1 pre-state
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/DeviceTechnicalState'
+ *     responses:
+ *       200:
+ *         description: Pre-state saved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DeviceTechnicalState'
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Task not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:taskId/pre-state', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -225,6 +521,47 @@ router.put('/:taskId/pre-state', requirePermission('marketing_visits.update_resu
 });
 
 // ── PUT /:taskId/post-state — save Phase 3 (same fields, phase='post') ────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/post-state:
+ *   put:
+ *     tags: [Emergency Results]
+ *     summary: Save or update phase 3 post-state
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/DeviceTechnicalState'
+ *     responses:
+ *       200:
+ *         description: Post-state saved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DeviceTechnicalState'
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Task not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:taskId/post-state', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -288,6 +625,47 @@ router.put('/:taskId/post-state', requirePermission('marketing_visits.update_res
 });
 
 // ── PUT /:taskId/actions — save Phase 2 ──────────────────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/actions:
+ *   put:
+ *     tags: [Emergency Results]
+ *     summary: Save or update phase 2 maintenance actions
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EmergencyMaintenanceAction'
+ *     responses:
+ *       200:
+ *         description: Actions saved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/EmergencyMaintenanceAction'
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Task not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:taskId/actions', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -333,6 +711,43 @@ router.put('/:taskId/actions', requirePermission('marketing_visits.update_result
 });
 
 // ── PUT /:taskId/costs — save Phase 4 (final decision + financials) ───────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/costs:
+ *   put:
+ *     tags: [Emergency Results]
+ *     summary: Save or update phase 4 costs and financials
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EmergencyResultCosts'
+ *     responses:
+ *       200:
+ *         description: Costs saved successfully
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Task not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:taskId/costs', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -502,6 +917,52 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
 });
 
 // ── PUT /:taskId/parts — save parts list ─────────────────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/parts:
+ *   put:
+ *     tags: [Emergency Results]
+ *     summary: Update spare parts list for the task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               parts:
+ *                 type: array
+ *                 items:
+ *                   $ref: '#/components/schemas/EmergencyResultPart'
+ *     responses:
+ *       200:
+ *         description: Parts list updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/EmergencyResultPart'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.put('/:taskId/parts', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -552,6 +1013,41 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
 });
 
 // ── GET /:taskId/parts — get parts list ──────────────────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/parts:
+ *   get:
+ *     tags: [Emergency Results]
+ *     summary: Retrieve spare parts list for the task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     responses:
+ *       200:
+ *         description: Successful retrieval
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/EmergencyResultPart'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/:taskId/parts', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -576,6 +1072,41 @@ router.get('/:taskId/parts', requirePermission('marketing_visits.view'), async (
 });
 
 // ── GET /device/:contractId/history — device technical history ────────────────
+/**
+ * @swagger
+ * /api/emergency-result/device/{contractId}/history:
+ *   get:
+ *     tags: [Emergency Results]
+ *     summary: Retrieve device technical states history by contract ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: contractId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Contract ID
+ *     responses:
+ *       200:
+ *         description: Successful retrieval
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/DeviceTechnicalState'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/device/:contractId/history', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -596,6 +1127,41 @@ router.get('/device/:contractId/history', requirePermission('marketing_visits.vi
 });
 
 // ── GET /:taskId/payment-entries ─────────────────────────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/payment-entries:
+ *   get:
+ *     tags: [Emergency Results]
+ *     summary: Retrieve payment entries for the task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     responses:
+ *       200:
+ *         description: Successful retrieval
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/EmergencyPaymentEntry'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/:taskId/payment-entries', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -620,6 +1186,48 @@ router.get('/:taskId/payment-entries', requirePermission('marketing_visits.view'
 });
 
 // ── PUT /:taskId/payment-entries ─────────────────────────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/payment-entries:
+ *   put:
+ *     tags: [Emergency Results]
+ *     summary: Save payment entries for the task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               entries:
+ *                 type: array
+ *                 items:
+ *                   $ref: '#/components/schemas/EmergencyPaymentEntry'
+ *     responses:
+ *       200:
+ *         description: Payment entries saved successfully
+ *       401:
+ *         description: Unauthorized
+ *       400:
+ *         description: Bad request
+ *       500:
+ *         description: Server error
+ */
 router.put('/:taskId/payment-entries', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -664,6 +1272,50 @@ router.put('/:taskId/payment-entries', requirePermission('marketing_visits.updat
 });
 
 // ── GET /:taskId/installments ─────────────────────────────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/installments:
+ *   get:
+ *     tags: [Emergency Results]
+ *     summary: Retrieve installment plan for the task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     responses:
+ *       200:
+ *         description: Successful retrieval
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 installments:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EmergencyInstallment'
+ *                 confirmed:
+ *                   type: boolean
+ *                 hasFirstPayment:
+ *                   type: boolean
+ *                 installmentsCount:
+ *                   type: integer
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/:taskId/installments', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -695,6 +1347,52 @@ router.get('/:taskId/installments', requirePermission('marketing_visits.view'), 
 });
 
 // ── PUT /:taskId/installments — save draft schedule ───────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/installments:
+ *   put:
+ *     tags: [Emergency Results]
+ *     summary: Save installment draft plan for the task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               installments:
+ *                 type: array
+ *                 items:
+ *                   $ref: '#/components/schemas/EmergencyInstallment'
+ *               hasFirstPayment:
+ *                 type: boolean
+ *               installmentsCount:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Installment draft saved successfully
+ *       401:
+ *         description: Unauthorized
+ *       400:
+ *         description: Bad request
+ *       500:
+ *         description: Server error
+ */
 router.put('/:taskId/installments', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
@@ -735,6 +1433,37 @@ router.put('/:taskId/installments', requirePermission('marketing_visits.update_r
 });
 
 // ── POST /:taskId/installments/confirm ────────────────────────────────────────
+/**
+ * @swagger
+ * /api/emergency-result/{taskId}/installments/confirm:
+ *   post:
+ *     tags: [Emergency Results]
+ *     summary: Confirm installment plan and generate dues for the task
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Branch context ID
+ *       - in: path
+ *         name: taskId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Open Task ID
+ *     responses:
+ *       200:
+ *         description: Installment plan confirmed successfully
+ *       401:
+ *         description: Unauthorized
+ *       400:
+ *         description: Bad request
+ *       500:
+ *         description: Server error
+ */
 router.post('/:taskId/installments/confirm', requirePermission('marketing_visits.update_result'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
