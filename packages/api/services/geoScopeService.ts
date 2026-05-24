@@ -7,6 +7,7 @@ export interface GeoUnitRow {
   name: string;
   level: number;
   parentId: number | null;
+  status: 'active' | 'inactive';
 }
 
 export interface GeoScope {
@@ -22,7 +23,7 @@ type Queryable = {
 
 export async function listAllGeoUnits(client: Queryable = pool): Promise<GeoUnitRow[]> {
   const { rows } = await client.query(
-    'SELECT id, name, level, parent_id AS "parentId" FROM geo_units ORDER BY level, id',
+    'SELECT id, name, level, parent_id AS "parentId", status FROM geo_units ORDER BY level, id',
   );
 
   return rows.map(row => ({
@@ -30,6 +31,7 @@ export async function listAllGeoUnits(client: Queryable = pool): Promise<GeoUnit
     name: String(row.name),
     level: Number(row.level),
     parentId: row.parentId == null ? null : Number(row.parentId),
+    status: row.status === 'inactive' ? 'inactive' : 'active',
   }));
 }
 

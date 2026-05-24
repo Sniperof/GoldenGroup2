@@ -1119,7 +1119,6 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
         mobile,
         branch,
         branch_id AS "branchId",
-        residence,
         status,
         avatar,
         job_title AS "jobTitle",
@@ -1256,13 +1255,6 @@ router.post('/:id/employee-legacy-disabled', requirePermission('employees.create
 
     const fullName = `${app.firstName ?? ''} ${app.lastName ?? ''}`.trim();
     const avatar = getEmployeeAvatar(fullName, app.photoUrl);
-    const residence = [
-      app.governorate,
-      app.cityOrArea,
-      app.subArea,
-      app.neighborhood,
-      app.detailedAddress,
-    ].filter(Boolean).join(' - ') || null;
 
     const employeeBranchId = app.vacancyBranchId ?? app.applicationBranchId ?? null;
     if (!employeeBranchId) {
@@ -1271,11 +1263,11 @@ router.post('/:id/employee-legacy-disabled', requirePermission('employees.create
     }
 
     const { rows: employeeRows } = await client.query(
-      `INSERT INTO employees (name, role, mobile, branch, residence, status, avatar, job_title, branch_id)
-       VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8)
-       RETURNING id, name, role, mobile, branch, residence, status, avatar,
+      `INSERT INTO employees (name, role, mobile, branch, status, avatar, job_title, branch_id)
+       VALUES ($1, $2, $3, $4, 'active', $5, $6, $7)
+       RETURNING id, name, role, mobile, branch, status, avatar,
          job_title AS "jobTitle", created_at AS "createdAt"`,
-      [fullName, role, app.mobileNumber, app.vacancyBranch ?? null, residence, avatar, app.vacancyTitle ?? null, employeeBranchId]
+      [fullName, role, app.mobileNumber, app.vacancyBranch ?? null, avatar, app.vacancyTitle ?? null, employeeBranchId]
     );
 
     const employee = employeeRows[0];

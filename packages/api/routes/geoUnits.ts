@@ -53,6 +53,15 @@ router.get('/', requirePermission('geo.view'), async (req, res) => {
   res.json(filterGeoUnitsByScope(geoUnits, scope));
 });
 
+router.get('/active', requirePermission('geo.view'), async (req, res) => {
+  const geoUnits = await listAllGeoUnits();
+  const active = geoUnits.filter(u => u.status === 'active');
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.view', active)
+    : null;
+  res.json(filterGeoUnitsByScope(active, scope));
+});
+
 /**
  * @swagger
  * /api/geo-units/{id}:
@@ -75,7 +84,7 @@ router.get('/', requirePermission('geo.view'), async (req, res) => {
  */
 router.get('/:id', requirePermission('geo.view'), async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT id, name, level, parent_id AS "parentId" FROM geo_units WHERE id = $1',
+    'SELECT id, name, level, parent_id AS "parentId", status FROM geo_units WHERE id = $1',
     [req.params.id],
   );
   if (rows.length === 0) {
@@ -161,7 +170,7 @@ router.post('/', requirePermission('geo.manage'), async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      'INSERT INTO geo_units (name, level, parent_id) VALUES ($1, $2, $3) RETURNING id, name, level, parent_id AS "parentId"',
+      'INSERT INTO geo_units (name, level, parent_id) VALUES ($1, $2, $3) RETURNING id, name, level, parent_id AS "parentId", status',
       [name, level, parentId || null],
     );
     res.json(rows[0]);
@@ -215,7 +224,7 @@ router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      'UPDATE geo_units SET name = $1 WHERE id = $2 RETURNING id, name, level, parent_id AS "parentId"',
+      'UPDATE geo_units SET name = $1 WHERE id = $2 RETURNING id, name, level, parent_id AS "parentId", status',
       [name.trim(), req.params.id],
     );
     if (rows.length === 0) {
@@ -230,6 +239,23 @@ router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
     }
     throw err;
   }
+});
+
+router.patch('/:id/status', requirePermission('geo.manage'), async (req, res) => {
+  const { status } = req.body;
+  if (!['active', 'inactive'].includes(status)) {
+    res.status(400).json({ error: 'الحالة يجب أن تكون active أو inactive' });
+    return;
+  }
+  const { rows } = await pool.query(
+    'UPDATE geo_units SET status = $1 WHERE id = $2 RETURNING id, name, level, parent_id AS "parentId", status',
+    [status, req.params.id],
+  );
+  if (rows.length === 0) {
+    res.status(404).json({ error: 'الوحدة الجغرافية غير موجودة' });
+    return;
+  }
+  res.json(rows[0]);
 });
 
 /**

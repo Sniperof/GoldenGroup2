@@ -5,6 +5,7 @@ export interface GeoUnit {
     name: string;
     level: number;
     parentId: number | null;
+    status?: 'active' | 'inactive';
 }
 
 export interface RoutePoint {

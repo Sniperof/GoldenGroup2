@@ -165,26 +165,52 @@ export default function GeoSettings() {
         await fetchGeoUnits();
     };
 
+    const toggleStatus = async (unit: GeoUnit) => {
+        if (!canManageGeo) return;
+        const next: 'active' | 'inactive' = unit.status === 'active' ? 'inactive' : 'active';
+        try {
+            await api.geoUnits.updateStatus(unit.id, next);
+            await fetchGeoUnits();
+        } catch {
+            setDeleteError('حدث خطأ أثناء تغيير الحالة.');
+        }
+    };
+
+    const StatusBadge = ({ unit }: { unit: GeoUnit }) => (
+        <button
+            onClick={() => canManageGeo && toggleStatus(unit)}
+            title={canManageGeo ? (unit.status === 'active' ? 'انقر لتعطيل' : 'انقر لتفعيل') : undefined}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${canManageGeo ? 'cursor-pointer hover:opacity-75' : 'cursor-default'} ${unit.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200'}`}
+        >
+            <span className={`w-1.5 h-1.5 rounded-full ${unit.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+            {unit.status === 'active' ? 'نشط' : 'معطّل'}
+        </button>
+    );
+
     const govColumns: ColumnDef<GeoUnit>[] = [
         { key: 'name', label: 'اسم المحافظة', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'children', label: 'عدد المناطق', sortable: true, render: (u) => <span className="text-sm text-slate-600">{geoUnits.filter(c => c.parentId === u.id).length}</span>, getValue: (u) => geoUnits.filter(c => c.parentId === u.id).length },
+        { key: 'status', label: 'الحالة', render: (u) => <StatusBadge unit={u} />, getValue: (u) => u.status ?? 'active' },
     ];
 
     const regionColumns: ColumnDef<GeoUnit>[] = [
         { key: 'name', label: 'اسم المنطقة', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'parentId', label: 'المحافظة', sortable: true, render: (u) => <span className="px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 text-xs font-medium border border-sky-100">{getParentName(u.parentId)}</span>, getValue: (u) => getParentName(u.parentId) },
         { key: 'children', label: 'عدد النواحي', sortable: true, render: (u) => <span className="text-sm text-slate-600">{geoUnits.filter(c => c.parentId === u.id).length}</span>, getValue: (u) => geoUnits.filter(c => c.parentId === u.id).length },
+        { key: 'status', label: 'الحالة', render: (u) => <StatusBadge unit={u} />, getValue: (u) => u.status ?? 'active' },
     ];
 
     const subDistrictColumns: ColumnDef<GeoUnit>[] = [
         { key: 'name', label: 'اسم الناحية', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'path', label: 'المسار', render: (u) => <span className="text-xs text-slate-500">{getPath(u)}</span>, getValue: (u) => getPath(u) },
         { key: 'children', label: 'عدد الأحياء', sortable: true, render: (u) => <span className="text-sm text-slate-600">{geoUnits.filter(c => c.parentId === u.id).length}</span>, getValue: (u) => geoUnits.filter(c => c.parentId === u.id).length },
+        { key: 'status', label: 'الحالة', render: (u) => <StatusBadge unit={u} />, getValue: (u) => u.status ?? 'active' },
     ];
 
     const neighborhoodColumns: ColumnDef<GeoUnit>[] = [
         { key: 'name', label: 'اسم الحي', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'path', label: 'المسار', render: (u) => <span className="text-xs text-slate-500">{getPath(u)}</span>, getValue: (u) => getPath(u) },
+        { key: 'status', label: 'الحالة', render: (u) => <StatusBadge unit={u} />, getValue: (u) => u.status ?? 'active' },
     ];
 
     const columnsByLevel: Record<number, ColumnDef<GeoUnit>[]> = { 1: govColumns, 2: regionColumns, 3: subDistrictColumns, 4: neighborhoodColumns };

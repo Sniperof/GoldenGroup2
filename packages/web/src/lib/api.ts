@@ -69,6 +69,7 @@ export const api = {
     list: () => request<any[]>('/geo-units'),
     create: (data: any) => request<any>('/geo-units', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: { name: string }) => request<any>(`/geo-units/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    updateStatus: (id: number, status: 'active' | 'inactive') => request<any>(`/geo-units/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     delete: (id: number) => request<any>(`/geo-units/${id}`, { method: 'DELETE' }),
   },
   branches: {
