@@ -14,6 +14,7 @@
 | العقود (Contracts) | [domains/contracts.md](domains/contracts.md) | ✅ مكتمل | 527 سطر | 8+ | 5 |
 | المهام المفتوحة (Open Tasks) | [domains/open-tasks.md](domains/open-tasks.md) | ✅ مكتمل | 366 سطر | 8+ | 5 |
 | الزيارات (Visits) | [domains/visits.md](domains/visits.md) | ⚠️ قديم | 202 سطر | — | — |
+| الزيارات الميدانية (Field Visits) | [domains/field-visits.md](domains/field-visits.md) | ✅ مكتمل | 466 سطر | 12+ | 7 |
 | المهام (Tasks) | [domains/tasks.md](domains/tasks.md) | ⚠️ قديم | 17,165 بايت | — | — |
 | التخطيط (Planning) | [domains/planning.md](domains/planning.md) | ⚠️ قديم | 14,126 بايت | — | — |
 | التوظيف (Jobs) | [domains/jobs-recruitment.md](domains/jobs-recruitment.md) | ⚠️ قديم | 26,418 بايت | — | — |

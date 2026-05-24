@@ -320,6 +320,90 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [telemarketing.md §9.5](domains/telemarketing.md#95-الثغرة-الخامسة) |
 
+### GAP-027: Critical Permission Naming Mismatch ⭐ عالية — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | field_visits / permissions |
+| **الموقع** | `packages/api/routes/fieldVisits.ts` |
+| **الوصف** | جميع مسارات وإجراءات التحكم بنظام الزيارات الميدانية الموحد `field_visits` يتم التحقق منها وحمايتها بصلاحيات قديمة تتبع الكيان المتروك `marketing_visits` (مثل `marketing_visits.view` و `marketing_visits.update_result`). |
+| **التأثير** | إرباك إداري شديد للمطورين ومسؤولي الأمن وصعوبة فصل أدوار فنيي المبيعات عن فنيي الصيانة. |
+| **الحل المقترح** | استبدال الصلاحيات بالكامل لتعتمد على نطاق نظيف وموحد مثل `field_visits.view` و `field_visits.edit` مع تعديل البذر في الجداول الأمنية. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [field-visits.md §9.1](domains/field-visits.md#91-الثغرة-الأولى) |
+
+### GAP-028: Technical Contradiction on result_fields JSONB 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | visit_tasks |
+| **الموقع** | `docs/tasks/TASK_FIELD_VISITS_CONSTITUTION_PROMPT.md` vs `migrations/070_visit_core_schema.sql` |
+| **الوصف** | تشير مسودة العمل السابقة إلى وجود حقل كـ JSONB باسم `result_fields` بجدول `visit_tasks` المضاف بالهجرة `087`. بالبحث، يتبين أن الهجرة `087` أضافت الحقول لجدول `marketing_visit_tasks` القديم والمتروك والذي تم إسقاطه في الهجرة `152` ولا وجود لهذا الحقل نهائياً بالجدول المعتمد حالياً. |
+| **التأثير** | حدوث أخطاء برمجية وحيرة المطورين الجدد عند البحث عن الحقل المزعوم. |
+| **الحل المقترح** | توضيح أن نتائج المهام الفنية والتشغيلية المعتمدة حالياً تعتمد بنسبة 100% على جداول النتائج التخصصية الملحقة بنظام Unified Result Pattern. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [field-visits.md §9.2](domains/field-visits.md#92-الثغرة-الثانية) |
+
+### GAP-029: Lack of Direct Visit Creation Endpoint 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | field_visits |
+| **الموقع** | `packages/api/routes/fieldVisits.ts` |
+| **الوصف** | لا يوجد أي مسار برميجي متاح بالخادم يسمح بإنشاء زيارة ميدانية جديدة بشكل مستقل ومباشر (`POST /api/field-visits/` معطل أو غير منشأ). |
+| **التأثير** | يعجز المدير الإداري للفرع عن تعيين وتكليف زيارة يدوية فجائية للفنيين دون توليد موعد تواصل هاتفي أو مهمة صيانة طارئة مسبقة بالخلفية. |
+| **الحل المقترح** | بناء مسار مخصص للإنشاء اليدوي المباشر `POST /api/field-visits` وتوفير الصلاحيات المخصصة له. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [field-visits.md §9.3](domains/field-visits.md#93-الثغرة-الثالثة) |
+
+### GAP-030: Unchecked Technical Diagnostic Fields 🟢 منخفضة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | visit_task_emergency_technical_states |
+| **الموقع** | `migrations/070_visit_core_schema.sql` (visit_task_emergency_technical_states) |
+| **الوصف** | حقول التشخيص الهامة والمستقطبة من الميدان مثل `low_pressure_switch`, `high_pressure_switch`, `solenoid_valve`, `uv_status` مخزنة كـ `VARCHAR(100)` دون أي قيود فحص (`CHECK constraints`) أو التحقق البرمجي من تطابق القيم وقصرها على خيارات محددة. |
+| **التأثير** | إدخال قيم عشوائية مختلفة وتلف جودة التقارير التقنية لأعطال الفلاتر. |
+| **الحل المقترح** | إضافة قيد تحقق `CHECK` لقصر الحقول على القيم المعتمدة بالواجهة الرسومية (مثل 'Good', 'Damaged', 'Disconnected'). |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [field-visits.md §9.4](domains/field-visits.md#94-الثغرة-الرابعة) |
+
+### GAP-031: Lack of Automatic Candidate Generation from Name Collection 🟢 منخفضة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | visit_name_collections / candidates |
+| **الموقع** | `packages/api/routes/fieldVisits.ts` |
+| **الوصف** | عند نجاح مهمة جمع الأسماء وتوثيق actual_count بجدول `visit_name_collections` وتحديث سجل `referral_sheets` بالعدد، لا يقوم النظام بالإنشاء والتحويل التلقائي لتلك التوصيات كـ `candidates` بقاعدة البيانات، بل يتطلب ذلك إدخالاً يدوياً مكرراً لاحقاً. |
+| **التأثير** | ضياع التوصيات التسويقية الهامة وإهدار أداء مركز الاتصال. |
+| **الحل المقترح** | بناء خوارزمية ذكية تقوم فوراً بتوليد سجلات مرشحين بصفة `Suggested` مع ربطهم بصحيفة الترشيح كإجراء تلقائي. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [field-visits.md §9.5](domains/field-visits.md#95-الثغرة-الخامسة) |
+
+### GAP-032: No Soft-Delete for Field Visits and Tasks 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | field_visits / visit_tasks / visit_task_results |
+| **الموقع** | `routes/fieldVisits.ts` |
+| **الوصف** | يفتقر الكيان التنفيذي والمالي الهام `field_visits` بالكامل لنظام الحذف الناعم (`deleted_at`). حذف أي عميل أو تذكرة يؤدي لإزالة الزيارات ومهامها ونتائجها وقطع الغيار المصروفة فيزيائياً بـ `ON DELETE CASCADE`. |
+| **التأثير** | فقدان شامل وفوري للأثر الجنائي التاريخي للأعمال والقطع والذمم المالية وضرب تقارير التدقيق السنوية. |
+| **الحل المقترح** | إدراج حقول `deleted_at` لجميع جداول المهام والزيارات والتسويات، وقصر الحذف على تعديل حالة الراية. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [field-visits.md §9.6](domains/field-visits.md#96-الثغرة-السادسة) |
+
+### GAP-033: GPS Field Type Inconsistency and Lack of Boundary Checks 🟢 منخفضة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | visit_geo_logs / visit_task_device_delivery_results |
+| **الموقع** | `migrations/081_visit_geo_logs.sql` vs `migrations/149_visit_task_postsale_results.sql` |
+| **الوصف** | يتم تخزين الإحداثيات الجغرافية في جدول التتبع `visit_geo_logs` بنوع `DECIMAL(10,8)` و `DECIMAL(11,8)`، بينما يتم تخزين إحداثي التسليم الفعلي بجدول `visit_task_device_delivery_results` بنوع `NUMERIC(10,7)`. كما يخلو السيرفر من أي فحص للتحقق من سلامة الأرقام ومنطقيتها الرياضية. |
+| **التأثير** | تباين في دقة التحديد الجغرافي وقيم الإحداثيات بين التقارير التشغيلية وتقارير التوصيل المالي. |
+| **الحل المقترح** | توحيد نوع الحقول في جميع الجداول كـ `DECIMAL(10,8)` وفرض التحقق من الحدود الرياضية (-90 إلى 90 للخطوط العرضية) في كود الـ Controller. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [field-visits.md §9.7](domains/field-visits.md#97-الثغرة-السابعة) |
+
 ---
 
 ## الثغرات المحلولة (Resolved Gaps)
@@ -370,9 +454,9 @@
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 26 |
-| **عالية الخطورة** | 6 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022) |
-| **متوسطة** | 15 (GAP-003, GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026) |
-| **منخفضة** | 6 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025) |
-| **الكيان الأكثر ثغرات** | telemarketing (5) / open_tasks (5) / contracts (6, including dues) / clients (5) / candidates (5) |
+| **عدد الثغرات المفتوحة** | 33 |
+| **عالية الخطورة** | 7 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027) |
+| **متوسطة** | 17 (GAP-003, GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032) |
+| **منخفضة** | 9 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033) |
+| **الكيان الأكثر ثغرات** | field_visits (7) / telemarketing (5) / open_tasks (5) / contracts (6, including dues) / clients (5) / candidates (5) |
 | **قرارات معلقة** | 1 (multi-branch client) |

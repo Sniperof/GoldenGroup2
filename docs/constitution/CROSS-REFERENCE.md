@@ -62,6 +62,10 @@
 | `referral_sheets` | `VARCHAR(50)` | `New`, `In-Progress`, `Completed`, `Archived` | ✅ نعم |
 | `telemarketing_task_list_items` | `VARCHAR(20)` | `pending`, `called`, `booked` | ✅ نعم |
 | `contact_targets` | `VARCHAR(50)` | `new`, `queued`, `in_call_list`, `contacted`, `booked`, `closed`, `cancelled` | ✅ نعم |
+| `field_visits` | `VARCHAR(50)` | `scheduled`, `in_progress`, `ended`, `completed`, `not_completed`, `postponed_by_company`, `postponed_by_customer`, `cancelled`, `needs_reschedule` | ✅ نعم |
+| `visit_tasks` | `VARCHAR(50)` | `pending`, `in_progress`, `completed`, `not_completed`, `cancelled` | ✅ نعم |
+| `visit_name_collections` | `VARCHAR(50)` | `pending`, `partial`, `completed` | ✅ نعم |
+| `direct_suggestions` | `VARCHAR(50)` | `pending`, `contacted`, `converted` | ✅ نعم |
 
 **⚠️ ملاحظة:** `status` كل جدول enum مختلف — لا خلط!
 
@@ -90,9 +94,16 @@
 | `telemarketing_call_logs` | ✅ TIMESTAMPTZ (via `timestamp`) | ✅ FK → hr_users (via `called_by`) | — | — | ❌ لا |
 | `telemarketing_appointments` | ✅ TIMESTAMPTZ | ✅ FK → hr_users (via `created_by`) | — | — | ❌ لا |
 | `contact_targets` | ✅ TIMESTAMPTZ | — | ✅ TIMESTAMPTZ | — | ❌ لا |
+| `field_visits` | ✅ TIMESTAMPTZ | ✅ FK → hr_users | ✅ TIMESTAMPTZ | — | ❌ لا |
+| `visit_tasks` | ✅ TIMESTAMPTZ | — | ✅ TIMESTAMPTZ | — | ❌ لا |
+| `visit_task_results` | ✅ TIMESTAMPTZ | ✅ FK → hr_users (via `closed_by`) | ✅ TIMESTAMPTZ | — | ❌ لا |
+| `visit_name_collections` | ✅ TIMESTAMP | — | ✅ TIMESTAMP | — | ❌ لا |
+| `direct_suggestions` | ✅ TIMESTAMP | — | ✅ TIMESTAMP | — | ❌ لا |
+| `visit_geo_logs` | ✅ TIMESTAMP | — | ✅ TIMESTAMP | — | ❌ لا |
 
 **⚠️ ملاحظة:** يتميز جدول `telemarketing_appointments` باحتوائه على حقل `answered_by` لتوثيق اسم متلقي المكالمة الفعلي وقت الاتصال (مثلاً "أخت العميل")، وهو يختلف عن الحقل `created_by` المخصص لتوثيق معرف الموظف الذي قام بالحجز.
 
+**⚠️ ملاحظة إضافية:** يشتمل جدول `field_visits` على لقطة لاسم مجيب الاتصال وقت الحجز `answered_by` (مثل "زوجة العميل")، بالإضافة إلى تتبع الموظف الذي حجز الموعد هاتفياً عبر `booked_by_telemarketer_id` لضمان الشفافية الجنائية الكاملة للزيارة الميدانية.
 
 ---
 
@@ -312,11 +323,11 @@ erDiagram
 | # | الجدول | PK | FKs | وصف |
 |---|---|---|---|---|
 | 17 | `visits` | `id` | `customer_id`, `employee_id` | الزيارات القديمة |
-| 18 | `field_visits` | `id` | `client_id`, `route_id` | الزيارات الميدانية |
-| 19 | `visit_tasks` | `id` | `field_visit_id` | مهام الزيارة |
-| 20 | `visit_task_results` | `id` | `visit_task_id` | نتائج مهام الزيارة |
-| 21 | `visit_name_collections` | `id` | `client_id`, `field_visit_id` | جمع أسماء |
-| 22 | `direct_suggestions` | `id` | `client_id` | ترشيحات مباشرة |
+| 18 | [`field_visits`](domains/field-visits.md) | `id` | `client_id`, `branch_id`, `reassigned_supervisor_id` | الزيارات الميدانية الموحدة |
+| 19 | [`visit_tasks`](domains/field-visits.md) | `id` | `field_visit_id`, `source_open_task_id` | مهام الزيارة التشغيلية |
+| 20 | [`visit_task_results`](domains/field-visits.md) | `id` | `visit_task_id`, `closed_by` | نتائج مهام الزيارة |
+| 21 | [`visit_name_collections`](domains/field-visits.md) | `id` | `visit_task_id`, `client_id`, `referral_sheet_id` | جمع أسماء وتوصيات مرافقة |
+| 22 | [`direct_suggestions`](domains/field-visits.md) | `id` | `visit_task_id`, `client_id` | ترشيحات مبيعات مباشرة |
 | 23 | `tasks` | `id` | — | المهام القديمة |
 | 24 | [`open_tasks`](domains/open-tasks.md) | `id` | `client_id`, `contract_id`, `branch_id`, `task_type` | المهام المفتوحة والتشغيل الميداني |
 | 25 | [`task_type_config`](domains/open-tasks.md) | `task_type` | — | إعدادات أنواع المهام والنافذة الزمنية |
@@ -334,13 +345,13 @@ erDiagram
 | 37 | [`emergency_maintenance_actions`](domains/open-tasks.md) | `id` | `open_task_id`, `action_type_id` | الإجراءات الميدانية الفنية للصيانة |
 | 38 | [`emergency_payment_entries`](domains/open-tasks.md) | `id` | `costs_id`, `transfer_company_id` | دفعات ومقبوضات الطوارئ المتعددة |
 | 39 | [`emergency_installments`](domains/open-tasks.md) | `id` | `costs_id`, `open_task_id`, `due_id` | جدولة أقساط صيانة الطوارئ |
-| 40 | `visit_task_device_delivery_results` | `id` | — | نتائج توصيل |
-| 41 | `visit_task_device_installation_results` | `id` | — | نتائج تركيب |
-| 42 | `visit_task_device_demo_results` | `id` | — | نتائج عرض |
-| 43 | `visit_task_device_activation_results` | `id` | — | نتائج تفعيل |
-| 44 | `visit_task_emergency_technical_states` | `id` | — | حالات تقنية طوارئ |
-| 45 | `visit_task_emergency_parts_used` | `id` | — | قطع مستخدمة |
-| 46 | `visit_task_emergency_financials` | `id` | — | أمور مالية |
+| 40 | [`visit_task_device_delivery_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `device_model_id` | نتائج وتفاصيل تسليم الأجهزة المادية |
+| 41 | [`visit_task_device_installation_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `installed_by_employee_id` | نتائج تركيب وتمديد الأجهزة تقنياً |
+| 42 | [`visit_task_device_demo_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `contract_id` | نتائج وخصومات عروض المبيعات الميدانية |
+| 43 | [`visit_task_device_activation_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `activated_by_employee_id` | فحص ومعايرة جودة المياه والتفعيل التشغيلي |
+| 44 | [`visit_task_emergency_technical_states`](domains/field-visits.md) | `id` | `visit_task_result_id` | الفحوصات والقياسات التقنية لتشخيص الطوارئ |
+| 45 | [`visit_task_emergency_parts_used`](domains/field-visits.md) | `id` | `visit_task_result_id`, `spare_part_id` | قطع غيار الصيانة الطارئة المستهلكة فنزلياً |
+| 46 | [`visit_task_emergency_financials`](domains/field-visits.md) | `id` | `visit_task_result_id` | التسويات والحسابات المالية لصيانات الطوارئ |
 | 47 | `open_task_delivery_results` | `id` | — | نتائج توصيل مفتوحة |
 | 48 | `open_task_installation_results` | `id` | — | نتائج تركيب مفتوحة |
 | 49 | [`open_task_pre_offers`](domains/open-tasks.md) | `id` | `open_task_id`, `closed_by_employee_id` | عروض أسعار ودراسات مالية مسبقة |
