@@ -52,6 +52,8 @@
 |---|---|---|---|
 | `clients` | `VARCHAR(50)` | `active` / `deleted` (via `deleted_at`) | ❌ لا |
 | `contracts` | `VARCHAR(50)` | `draft`, `active`, `completed`, `cancelled` | ✅ نعم |
+| `contract_installments` | `VARCHAR(50)` | `pending`, `paid`, `partial`, `overdue` (حروف صغيرة) | ✅ نعم |
+| `dues` | `VARCHAR(50)` | `Pending`, `Partial`, `Paid`, `Overdue` (أول حرف كبير - GAP-013) | ✅ نعم |
 | `tasks` | `VARCHAR(50)` | `pending`, `in-progress`, `completed` | ✅ نعم |
 | `visits` | `VARCHAR(50)` | `Pending`, `Completed`, `Cancelled` | ✅ نعم |
 | `emergency_tickets` | `VARCHAR(50)` | `New`, `Assigned`, `In Progress`, `Completed`, `Cancelled` | ✅ نعم |
@@ -186,6 +188,10 @@ referral_sheets (1) ──────► (N) candidates
 | `employees` | `role` | `supervisor`, `technician`, `telemarketer`, `trainee` | ✅ نعم |
 | `employees` | `status` | `active`, `leave`, `inactive` | ✅ نعم |
 | `contracts` | `status` | `draft`, `active`, `completed`, `cancelled` | ✅ نعم |
+| `contract_line_items` | `item_type` | `device`, `accessory`, `service_fee` | ✅ نعم |
+| `contract_payment_entries` | `method` | `cash`, `sham_cash`, `syriatel_cash`, `mtn_cash`, `alharam`, `bank_transfer`, `barter`, `usd_cash` | ✅ نعم |
+| `contract_installments` | `status` | `pending`, `paid`, `partial`, `overdue` | ✅ نعم |
+| `dues` | `status` | `Pending`, `Partial`, `Paid`, `Overdue` | ✅ نعم |
 | `tasks` | `type` | `emergency`, `dues`, `periodic`, `returns`, `followup` | ✅ نعم |
 | `tasks` | `status` | `pending`, `in-progress`, `completed` | ✅ نعم |
 | `tasks` | `priority` | `high`, `medium`, `low` | ✅ نعم |
@@ -236,11 +242,11 @@ referral_sheets (1) ──────► (N) candidates
 
 | # | الجدول | PK | FKs | وصف |
 |---|---|---|---|---|
-| 8 | `contracts` | `id` | `customer_id`, `device_model_id` | العقود |
-| 9 | `contract_line_items` | `id` | `contract_id` | بنود العقد |
-| 10 | `contract_payment_entries` | `id` | `contract_id` | دفعات العقد |
-| 11 | `contract_installments` | `id` | `contract_id` | أقساط العقد |
-| 12 | `dues` | `id` | `contract_id` | المستحقات |
+| 8 | [`contracts`](domains/contracts.md) | `id` | `customer_id`, `device_model_id` | العقود والعمليات المالية |
+| 9 | [`contract_line_items`](domains/contracts.md) | `id` | `contract_id` | بنود العقد وتفاصيل الأجهزة |
+| 10 | [`contract_payment_entries`](domains/contracts.md) | `id` | `contract_id` | سجلات المقبوضات والدفعات المباشرة |
+| 11 | [`contract_installments`](domains/contracts.md) | `id` | `contract_id` | جدول وجدولة الأقساط والتواريخ |
+| 12 | [`dues`](domains/contracts.md) | `id` | `contract_id` | الذمم والديون والمتابعة المالية |
 | 13 | `device_models` | `id` | — | موديلات الأجهزة |
 | 14 | `spare_parts` | `id` | — | قطع الغيار |
 | 15 | `device_discounts` | `id` | `device_model_id` | خصومات الأجهزة |

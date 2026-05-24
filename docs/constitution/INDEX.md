@@ -11,7 +11,7 @@
 |---|---|---|---|---|---|
 | الزبائن (Clients) | [domains/clients.md](domains/clients.md) | ✅ مكتمل | 533 سطر | 12+ | 5 |
 | المرشحون (Candidates) | [domains/candidates.md](domains/candidates.md) | ✅ مكتمل | 301 سطر | 11+ | 5 |
-| العقود (Contracts) | [domains/contracts.md](domains/contracts.md) | ⚠️ فاضي | 16 سطر | — | — |
+| العقود (Contracts) | [domains/contracts.md](domains/contracts.md) | ✅ مكتمل | 527 سطر | 8+ | 5 |
 | الزيارات (Visits) | [domains/visits.md](domains/visits.md) | ⚠️ قديم | 202 سطر | — | — |
 | المهام (Tasks) | [domains/tasks.md](domains/tasks.md) | ⚠️ قديم | 17,165 بايت | — | — |
 | التخطيط (Planning) | [domains/planning.md](domains/planning.md) | ⚠️ قديم | 14,126 بايت | — | — |
