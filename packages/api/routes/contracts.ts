@@ -18,11 +18,30 @@ const contractSelect = `
   c.down_payment AS "downPayment", c.installments_count AS "installmentsCount",
   c.delivery_date AS "deliveryDate", c.installation_date AS "installationDate",
   c.status, c.created_at AS "createdAt", c.branch_id AS "branchId",
-  c.sale_type AS "saleType",
+  c.sale_type AS "saleType", c.sale_source AS "saleSource",
+  c.discount_id AS "discountId",
+  c.closing_employee_id AS "closingEmployeeId",
+  c.closing_date AS "closingDate",
+  c.invoice_notes AS "invoiceNotes",
   c.installation_geo_unit_id AS "installationGeoUnitId",
   c.installation_address_text AS "installationAddressText",
   c.installation_lat AS "installationLat",
-  c.installation_lng AS "installationLng"
+  c.installation_lng AS "installationLng",
+  c.applied_device_discount_id AS "appliedDeviceDiscountId",
+  c.buyer_mother_name AS "buyerMotherName",
+  c.buyer_national_id_registry AS "buyerNationalIdRegistry",
+  c.buyer_national_id_issued_by AS "buyerNationalIdIssuedBy",
+  c.buyer_national_id_issue_date AS "buyerNationalIdIssueDate",
+  c.buyer_national_id_box AS "buyerNationalIdBox",
+  c.buyer_birth_date AS "buyerBirthDate",
+  c.buyer_gender AS "buyerGender",
+  c.source_open_task_id AS "sourceOpenTaskId",
+  c.source_task_offer_id AS "sourceTaskOfferId",
+  c.sale_reference_number AS "saleReferenceNumber",
+  c.contract_type AS "contractType",
+  c.no_closing_reason_id AS "noClosingReasonId",
+  c.sale_subtype AS "saleSubtype",
+  c.device_status AS "deviceStatus"
 `;
 
 function mapContract(c: any) {
@@ -96,7 +115,44 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
     [contract.customerId],
   );
   const client = clientRows[0] ?? null;
-  res.json({ ...contract, dues: dues.map(mapDue), tasks, client });
+  const [lineItemResult, paymentEntriesResult, installmentsResult, discountResult] = await Promise.all([
+    pool.query(
+      `SELECT id, item_type AS "itemType", spare_part_id AS "sparePartId",
+              description, quantity, unit_price AS "unitPrice", total_price AS "totalPrice",
+              is_installed AS "isInstalled"
+       FROM contract_line_items WHERE contract_id = $1 ORDER BY id`,
+      [contract.id],
+    ),
+    pool.query(
+      `SELECT id, method, currency, amount_value AS "amountValue", exchange_rate AS "exchangeRate",
+              amount_syp AS "amountSyp", reference_number AS "referenceNumber",
+              barter_name AS "barterName", barter_value_syp AS "barterValueSyp",
+              received_by_employee_id AS "receivedByEmployeeId", received_at AS "receivedAt", notes
+       FROM contract_payment_entries WHERE contract_id = $1 ORDER BY id`,
+      [contract.id],
+    ),
+    pool.query(
+      `SELECT id, installment_number AS "installmentNumber", due_date AS "dueDate",
+              amount_syp AS "amountSyp", status, paid_amount AS "paidAmount",
+              remaining_balance AS "remainingBalance", confirmed
+       FROM contract_installments WHERE contract_id = $1 ORDER BY installment_number`,
+      [contract.id],
+    ),
+    contract.discountId
+      ? pool.query(`SELECT id, label, percentage FROM device_discounts WHERE id = $1`, [contract.discountId])
+      : Promise.resolve({ rows: [] as any[] }),
+  ]);
+
+  res.json({
+    ...contract,
+    dues: dues.map(mapDue),
+    tasks,
+    client,
+    lineItems: lineItemResult.rows,
+    paymentEntries: paymentEntriesResult.rows,
+    installments: installmentsResult.rows,
+    discount: discountResult.rows[0] ?? null,
+  });
 });
 
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
@@ -117,17 +173,83 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         source_visit, device_model_id, device_model_name, serial_number, maintenance_plan,
         base_price, final_price, payment_type, down_payment, installments_count,
         delivery_date, installation_date, status, branch_id, sale_type,
-        installation_geo_unit_id, installation_address_text, installation_lat, installation_lng)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+        installation_geo_unit_id, installation_address_text, installation_lat, installation_lng,
+        discount_id, sale_source, closing_employee_id, invoice_notes,
+        applied_device_discount_id,
+        buyer_mother_name, buyer_national_id_registry, buyer_national_id_issued_by,
+        buyer_national_id_issue_date, buyer_national_id_box,
+        buyer_birth_date, buyer_gender,
+        contract_type, source_open_task_id, source_task_offer_id, sale_reference_number, no_closing_reason_id, sale_subtype,
+        device_status)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
       RETURNING ${contractSelect.replace(/c\./g, '')}`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
        c.maintenancePlan, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate || null, c.installationDate || null,
-       c.status || 'draft', targetBranchId, c.saleType || c.saleType || 'marketing',
-       installationGeoUnitId, installationAddressText, installationLat, installationLng]
+       c.status || 'active', targetBranchId, c.saleType || 'direct',
+       installationGeoUnitId, installationAddressText, installationLat, installationLng,
+       c.discountId || null, c.saleSource || null,
+       c.closingEmployeeId || null, c.invoiceNotes || null,
+       c.appliedDeviceDiscountId || null,
+       c.buyerMotherName || null, c.buyerNationalIdRegistry || null, c.buyerNationalIdIssuedBy || null,
+       c.buyerNationalIdIssueDate || null, c.buyerNationalIdBox || null,
+       c.buyerBirthDate || null, c.buyerGender || null,
+       c.contractType || 'sale_contract', c.sourceOpenTaskId || null, c.sourceTaskOfferId || null, c.saleReferenceNumber || null,
+       c.noClosingReasonId || null, c.saleSubtype || 'definitive',
+       c.deviceStatus || 'pending_delivery']
     );
     const contract = rows[0];
+
+    // Automatically create a device delivery task for sale contracts
+    if (contract.contractType === 'sale_contract') {
+      const dueDate = c.deliveryDate || new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
+      await client.query(
+        `INSERT INTO open_tasks (
+           client_id, branch_id, task_type, task_family, reason, status, due_date, source, origin, contract_id
+         ) VALUES ($1, $2, 'device_delivery', 'delivery', 'service_request', 'open', $3, 'system', 'manual_entry', $4)`,
+        [contract.customerId, contract.branchId, dueDate, contract.id]
+      );
+    }
+
+    if (Array.isArray(c.lineItems) && c.lineItems.length > 0) {
+      for (const item of c.lineItems) {
+        await client.query(
+          `INSERT INTO contract_line_items
+            (contract_id, item_type, spare_part_id, description, quantity, unit_price, total_price)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [contract.id, item.itemType, item.sparePartId || null, item.description || null,
+           item.quantity || 1, item.unitPrice || 0, item.totalPrice || (item.quantity * item.unitPrice) || 0],
+        );
+      }
+    }
+
+    if (Array.isArray(c.paymentEntries) && c.paymentEntries.length > 0) {
+      for (const entry of c.paymentEntries) {
+        await client.query(
+          `INSERT INTO contract_payment_entries
+            (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
+             reference_number, barter_name, barter_value_syp, received_by_employee_id, notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [contract.id, entry.method, entry.currency || 'SYP', entry.amountValue || 0,
+           entry.exchangeRate || null, entry.amountSyp || 0,
+           entry.referenceNumber || null, entry.barterName || null,
+           entry.barterValueSyp || null, entry.receivedByEmployeeId || null,
+           entry.notes || null],
+        );
+      }
+    }
+
+    if (Array.isArray(c.installments) && c.installments.length > 0) {
+      for (const inst of c.installments) {
+        await client.query(
+          `INSERT INTO contract_installments
+            (contract_id, installment_number, due_date, amount_syp, remaining_balance)
+           VALUES ($1,$2,$3,$4,$4)`,
+          [contract.id, inst.installmentNumber, inst.dueDate, inst.amountSyp || 0],
+        );
+      }
+    }
 
     const duesResult: any[] = [];
     if (c.dues && c.dues.length > 0) {
@@ -178,17 +300,105 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
       payment_type=$12, down_payment=$13, installments_count=$14,
       delivery_date=$15, installation_date=$16, status=$17,
       installation_geo_unit_id=$18, installation_address_text=$19,
-      installation_lat=$20, installation_lng=$21
-    WHERE id=$22 RETURNING ${contractSelect.replace(/c\./g, '')}`,
+      installation_lat=$20, installation_lng=$21,
+      discount_id=$22, sale_source=$23,
+      closing_employee_id=$24, invoice_notes=$25,
+      applied_device_discount_id=$26,
+      buyer_mother_name=$27, buyer_national_id_registry=$28, buyer_national_id_issued_by=$29,
+      buyer_national_id_issue_date=$30, buyer_national_id_box=$31,
+      buyer_birth_date=$32, buyer_gender=$33,
+      contract_type=$34, source_open_task_id=$35, source_task_offer_id=$36,
+      sale_reference_number=$37, no_closing_reason_id=$38, sale_subtype=$39,
+      device_status=$40
+    WHERE id=$41 RETURNING ${contractSelect.replace(/c\./g, '')}`,
     [c.contractNumber, c.customerId, c.customerName, c.contractDate,
      c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
      c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
      c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate, c.installationDate,
-     c.status || 'draft',
+     c.status || 'active',
      installationGeoUnitId, installationAddressText, installationLat, installationLng,
+     c.discountId || null, c.saleSource || null,
+     c.closingEmployeeId || null, c.invoiceNotes || null,
+     c.appliedDeviceDiscountId || null,
+     c.buyerMotherName || null, c.buyerNationalIdRegistry || null, c.buyerNationalIdIssuedBy || null,
+     c.buyerNationalIdIssueDate || null, c.buyerNationalIdBox || null,
+     c.buyerBirthDate || null, c.buyerGender || null,
+     c.contractType || 'sale_contract',
+     c.sourceOpenTaskId || null,
+     c.sourceTaskOfferId || null,
+     c.saleReferenceNumber || null,
+     c.noClosingReasonId || null,
+     c.saleSubtype || 'definitive',
+     c.deviceStatus || 'pending_delivery',
      req.params.id]
   );
   res.json(rows[0]);
+});
+
+router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (req, res) => {
+  const contractId = Number(req.params.id);
+  const { entries } = req.body;
+  if (!Array.isArray(entries)) return res.status(400).json({ error: 'Invalid entries' });
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    await pgClient.query('DELETE FROM contract_payment_entries WHERE contract_id = $1', [contractId]);
+    for (const entry of entries) {
+      await pgClient.query(
+        `INSERT INTO contract_payment_entries
+          (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
+           reference_number, barter_name, barter_value_syp, received_by_employee_id, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [contractId, entry.method, entry.currency || 'SYP', entry.amountValue || 0,
+         entry.exchangeRate || null, entry.amountSyp || 0,
+         entry.referenceNumber || null, entry.barterName || null,
+         entry.barterValueSyp || null, entry.receivedByEmployeeId || null,
+         entry.notes || null],
+      );
+    }
+    await pgClient.query('COMMIT');
+    res.json({ success: true });
+  } catch (err) {
+    await pgClient.query('ROLLBACK');
+    throw err;
+  } finally {
+    pgClient.release();
+  }
+});
+
+router.post('/:id/installments', requirePermission('contracts.edit'), async (req, res) => {
+  const contractId = Number(req.params.id);
+  const { installments } = req.body;
+  if (!Array.isArray(installments)) return res.status(400).json({ error: 'Invalid installments' });
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    await pgClient.query('DELETE FROM contract_installments WHERE contract_id = $1 AND confirmed = FALSE', [contractId]);
+    for (const inst of installments) {
+      await pgClient.query(
+        `INSERT INTO contract_installments
+          (contract_id, installment_number, due_date, amount_syp, remaining_balance)
+         VALUES ($1,$2,$3,$4,$4)`,
+        [contractId, inst.installmentNumber, inst.dueDate, inst.amountSyp || 0],
+      );
+    }
+    await pgClient.query('COMMIT');
+    res.json({ success: true });
+  } catch (err) {
+    await pgClient.query('ROLLBACK');
+    throw err;
+  } finally {
+    pgClient.release();
+  }
+});
+
+router.post('/:id/installments/confirm', requirePermission('contracts.edit'), async (req, res) => {
+  const contractId = Number(req.params.id);
+  await pool.query(
+    'UPDATE contract_installments SET confirmed = TRUE WHERE contract_id = $1',
+    [contractId],
+  );
+  res.json({ success: true });
 });
 
 router.delete('/:id', requirePermission('contracts.delete'), async (req, res) => {
@@ -199,6 +409,32 @@ router.delete('/:id', requirePermission('contracts.delete'), async (req, res) =>
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   await pool.query('DELETE FROM contracts WHERE id = $1', [req.params.id]);
   res.json({ success: true });
+});
+
+router.put('/:id/line-items/:itemId/installation', requirePermission('contracts.edit'), async (req, res) => {
+  const contractId = Number(req.params.id);
+  const itemId = Number(req.params.itemId);
+  const { isInstalled } = req.body;
+  
+  if (typeof isInstalled !== 'boolean') {
+    return res.status(400).json({ error: 'isInstalled must be a boolean' });
+  }
+
+  const authContext = req.authContext!;
+  const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [contractId]);
+  if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
+  
+  const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branch_id });
+  if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
+
+  await pool.query(
+    `UPDATE contract_line_items 
+     SET is_installed = $1 
+     WHERE id = $2 AND contract_id = $3`,
+    [isInstalled, itemId, contractId]
+  );
+
+  res.json({ success: true, isInstalled });
 });
 
 export default router;

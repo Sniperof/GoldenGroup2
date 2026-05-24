@@ -42,4 +42,6 @@ export interface TaskTypeExtension {
   extraTabs?: ExtraTabDef[];
   /** Renderer for the Result tab content. If omitted, only base summary is shown. */
   ResultRenderer?: ComponentType<TaskResultRendererProps>;
+  /** Action buttons rendered at the end of the tab bar (e.g. receipt button). Only shown when hasResult is true. */
+  tabBarActions?: (data: TaskDetailData) => ReactNode;
 }

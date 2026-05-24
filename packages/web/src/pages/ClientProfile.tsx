@@ -5,7 +5,7 @@ import {
     ChevronRight, Phone, MapPin, Share2,
     History, ArrowLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
-    X, Loader2, PhoneCall, Zap
+    X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
@@ -29,7 +29,7 @@ const referrerTypesAr: Record<string, string> = {
 export default function ClientProfile() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network' | 'contracts'>('overview');
     const [callLogRefreshKey, setCallLogRefreshKey] = useState(0);
     const [client, setClient] = useState<Client | null>(null);
     const [clients, setClients] = useState<Client[]>([]);
@@ -297,6 +297,7 @@ export default function ClientProfile() {
                                 { id: 'contacts', label: 'التواصل', icon: Contact2 },
                                 { id: 'calllog', label: 'سجل الاتصال', icon: PhoneCall },
                                 { id: 'visits', label: 'الزيارات', icon: Navigation },
+                                { id: 'contracts', label: 'العقود', icon: ShieldCheck },
                                 { id: 'network', label: 'الشبكة', icon: Share2 },
                             ].map((tab) => (
                                 <button
@@ -340,6 +341,7 @@ export default function ClientProfile() {
                                     </div>
                                 )}
                                 {activeTab === 'visits' && <VisitsTab client={client} />}
+                                {activeTab === 'contracts' && <ContractsTab client={client} getFullLocationStr={getFullLocationStr} />}
                                 {activeTab === 'network' && <NetworkTab client={client} clients={clients} candidates={candidates} />}
                             </motion.div>
                         </AnimatePresence>
@@ -893,6 +895,482 @@ function NetworkTab({ client, clients, candidates }: any) {
                     </table>
                 </div>
             </section>
+        </div>
+    );
+}
+
+interface ContractsTabProps {
+    client: Client;
+    getFullLocationStr: (neighborhoodId?: string) => string;
+}
+
+function ContractsTab({ client, getFullLocationStr }: ContractsTabProps) {
+    const [contracts, setContracts] = useState<any[]>([]);
+    const [tasks, setTasks] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedContract, setSelectedContract] = useState<any | null>(null);
+    const [selectedContractDetails, setSelectedContractDetails] = useState<any | null>(null);
+    const [detailsLoading, setDetailsLoading] = useState(false);
+    const [actionLoading, setActionLoading] = useState(false);
+    const [lineItemUpdatingId, setLineItemUpdatingId] = useState<number | null>(null);
+
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const [contractData, taskData] = await Promise.all([
+                api.contracts.list({ customerId: client.id }),
+                api.openTasks.listByClient(client.id)
+            ]);
+            // Filter contracts for this client
+            const filteredContracts = contractData.filter((c: any) => c.customerId === client.id && c.status !== 'cancelled');
+            setContracts(filteredContracts);
+            setTasks(taskData);
+        } catch (err) {
+            console.error('Failed to fetch contracts or tasks', err);
+        } finally {
+            setLoading(false);
+        }
+    }, [client.id]);
+
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    const fetchContractDetails = async (contractId: number) => {
+        setDetailsLoading(true);
+        try {
+            const details = await api.contracts.get(contractId);
+            setSelectedContractDetails(details);
+        } catch (err) {
+            console.error('Failed to fetch contract details', err);
+        } finally {
+            setDetailsLoading(false);
+        }
+    };
+
+    const handleSelectContract = (contract: any) => {
+        setSelectedContract(contract);
+        fetchContractDetails(contract.id);
+    };
+
+    const handleCreateTask = async (taskType: 'device_installation' | 'device_activation') => {
+        if (!selectedContract) return;
+        setActionLoading(true);
+        try {
+            const taskFamily = 'delivery';
+            const reason = 'service_request';
+            const dueDate = new Date().toISOString().split('T')[0];
+            await api.openTasks.create({
+                clientId: client.id,
+                branchId: selectedContract.branchId,
+                taskType,
+                taskFamily,
+                reason,
+                contractId: selectedContract.id,
+                dueDate
+            });
+            // Refresh main lists
+            await fetchData();
+            // Refresh current details to update status and task lists
+            await fetchContractDetails(selectedContract.id);
+        } catch (err) {
+            console.error('Failed to create task:', err);
+            alert('حدث خطأ أثناء إنشاء المهمة.');
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleToggleInstallation = async (itemId: number, currentInstalled: boolean) => {
+        if (!selectedContract) return;
+        setLineItemUpdatingId(itemId);
+        try {
+            await api.contracts.toggleLineItemInstallation(selectedContract.id, itemId, !currentInstalled);
+            // Refresh details to update state
+            await fetchContractDetails(selectedContract.id);
+        } catch (err) {
+            console.error('Failed to toggle installation status:', err);
+            alert('حدث خطأ أثناء تحديث حالة تركيب القطعة.');
+        } finally {
+            setLineItemUpdatingId(null);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                <Loader2 className="w-8 h-8 animate-spin text-sky-500 mb-4" />
+                <p className="text-sm font-bold">جاري تحميل العقود...</p>
+            </div>
+        );
+    }
+
+    const steps = [
+        { key: 'pending_delivery', label: 'قيد التسليم', desc: 'توليد مهمة تسليم الجهاز' },
+        { key: 'delivered', label: 'تم التسليم', desc: 'جدولة مهمة تركيب الجهاز' },
+        { key: 'installed', label: 'تم التركيب', desc: 'جدولة مهمة تشغيل وفحص الجهاز' },
+        { key: 'active', label: 'نشط', desc: 'تفعيل العقد والجهاز بالكامل' }
+    ];
+
+    const currentStatus = selectedContractDetails?.deviceStatus || selectedContract?.deviceStatus || 'pending_delivery';
+    let activeStepIndex = 0;
+    if (currentStatus === 'delivered') activeStepIndex = 1;
+    else if (currentStatus === 'installed') activeStepIndex = 2;
+    else if (currentStatus === 'active') activeStepIndex = 3;
+
+    return (
+        <div className="space-y-6 max-w-5xl">
+            <div className="flex items-center justify-between">
+                <h3 className="text-lg font-black text-slate-800">عقود شراء الأجهزة وتتبعها</h3>
+            </div>
+
+            {contracts.length === 0 ? (
+                <div className="bg-white rounded-3xl border border-slate-100 p-16 text-center flex flex-col items-center justify-center shadow-sm">
+                    <FileText className="w-12 h-12 text-slate-300 mb-4" />
+                    <h4 className="text-base text-slate-600 font-black mb-2">لا توجد عقود شراء مسجلة</h4>
+                    <p className="text-xs text-slate-400 font-bold max-w-md">لم يقم هذا الزبون بشراء أي جهاز أو إبرام عقد بيع بعد.</p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {contracts.map((c: any) => {
+                        let statusLabel = 'قيد التسليم';
+                        let statusColor = 'text-amber-600 bg-amber-50 border-amber-100';
+                        if (c.deviceStatus === 'delivered') {
+                            statusLabel = 'تم التسليم';
+                            statusColor = 'text-blue-600 bg-blue-50 border-blue-100';
+                        } else if (c.deviceStatus === 'installed') {
+                            statusLabel = 'تم التركيب';
+                            statusColor = 'text-indigo-600 bg-indigo-50 border-indigo-100';
+                        } else if (c.deviceStatus === 'active') {
+                            statusLabel = 'نشط (يعمل)';
+                            statusColor = 'text-emerald-600 bg-emerald-50 border-emerald-100';
+                        }
+
+                        let progressPercentage = 25;
+                        if (c.deviceStatus === 'delivered') progressPercentage = 50;
+                        else if (c.deviceStatus === 'installed') progressPercentage = 75;
+                        else if (c.deviceStatus === 'active') progressPercentage = 100;
+
+                        return (
+                            <div
+                                key={c.id}
+                                onClick={() => handleSelectContract(c)}
+                                className="bg-white rounded-3xl border border-slate-100 hover:border-sky-300 hover:shadow-lg transition-all p-6 cursor-pointer flex flex-col justify-between group shadow-sm"
+                            >
+                                <div>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <span className="text-xs font-black text-slate-400 font-mono">#{c.contractNumber}</span>
+                                        <span className={`text-[10px] font-black px-2.5 py-1.5 rounded-xl border ${statusColor}`}>
+                                            {statusLabel}
+                                        </span>
+                                    </div>
+                                    <h4 className="font-bold text-slate-800 text-base mb-2 group-hover:text-sky-600 transition-colors">
+                                        {c.deviceModelName}
+                                    </h4>
+                                    <div className="space-y-1.5 text-xs text-slate-500 font-medium">
+                                        <div className="flex items-center gap-2">
+                                            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                            <span>تاريخ العقد: <span className="font-bold text-slate-700">{new Date(c.contractDate).toLocaleDateString('ar-SY')}</span></span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                            <span>الرقم التسلسلي: <span className="font-mono text-slate-700 font-bold">{c.serialNumber || 'غير محدد بعد'}</span></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="mt-6 pt-4 border-t border-slate-50">
+                                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mb-2">
+                                        <span>مرحلة التتبع</span>
+                                        <span>{progressPercentage}%</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                        <div
+                                            className="bg-gradient-to-l from-sky-500 to-emerald-500 h-full rounded-full transition-all duration-500"
+                                            style={{ width: `${progressPercentage}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Slide-over Drawer */}
+            <AnimatePresence>
+                {selectedContract && (
+                    <>
+                        {/* Overlay */}
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 0.4 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => { setSelectedContract(null); setSelectedContractDetails(null); }}
+                            className="fixed inset-0 bg-black z-[90] pointer-events-auto"
+                        />
+                        {/* Drawer content */}
+                        <motion.div
+                            initial={{ x: '100%' }}
+                            animate={{ x: 0 }}
+                            exit={{ x: '100%' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+                            className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-50 shadow-2xl z-[100] flex flex-col h-full border-l border-slate-200 overflow-hidden"
+                            style={{ direction: 'rtl' }}
+                        >
+                            {/* Drawer Header */}
+                            <div className="px-6 py-5 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+                                <div>
+                                    <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
+                                        <FileText className="w-5 h-5 text-sky-500" />
+                                        تفاصيل عقد البيع #{selectedContract.contractNumber}
+                                    </h3>
+                                    <p className="text-xs text-slate-400 font-medium mt-1">تتبع دورة حياة وتثبيت الجهاز</p>
+                                </div>
+                                <button
+                                    onClick={() => { setSelectedContract(null); setSelectedContractDetails(null); }}
+                                    className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center transition-colors text-slate-400 hover:text-slate-600"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            {/* Drawer Body */}
+                            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scroll">
+                                {/* Vertical Lifecycle Stepper */}
+                                <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
+                                    <h4 className="font-black text-slate-800 text-sm mb-4">حالة تتبع الجهاز</h4>
+                                    <div className="relative before:absolute before:right-6 before:top-4 before:bottom-4 before:w-0.5 before:bg-slate-100">
+                                        {steps.map((step, idx) => {
+                                            const isCompleted = idx < activeStepIndex;
+                                            const isActive = idx === activeStepIndex;
+
+                                            let stepColor = 'bg-slate-50 border-slate-200 text-slate-400';
+                                            if (isCompleted) {
+                                                stepColor = 'bg-emerald-500 border-emerald-500 text-white';
+                                            } else if (isActive) {
+                                                stepColor = 'bg-white border-sky-500 text-sky-600 ring-4 ring-sky-50';
+                                            }
+
+                                            return (
+                                                <div key={step.key} className="relative pr-14 pb-6 last:pb-0 flex items-start gap-4">
+                                                    {/* Circle Badge */}
+                                                    <div className={`absolute right-3.5 top-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center font-bold text-xs z-10 transition-all ${stepColor}`}>
+                                                        {isCompleted ? (
+                                                            <Check className="w-3.5 h-3.5" />
+                                                        ) : (
+                                                            <span>{idx + 1}</span>
+                                                        )}
+                                                    </div>
+
+                                                    <div>
+                                                        <h5 className={`font-bold text-sm ${isActive ? 'text-sky-600 text-sm font-black' : isCompleted ? 'text-slate-700' : 'text-slate-400'}`}>
+                                                            {step.label}
+                                                        </h5>
+                                                        <p className="text-[11px] text-slate-400 font-medium mt-0.5">{step.desc}</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Dynamic Action CTA Button */}
+                                {currentStatus === 'delivered' && (
+                                    <div className="bg-gradient-to-l from-sky-500 to-indigo-600 rounded-3xl p-6 text-white shadow-[0_8px_20px_rgba(14,165,233,0.15)]">
+                                        <h5 className="font-bold text-sm mb-1">الجهاز مسلّم وجاهز للتركيب</h5>
+                                        <p className="text-xs text-white/80 font-medium mb-4">يمكنك الآن جدولة مهمة تركيب الجهاز للزبون لإرسال الفنيين للموقع.</p>
+                                        <button
+                                            onClick={() => handleCreateTask('device_installation')}
+                                            disabled={actionLoading}
+                                            className="w-full py-3 bg-white text-sky-700 hover:bg-slate-50 font-bold rounded-2xl shadow transition-all hover:scale-[1.01] flex items-center justify-center gap-2 text-xs disabled:opacity-50"
+                                        >
+                                            {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4" />}
+                                            إضافة مهمة تركيب الجهاز
+                                        </button>
+                                    </div>
+                                )}
+
+                                {currentStatus === 'installed' && (
+                                    <div className="bg-gradient-to-l from-indigo-500 to-emerald-600 rounded-3xl p-6 text-white shadow-[0_8px_20px_rgba(99,102,241,0.15)]">
+                                        <h5 className="font-bold text-sm mb-1">الجهاز مركّب وجاهز للتشغيل</h5>
+                                        <p className="text-xs text-white/80 font-medium mb-4">يمكنك الآن جدولة مهمة تشغيل وفحص الجهاز النهائية لتفعيله بشكل كامل.</p>
+                                        <button
+                                            onClick={() => handleCreateTask('device_activation')}
+                                            disabled={actionLoading}
+                                            className="w-full py-3 bg-white text-indigo-700 hover:bg-slate-50 font-bold rounded-2xl shadow transition-all hover:scale-[1.01] flex items-center justify-center gap-2 text-xs disabled:opacity-50"
+                                        >
+                                            {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                                            إضافة مهمة تشغيل الجهاز
+                                        </button>
+                                    </div>
+                                )}
+
+                                {currentStatus === 'pending_delivery' && (
+                                    <div className="bg-amber-50 border border-amber-100 rounded-3xl p-5 text-amber-800">
+                                        <h5 className="font-bold text-xs mb-1 flex items-center gap-1.5">
+                                            <Truck className="w-4 h-4 text-amber-500" />
+                                            في انتظار تسليم الجهاز
+                                        </h5>
+                                        <p className="text-[11px] font-bold text-amber-600">
+                                            العقد في مرحلة التسليم حالياً. سيتم تحديث هذه الصفحة تلقائياً بمجرد إكمال الفنيين لمهمة تسليم الجهاز.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {currentStatus === 'active' && (
+                                    <div className="bg-emerald-50 border border-emerald-100 rounded-3xl p-5 text-emerald-800">
+                                        <h5 className="font-bold text-xs mb-1 flex items-center gap-1.5">
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                            الجهاز نشط بالكامل
+                                        </h5>
+                                        <p className="text-[11px] font-bold text-emerald-600">
+                                            تم تسليم، تركيب، وتشغيل الجهاز بنجاح. العقد والجهاز حالياً نشطان وتعمل الصيانة الدورية وفق الخطة.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Linked Tasks */}
+                                <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+                                    <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
+                                        <Activity className="w-4 h-4 text-slate-400" />
+                                        مهام التتبع المرتبطة بالعقد
+                                    </h4>
+                                    {tasks.filter((t: any) => t.contractId === selectedContract.id).length === 0 ? (
+                                        <p className="text-xs text-slate-400 font-bold text-center py-4">لا توجد مهام مرتبطة حالياً.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {tasks.filter((t: any) => t.contractId === selectedContract.id).map((t: any) => {
+                                                let typeLabel = t.taskType;
+                                                if (t.taskType === 'device_delivery') typeLabel = 'تسليم الجهاز';
+                                                else if (t.taskType === 'device_installation') typeLabel = 'تركيب الجهاز';
+                                                else if (t.taskType === 'device_activation') typeLabel = 'تشغيل الجهاز';
+
+                                                let statusText = t.status;
+                                                let statusStyle = 'bg-slate-50 text-slate-500 border-slate-100';
+                                                if (t.status === 'open') {
+                                                    statusText = 'مفتوحة';
+                                                    statusStyle = 'bg-amber-50 text-amber-700 border-amber-100';
+                                                } else if (t.status === 'scheduled') {
+                                                    statusText = 'مجدولة';
+                                                    statusStyle = 'bg-sky-50 text-sky-700 border-sky-100';
+                                                } else if (t.status === 'in_visit') {
+                                                    statusText = 'في الزيارة';
+                                                    statusStyle = 'bg-purple-50 text-purple-700 border-purple-100';
+                                                } else if (t.status === 'completed') {
+                                                    statusText = 'مكتملة';
+                                                    statusStyle = 'bg-emerald-50 text-emerald-700 border-emerald-100';
+                                                } else if (t.status === 'cancelled') {
+                                                    statusText = 'ملغية';
+                                                    statusStyle = 'bg-rose-50 text-rose-700 border-rose-100';
+                                                }
+
+                                                return (
+                                                    <div key={t.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                                        <div>
+                                                            <h5 className="font-bold text-xs text-slate-800">{typeLabel}</h5>
+                                                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">الموعد: {t.dueDate || '--'}</p>
+                                                        </div>
+                                                        <span className={`text-[10px] font-black px-2 py-1 rounded-lg border ${statusStyle}`}>
+                                                            {statusText}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Specifications Grid */}
+                                <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+                                    <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
+                                        <Layers className="w-4 h-4 text-slate-400" />
+                                        مواصفات الجهاز وموقع التركيب
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-4 text-xs">
+                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
+                                            <p className="text-[10px] text-slate-400 font-bold mb-1">موديل الجهاز</p>
+                                            <p className="font-bold text-slate-700">{selectedContract.deviceModelName}</p>
+                                        </div>
+                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
+                                            <p className="text-[10px] text-slate-400 font-bold mb-1">الرقم التسلسلي</p>
+                                            <p className="font-mono font-bold text-slate-700">{selectedContract.serialNumber || 'غير محدد'}</p>
+                                        </div>
+                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
+                                            <p className="text-[10px] text-slate-400 font-bold mb-1">خطة الصيانة</p>
+                                            <p className="font-bold text-slate-700">{selectedContract.maintenancePlan || '3'} أشهر</p>
+                                        </div>
+                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
+                                            <p className="text-[10px] text-slate-400 font-bold mb-1">نوع البيع</p>
+                                            <p className="font-bold text-slate-700">
+                                                {selectedContract.saleType === 'direct' ? 'مباشر' : selectedContract.saleType === 'tradein' ? 'مقايضة' : 'حفظ'}
+                                            </p>
+                                        </div>
+                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50 col-span-2">
+                                            <p className="text-[10px] text-slate-400 font-bold mb-1">عنوان التركيب</p>
+                                            <p className="font-bold text-slate-700 flex items-center gap-1">
+                                                <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                <span>
+                                                    {getFullLocationStr(selectedContract.installationGeoUnitId) !== 'غير محدد' ? `${getFullLocationStr(selectedContract.installationGeoUnitId)} - ` : ''}
+                                                    {selectedContract.installationAddressText || 'لا يوجد تفاصيل إضافية'}
+                                                </span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Line Items Installation Checklist */}
+                                <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+                                    <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
+                                        <Wrench className="w-4 h-4 text-slate-400" />
+                                        قائمة القطع والملحقات (التثبيت الفردي)
+                                    </h4>
+                                    {detailsLoading ? (
+                                        <div className="text-center py-4">
+                                            <Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-300" />
+                                        </div>
+                                    ) : !selectedContractDetails?.lineItems || selectedContractDetails.lineItems.length === 0 ? (
+                                        <p className="text-xs text-slate-400 font-bold text-center py-4">لا توجد قطع ملحقة أو إضافية مسجلة.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {selectedContractDetails.lineItems.map((item: any) => {
+                                                const label = item.description || (item.itemType === 'device' ? 'الجهاز الأساسي' : 'قطعة ملحقة');
+                                                const isInstalled = !!item.isInstalled;
+                                                const isUpdating = lineItemUpdatingId === item.id;
+
+                                                return (
+                                                    <div
+                                                        key={item.id}
+                                                        className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors"
+                                                    >
+                                                        <div className="flex items-center gap-3">
+                                                            <input
+                                                                type="checkbox"
+                                                                id={`item-${item.id}`}
+                                                                checked={isInstalled}
+                                                                disabled={isUpdating}
+                                                                onChange={() => handleToggleInstallation(item.id, isInstalled)}
+                                                                className="w-4.5 h-4.5 text-sky-600 border-slate-300 rounded focus:ring-sky-500 cursor-pointer disabled:opacity-50"
+                                                            />
+                                                            <label
+                                                                htmlFor={`item-${item.id}`}
+                                                                className={`text-xs font-bold cursor-pointer select-none transition-colors ${isInstalled ? 'text-slate-400 line-through' : 'text-slate-700'}`}
+                                                            >
+                                                                {label}
+                                                                <span className="text-[10px] text-slate-400 font-medium mr-2">({item.quantity} قطع)</span>
+                                                            </label>
+                                                        </div>
+                                                        {isUpdating && <Loader2 className="w-4 h-4 animate-spin text-sky-600" />}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.div>
+                    </>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

@@ -43,6 +43,11 @@ const CLIENT_SELECT = `
     c.gender,
     c.national_id AS "nationalId",
     c.birth_date AS "birthDate",
+    c.mother_name AS "motherName",
+    c.national_id_registry AS "nationalIdRegistry",
+    c.national_id_issued_by AS "nationalIdIssuedBy",
+    c.national_id_issue_date AS "nationalIdIssueDate",
+    c.national_id_box AS "nationalIdBox",
     c.occupation,
     c.spouse_occupation AS "spouseOccupation",
     c.data_quality AS "dataQuality",
@@ -107,6 +112,11 @@ const CLIENT_MUTATION_RETURNING = `
     gender,
     national_id AS "nationalId",
     birth_date AS "birthDate",
+    mother_name AS "motherName",
+    national_id_registry AS "nationalIdRegistry",
+    national_id_issued_by AS "nationalIdIssuedBy",
+    national_id_issue_date AS "nationalIdIssueDate",
+    national_id_box AS "nationalIdBox",
     occupation,
     spouse_occupation AS "spouseOccupation",
     data_quality AS "dataQuality",
@@ -581,6 +591,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         source_channel, referrer_type, referrer_id, referrer_name, referral_notes, referrers, referral_entity_id,
         referral_date, referral_reason, referral_sheet_id, referral_address_text,
         is_candidate, target_client, candidate_status,
+        mother_name, national_id_registry, national_id_issued_by, national_id_issue_date, national_id_box,
         branch_id, created_by
       )
       VALUES (
@@ -590,7 +601,8 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         $22,$23,$24,$25,$26,$27,$28,
         $29,$30,$31,$32,
         $33,$34,$35,
-        $36,$37
+        $36,$37,$38,$39,$40,
+        $41,$42
       )
       RETURNING id`,
       [
@@ -603,6 +615,8 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         c.referralNotes || null, toJson(c.referrers, []), c.referralEntityId || null,
         c.referralDate || null, c.referralReason || null, c.referralSheetId || null, c.referralAddressText || null,
         c.isCandidate || false, c.targetClient || null, c.candidateStatus || null,
+        c.motherName || null, c.nationalIdRegistry || null, c.nationalIdIssuedBy || null,
+        c.nationalIdIssueDate || null, c.nationalIdBox || null,
         targetBranchId, authContext.userId,
       ],
     );
@@ -694,8 +708,9 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
         detailed_address=$11, gps_coordinates=$12, gender=$13, national_id=$14, birth_date=$15, occupation=$16, spouse_occupation=$17, data_quality=$18, water_source=$19, notes=$20, rating=$21,
         source_channel=$22, referrer_type=$23, referrer_id=$24, referrer_name=$25, referral_notes=$26, referrers=$27, referral_entity_id=$28,
         referral_date=$29, referral_reason=$30, referral_sheet_id=$31, referral_address_text=$32,
-        is_candidate=$33, target_client=$34, candidate_status=$35
-      WHERE id=$36`,
+        is_candidate=$33, target_client=$34, candidate_status=$35,
+        mother_name=$36, national_id_registry=$37, national_id_issued_by=$38, national_id_issue_date=$39, national_id_box=$40
+      WHERE id=$41`,
       [
         c.firstName || null, c.fatherName || null, c.lastName || null, c.nickname || null,
         c.name, c.mobile, toJson(c.contacts, []), c.governorate || '', c.district || '', c.neighborhood || '',
@@ -706,6 +721,8 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
         c.referralNotes || null, toJson(c.referrers, []), c.referralEntityId || null,
         c.referralDate || null, c.referralReason || null, c.referralSheetId || null, c.referralAddressText || null,
         c.isCandidate || false, c.targetClient || null, c.candidateStatus || null,
+        c.motherName || null, c.nationalIdRegistry || null, c.nationalIdIssuedBy || null,
+        c.nationalIdIssueDate || null, c.nationalIdBox || null,
         clientId,
       ],
     );

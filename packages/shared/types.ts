@@ -287,6 +287,11 @@ export interface Client {
     gender?: 'male' | 'female';
     nationalId?: string;
     birthDate?: string;
+    motherName?: string | null;
+    nationalIdRegistry?: string | null;
+    nationalIdIssuedBy?: string | null;
+    nationalIdIssueDate?: string | null;
+    nationalIdBox?: string | null;
     occupation?: string;
     spouseOccupation?: string;
     dataQuality?: 'correct' | 'incorrect' | 'needs_edit';
@@ -469,6 +474,7 @@ export interface MarketingVisitTask {
     offerType?: 'cash' | 'installment' | null;
     hasDiscount?: boolean | null;
     isDeviceSold?: boolean | null;
+    appliedDeviceDiscountId?: number | null;
     saleReferenceNumber?: string | null;
     cancellationReasonId?: number | null;
     cancellationReasonName?: string | null;
@@ -541,6 +547,7 @@ export interface MarketingVisitTaskOfferInput {
     installmentMonths?: number | null;
     currency: string;
     discountPercentage?: number | null;
+    appliedDeviceDiscountId?: number | null;
     closedByEmployeeId?: number | null;
     noClosingReason?: string | null;
     customerResponse: 'accepted' | 'rejected' | 'extension_requested' | null;
@@ -548,6 +555,7 @@ export interface MarketingVisitTaskOfferInput {
     extensionReasonId?: number | null;
     extensionDueDate?: string | null;
     saleReferenceNumber?: string | null;
+    contractId?: number | null;
 }
 
 export interface MarketingVisitResultUpdateRequest {
@@ -642,26 +650,60 @@ export interface DeviceModel {
     name: string;
     brand: string;
     nameAr?: string | null;
-    nameEn?: string | null;
+    nameEn: string;
     category: 'منزلي' | 'صناعي' | 'تجاري';
     maintenanceInterval: '3 أشهر' | '6 أشهر' | '1 سنة';
     basePrice: number;
-    discountPercent?: number;
-    discountedPrice?: number;
-    supportedVisitTypes: ('تركيب' | 'صيانة' | 'تعليم تسليم')[];
+    supportedVisitTypes: ('تسليم' | 'تركيب' | 'صيانة' | 'تعليم')[];
     isGoldenWarranty?: boolean;
     goldenWarrantyPeriods?: ('3 أشهر' | '6 أشهر' | '9 أشهر' | '12 شهرًا')[];
-    isOfferIncluded?: boolean;
+    isFeatured?: boolean;
     description?: string | null;
+    descriptionEn?: string | null;
     images?: Array<{ id: string; name: string; url: string }>;
     primaryImageId?: string | null;
     videos?: Array<{ id: string; name: string; url: string }>;
     documents?: Array<{ id: string; name: string; url: string }>;
+    code?: string | null;
 }
 
-export type ContractStatus = 'draft' | 'active' | 'completed' | 'cancelled';
+export interface DeviceDiscount {
+  id: number;
+  deviceModelId: number;
+  label: string;
+  percentage: number;
+  startDate: string;
+  endDate: string;
+  isActive: boolean;
+  createdBy?: number | null;
+  createdAt?: string;
+}
+
+export type ContractStatus = 'active' | 'cancelled' | 'temporary';
+export type SaleSubtype = 'definitive' | 'temporary' | 'free';
+export type SaleType = 'tradein' | 'retention' | 'direct';
+export type ContractType = 'sale_contract' | 'maintenance_contract';
+export type SaleSource = string;
 export type PaymentType = 'cash' | 'installment';
 export type MaintenancePlan = '3' | '6' | '12';
+
+export interface ContractLineItem {
+    id?: number;
+    contractId?: number;
+    itemType: 'device' | 'accessory' | 'service_fee';
+    sparePartId?: number | null;
+    description?: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    isInstalled?: boolean;
+}
+
+export interface ContractDiscountSnapshot {
+    id: number;
+    label: string;
+    percentage: number;
+}
 
 export type DueType = 'Installment' | 'Maintenance Fee' | 'Down Payment';
 export type DueStatus = 'Pending' | 'Partial' | 'Paid' | 'Overdue';
@@ -679,13 +721,41 @@ export interface Due {
     escalated: boolean;
 }
 
+export interface ContractPaymentEntry {
+    id: number;
+    contractId: number;
+    method: 'cash' | 'sham_cash' | 'syriatel_cash' | 'mtn_cash' | 'alharam' | 'bank_transfer' | 'barter';
+    currency: 'SYP' | 'USD';
+    amountValue: number;
+    exchangeRate?: number | null;
+    amountSyp: number;
+    referenceNumber?: string;
+    barterName?: string;
+    barterValueSyp?: number;
+    receivedByEmployeeId?: number | null;
+    receivedAt: string;
+    notes?: string;
+}
+
+export interface ContractInstallment {
+    id: number;
+    contractId: number;
+    installmentNumber: number;
+    dueDate: string;
+    amountSyp: number;
+    status: 'pending' | 'paid' | 'partial' | 'overdue';
+    paidAmount: number;
+    remainingBalance: number;
+    confirmed: boolean;
+}
+
 export interface Contract {
     id: number;
     contractNumber: string;
     customerId: number;
     customerName: string;
     contractDate: string;
-    sourceVisit?: string;
+    sourceVisit?: string | null;
     deviceModelId: number;
     deviceModelName: string;
     serialNumber: string;
@@ -699,6 +769,18 @@ export interface Contract {
     deliveryDate: string;
     installationDate: string;
     status: ContractStatus;
+    saleType?: SaleType | null;
+    saleSource?: SaleSource | null;
+    discountId?: number | null;
+    discount?: ContractDiscountSnapshot | null;
+    lineItems?: ContractLineItem[];
+    deviceStatus?: 'pending_delivery' | 'delivered' | 'installed' | 'active';
+    paymentEntries?: ContractPaymentEntry[];
+    installments?: ContractInstallment[];
+    closingEmployeeId?: number | null;
+    closingDate?: string | null;
+    invoiceNotes?: string | null;
+    receiptNumber?: string | null;
     createdAt: string;
     branchId?: number;
     // Installation address — specific to this contract/device, different from client address
@@ -706,6 +788,21 @@ export interface Contract {
     installationAddressText?: string | null;
     installationLat?: number | null;
     installationLng?: number | null;
+    appliedDeviceDiscountId?: number | null;
+    buyerMotherName?: string | null;
+    buyerNationalIdRegistry?: string | null;
+    buyerNationalIdIssuedBy?: string | null;
+    buyerNationalIdIssueDate?: string | null;
+    buyerNationalIdBox?: string | null;
+    buyerBirthDate?: string | null;
+    buyerGender?: 'male' | 'female' | null;
+    // Task/offer traceability (migration 138)
+    sourceOpenTaskId?: number | null;
+    sourceTaskOfferId?: number | null;
+    saleReferenceNumber?: string | null;
+    contractType?: ContractType | null;
+    noClosingReasonId?: number | null;
+    saleSubtype?: SaleSubtype | null;
 }
 
 export type MaintenancePartType = 'Periodic' | 'Emergency' | 'Accessory';

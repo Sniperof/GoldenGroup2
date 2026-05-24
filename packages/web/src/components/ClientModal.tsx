@@ -125,6 +125,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [gender, setGender] = useState<'male' | 'female' | ''>('');
     const [nationalId, setNationalId] = useState('');
     const [birthDate, setBirthDate] = useState('');
+    const [motherName, setMotherName] = useState('');
+    const [nationalIdRegistry, setNationalIdRegistry] = useState('');
+    const [nationalIdIssuedBy, setNationalIdIssuedBy] = useState('');
+    const [nationalIdIssueDate, setNationalIdIssueDate] = useState('');
+    const [nationalIdBox, setNationalIdBox] = useState('');
     const [referralNotes, setReferralNotes] = useState('');
     const [occupation, setOccupation] = useState('');
     const [spouseOccupation, setSpouseOccupation] = useState('');
@@ -312,6 +317,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setGender((initialData.gender as any) || '');
                 setNationalId(initialData.nationalId || '');
                 setBirthDate(initialData.birthDate ? initialData.birthDate.slice(0, 10) : '');
+                setMotherName(initialData.motherName || '');
+                setNationalIdRegistry(initialData.nationalIdRegistry || '');
+                setNationalIdIssuedBy(initialData.nationalIdIssuedBy || '');
+                setNationalIdIssueDate(initialData.nationalIdIssueDate ? initialData.nationalIdIssueDate.slice(0, 10) : '');
+                setNationalIdBox(initialData.nationalIdBox || '');
                 setReferralNotes(initialData.referralNotes || '');
                 setOccupation(initialData.occupation || '');
                 setSpouseOccupation(initialData.spouseOccupation || '');
@@ -596,6 +606,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             gender: (gender as any) || undefined,
             nationalId: nationalId.trim() || undefined,
             birthDate: birthDate || undefined,
+            motherName: motherName.trim() || undefined,
+            nationalIdRegistry: nationalIdRegistry.trim() || undefined,
+            nationalIdIssuedBy: nationalIdIssuedBy.trim() || undefined,
+            nationalIdIssueDate: nationalIdIssueDate || undefined,
+            nationalIdBox: nationalIdBox.trim() || undefined,
             referralNotes: referralNotes.trim() || undefined,
             occupation: occupation.trim() || undefined,
             spouseOccupation: spouseOccupation.trim() || undefined,
@@ -1318,41 +1333,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         </div>
                                     </div>
 
+                                    {/* Mother Name + Birth Date */}
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        {/* National ID */}
                                         <div className="space-y-1">
-                                            <label className="text-xs font-semibold text-slate-500">رقم الهوية الوطنية</label>
-                                            <input
-                                                type="text"
-                                                value={nationalId}
-                                                onChange={e => {
-                                                    const v = e.target.value.replace(/\D/g, '').slice(0, 12);
-                                                    setNationalId(v);
-                                                }}
-                                                placeholder="000000000000"
-                                                dir="ltr"
-                                                maxLength={12}
-                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none transition-colors ${
-                                                    nationalId.length > 0 && nationalId.length < 12
-                                                        ? 'border-amber-300 focus:border-amber-400 bg-amber-50/30'
-                                                        : nationalId.length === 12
-                                                        ? 'border-emerald-300 focus:border-emerald-400 bg-emerald-50/20'
-                                                        : 'border-gray-200 focus:border-sky-500'
-                                                }`}
-                                            />
-                                            {nationalId.length > 0 && nationalId.length < 12 && (
-                                                <p className="text-[10px] text-amber-600 font-medium">
-                                                    {12 - nationalId.length} خانة متبقية
-                                                </p>
-                                            )}
-                                            {nationalId.length === 12 && (
-                                                <p className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
-                                                    <CheckCircle className="w-3 h-3" /> مكتمل
-                                                </p>
-                                            )}
+                                            <label className="text-xs font-semibold text-slate-500">اسم الأم</label>
+                                            <input type="text" value={motherName} onChange={e => setMotherName(e.target.value)}
+                                                placeholder="اسم الأم"
+                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
                                         </div>
-
-                                        {/* Birth Date */}
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">تاريخ الميلاد</label>
                                             <input
@@ -1361,6 +1349,70 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 onChange={e => setBirthDate(e.target.value)}
                                                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none"
                                             />
+                                        </div>
+                                    </div>
+
+                                    {/* National ID */}
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-semibold text-slate-500">رقم الهوية الوطنية</label>
+                                        <input
+                                            type="text"
+                                            value={nationalId}
+                                            onChange={e => {
+                                                const v = e.target.value.replace(/\D/g, '').slice(0, 12);
+                                                setNationalId(v);
+                                            }}
+                                            placeholder="000000000000"
+                                            dir="ltr"
+                                            maxLength={12}
+                                            className={`w-full border rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none transition-colors ${
+                                                nationalId.length > 0 && nationalId.length < 12
+                                                    ? 'border-amber-300 focus:border-amber-400 bg-amber-50/30'
+                                                    : nationalId.length === 12
+                                                    ? 'border-emerald-300 focus:border-emerald-400 bg-emerald-50/20'
+                                                    : 'border-gray-200 focus:border-sky-500'
+                                            }`}
+                                        />
+                                        {nationalId.length > 0 && nationalId.length < 12 && (
+                                            <p className="text-[10px] text-amber-600 font-medium">
+                                                {12 - nationalId.length} خانة متبقية
+                                            </p>
+                                        )}
+                                        {nationalId.length === 12 && (
+                                            <p className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                                                <CheckCircle className="w-3 h-3" /> مكتمل
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* Registry + Box */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-500">القيد</label>
+                                            <input type="text" value={nationalIdRegistry} onChange={e => setNationalIdRegistry(e.target.value)}
+                                                placeholder="رقم القيد"
+                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-500">الخانة</label>
+                                            <input type="text" value={nationalIdBox} onChange={e => setNationalIdBox(e.target.value)}
+                                                placeholder="رقم أو اسم الخانة"
+                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
+                                        </div>
+                                    </div>
+
+                                    {/* Issued By + Issue Date */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-500">أمانة السجل المدني</label>
+                                            <input type="text" value={nationalIdIssuedBy} onChange={e => setNationalIdIssuedBy(e.target.value)}
+                                                placeholder="أمين السجل المدني"
+                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-500">تاريخ منح الهوية</label>
+                                            <input type="date" value={nationalIdIssueDate} onChange={e => setNationalIdIssueDate(e.target.value)}
+                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
                                         </div>
                                     </div>
                                 </div>

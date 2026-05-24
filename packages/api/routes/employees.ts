@@ -144,6 +144,39 @@ router.get('/schedule-pool', requirePermission('planning.manage'), async (req, r
   }
 });
 
+router.get('/closers', requirePermission('employees.view_list'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const branchId = authContext.isSuperAdmin
+      ? (Number(req.header('x-branch-id')) || null)
+      : (authContext.actingBranchId ?? null);
+
+    // Find employees whose role has the sales.can_close permission
+    const branchFilter = branchId != null
+      ? `AND (u.branch_id = ${Number(branchId)} OR rpg.scope_type = 'GLOBAL')`
+      : '';
+
+    const { rows } = await (await import('../db.js')).default.query(`
+      SELECT DISTINCT u.id, u.name,
+        COALESCE(r.display_name, u.role) AS "roleDisplayName"
+      FROM hr_users u
+      JOIN roles r ON r.id = u.role_id
+      JOIN role_permission_grants rpg ON rpg.role_id = r.id
+      JOIN permissions p ON p.id = rpg.permission_id
+      WHERE p.key = 'sales.can_close'
+        AND u.is_active = true
+        ${branchFilter}
+      ORDER BY u.name
+    `);
+
+    return res.json(rows);
+  } catch (err: any) {
+    // Gracefully return empty array if permission doesn't exist or query fails
+    console.error('[employees/closers]', err.message);
+    return res.json([]);
+  }
+});
+
 router.get('/:id', requirePermission('employees.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);

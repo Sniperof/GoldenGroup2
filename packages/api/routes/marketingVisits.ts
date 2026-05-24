@@ -311,6 +311,7 @@ function buildVisitSelect(whereClause: string) {
       ot.due_date AS "openTaskDueDate",
       mvt.currency,
       mvt.discount_percentage AS "discountPercentage",
+      mvt.applied_device_discount_id AS "appliedDeviceDiscountId",
       mvt.sold_device_model_id AS "soldDeviceModelId",
       dm_sold.name AS "soldDeviceModelName",
       mvt.offered_device_model_id AS "offeredDeviceModelId",
@@ -373,6 +374,7 @@ async function loadVisitById(req: any, visitId: string) {
 
   const { rows: offerRows } = await pool.query(
     `SELECT
+       id,
        device_model_id AS "deviceModelId",
        offer_type AS "offerType",
        quantity,
@@ -387,7 +389,8 @@ async function loadVisitById(req: any, visitId: string) {
        rejection_reason_id AS "rejectionReasonId",
        extension_reason_id AS "extensionReasonId",
        extension_due_date AS "extensionDueDate",
-       sale_reference_number AS "saleReferenceNumber"
+       sale_reference_number AS "saleReferenceNumber",
+       contract_id AS "contractId"
      FROM marketing_visit_task_offers
      WHERE task_id = $1`,
     [taskId],
@@ -425,6 +428,25 @@ async function loadVisitById(req: any, visitId: string) {
     firstPaymentAmount: offer.firstPaymentAmount != null ? Number(offer.firstPaymentAmount) : null,
     discountPercentage: offer.discountPercentage != null ? Number(offer.discountPercentage) : null,
   }));
+
+  if (sourceOpenTaskId != null) {
+    const { rows: deviceRows } = await pool.query(
+      `SELECT
+         device_model_id AS "deviceModelId",
+         device_name_snapshot AS "deviceModelName",
+         quantity
+       FROM open_task_devices
+       WHERE task_id = $1`,
+      [sourceOpenTaskId],
+    );
+    if (deviceRows.length > 0) {
+      (visit as any).devices = deviceRows.map((row) => ({
+        deviceModelId: row.deviceModelId != null ? Number(row.deviceModelId) : null,
+        deviceModelName: row.deviceModelName ?? null,
+        quantity: row.quantity != null ? Number(row.quantity) : 1,
+      }));
+    }
+  }
 
   if (Array.isArray(visit.tasks)) {
     visit.tasks = visit.tasks.map((task: any) =>
@@ -564,7 +586,8 @@ async function applyTaskResult(req: any, res: any, visit: any, task: any) {
   const closedByEmployeeId = req.body?.closedByEmployeeId;
   const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() : '';
   const discountPercentage = req.body?.discountPercentage ?? null;
-  const currency = typeof req.body?.currency === 'string' ? req.body.currency.trim() || null : null;
+  const appliedDeviceDiscountId = req.body?.appliedDeviceDiscountId ?? null;
+  const currency = typeof req.body?.currency === 'string' ? req.body.currency.trim() || null : 'SYP';
   const soldDeviceModelId = req.body?.soldDeviceModelId ?? null;
   const noClosingReason = typeof req.body?.noClosingReason === 'string' ? req.body.noClosingReason.trim() || null : null;
 
@@ -641,10 +664,11 @@ async function applyTaskResult(req: any, res: any, visit: any, task: any) {
              discount_percentage = $9,
              sold_device_model_id = $10,
              no_closing_reason = $11,
+             applied_device_discount_id = $12,
              contract_id = NULL,
              completed_at = NOW(),
              updated_at = NOW()
-         WHERE id = $12 AND visit_id = $13`,
+         WHERE id = $13 AND visit_id = $14`,
         [
           taskStatus,
           taskResult,
@@ -657,6 +681,7 @@ async function applyTaskResult(req: any, res: any, visit: any, task: any) {
           discountPercentage != null && Number.isFinite(Number(discountPercentage)) ? Number(discountPercentage) : null,
           CLOSED_RESULTS.has(taskResult!) && soldDeviceModelId != null ? Number(soldDeviceModelId) : null,
           isNotClosedOffer ? noClosingReason : null,
+          appliedDeviceDiscountId != null ? Number(appliedDeviceDiscountId) : null,
           task.id,
           visit.id,
         ],
@@ -1302,6 +1327,7 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
   const installmentMonths = req.body?.installmentMonths;
   const currency = typeof req.body?.currency === 'string' ? req.body.currency.trim() || null : null;
   const discountPercentage = req.body?.discountPercentage ?? null;
+  const appliedDeviceDiscountId = req.body?.appliedDeviceDiscountId ?? null;
   const closedByEmployeeId = req.body?.closedByEmployeeId;
   const soldDeviceModelId = req.body?.soldDeviceModelId ?? null;
   const offeredDeviceModelId = req.body?.offeredDeviceModelId ?? null;
@@ -1362,10 +1388,7 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
       if (currentOfferType === 'installment' && firstPaymentAmount > rawOffer.totalAmount) {
         return res.status(400).json({ error: `offers[${index}].firstPaymentAmount cannot exceed totalAmount` });
       }
-      const currentCurrency = typeof rawOffer.currency === 'string' ? rawOffer.currency.trim() : '';
-      if (!currentCurrency) {
-        return res.status(400).json({ error: `offers[${index}].currency is required` });
-      }
+      const currentCurrency = typeof rawOffer.currency === 'string' && rawOffer.currency.trim() ? rawOffer.currency.trim() : 'SYP';
       const currentDiscount = rawOffer.discountPercentage ?? null;
       if (
         currentDiscount != null
@@ -1379,10 +1402,12 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
           : null;
       const currentNoClosingReason =
         typeof rawOffer.noClosingReason === 'string' ? rawOffer.noClosingReason.trim() || null : null;
-      if (currentClosedBy == null && !currentNoClosingReason) {
+      // device_sold offers are direct sales — closer is optional
+      if (outcome !== 'device_sold' && currentClosedBy == null && !currentNoClosingReason) {
         return res.status(400).json({ error: `offers[${index}].closedByEmployeeId or noClosingReason is required` });
       }
-      const customerResponse = rawOffer.customerResponse ?? null;
+      // For device_sold all offers must be accepted; for offer_presented response is required
+      const customerResponse = outcome === 'device_sold' ? 'accepted' : (rawOffer.customerResponse ?? null);
       if (outcome === 'offer_presented' && customerResponse == null) {
         return res.status(400).json({ error: `offers[${index}].customerResponse is required` });
       }
@@ -1420,6 +1445,7 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
         installmentMonths: currentOfferType === 'installment' ? currentInstallmentMonths : null,
         currency: currentCurrency,
         discountPercentage: currentDiscount != null ? Number(currentDiscount) : null,
+        appliedDeviceDiscountId: rawOffer.appliedDeviceDiscountId != null ? Number(rawOffer.appliedDeviceDiscountId) : null,
         closedByEmployeeId: currentClosedBy,
         noClosingReason: currentClosedBy == null ? currentNoClosingReason : null,
         customerResponse,
@@ -1449,9 +1475,7 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
           return res.status(400).json({ error: 'installmentMonths must be greater than 0' });
         }
       }
-      if (!currency) {
-        return res.status(400).json({ error: 'currency is required for offer_presented' });
-      }
+      const effectiveCurrency = currency || 'SYP';
       const hasCloser = Number.isInteger(closedByEmployeeId) && closedByEmployeeId > 0;
       if (!hasCloser && !noClosingReason) {
         return res.status(400).json({ error: 'closedByEmployeeId or noClosingReason is required for offer_presented' });
@@ -1467,14 +1491,9 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
   }
 
   if (outcome === 'device_sold') {
-    if (offerType != null) {
-      return res.status(400).json({ error: 'offerType is not allowed for device_sold' });
-    }
-    if (cashOfferAmount != null || installmentAmount != null || installmentMonths != null || currency != null) {
-      return res.status(400).json({ error: 'price fields are not allowed for device_sold' });
-    }
-    if (!Number.isInteger(soldDeviceModelId) || !(soldDeviceModelId > 0)) {
-      return res.status(400).json({ error: 'soldDeviceModelId is required for device_sold' });
+    const hasDeviceSoldOffers = Array.isArray(offers) && offers.length > 0;
+    if (!hasDeviceSoldOffers && (!Number.isInteger(soldDeviceModelId) || !(soldDeviceModelId as number > 0))) {
+      return res.status(400).json({ error: 'soldDeviceModelId is required when no offers provided for device_sold' });
     }
   }
 
@@ -1500,7 +1519,8 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
     await pgClient.query('BEGIN');
 
     let saleReferenceNumber: string | null = null;
-    if (outcome === 'device_sold') {
+    // Legacy single-device_sold with no offers array: generate one ref for the task
+    if (outcome === 'device_sold' && (!validatedOffers || validatedOffers.length === 0)) {
       saleReferenceNumber = await generateSaleReferenceNumber(pgClient);
     }
 
@@ -1545,7 +1565,15 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
         : discountPercentage != null && Number.isFinite(Number(discountPercentage))
           ? Number(discountPercentage)
           : null;
-    const effectiveSoldDevice = outcome === 'device_sold' && soldDeviceModelId ? Number(soldDeviceModelId) : null;
+    const effectiveAppliedDiscountId =
+      primaryOffer?.appliedDeviceDiscountId != null
+        ? Number(primaryOffer.appliedDeviceDiscountId)
+        : appliedDeviceDiscountId != null
+          ? Number(appliedDeviceDiscountId)
+          : null;
+    const effectiveSoldDevice = outcome === 'device_sold'
+      ? (soldDeviceModelId ? Number(soldDeviceModelId) : validatedOffers?.[0]?.deviceModelId ?? null)
+      : null;
     const effectiveOfferedDevice =
       outcome === 'offer_presented'
         ? primaryOffer?.deviceModelId
@@ -1576,9 +1604,10 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
            has_discount = $18,
            is_device_sold = $19,
            offered_device_model_id = $20,
+           applied_device_discount_id = $21,
            completed_at = NOW(),
            updated_at = NOW()
-       WHERE id = $21 AND visit_id = $22`,
+       WHERE id = $22 AND visit_id = $23`,
       [
         outcome,
         outcome === 'offer_presented' ? legacyOfferType : null,
@@ -1587,7 +1616,7 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
         effectiveInstallmentMonths ?? null,
         effectiveClosedBy ?? null,
         notes,
-        outcome === 'offer_presented' ? primaryOffer?.currency ?? currency : null,
+        outcome === 'offer_presented' ? (primaryOffer?.currency ?? currency ?? 'SYP') : null,
         effectiveDiscount,
         effectiveSoldDevice,
         outcome === 'offer_presented' ? primaryOffer?.noClosingReason ?? noClosingReason : null,
@@ -1600,6 +1629,7 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
         hasDiscount,
         isDeviceSold,
         effectiveOfferedDevice,
+        effectiveAppliedDiscountId,
         task.id,
         visit.id,
       ],
@@ -1610,8 +1640,22 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
       [task.id],
     );
 
+    // Track the first generated sale ref to backfill the legacy task-level column
+    let firstAcceptedSaleRef: string | null = null;
+
     if (Array.isArray(validatedOffers) && validatedOffers.length > 0) {
       for (const offer of validatedOffers) {
+        // Generate a server-side sale_reference_number for each accepted offer
+        let offerSaleRef = typeof offer.saleReferenceNumber === 'string' && offer.saleReferenceNumber.trim()
+          ? offer.saleReferenceNumber.trim()
+          : null;
+        if (offer.customerResponse === 'accepted' && offerSaleRef == null) {
+          offerSaleRef = await generateSaleReferenceNumber(pgClient);
+        }
+        if (offerSaleRef != null && firstAcceptedSaleRef == null) {
+          firstAcceptedSaleRef = offerSaleRef;
+        }
+
         await pgClient.query(
           `INSERT INTO marketing_visit_task_offers (
              task_id, device_model_id, offer_type, quantity, total_amount,
@@ -1636,10 +1680,18 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
             offer.rejectionReasonId ?? null,
             offer.extensionReasonId ?? null,
             offer.extensionDueDate ?? null,
-            offer.saleReferenceNumber ?? null,
+            offerSaleRef,
           ],
         );
       }
+    }
+
+    // Backfill legacy task-level sale_reference_number with the first accepted offer's ref
+    if (firstAcceptedSaleRef != null) {
+      await pgClient.query(
+        `UPDATE marketing_visit_tasks SET sale_reference_number = $1 WHERE id = $2 AND sale_reference_number IS NULL`,
+        [firstAcceptedSaleRef, task.id],
+      );
     }
 
     const { rows: pendingTaskRows } = await pgClient.query(
@@ -1718,73 +1770,80 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
       }
 
       if (outcome === 'rescheduled') {
+        // Upsert: if a waiting-phase task (open/needs_follow_up) already exists for this
+        // client+type, update its due_date instead of creating a duplicate.
         const { rows: newTaskRows } = await pgClient.query(
           `INSERT INTO open_tasks (
-             client_id,
-             branch_id,
-             task_type,
-             task_family,
-             reason,
-             status,
-             due_date,
-             source,
-             notes,
-             created_by,
-             client_snapshot,
-             contract_snapshot,
-             team_snapshot,
-             contact_target_id,
-             origin,
-             origin_ref_id,
-             assigned_scope_id,
-             assigned_team_key
+             client_id, branch_id, task_type, task_family, reason, status,
+             due_date, source, notes, created_by,
+             client_snapshot, contract_snapshot, team_snapshot,
+             contact_target_id, origin, origin_ref_id, assigned_scope_id, assigned_team_key
            )
            SELECT
-             ot.client_id,
-             ot.branch_id,
-             ot.task_type,
-             ot.task_family,
-             'follow_up',
-             'needs_follow_up',
-             $2::date,
-             'system',
-             $3,
-             $4,
-             ot.client_snapshot,
-             ot.contract_snapshot,
-             ot.team_snapshot,
-             ot.contact_target_id,
-             COALESCE(ot.origin, 'system'),
-             ot.id,
-             ot.assigned_scope_id,
-             ot.assigned_team_key
+             ot.client_id, ot.branch_id, ot.task_type, ot.task_family,
+             'follow_up', 'needs_follow_up',
+             $2::date, 'system', $3, $4,
+             ot.client_snapshot, ot.contract_snapshot, ot.team_snapshot,
+             ot.contact_target_id, COALESCE(ot.origin, 'system'), ot.id,
+             ot.assigned_scope_id, ot.assigned_team_key
            FROM open_tasks ot
            WHERE ot.id = $1
+           ON CONFLICT (client_id, task_type)
+             WHERE status IN ('open', 'needs_follow_up') AND task_type != 'emergency_maintenance'
+           DO UPDATE SET
+             due_date   = EXCLUDED.due_date,
+             notes      = EXCLUDED.notes,
+             status     = 'needs_follow_up',
+             updated_at = NOW()
            RETURNING id`,
           [openTaskId, followUpDueDate, notes, completedBy],
         );
         rescheduledOpenTaskId = newTaskRows[0]?.id ?? null;
       }
     } else if (outcome === 'rescheduled') {
+      // No linked open_task — upsert a fresh follow-up task for this client.
       const { rows: newTaskRows } = await pgClient.query(
         `INSERT INTO open_tasks (
-           client_id,
-           branch_id,
-           task_type,
-           task_family,
-           reason,
-           status,
-           due_date,
-           source,
-           notes,
-           created_by,
-           origin
+           client_id, branch_id, task_type, task_family, reason, status,
+           due_date, source, notes, created_by, origin
          )
          VALUES ($1, $2, 'device_demo', 'marketing', 'follow_up', 'needs_follow_up', $3::date, 'system', $4, $5, 'system')
+         ON CONFLICT (client_id, task_type)
+           WHERE status IN ('open', 'needs_follow_up') AND task_type != 'emergency_maintenance'
+         DO UPDATE SET
+           due_date   = EXCLUDED.due_date,
+           notes      = EXCLUDED.notes,
+           status     = 'needs_follow_up',
+           updated_at = NOW()
          RETURNING id`,
         [visit.clientId, visit.branchId, followUpDueDate, notes, completedBy],
       );
       rescheduledOpenTaskId = newTaskRows[0]?.id ?? null;
+    }
+
+    // Copy extension_requested offers to the follow-up task as pre_offers (with closer info)
+    if (rescheduledOpenTaskId != null) {
+      await pgClient.query(
+        'DELETE FROM open_task_pre_offers WHERE open_task_id = $1',
+        [rescheduledOpenTaskId],
+      );
+      await pgClient.query(
+        `INSERT INTO open_task_pre_offers (
+           open_task_id, device_model_id, offer_type, quantity,
+           total_amount, first_payment_amount, installment_months,
+           currency, discount_percentage, closed_by_employee_id, no_closing_reason,
+           created_at, updated_at
+         )
+         SELECT
+           $1, mvo.device_model_id, mvo.offer_type, mvo.quantity,
+           mvo.total_amount, mvo.first_payment_amount, mvo.installment_months,
+           mvo.currency, mvo.discount_percentage, mvo.closed_by_employee_id, mvo.no_closing_reason,
+           NOW(), NOW()
+         FROM marketing_visit_task_offers mvo
+         WHERE mvo.task_id = $2
+           AND mvo.customer_response = 'extension_requested'`,
+        [rescheduledOpenTaskId, task.id],
+      );
     }
 
     const isFinalized = coreVisitStatus === 'completed' || coreVisitStatus === 'cancelled';
@@ -2022,5 +2081,104 @@ router.post('/:id/close', requirePermission('marketing_visits.update_result'), a
     return res.status(500).json({ error: err.message || 'فشل إقفال المهام' });
   }
 });
+
+// ─── PATCH /:visitId/tasks/:taskId/offers/:offerId/contract ──────────────────
+// Links a created contract to the offer that generated it.
+// Also back-fills contracts.source_open_task_id, source_task_offer_id,
+// and sale_reference_number for full traceability.
+// Permission: same as recording results (supervisor + field employee).
+router.patch(
+  '/:visitId/tasks/:taskId/offers/:offerId/contract',
+  requirePermission('marketing_visits.update_result'),
+  async (req, res) => {
+    try {
+      const visit = await loadVisitById(req, String(req.params.visitId));
+      if (!visit) return res.status(404).json({ error: 'زيارة غير موجودة' });
+
+      const taskId = String(req.params.taskId);
+      const task = (visit.tasks || []).find((t: any) => String(t.id) === taskId);
+      if (!task) return res.status(404).json({ error: 'مهمة الزيارة غير موجودة' });
+
+      const offerId = Number(req.params.offerId);
+      if (!Number.isInteger(offerId) || offerId <= 0) {
+        return res.status(400).json({ error: 'معرّف العرض غير صالح' });
+      }
+
+      const contractId = req.body?.contractId;
+      if (!Number.isInteger(contractId) || contractId <= 0) {
+        return res.status(400).json({ error: 'contractId مطلوب' });
+      }
+
+      // Verify offer belongs to this task and has an accepted response
+      const { rows: offerRows } = await pool.query(
+        `SELECT id, task_id, customer_response, sale_reference_number, device_model_id
+         FROM marketing_visit_task_offers
+         WHERE id = $1 AND task_id = $2`,
+        [offerId, taskId],
+      );
+      if (offerRows.length === 0) {
+        return res.status(404).json({ error: 'العرض غير موجود أو لا ينتمي لهذه المهمة' });
+      }
+      const offer = offerRows[0];
+      if (offer.customer_response !== 'accepted') {
+        return res.status(400).json({ error: 'لا يمكن ربط عقد إلا بعرض مقبول (accepted)' });
+      }
+
+      // Verify contract exists and belongs to the same client
+      const { rows: contractRows } = await pool.query(
+        `SELECT id, customer_id FROM contracts WHERE id = $1`,
+        [contractId],
+      );
+      if (contractRows.length === 0) {
+        return res.status(404).json({ error: 'العقد غير موجود' });
+      }
+      if (Number(contractRows[0].customer_id) !== Number(visit.clientId)) {
+        return res.status(400).json({ error: 'العقد لا يخص نفس الزبون' });
+      }
+
+      const pgClient = await pool.connect();
+      try {
+        await pgClient.query('BEGIN');
+
+        // Link offer → contract
+        await pgClient.query(
+          `UPDATE marketing_visit_task_offers SET contract_id = $1, updated_at = NOW() WHERE id = $2`,
+          [contractId, offerId],
+        );
+
+        // Back-fill contract with source traceability
+        await pgClient.query(
+          `UPDATE contracts
+           SET source_open_task_id  = COALESCE(source_open_task_id,  $1),
+               source_task_offer_id = COALESCE(source_task_offer_id, $2),
+               sale_reference_number = COALESCE(sale_reference_number, $3)
+           WHERE id = $4`,
+          [task.sourceOpenTaskId ?? null, offerId, offer.sale_reference_number ?? null, contractId],
+        );
+
+        // Keep legacy task-level contract_id pointing to the first linked contract
+        await pgClient.query(
+          `UPDATE marketing_visit_tasks
+           SET contract_id = $1, updated_at = NOW()
+           WHERE id = $2 AND contract_id IS NULL`,
+          [contractId, taskId],
+        );
+
+        await pgClient.query('COMMIT');
+      } catch (err) {
+        await pgClient.query('ROLLBACK');
+        throw err;
+      } finally {
+        pgClient.release();
+      }
+
+      const updatedVisit = await loadVisitById(req, String(visit.id));
+      return res.json(updatedVisit);
+    } catch (err: any) {
+      console.error('[marketing-visits] link-contract error:', err);
+      return res.status(500).json({ error: err.message || 'فشل ربط العقد' });
+    }
+  },
+);
 
 export default router;

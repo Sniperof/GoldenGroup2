@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Plus, Wrench, PenTool, GraduationCap, Clock, Package, Cog, X, Save,
+    Plus, Wrench, PenTool, GraduationCap, Truck, Clock, Package, Cog, X, Save,
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
     AlertCircle,
 } from 'lucide-react';
@@ -26,16 +26,18 @@ const maintenanceLabels: Record<string, string> = {
     '1 سنة': 'سنة واحدة',
 };
 
-const serviceLabels: Record<string, { label: string; Icon: any }> = {
-    'تركيب': { label: 'تركيب', Icon: Wrench },
-    'صيانة': { label: 'صيانة', Icon: PenTool },
-    'تعليم تسليم': { label: 'تعليم تسليم', Icon: GraduationCap },
+const serviceLabels: Record<string, { label: string; icon: string; color: string }> = {
+    'تسليم': { label: 'تسليم', icon: '🚚', color: 'bg-sky-100 text-sky-800' },
+    'تركيب': { label: 'تركيب', icon: '🔧', color: 'bg-blue-100 text-blue-800' },
+    'صيانة': { label: 'صيانة', icon: '🛠️', color: 'bg-orange-100 text-orange-800' },
+    'تعليم': { label: 'تعليم', icon: '🎓', color: 'bg-amber-100 text-amber-800' },
 };
 
 const supportedServiceOptions = [
+    { id: 'تسليم', icon: <Truck size={16} />, label: 'تسليم', desc: 'تسليم الجهاز للعميل' },
     { id: 'تركيب', icon: <Wrench size={16} />, label: 'تركيب', desc: 'تركيب الجهاز' },
     { id: 'صيانة', icon: <PenTool size={16} />, label: 'صيانة', desc: 'صيانة دورية وطوارئ' },
-    { id: 'تعليم تسليم', icon: <GraduationCap size={16} />, label: 'تعليم تسليم', desc: 'تعليم وتسليم الجهاز للعميل' },
+    { id: 'تعليم', icon: <GraduationCap size={16} />, label: 'تعليم', desc: 'تعليم استخدام الجهاز' },
 ] satisfies Array<{ id: DeviceModel['supportedVisitTypes'][number]; icon: React.ReactNode; label: string; desc: string }>;
 
 const warrantyPeriodOptions = ['3 أشهر', '6 أشهر', '9 أشهر', '12 شهرًا'] as const;
@@ -62,13 +64,13 @@ const emptyDeviceForm = (): Partial<DeviceModel> => ({
     category: 'صناعي',
     maintenanceInterval: '6 أشهر',
     basePrice: 0,
-    discountPercent: 0,
-    discountedPrice: 0,
     supportedVisitTypes: [],
     isGoldenWarranty: false,
     goldenWarrantyPeriods: [],
-    isOfferIncluded: false,
+    isFeatured: false,
     description: '',
+    descriptionEn: null,
+    code: '',
     images: [],
     primaryImageId: null,
     videos: [],
@@ -222,8 +224,10 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const nameAr = (newDevice.nameAr || newDevice.name || '').trim();
+        const nameEn = (newDevice.nameEn || '').trim();
         const basePrice = Number(newDevice.basePrice) || 0;
-        if (!nameAr) { setError('اسم الجهاز مطلوب'); return; }
+        if (!nameAr) { setError('اسم الجهاز بالعربية مطلوب'); return; }
+        if (!nameEn) { setError('اسم الجهاز بالإنكليزية مطلوب'); return; }
         if (basePrice <= 0) { setError('السعر الأساسي مطلوب'); return; }
         if (newDevice.isGoldenWarranty && (newDevice.goldenWarrantyPeriods?.length || 0) === 0) {
             setError('يرجى تحديد فترة الكفالة الذهبية'); return;
@@ -231,19 +235,18 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
         setError('');
         setSaving(true);
         try {
-            const discountPercent = Number(newDevice.discountPercent) || 0;
             await api.deviceModels.create({
                 ...newDevice,
                 name: nameAr,
                 nameAr,
-                nameEn: newDevice.nameEn || '',
-                brand: newDevice.nameEn || '',
+                nameEn,
+                brand: nameEn,
+                code: newDevice.code || null,
                 category: newDevice.category,
                 maintenanceInterval: newDevice.maintenanceInterval,
                 basePrice,
-                discountPercent,
-                discountedPrice: Math.round(basePrice * (1 - discountPercent / 100)),
                 supportedVisitTypes: newDevice.supportedVisitTypes || [],
+                descriptionEn: newDevice.descriptionEn || null,
             });
             onSaved();
         } catch (err) {
@@ -253,10 +256,6 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
             setSaving(false);
         }
     };
-
-    const basePrice = Number(newDevice.basePrice) || 0;
-    const discountPercent = Math.max(0, Math.min(100, Number(newDevice.discountPercent) || 0));
-    const discountedPrice = Math.round(basePrice * (1 - discountPercent / 100));
 
     const images = (newDevice.images || []) as DeviceAttachment[];
     const videos = (newDevice.videos || []) as DeviceAttachment[];
@@ -307,7 +306,7 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم الجهاز بالإنكليزية</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم الجهاز بالإنكليزية <span className="text-red-500">*</span></label>
                                 <input
                                     type="text" name="nameEn"
                                     value={newDevice.nameEn || ''}
@@ -318,7 +317,20 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1.5">الرمز</label>
+                            <input
+                                type="text" name="code"
+                                value={newDevice.code || ''}
+                                onChange={handleInputChange}
+                                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm"
+                                dir="ltr"
+                                placeholder="مثال: GW-7H-2025"
+                            />
+                            <p className="text-[10px] text-slate-400 mt-1">رمز داخلي اختياري للجهاز</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1.5">السعر الأساسي <span className="text-red-500">*</span></label>
                                 <div className="relative">
@@ -329,21 +341,6 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                                         className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm pr-12"
                                     />
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">ل.س</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1.5">نسبة الخصم %</label>
-                                <input
-                                    type="number" name="discountPercent" min={0} max={100}
-                                    value={newDevice.discountPercent || ''}
-                                    onChange={handleInputChange}
-                                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1.5">السعر بعد الخصم</label>
-                                <div className="w-full px-4 py-2.5 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 font-bold text-sm">
-                                    {formatPrice(discountedPrice)}
                                 </div>
                             </div>
                         </div>
@@ -357,6 +354,18 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                                 rows={3}
                                 className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm resize-none"
                                 placeholder="وصف مختصر عن الجهاز..."
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1.5">وصف الجهاز بالإنكليزية</label>
+                            <textarea
+                                name="descriptionEn"
+                                value={newDevice.descriptionEn || ''}
+                                onChange={handleInputChange}
+                                rows={3}
+                                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm resize-none"
+                                dir="ltr"
+                                placeholder="English description..."
                             />
                         </div>
                     </div>
@@ -465,13 +474,13 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
 
                         <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors">
                             <div>
-                                <span className="text-sm font-semibold text-slate-700 block">مشمول بالعروض</span>
-                                <span className="text-xs text-slate-400">يظهر في قائمة العروض الترويجية</span>
+                                <span className="text-sm font-semibold text-slate-700 block">جهاز بارز</span>
+                                <span className="text-xs text-slate-400">يظهر في قائمة الأجهزة المُركّز عليها</span>
                             </div>
                             <input
                                 type="checkbox"
-                                checked={newDevice.isOfferIncluded || false}
-                                onChange={(e) => setNewDevice(prev => ({ ...prev, isOfferIncluded: e.target.checked }))}
+                                checked={newDevice.isFeatured || false}
+                                onChange={(e) => setNewDevice(prev => ({ ...prev, isFeatured: e.target.checked }))}
                                 className="w-5 h-5 accent-sky-600"
                             />
                         </label>
@@ -665,8 +674,7 @@ const DeviceManagement = () => {
             key: 'basePrice', label: 'السعر', sortable: true,
             render: (d) => (
                 <div className="text-sm">
-                    <span className="font-mono text-slate-700 font-medium block">{formatPrice(d.discountedPrice ?? d.basePrice)}</span>
-                    {(d.discountPercent || 0) > 0 && <span className="text-[10px] text-emerald-600">خصم {d.discountPercent}%</span>}
+                    <span className="font-mono text-slate-700 font-medium block">{formatPrice(d.basePrice)}</span>
                 </div>
             ),
         },
@@ -678,13 +686,19 @@ const DeviceManagement = () => {
                         const S = serviceLabels[type];
                         if (!S) return null;
                         return (
-                            <div key={type} title={S.label} className="flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-500 text-xs transition-all cursor-help">
-                                <S.Icon size={12} /><span>{S.label}</span>
+                            <div key={type} title={S.label} className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium cursor-help ${S.color}`}>
+                                <span>{S.icon}</span><span>{S.label}</span>
                             </div>
                         );
                     })}
                 </div>
             ),
+        },
+        {
+            key: 'isFeatured', label: 'بارز',
+            render: (d) => d.isFeatured
+                ? <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-sky-100 text-sky-700">بارز</span>
+                : null,
         },
     ];
 

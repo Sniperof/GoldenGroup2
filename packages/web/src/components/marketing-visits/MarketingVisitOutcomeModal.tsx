@@ -48,8 +48,8 @@ interface DeviceOffer {
   totalAmount: number;
   firstPaymentAmount: number | null;
   installmentMonths: number | null;
-  currency: string;
   discountPercentage: number | null;
+  appliedDeviceDiscountId: number | null;
   closedByEmployeeId: number | null;
   noClosingReason: string | null;
   customerResponse: CustomerResponse;
@@ -78,8 +78,8 @@ interface OfferDraft {
   totalAmount: string;
   firstPaymentAmount: string;
   installmentMonths: string;
-  currency: string;
   discountPercentage: string;
+  appliedDeviceDiscountId: string;
   closedByEmployeeId: string;
   noClosingReason: string;
 }
@@ -110,13 +110,10 @@ interface PreOfferLike {
   totalAmount: number;
   firstPaymentAmount?: number | null;
   installmentMonths?: number | null;
-  currency: string;
   discountPercentage?: number | null;
   closedByEmployeeId?: number | null;
   noClosingReason?: string | null;
 }
-
-const CURRENCY_OPTIONS = ['SYP', 'USD', 'EUR'] as const;
 
 const OUTCOME_OPTIONS: Array<{
   value: OverallOutcome;
@@ -182,10 +179,6 @@ function parsePositiveInteger(value: string): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function formatAmount(amount: number, currency: string): string {
-  return `${new Intl.NumberFormat('en-US').format(amount)} ${currency}`;
-}
-
 function buildDeviceOfferGroups(
   visit: MarketingVisit,
   deviceModels: DeviceModel[],
@@ -233,8 +226,8 @@ function createEmptyDraft(): OfferDraft {
     totalAmount: '',
     firstPaymentAmount: '',
     installmentMonths: '',
-    currency: 'SYP',
     discountPercentage: '',
+    appliedDeviceDiscountId: '',
     closedByEmployeeId: '',
     noClosingReason: '',
   };
@@ -252,20 +245,20 @@ function getResponseLabel(response: CustomerResponse): string {
 }
 
 function formatOfferAmountDetails(offer: DeviceOffer): string {
+  const fmt = (amount: number) => new Intl.NumberFormat('en-US').format(amount);
   const quantity = offer.quantity > 0 ? offer.quantity : 1;
   const discountLabel =
     offer.discountPercentage != null && offer.discountPercentage > 0
       ? ` (بعد حسم ${offer.discountPercentage}%)`
       : '';
-  const unitAmountLabel = `${formatAmount(offer.totalAmount, offer.currency)}${discountLabel}`;
+  const unitAmountLabel = `${fmt(offer.totalAmount)}${discountLabel}`;
   const totalAmountLabel =
     quantity > 1
-      ? `${unitAmountLabel} × ${quantity} أجهزة = ${formatAmount(offer.totalAmount * quantity, offer.currency)}${discountLabel}`
+      ? `${unitAmountLabel} × ${quantity} أجهزة = ${fmt(offer.totalAmount * quantity)}${discountLabel}`
       : unitAmountLabel;
   if (offer.offerType === 'cash') return totalAmountLabel;
 
-  const firstPaymentLabel =
-    offer.firstPaymentAmount == null ? '—' : formatAmount(offer.firstPaymentAmount, offer.currency);
+  const firstPaymentLabel = offer.firstPaymentAmount == null ? '—' : fmt(offer.firstPaymentAmount);
   const monthsLabel = offer.installmentMonths == null ? '—' : `${offer.installmentMonths} شهر`;
   return `${totalAmountLabel} (تقسيط) - الدفعة الأولى: ${firstPaymentLabel} - ${monthsLabel}`;
 }
@@ -318,6 +311,9 @@ export default function MarketingVisitOutcomeModal({
   const [validationError, setValidationError] = useState('');
   const [cancellationReasons, setCancellationReasons] = useState<SystemList[]>([]);
   const [rescheduleReasons, setRescheduleReasons] = useState<SystemList[]>([]);
+  const [closers, setClosers] = useState<Employee[]>([]);
+  const [noClosingReasons, setNoClosingReasons] = useState<SystemList[]>([]);
+  const [deviceDiscounts, setDeviceDiscounts] = useState<Array<{ id: number; label: string; percentage: number }>>([]);
 
   const fetchedRef = useRef(false);
 
@@ -330,102 +326,167 @@ export default function MarketingVisitOutcomeModal({
     if (!isOpen || !visit) return;
 
     const rawDevices = (visit as MarketingVisit & { devices?: VisitDeviceLike[] }).devices;
-    const preOffersFromTask = (task as MarketingVisitTask & { preOffers?: PreOfferLike[] | null } | null | undefined)?.preOffers ?? null;
-    const preOffersFromVisitTask = (visit.task as MarketingVisitTask & { preOffers?: PreOfferLike[] | null } | null | undefined)?.preOffers ?? null;
-    const preOffersFromVisitTasks = Array.isArray(visit.tasks)
-      ? visit.tasks.flatMap((item) => (item as MarketingVisitTask & { preOffers?: PreOfferLike[] | null }).preOffers ?? [])
-      : [];
-    const preOffers = [
-      ...(preOffersFromTask ?? []),
-      ...(preOffersFromVisitTask ?? []),
-      ...preOffersFromVisitTasks,
-    ];
-    const dedupedPreOffers = preOffers.filter((offer, index, array) => {
-      const key = [
-        offer.deviceModelId,
-        offer.offerType,
-        offer.quantity ?? 1,
-        offer.totalAmount,
-        offer.firstPaymentAmount ?? '',
-        offer.installmentMonths ?? '',
-        offer.currency,
-        offer.discountPercentage ?? '',
-        offer.closedByEmployeeId ?? '',
-        offer.noClosingReason ?? '',
-      ].join('|');
-      return array.findIndex((item) => {
-        const itemKey = [
-          item.deviceModelId,
-          item.offerType,
-          item.quantity ?? 1,
-          item.totalAmount,
-          item.firstPaymentAmount ?? '',
-          item.installmentMonths ?? '',
-          item.currency,
-          item.discountPercentage ?? '',
-          item.closedByEmployeeId ?? '',
-          item.noClosingReason ?? '',
-        ].join('|');
-        return itemKey === key;
-      }) === index;
-    });
+    const hasSavedOutcome = task?.outcome != null;
+    const savedOffers = (task as MarketingVisitTask & { offers?: any[] | null })?.offers ?? [];
+    const isEditMode = hasSavedOutcome || savedOffers.length > 0;
+
     const baseGroups = buildDeviceOfferGroups(visit, deviceModels);
     const groupMap = new Map<number, DeviceOfferGroup>(
       baseGroups.map((group) => [group.deviceModelId, { ...group, offers: [...group.offers] }]),
     );
 
-    dedupedPreOffers.forEach((offer) => {
-      const existingGroup = groupMap.get(offer.deviceModelId);
-      const model = deviceModels.find((item) => item.id === offer.deviceModelId);
-      const group: DeviceOfferGroup = existingGroup ?? {
-        deviceModelId: offer.deviceModelId,
-        deviceModelName: model?.nameAr || model?.name || `جهاز #${offer.deviceModelId}`,
-        offers: [],
-      };
+    const mapOutcomeToWizardValue = (
+      outcome: MarketingVisitTaskOutcome | null | undefined,
+      hasOffers: boolean
+    ): OverallOutcome | '' => {
+      if (hasOffers) return 'offer_presented';
+      if (!outcome) return '';
+      if (outcome === 'rescheduled') return 'needs_reschedule';
+      if (outcome === 'device_sold') return 'device_sold';
+      if (outcome === 'offer_presented') return 'offer_presented';
+      if (outcome === 'cancelled') return 'cancelled';
+      return '';
+    };
 
-      group.offers.push({
-        id: crypto.randomUUID(),
-        offerType: offer.offerType,
-        quantity: offer.quantity ?? 1,
-        totalAmount: offer.totalAmount,
-        firstPaymentAmount: offer.firstPaymentAmount ?? null,
-        installmentMonths: offer.installmentMonths ?? null,
-        currency: offer.currency,
-        discountPercentage: offer.discountPercentage ?? null,
-        closedByEmployeeId: offer.closedByEmployeeId ?? null,
-        noClosingReason: offer.noClosingReason ?? null,
-        customerResponse: null,
-        rejectionReasonId: null,
-        extensionReasonId: null,
-        extensionDueDate: null,
-        saleReferenceNumber: null,
+    if (isEditMode) {
+      savedOffers.forEach((offer) => {
+        const existingGroup = groupMap.get(offer.deviceModelId);
+        const model = deviceModels.find((item) => item.id === offer.deviceModelId);
+        const group: DeviceOfferGroup = existingGroup ?? {
+          deviceModelId: offer.deviceModelId,
+          deviceModelName: model?.nameAr || model?.name || `جهاز #${offer.deviceModelId}`,
+          offers: [],
+        };
+
+        group.offers.push({
+          id: crypto.randomUUID(),
+          offerType: offer.offerType,
+          quantity: offer.quantity ?? 1,
+          totalAmount: offer.totalAmount,
+          firstPaymentAmount: offer.firstPaymentAmount ?? null,
+          installmentMonths: offer.installmentMonths ?? null,
+          discountPercentage: offer.discountPercentage ?? null,
+          appliedDeviceDiscountId: offer.appliedDeviceDiscountId ?? null,
+          closedByEmployeeId: offer.closedByEmployeeId ?? null,
+          noClosingReason: offer.noClosingReason ?? null,
+          customerResponse: offer.customerResponse ?? null,
+          rejectionReasonId: offer.rejectionReasonId ?? null,
+          extensionReasonId: offer.extensionReasonId ?? null,
+          extensionDueDate: offer.extensionDueDate ?? null,
+          saleReferenceNumber: offer.saleReferenceNumber ?? null,
+        });
+
+        if (!existingGroup) {
+          groupMap.set(offer.deviceModelId, group);
+        }
+      });
+    } else {
+      const preOffersFromTask = (task as MarketingVisitTask & { preOffers?: PreOfferLike[] | null } | null | undefined)?.preOffers ?? null;
+      const preOffersFromVisitTask = (visit.task as MarketingVisitTask & { preOffers?: PreOfferLike[] | null } | null | undefined)?.preOffers ?? null;
+      const preOffersFromVisitTasks = Array.isArray(visit.tasks)
+        ? visit.tasks.flatMap((item) => (item as MarketingVisitTask & { preOffers?: PreOfferLike[] | null }).preOffers ?? [])
+        : [];
+      const preOffers = [
+        ...(preOffersFromTask ?? []),
+        ...(preOffersFromVisitTask ?? []),
+        ...preOffersFromVisitTasks,
+      ];
+      const dedupedPreOffers = preOffers.filter((offer, index, array) => {
+        const key = [
+          offer.deviceModelId,
+          offer.offerType,
+          offer.quantity ?? 1,
+          offer.totalAmount,
+          offer.firstPaymentAmount ?? '',
+          offer.installmentMonths ?? '',
+          offer.discountPercentage ?? '',
+          offer.closedByEmployeeId ?? '',
+          offer.noClosingReason ?? '',
+        ].join('|');
+        return array.findIndex((item) => {
+          const itemKey = [
+            item.deviceModelId,
+            item.offerType,
+            item.quantity ?? 1,
+            item.totalAmount,
+            item.firstPaymentAmount ?? '',
+            item.installmentMonths ?? '',
+            item.discountPercentage ?? '',
+            item.closedByEmployeeId ?? '',
+            item.noClosingReason ?? '',
+          ].join('|');
+          return itemKey === key;
+        }) === index;
       });
 
-      if (!existingGroup) {
-        groupMap.set(offer.deviceModelId, group);
-      }
-    });
+      dedupedPreOffers.forEach((offer) => {
+        const existingGroup = groupMap.get(offer.deviceModelId);
+        const model = deviceModels.find((item) => item.id === offer.deviceModelId);
+        const group: DeviceOfferGroup = existingGroup ?? {
+          deviceModelId: offer.deviceModelId,
+          deviceModelName: model?.nameAr || model?.name || `جهاز #${offer.deviceModelId}`,
+          offers: [],
+        };
+
+        group.offers.push({
+          id: crypto.randomUUID(),
+          offerType: offer.offerType,
+          quantity: offer.quantity ?? 1,
+          totalAmount: offer.totalAmount,
+          firstPaymentAmount: offer.firstPaymentAmount ?? null,
+          installmentMonths: offer.installmentMonths ?? null,
+          discountPercentage: offer.discountPercentage ?? null,
+          appliedDeviceDiscountId: null,
+          closedByEmployeeId: offer.closedByEmployeeId ?? null,
+          noClosingReason: offer.noClosingReason ?? null,
+          customerResponse: null,
+          rejectionReasonId: null,
+          extensionReasonId: null,
+          extensionDueDate: null,
+          saleReferenceNumber: null,
+        });
+
+        if (!existingGroup) {
+          groupMap.set(offer.deviceModelId, group);
+        }
+      });
+    }
 
     const initialDeviceOffers = Array.from(groupMap.values());
-    const hasOfferDevices = initialDeviceOffers.length > 0;
-    const hasSourceDevices =
-      (Array.isArray(rawDevices) && rawDevices.length > 0)
-      || visit.requestedDeviceModelId != null;
 
-    setWizardState({
-      step: hasSourceDevices || hasOfferDevices ? 1 : 0,
-      overallOutcome: hasSourceDevices || hasOfferDevices ? 'offer_presented' : '',
-      deviceOffers: initialDeviceOffers,
-      notes: '',
-    });
+    if (isEditMode && task) {
+      const overallOutcome = mapOutcomeToWizardValue(task.outcome, savedOffers.length > 0);
+      setWizardState({
+        step: overallOutcome === 'offer_presented' ? 4 : 0,
+        overallOutcome,
+        deviceOffers: initialDeviceOffers,
+        notes: task.resultNotes ?? '',
+      });
+      setSoldDeviceModelId(task.soldDeviceModelId?.toString() ?? '');
+      setClosedByEmployeeId(task.closedByEmployeeId?.toString() ?? '');
+      setCancellationReasonId(task.cancellationReasonId?.toString() ?? '');
+      setRescheduleReasonId(task.rescheduleReasonId?.toString() ?? '');
+      setFollowUpDueDate(task.followUpDueDate ?? '');
+      setNotes(task.resultNotes ?? '');
+    } else {
+      // Always start at step 0 (outcome selection) for new recordings.
+      // Devices/pre-offers are loaded into state but the user must explicitly
+      // confirm the outcome type before proceeding to step 1.
+      setWizardState({
+        step: 0,
+        overallOutcome: '',
+        deviceOffers: initialDeviceOffers,
+        notes: '',
+      });
+      setSoldDeviceModelId('');
+      setClosedByEmployeeId('');
+      setCancellationReasonId('');
+      setRescheduleReasonId('');
+      setFollowUpDueDate('');
+      setNotes('');
+    }
     setOfferEditor(null);
     setOfferEditorError('');
-    setSoldDeviceModelId('');
-    setClosedByEmployeeId('');
-    setCancellationReasonId('');
-    setRescheduleReasonId('');
-    setFollowUpDueDate('');
-    setNotes('');
     setValidationError('');
 
     if (!fetchedRef.current) {
@@ -433,14 +494,28 @@ export default function MarketingVisitOutcomeModal({
       Promise.all([
         api.systemLists.getItemsByCode('task_cancellation_reasons'),
         api.systemLists.getItemsByCode('task_reschedule_reasons'),
+        api.systemLists.getItemsByCode('no_closing_reasons'),
       ])
-        .then(([cancellation, reschedule]) => {
+        .then(([cancellation, reschedule, noClosing]) => {
           setCancellationReasons(cancellation);
           setRescheduleReasons(reschedule);
+          setNoClosingReasons(noClosing);
         })
         .catch(() => {});
+      api.employees.closers()
+        .then(setClosers)
+        .catch(() => setClosers([]));
     }
   }, [isOpen, visit, task, deviceModels]);
+
+  useEffect(() => {
+    if (!offerEditor) return;
+    setDeviceDiscounts([]);
+    if (!offerEditor.deviceModelId) return;
+    api.deviceModels.getDiscounts(offerEditor.deviceModelId)
+      .then((discounts) => setDeviceDiscounts(discounts.map((d: any) => ({ id: d.id, label: d.label, percentage: d.percentage }))))
+      .catch(() => setDeviceDiscounts([]));
+  }, [offerEditor?.deviceModelId]);
 
   if (!isOpen || !visit || !task) return null;
 
@@ -465,7 +540,18 @@ export default function MarketingVisitOutcomeModal({
   const pendingOffers = flatOffers.filter(({ offer }) => isOfferResponsePending(offer));
   const summary = computeFinalOutcome(wizardState.deviceOffers);
 
+  // device_sold uses the same multi-device UI as offer_presented but skips the response step
+  const isDeviceSoldFlow = wizardState.overallOutcome === 'device_sold';
+  // useOfferUI: any outcome that uses the device-offer list (steps 1+)
+  const useOfferUI = isOfferFlow || isDeviceSoldFlow;
+
+  // Rule 1: lock outcome once responses are recorded OR once device_sold offers exist
+  const isOutcomeLocked =
+    flatOffers.some(({ offer }) => offer.customerResponse != null) ||
+    (isDeviceSoldFlow && flatOffers.length > 0);
+
   const handleSelectOutcome = (value: OverallOutcome) => {
+    if (isOutcomeLocked) return;
     setValidationError('');
     setWizardState((current) => ({
       ...current,
@@ -474,11 +560,21 @@ export default function MarketingVisitOutcomeModal({
     }));
   };
 
-  const openCreateOffer = (deviceModelId: number) => {
+  const openCreateOffer = (deviceModelId?: number) => {
+    // For device_sold: any device model can be selected; no pre-existing group needed
+    const targetId = deviceModelId
+      ?? wizardState.deviceOffers[0]?.deviceModelId
+      ?? (isDeviceSoldFlow ? deviceModels[0]?.id : undefined);
+    if (!targetId) return;
+    const model = deviceModels.find((m) => m.id === targetId);
+    const basePrice = model?.basePrice ?? 0;
     setOfferEditor({
-      deviceModelId,
+      deviceModelId: targetId,
       offerId: null,
-      draft: createEmptyDraft(),
+      draft: {
+        ...createEmptyDraft(),
+        totalAmount: basePrice > 0 ? String(basePrice) : '',
+      },
     });
     setOfferEditorError('');
   };
@@ -493,8 +589,8 @@ export default function MarketingVisitOutcomeModal({
         totalAmount: String(offer.totalAmount),
         firstPaymentAmount: offer.firstPaymentAmount == null ? '' : String(offer.firstPaymentAmount),
         installmentMonths: offer.installmentMonths == null ? '' : String(offer.installmentMonths),
-        currency: offer.currency,
         discountPercentage: offer.discountPercentage == null ? '' : String(offer.discountPercentage),
+        appliedDeviceDiscountId: offer.appliedDeviceDiscountId == null ? '' : String(offer.appliedDeviceDiscountId),
         closedByEmployeeId: offer.closedByEmployeeId == null ? '' : String(offer.closedByEmployeeId),
         noClosingReason: offer.noClosingReason ?? '',
       },
@@ -517,7 +613,7 @@ export default function MarketingVisitOutcomeModal({
     }
     const totalAmount = parsePositiveNumber(offerEditor.draft.totalAmount);
     if (totalAmount == null) {
-      setOfferEditorError('يرجى إدخال المبلغ الكامل');
+      setOfferEditorError('يرجى إدخال السعر الإفرادي');
       return;
     }
 
@@ -550,10 +646,6 @@ export default function MarketingVisitOutcomeModal({
       setOfferEditorError('قيمة الدفعة الأولى يجب أن تكون أقل من أو تساوي المبلغ الكامل');
       return;
     }
-    if (!offerEditor.draft.currency) {
-      setOfferEditorError('يرجى اختيار العملة');
-      return;
-    }
     const discount = offerEditor.draft.discountPercentage.trim()
       ? Number(offerEditor.draft.discountPercentage)
       : null;
@@ -562,14 +654,18 @@ export default function MarketingVisitOutcomeModal({
       return;
     }
     const selectedEmployeeId = parsePositiveInteger(offerEditor.draft.closedByEmployeeId);
-    if (selectedEmployeeId == null && !offerEditor.draft.noClosingReason.trim()) {
+    // device_sold: closer/noClosingReason are optional (direct sale)
+    if (!isDeviceSoldFlow && selectedEmployeeId == null && !offerEditor.draft.noClosingReason.trim()) {
       setOfferEditorError('يرجى اختيار موظف أو إدخال سبب عدم التسكير');
       return;
     }
-    if (!wizardState.deviceOffers.some((group) => group.deviceModelId === offerEditor.deviceModelId)) {
+    // offer_presented: device group must already exist
+    if (!isDeviceSoldFlow && !wizardState.deviceOffers.some((group) => group.deviceModelId === offerEditor.deviceModelId)) {
       setOfferEditorError('لا يوجد أجهزة محددة للزيارة');
       return;
     }
+
+    const appliedDeviceDiscountId = parsePositiveInteger(offerEditor.draft.appliedDeviceDiscountId);
 
     const nextOffer: DeviceOffer = {
       id: offerEditor.offerId ?? crypto.randomUUID(),
@@ -578,10 +674,10 @@ export default function MarketingVisitOutcomeModal({
       totalAmount,
       firstPaymentAmount,
       installmentMonths,
-      currency: offerEditor.draft.currency,
       discountPercentage: discount,
+      appliedDeviceDiscountId: appliedDeviceDiscountId ?? null,
       closedByEmployeeId: selectedEmployeeId,
-      noClosingReason: selectedEmployeeId == null ? offerEditor.draft.noClosingReason.trim() : null,
+      noClosingReason: selectedEmployeeId == null ? offerEditor.draft.noClosingReason.trim() || null : null,
       customerResponse: null,
       rejectionReasonId: null,
       extensionReasonId: null,
@@ -610,6 +706,18 @@ export default function MarketingVisitOutcomeModal({
                 extensionDueDate: existing.extensionDueDate,
                 saleReferenceNumber: existing.saleReferenceNumber,
               };
+
+        // device_sold: if the device group doesn't exist yet, create it
+        const groupExists = current.deviceOffers.some((g) => g.deviceModelId === offerEditor.deviceModelId);
+        if (!groupExists) {
+          const model = deviceModels.find((m) => m.id === offerEditor.deviceModelId);
+          const newGroup: DeviceOfferGroup = {
+            deviceModelId: offerEditor.deviceModelId,
+            deviceModelName: model?.nameAr || model?.name || `جهاز #${offerEditor.deviceModelId}`,
+            offers: [offerToSave],
+          };
+          return [...current.deviceOffers, newGroup];
+        }
 
         return current.deviceOffers.map((group) => {
           const offersWithoutEdited =
@@ -666,12 +774,12 @@ export default function MarketingVisitOutcomeModal({
     }
 
     if (step === 1) {
-      if (wizardState.deviceOffers.length === 0) {
+      if (!isDeviceSoldFlow && wizardState.deviceOffers.length === 0) {
         return 'لا يوجد أجهزة محددة لهذه الزيارة';
       }
       const totalOffers = wizardState.deviceOffers.reduce((sum, group) => sum + group.offers.length, 0);
       if (totalOffers === 0) {
-        return 'أضف عرضاً واحداً على الأقل للمتابعة';
+        return isDeviceSoldFlow ? 'أضف جهازاً مباعاً واحداً على الأقل للمتابعة' : 'أضف عرضاً واحداً على الأقل للمتابعة';
       }
       return null;
     }
@@ -688,25 +796,23 @@ export default function MarketingVisitOutcomeModal({
   };
 
   const handleNext = () => {
-    if (!isOfferFlow) return;
+    if (!useOfferUI) return;
     const errorMessage = validateOfferFlowStep(wizardState.step);
     if (errorMessage) {
       setValidationError(errorMessage);
       return;
     }
     setValidationError('');
-    setWizardState((current) => ({
-      ...current,
-      step: Math.min(4, current.step + 1) as WizardStep,
-    }));
+    // device_sold skips the response steps (2 & 3) — go 1 → 4
+    const nextStep = isDeviceSoldFlow && wizardState.step === 1 ? 4 : Math.min(4, wizardState.step + 1) as WizardStep;
+    setWizardState((current) => ({ ...current, step: nextStep }));
   };
 
   const handleBack = () => {
     setValidationError('');
-    setWizardState((current) => ({
-      ...current,
-      step: Math.max(0, current.step - 1) as WizardStep,
-    }));
+    // device_sold skips steps 2-3 when going back — go 4 → 1
+    const prevStep = isDeviceSoldFlow && wizardState.step === 4 ? 1 : Math.max(0, wizardState.step - 1) as WizardStep;
+    setWizardState((current) => ({ ...current, step: prevStep }));
   };
 
   const handleSimpleSubmit = async () => {
@@ -782,8 +888,9 @@ export default function MarketingVisitOutcomeModal({
           totalAmount: offer.totalAmount,
           firstPaymentAmount: offer.firstPaymentAmount,
           installmentMonths: offer.installmentMonths,
-          currency: offer.currency,
+          currency: 'SYP',
           discountPercentage: offer.discountPercentage,
+          appliedDeviceDiscountId: offer.appliedDeviceDiscountId,
           closedByEmployeeId: offer.closedByEmployeeId,
           noClosingReason: offer.noClosingReason,
           customerResponse: offer.customerResponse,
@@ -809,6 +916,43 @@ export default function MarketingVisitOutcomeModal({
     });
   };
 
+  // Submit handler for device_sold multi-device flow
+  const handleDeviceSoldSubmit = async () => {
+    const totalDevices = wizardState.deviceOffers.reduce((s, g) => s + g.offers.length, 0);
+    if (totalDevices === 0) {
+      setValidationError('أضف جهازاً مباعاً واحداً على الأقل');
+      return;
+    }
+    await onSubmit({
+      outcome: 'device_sold',
+      offers: wizardState.deviceOffers.flatMap((group) =>
+        group.offers.map((offer) => ({
+          deviceModelId: group.deviceModelId,
+          offerType: offer.offerType,
+          quantity: offer.quantity,
+          totalAmount: offer.totalAmount,
+          firstPaymentAmount: offer.firstPaymentAmount,
+          installmentMonths: offer.installmentMonths,
+          currency: 'SYP',
+          discountPercentage: offer.discountPercentage,
+          appliedDeviceDiscountId: offer.appliedDeviceDiscountId,
+          closedByEmployeeId: offer.closedByEmployeeId,
+          noClosingReason: offer.noClosingReason,
+          customerResponse: 'accepted' as const,
+          rejectionReasonId: null,
+          extensionReasonId: null,
+          extensionDueDate: null,
+          saleReferenceNumber: offer.saleReferenceNumber,
+        })),
+      ),
+      offerType: null, cashOfferAmount: null, installmentAmount: null,
+      installmentMonths: null, currency: null, discountPercentage: null,
+      closedByEmployeeId: null, soldDeviceModelId: null, offeredDeviceModelId: null,
+      noClosingReason: null, cancellationReasonId: null, rescheduleReasonId: null,
+      notes: wizardState.notes.trim() || null,
+    });
+  };
+
   const renderOfferStatus = (offer: DeviceOffer): { label: string; className: string } => {
     if (offer.customerResponse === 'accepted') {
       return { label: '✅ تم البيع', className: 'text-emerald-600' };
@@ -827,7 +971,7 @@ export default function MarketingVisitOutcomeModal({
   const getOfferCloserLabel = (offer: DeviceOffer): string =>
     offer.closedByEmployeeId == null
       ? offer.noClosingReason || 'لم يتم'
-      : activeEmployees.find((employee) => employee.id === offer.closedByEmployeeId)?.name
+      : closers.find((employee) => employee.id === offer.closedByEmployeeId)?.name
         ?? `#${offer.closedByEmployeeId}`;
 
   const progressIndex = isOfferFlow ? wizardState.step : 0;
@@ -872,78 +1016,70 @@ export default function MarketingVisitOutcomeModal({
 
         <div className="flex-1 overflow-y-auto bg-slate-50/50 p-6">
           <div className="space-y-6">
-            <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
-              <div className="space-y-1">
-                <h3 className="text-sm font-bold text-slate-800">نتيجة المهمة</h3>
-                <p className="text-xs text-slate-500">اختر المسار المناسب قبل متابعة تفاصيل النتيجة.</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {OUTCOME_OPTIONS.map((option) => {
-                  const Icon = option.icon;
-                  const isSelected = wizardState.overallOutcome === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleSelectOutcome(option.value)}
-                      className={`flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-right transition-all ${
-                        isSelected
-                          ? `${option.color} ring-2 ring-current ring-offset-1`
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon className="h-4 w-4 shrink-0" />
-                        <span className="text-sm font-bold">{option.label}</span>
-                      </div>
-                      <span className="text-xs opacity-80">{option.description}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            {!isOfferFlow && wizardState.overallOutcome === 'device_sold' && (
-              <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">
-                    الجهاز المباع <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={soldDeviceModelId}
-                    onChange={(event) => setSoldDeviceModelId(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  >
-                    <option value="">اختر الجهاز...</option>
-                    {deviceModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.nameAr || model.name}
-                      </option>
-                    ))}
-                  </select>
+            {/* Step 0: outcome selector — hidden once user enters a multi-step flow */}
+            {wizardState.step === 0 && (
+              <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-slate-800">نتيجة المهمة</h3>
+                  <p className="text-xs text-slate-500">اختر المسار المناسب قبل متابعة تفاصيل النتيجة.</p>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">
-                    تم الإغلاق مع <span className="text-xs font-normal text-slate-400">(اختياري)</span>
-                  </label>
-                  <select
-                    value={closedByEmployeeId}
-                    onChange={(event) => setClosedByEmployeeId(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  >
-                    <option value="">اختر الموظف...</option>
-                    {activeEmployees.map((employee) => (
-                      <option key={employee.id} value={employee.id}>
-                        {employee.name}
-                      </option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-2 gap-3">
+                  {OUTCOME_OPTIONS.map((option) => {
+                    const Icon = option.icon;
+                    const isSelected = wizardState.overallOutcome === option.value;
+                    const isDisabled = isOutcomeLocked && !isSelected;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => handleSelectOutcome(option.value)}
+                        disabled={isDisabled}
+                        className={`flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-right transition-all ${
+                          isDisabled
+                            ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300'
+                            : isSelected
+                            ? `${option.color} ring-2 ring-current ring-offset-1`
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-4 w-4 shrink-0" />
+                          <span className="text-sm font-bold">{option.label}</span>
+                        </div>
+                        <span className="text-xs opacity-80">{option.description}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 md:col-span-2">
-                  سيتم توليد رقم بيعة تلقائياً عند الحفظ.
-                </div>
+                {isOutcomeLocked && (
+                  <p className="text-[11px] text-amber-600">
+                    🔒 نوع النتيجة مقفل — تم تسجيل رد الزبون على عرض واحد على الأقل.
+                  </p>
+                )}
               </section>
             )}
+            {/* Compact outcome badge shown on steps 1–4 */}
+            {useOfferUI && wizardState.step > 0 && (
+              <div className={`flex items-center justify-between rounded-xl border px-4 py-2.5 ${
+                isOutcomeLocked ? 'border-amber-100 bg-amber-50' : 'border-sky-100 bg-sky-50'
+              }`}>
+                <span className={`text-sm font-semibold ${isOutcomeLocked ? 'text-amber-800' : 'text-sky-800'}`}>
+                  {isOutcomeLocked && '🔒 '}نوع النتيجة:{' '}
+                  {OUTCOME_OPTIONS.find((o) => o.value === wizardState.overallOutcome)?.label ?? '—'}
+                </span>
+                {!isOutcomeLocked && (
+                  <button
+                    type="button"
+                    onClick={() => setWizardState((current) => ({ ...current, step: 0, overallOutcome: '' }))}
+                    className="text-xs font-bold text-sky-600 hover:underline"
+                  >
+                    تغيير
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* device_sold now uses the multi-device offer flow (steps 1+) — old single-dropdown removed */}
 
             {!isOfferFlow && wizardState.overallOutcome === 'needs_reschedule' && (
               <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
@@ -1015,26 +1151,29 @@ export default function MarketingVisitOutcomeModal({
               </section>
             )}
 
-            {isOfferFlow && wizardState.step === 1 && (
+            {useOfferUI && wizardState.step === 1 && (
               <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-800">أجهزة الزيارة — بيان العروض</h3>
-                    <p className="text-xs text-slate-500">أضف العروض لكل جهاز، ثم راجع ملخص العروض قبل تسجيل ردود الزبون.</p>
+                    <h3 className="text-sm font-bold text-slate-800">
+                      {isDeviceSoldFlow ? 'الأجهزة المباعة' : 'أجهزة الزيارة — بيان العروض'}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {isDeviceSoldFlow
+                        ? 'أضف كل جهاز تم بيعه — لكل جهاز سيُولَّد رقم بيعة مستقل.'
+                        : 'أضف العروض لكل جهاز، ثم راجع ملخص العروض قبل تسجيل ردود الزبون.'}
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setWizardState((current) => ({
-                        ...current,
-                        step: 0,
-                        overallOutcome: '',
-                      }))
-                    }
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50"
-                  >
-                    ↩️ تغيير نوع النتيجة
-                  </button>
+                  {wizardState.deviceOffers.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => openCreateOffer()}
+                      className="inline-flex items-center gap-1 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      إضافة عرض
+                    </button>
+                  )}
                 </div>
 
                 {wizardState.deviceOffers.length === 0 ? (
@@ -1044,16 +1183,8 @@ export default function MarketingVisitOutcomeModal({
                 ) : (
                   wizardState.deviceOffers.map((group) => (
                     <div key={group.deviceModelId} className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
                         <h4 className="text-sm font-bold text-slate-800">💻 {group.deviceModelName}</h4>
-                        <button
-                          type="button"
-                          onClick={() => openCreateOffer(group.deviceModelId)}
-                          className="inline-flex items-center gap-1 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          إضافة عرض
-                        </button>
                       </div>
 
                       <div className="overflow-x-auto">
@@ -1063,7 +1194,6 @@ export default function MarketingVisitOutcomeModal({
                               <th className="px-3 py-2 font-semibold">النوع</th>
                               <th className="px-3 py-2 font-semibold">الكمية</th>
                               <th className="px-3 py-2 font-semibold">تفاصيل المبلغ</th>
-                              <th className="px-3 py-2 font-semibold">العملة</th>
                               <th className="px-3 py-2 font-semibold">التسكير</th>
                               <th className="px-3 py-2 font-semibold">الحالة</th>
                               <th className="px-3 py-2 font-semibold">إجراء</th>
@@ -1084,7 +1214,6 @@ export default function MarketingVisitOutcomeModal({
                                     <td className="px-3 py-3 font-medium text-slate-700">{getOfferLabel(offer.offerType)}</td>
                                     <td className="px-3 py-3 text-slate-700">{offer.quantity}</td>
                                     <td className="px-3 py-3 text-slate-700">{formatOfferAmountDetails(offer)}</td>
-                                    <td className="px-3 py-3 text-slate-500">{offer.currency}</td>
                                     <td className="px-3 py-3 text-slate-700">{getOfferCloserLabel(offer)}</td>
                                     <td className={`px-3 py-3 font-semibold ${status.className}`}>{status.label}</td>
                                     <td className="px-3 py-3">
@@ -1092,7 +1221,8 @@ export default function MarketingVisitOutcomeModal({
                                         <button
                                           type="button"
                                           onClick={() => openEditOffer(group.deviceModelId, offer)}
-                                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white"
+                                          disabled={offer.customerResponse != null}
+                                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white disabled:cursor-not-allowed disabled:border-slate-100 disabled:text-slate-300"
                                         >
                                           <Pencil className="h-3 w-3" />
                                           تعديل
@@ -1149,7 +1279,7 @@ export default function MarketingVisitOutcomeModal({
                           <td className="px-3 py-3 text-slate-700">{formatOfferAmountDetails(offer)}</td>
                           <td className="px-3 py-3 text-slate-700">
                             {offer.offerType === 'installment'
-                              ? `${offer.firstPaymentAmount == null ? '—' : formatAmount(offer.firstPaymentAmount, offer.currency)} / ${offer.installmentMonths == null ? '—' : `${offer.installmentMonths} شهر`}`
+                              ? `${offer.firstPaymentAmount == null ? '—' : new Intl.NumberFormat('en-US').format(offer.firstPaymentAmount)} / ${offer.installmentMonths == null ? '—' : `${offer.installmentMonths} شهر`}`
                               : '—'}
                           </td>
                           <td className="px-3 py-3 text-slate-700">{getOfferCloserLabel(offer)}</td>
@@ -1218,7 +1348,12 @@ export default function MarketingVisitOutcomeModal({
                       {offer.customerResponse === 'accepted' && (
                         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                           <div className="font-bold">✅ تم البيع!</div>
-                          <div className="mt-1">رقم البيعة: [سيتم توليده تلقائياً]</div>
+                          <div className="mt-1">
+                            رقم البيعة:{' '}
+                            {offer.saleReferenceNumber
+                              ? <span className="font-mono font-black tracking-widest">#{offer.saleReferenceNumber}</span>
+                              : <span className="text-emerald-600 italic text-xs">سيُولَّد تلقائياً عند الحفظ</span>}
+                          </div>
                           <div className="mt-1">الجهاز: {deviceModelName}</div>
                           <div className="mt-1">
                             العرض: {getOfferLabel(offer.offerType)} —{' '}
@@ -1300,7 +1435,7 @@ export default function MarketingVisitOutcomeModal({
               </section>
             )}
 
-            {isOfferFlow && wizardState.step === 4 && (
+            {useOfferUI && wizardState.step === 4 && (
               <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
                 <div>
                   <h3 className="text-sm font-bold text-slate-800">ملخص النتيجة النهائية</h3>
@@ -1346,8 +1481,12 @@ export default function MarketingVisitOutcomeModal({
                           <td className="px-3 py-3 text-slate-700">{offer.quantity}</td>
                           <td className="px-3 py-3 text-slate-700">{formatOfferAmountDetails(offer)}</td>
                           <td className="px-3 py-3 font-medium text-slate-700">{getResponseLabel(offer.customerResponse)}</td>
-                          <td className="px-3 py-3 text-slate-500">
-                            {offer.customerResponse === 'accepted' ? '[سيتم توليده تلقائياً]' : '—'}
+                          <td className="px-3 py-3">
+                            {offer.customerResponse === 'accepted'
+                              ? offer.saleReferenceNumber
+                                ? <span className="font-mono font-black tracking-widest text-emerald-700">#{offer.saleReferenceNumber}</span>
+                                : <span className="text-xs text-slate-400 italic">سيُولَّد عند الحفظ</span>
+                              : <span className="text-slate-400">—</span>}
                           </td>
                         </tr>
                       ))}
@@ -1385,7 +1524,7 @@ export default function MarketingVisitOutcomeModal({
 
         <div className="flex items-center justify-between border-t border-slate-100 bg-white px-6 py-4">
           <div className="flex items-center gap-3">
-            {isOfferFlow && wizardState.step > 0 && (
+            {useOfferUI && wizardState.step > 0 && (
               <button
                 type="button"
                 onClick={handleBack}
@@ -1406,17 +1545,19 @@ export default function MarketingVisitOutcomeModal({
           </div>
 
           <div className="flex items-center gap-3">
-            {isOfferFlow && wizardState.step < 4 && (
+            {/* Next button: for offer_presented (steps 0–3) and device_sold (step 0 and 1) */}
+            {useOfferUI && wizardState.step < 4 && (
               <button
                 type="button"
                 onClick={handleNext}
-                disabled={saving || (wizardState.step === 1 && wizardState.deviceOffers.length === 0)}
+                disabled={saving}
                 className="rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {wizardState.step === 2 ? 'تأكيد وتابع لردود الزبون «' : 'التالي «'}
               </button>
             )}
 
+            {/* Submit: offer_presented step 4 */}
             {isOfferFlow && wizardState.step === 4 && (
               <button
                 type="button"
@@ -1429,7 +1570,21 @@ export default function MarketingVisitOutcomeModal({
               </button>
             )}
 
-            {!isOfferFlow && wizardState.overallOutcome && (
+            {/* Submit: device_sold step 4 */}
+            {isDeviceSoldFlow && wizardState.step === 4 && (
+              <button
+                type="button"
+                onClick={handleDeviceSoldSubmit}
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                تأكيد البيع ✅
+              </button>
+            )}
+
+            {/* Submit: needs_reschedule / cancelled (simple outcomes) */}
+            {!useOfferUI && wizardState.overallOutcome && (
               <button
                 type="button"
                 onClick={handleSimpleSubmit}
@@ -1478,20 +1633,38 @@ export default function MarketingVisitOutcomeModal({
                 </label>
                 <select
                   value={offerEditor.deviceModelId}
-                  onChange={(event) =>
-                    setOfferEditor((current) =>
-                      current == null
-                        ? null
-                        : { ...current, deviceModelId: Number(event.target.value) }
-                    )
-                  }
+                  onChange={(event) => {
+                    const newDeviceModelId = Number(event.target.value);
+                    const model = deviceModels.find((m) => m.id === newDeviceModelId);
+                    const basePrice = model?.basePrice ?? 0;
+                    setOfferEditor((current) => {
+                      if (!current) return current;
+                      return {
+                        ...current,
+                        deviceModelId: newDeviceModelId,
+                        draft: {
+                          ...current.draft,
+                          totalAmount: basePrice > 0 ? String(basePrice) : current.draft.totalAmount,
+                          appliedDeviceDiscountId: '',
+                          discountPercentage: '',
+                        },
+                      };
+                    });
+                  }}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
                 >
-                  {wizardState.deviceOffers.map((group) => (
-                    <option key={group.deviceModelId} value={group.deviceModelId}>
-                      {group.deviceModelName}
-                    </option>
-                  ))}
+                  {isDeviceSoldFlow
+                    ? deviceModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.nameAr || model.name}
+                        </option>
+                      ))
+                    : wizardState.deviceOffers.map((group) => (
+                        <option key={group.deviceModelId} value={group.deviceModelId}>
+                          {group.deviceModelName}
+                        </option>
+                      ))
+                  }
                 </select>
               </div>
 
@@ -1547,72 +1720,61 @@ export default function MarketingVisitOutcomeModal({
                 <>
                   {offerEditor.draft.offerType === 'cash' && (
                     <>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <label className="text-sm font-bold text-slate-700">
-                            قيمة المبلغ كاملاً <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={offerEditor.draft.totalAmount}
-                            onChange={(event) =>
-                              setOfferEditor((current) => (
-                                current == null
-                                  ? null
-                                  : { ...current, draft: { ...current.draft, totalAmount: event.target.value } }
-                              ))
-                            }
-                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                            placeholder="أدخل القيمة"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-sm font-bold text-slate-700">
-                            العملة <span className="text-red-500">*</span>
-                          </label>
-                          <select
-                            value={offerEditor.draft.currency}
-                            onChange={(event) =>
-                              setOfferEditor((current) => (
-                                current == null
-                                  ? null
-                                  : { ...current, draft: { ...current.draft, currency: event.target.value } }
-                              ))
-                            }
-                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                          >
-                            {CURRENCY_OPTIONS.map((currencyOption) => (
-                              <option key={currencyOption} value={currencyOption}>
-                                {currencyOption}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-slate-700">
-                          نسبة الحسم % <span className="text-xs font-normal text-slate-400">(اختياري)</span>
+                          السعر الإفرادي <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="number"
                           min="0"
-                          max="100"
                           step="0.01"
-                          value={offerEditor.draft.discountPercentage}
+                          value={offerEditor.draft.totalAmount}
                           onChange={(event) =>
                             setOfferEditor((current) => (
                               current == null
                                 ? null
-                                : { ...current, draft: { ...current.draft, discountPercentage: event.target.value } }
+                                : { ...current, draft: { ...current.draft, totalAmount: event.target.value } }
                             ))
                           }
                           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                          placeholder="مثال: 10"
+                          placeholder="أدخل القيمة"
                         />
                       </div>
+
+                      {deviceDiscounts.length > 0 && (
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-slate-700">
+                            نسبة الحسم % <span className="text-xs font-normal text-slate-400">(اختياري)</span>
+                          </label>
+                          <select
+                            value={offerEditor.draft.appliedDeviceDiscountId}
+                            onChange={(event) => {
+                              const selectedId = event.target.value;
+                              const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === selectedId);
+                              setOfferEditor((current) => (
+                                current == null
+                                  ? null
+                                  : {
+                                      ...current,
+                                      draft: {
+                                        ...current.draft,
+                                        appliedDeviceDiscountId: selectedId,
+                                        discountPercentage: selectedDiscount ? String(selectedDiscount.percentage) : '',
+                                      },
+                                    }
+                              ));
+                            }}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                          >
+                            <option value="">بدون حسم</option>
+                            {deviceDiscounts.map((d) => (
+                              <option key={d.id} value={String(d.id)}>
+                                {d.label} ({d.percentage}%)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -1621,7 +1783,7 @@ export default function MarketingVisitOutcomeModal({
                       <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-slate-700">
-                            قيمة المبلغ كاملاً <span className="text-red-500">*</span>
+                            السعر الإفرادي <span className="text-red-500">*</span>
                           </label>
                           <input
                             type="number"
@@ -1661,71 +1823,61 @@ export default function MarketingVisitOutcomeModal({
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-slate-700">
-                          عدد الأشهر <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={offerEditor.draft.installmentMonths}
-                          onChange={(event) =>
-                            setOfferEditor((current) => (
-                              current == null
-                                ? null
-                                : { ...current, draft: { ...current.draft, installmentMonths: event.target.value } }
-                            ))
-                          }
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                          placeholder="مثال: 12"
-                        />
-                      </div>
-
                       <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-slate-700">
-                            العملة <span className="text-red-500">*</span>
-                          </label>
-                          <select
-                            value={offerEditor.draft.currency}
-                            onChange={(event) =>
-                              setOfferEditor((current) => (
-                                current == null
-                                  ? null
-                                  : { ...current, draft: { ...current.draft, currency: event.target.value } }
-                              ))
-                            }
-                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                          >
-                            {CURRENCY_OPTIONS.map((currencyOption) => (
-                              <option key={currencyOption} value={currencyOption}>
-                                {currencyOption}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-sm font-bold text-slate-700">
-                            نسبة الحسم % <span className="text-xs font-normal text-slate-400">(اختياري)</span>
+                            عدد الأشهر <span className="text-red-500">*</span>
                           </label>
                           <input
                             type="number"
-                            min="0"
-                            max="100"
-                            step="0.01"
-                            value={offerEditor.draft.discountPercentage}
+                            min="1"
+                            step="1"
+                            value={offerEditor.draft.installmentMonths}
                             onChange={(event) =>
                               setOfferEditor((current) => (
                                 current == null
                                   ? null
-                                  : { ...current, draft: { ...current.draft, discountPercentage: event.target.value } }
+                                  : { ...current, draft: { ...current.draft, installmentMonths: event.target.value } }
                               ))
                             }
                             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                            placeholder="مثال: 10"
+                            placeholder="مثال: 12"
                           />
                         </div>
+                        {deviceDiscounts.length > 0 && (
+                          <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700">
+                              نسبة الحسم % <span className="text-xs font-normal text-slate-400">(اختياري)</span>
+                            </label>
+                            <select
+                              value={offerEditor.draft.appliedDeviceDiscountId}
+                              onChange={(event) => {
+                                const selectedId = event.target.value;
+                                const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === selectedId);
+                                setOfferEditor((current) => (
+                                  current == null
+                                    ? null
+                                    : {
+                                        ...current,
+                                        draft: {
+                                          ...current.draft,
+                                          appliedDeviceDiscountId: selectedId,
+                                          discountPercentage: selectedDiscount ? String(selectedDiscount.percentage) : '',
+                                        },
+                                      }
+                                ));
+                              }}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                            >
+                              <option value="">بدون حسم</option>
+                              {deviceDiscounts.map((d) => (
+                                <option key={d.id} value={String(d.id)}>
+                                  {d.label} ({d.percentage}%)
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
                     </>
                   )}
@@ -1753,7 +1905,7 @@ export default function MarketingVisitOutcomeModal({
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
                 >
                   <option value="">لم يتم التسكير</option>
-                  {activeEmployees.map((employee) => (
+                  {closers.map((employee) => (
                     <option key={employee.id} value={employee.id}>
                       {employee.name}
                     </option>
@@ -1761,26 +1913,28 @@ export default function MarketingVisitOutcomeModal({
                 </select>
               </div>
 
-              {!offerEditor.draft.closedByEmployeeId && (
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">
-                    سبب عدم التسكير <span className="text-red-500">*</span>
-                  </label>
-                  <textarea
-                    value={offerEditor.draft.noClosingReason}
-                    onChange={(event) =>
-                      setOfferEditor((current) => (
-                        current == null
-                          ? null
-                          : { ...current, draft: { ...current.draft, noClosingReason: event.target.value } }
-                      ))
-                    }
-                    rows={3}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                    placeholder="أدخل سبب عدم التسكير"
-                  />
-                </div>
-              )}
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700">سبب عدم التسكير</label>
+                <select
+                  value={offerEditor.draft.noClosingReason}
+                  onChange={(event) =>
+                    setOfferEditor((current) => (
+                      current == null
+                        ? null
+                        : { ...current, draft: { ...current.draft, noClosingReason: event.target.value } }
+                    ))
+                  }
+                  disabled={!!offerEditor.draft.closedByEmployeeId}
+                  className={`w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100 ${
+                    offerEditor.draft.closedByEmployeeId ? 'cursor-not-allowed opacity-50' : ''
+                  }`}
+                >
+                  <option value="">بدون سبب</option>
+                  {noClosingReasons.map((reason) => (
+                    <option key={reason.id} value={reason.value}>{reason.value}</option>
+                  ))}
+                </select>
+              </div>
 
               {offerEditorError && (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -20,7 +20,7 @@ const statusConfig: Record<string, { label: string; style: string }> = {
 const paymentLabels: Record<string, string> = { cash: 'نقدي', installment: 'أقساط' };
 
 const formatDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('ar-SY', { month: 'short', day: 'numeric' });
-const formatPrice = (n: number) => n.toLocaleString('ar-SY') + ' ل.س';
+const formatPrice = (n: number) => String(n) + ' ل.س';
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                           */

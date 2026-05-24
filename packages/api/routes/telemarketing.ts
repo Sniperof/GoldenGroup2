@@ -1427,6 +1427,15 @@ router.post('/appointments', requirePermission('telemarketing.appointments.book'
   // Primary open task is the first in the list (used for the appointment record's open_task_id).
   const primaryOpenTaskId: number | null = rawSelectedTasks[0]?.openTaskId ?? null;
 
+  // Post-sale tasks (device_delivery / device_installation / device_activation) are
+  // created from contracts, not from telemarketing campaigns.  Their task-list items
+  // may carry a contact_target_id from a *previous* closed campaign — which must NOT
+  // block booking.  We skip contact_target lifecycle checks entirely for these task types.
+  const POST_SALE_TASK_TYPES = ['device_delivery', 'device_installation', 'device_activation'];
+  const allTasksArePostSale =
+    rawSelectedTasks.length > 0 &&
+    rawSelectedTasks.every(t => POST_SALE_TASK_TYPES.includes(t.taskType));
+
   const pgClient = await pool.connect();
 
   try {
@@ -1461,7 +1470,7 @@ router.post('/appointments', requirePermission('telemarketing.appointments.book'
     //     or if the contact_target is already closed.
     const LOCKED_TASK_STATUSES = ['scheduled', 'completed', 'closed', 'cancelled'];
 
-    if (contactTargetId != null) {
+    if (contactTargetId != null && !allTasksArePostSale) {
       const ctRow = await pgClient.query<{ status: string }>(
         'SELECT status FROM contact_targets WHERE id = $1',
         [contactTargetId],
@@ -1637,10 +1646,12 @@ router.post('/appointments', requirePermission('telemarketing.appointments.book'
       }
     }
 
-    if (contactTargetId != null) {
+    if (contactTargetId != null && !allTasksArePostSale) {
       // AP-R007 / PC-G004: booking closes the contact target. The reason
       // is preserved via latest_call_outcome (= 'booked_marketing_appointment')
       // written by the upstream call-recording flow.
+      // Post-sale tasks are excluded: their task-list item may reference a legacy
+      // contact_target from a previous campaign; mutating it would corrupt history.
       await updateContactTargetLifecycle(pgClient, contactTargetId, {
         status: 'closed',
         latestAppointmentId: savedAppointment.id,

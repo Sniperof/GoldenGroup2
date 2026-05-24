@@ -106,6 +106,7 @@ export const api = {
   employees: {
     list: () => request<any[]>('/employees'),
     schedulePool: () => request<any[]>('/employees/schedule-pool'),
+    closers: () => request<any[]>('/employees/closers'),
     get: (id: number) => request<any>(`/employees/${id}`),
     create: (data: any) => request<any>('/employees', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -169,6 +170,17 @@ export const api = {
     create: (data: any) => request<any>('/contracts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/contracts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/contracts/${id}`, { method: 'DELETE' }),
+    savePaymentEntries: (contractId: number, entries: any[]) =>
+      request<any>(`/contracts/${contractId}/payment-entries`, { method: 'POST', body: JSON.stringify({ entries }) }),
+    saveInstallments: (contractId: number, installments: any[]) =>
+      request<any>(`/contracts/${contractId}/installments`, { method: 'POST', body: JSON.stringify({ installments }) }),
+    confirmInstallments: (contractId: number) =>
+      request<any>(`/contracts/${contractId}/installments/confirm`, { method: 'POST' }),
+    toggleLineItemInstallation: (contractId: number, itemId: number, isInstalled: boolean) =>
+      request<any>(`/contracts/${contractId}/line-items/${itemId}/installation`, {
+        method: 'PUT',
+        body: JSON.stringify({ isInstalled }),
+      }),
   },
   dues: {
     list: () => request<any[]>('/dues'),
@@ -179,6 +191,11 @@ export const api = {
     create: (data: any) => request<any>('/device-models', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/device-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/device-models/${id}`, { method: 'DELETE' }),
+    getDiscounts: (deviceModelId: number) => request<any[]>(`/device-models/${deviceModelId}/discounts`),
+    getAllDiscounts: (deviceModelId: number) => request<any[]>(`/device-models/${deviceModelId}/discounts/all`),
+    createDiscount: (deviceModelId: number, data: any) => request<any>(`/device-models/${deviceModelId}/discounts`, { method: 'POST', body: JSON.stringify(data) }),
+    updateDiscount: (deviceModelId: number, discountId: number, data: any) => request<any>(`/device-models/${deviceModelId}/discounts/${discountId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteDiscount: (deviceModelId: number, discountId: number) => request<any>(`/device-models/${deviceModelId}/discounts/${discountId}`, { method: 'DELETE' }),
   },
   spareParts: {
     list: () => request<any[]>('/spare-parts'),
@@ -333,6 +350,11 @@ export const api = {
       request<any>(`/marketing-visits/${visitId}/close`, {
         method: 'POST',
         body: JSON.stringify({ closingNotes: closingNotes ?? null }),
+      }),
+    linkOfferContract: (visitId: string, taskId: string, offerId: number, contractId: number) =>
+      request<any>(`/marketing-visits/${visitId}/tasks/${taskId}/offers/${offerId}/contract`, {
+        method: 'PATCH',
+        body: JSON.stringify({ contractId }),
       }),
     updateTeam: (visitId: string, data: {
       supervisorEmployeeId?: number | null;
