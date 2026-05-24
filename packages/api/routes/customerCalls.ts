@@ -26,7 +26,101 @@ function isSuperAdmin(req: any): boolean {
 // ── GET /api/customers/:customerId/calls ─────────────────────────────────────
 // Returns call logs for a customer, newest-first.
 // Optional ?contactId= filter. Branch-scoped users see only their branch.
-
+/**
+ * @swagger
+ * /api/customers/{customerId}/calls:
+ *   get:
+ *     tags: [System → Customer Calls]
+ *     summary: Get call logs for a customer
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: customerId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Customer ID
+ *       - in: query
+ *         name: contactId
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Filter calls by contact ID
+ *     responses:
+ *       200:
+ *         description: List of customer call logs
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                     format: uuid
+ *                   customerId:
+ *                     type: integer
+ *                   contactId:
+ *                     type: string
+ *                   contactNumber:
+ *                     type: string
+ *                   contactLabel:
+ *                     type: string
+ *                   callerId:
+ *                     type: integer
+ *                   callerRole:
+ *                     type: string
+ *                   callDate:
+ *                     type: string
+ *                     format: date-time
+ *                   outcome:
+ *                     type: string
+ *                   sourceType:
+ *                     type: string
+ *                   sourceId:
+ *                     type: string
+ *                   notes:
+ *                     type: string
+ *                   branchId:
+ *                     type: integer
+ *                   actionLog:
+ *                     type: object
+ *                   answeredBy:
+ *                     type: string
+ *                   communicationChannel:
+ *                     type: string
+ *                   status:
+ *                     type: string
+ *                   createdAt:
+ *                     type: string
+ *                     format: date-time
+ *                   callerName:
+ *                     type: string
+ *                   linkedTasks:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         taskId:
+ *                           type: integer
+ *                         taskType:
+ *                           type: string
+ *                         arabicLabel:
+ *                           type: string
+ *       400:
+ *         description: Invalid customer ID
+ *       404:
+ *         description: Customer not found
+ *       500:
+ *         description: Server error
+ */
 router.get(
   '/:customerId/calls',
   requirePermission('clients.view'),
@@ -117,7 +211,45 @@ router.get(
 
 // ── GET /api/customers/:customerId/calls/stats ───────────────────────────────
 // Outcome counts for a customer.
-
+/**
+ * @swagger
+ * /api/customers/{customerId}/calls/stats:
+ *   get:
+ *     tags: [System → Customer Calls]
+ *     summary: Get outcome statistics for a customer's calls
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: customerId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Customer ID
+ *     responses:
+ *       200:
+ *         description: Call log statistics by outcome
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   outcome:
+ *                     type: string
+ *                   count:
+ *                     type: integer
+ *       400:
+ *         description: Invalid customer ID
+ *       500:
+ *         description: Server error
+ */
 router.get(
   '/:customerId/calls/stats',
   requirePermission('clients.view'),
@@ -144,7 +276,122 @@ router.get(
 
 // ── POST /api/customers/:customerId/calls ────────────────────────────────────
 // Records a new call log entry.
-
+/**
+ * @swagger
+ * /api/customers/{customerId}/calls:
+ *   post:
+ *     tags: [System → Customer Calls]
+ *     summary: Record a new call log entry for a customer
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: customerId
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Customer ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - outcome
+ *             properties:
+ *               contactId:
+ *                 type: string
+ *               contactNumber:
+ *                 type: string
+ *               contactLabel:
+ *                 type: string
+ *               outcome:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *               callDate:
+ *                 type: string
+ *                 format: date-time
+ *               sourceType:
+ *                 type: string
+ *                 default: direct_call
+ *               sourceId:
+ *                 type: string
+ *               taskId:
+ *                 type: integer
+ *               taskListId:
+ *                 type: integer
+ *               taskListItemId:
+ *                 type: string
+ *               actionLog:
+ *                 type: object
+ *               answeredBy:
+ *                 type: string
+ *               communicationChannel:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *                 default: completed
+ *     responses:
+ *       201:
+ *         description: Call log recorded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                   format: uuid
+ *                 customerId:
+ *                   type: integer
+ *                 contactId:
+ *                   type: string
+ *                 contactNumber:
+ *                   type: string
+ *                 contactLabel:
+ *                   type: string
+ *                 callerId:
+ *                   type: integer
+ *                 callerRole:
+ *                   type: string
+ *                 callDate:
+ *                   type: string
+ *                   format: date-time
+ *                 outcome:
+ *                   type: string
+ *                 sourceType:
+ *                   type: string
+ *                 sourceId:
+ *                   type: string
+ *                 notes:
+ *                   type: string
+ *                 branchId:
+ *                   type: integer
+ *                 actionLog:
+ *                   type: object
+ *                 answeredBy:
+ *                   type: string
+ *                 communicationChannel:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                 createdAt:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: Invalid input or missing context
+ *       404:
+ *         description: Customer not found
+ *       500:
+ *         description: Server error
+ */
 router.post(
   '/:customerId/calls',
   // TODO: add requirePermission('customers.call') once that permission is defined
@@ -321,7 +568,96 @@ router.post(
 
 // ── PATCH /api/calls/:callId ─────────────────────────────────────────────────
 // Updates a pending log entry (e.g., after reply received to a text message).
-
+/**
+ * @swagger
+ * /api/customers/calls/{callId}:
+ *   patch:
+ *     tags: [System → Customer Calls]
+ *     summary: Update an existing call log entry by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: callId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         required: true
+ *         description: Call log ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               outcome:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *               answeredBy:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Updated call log
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                   format: uuid
+ *                 customerId:
+ *                   type: integer
+ *                 contactId:
+ *                   type: string
+ *                 contactNumber:
+ *                   type: string
+ *                 contactLabel:
+ *                   type: string
+ *                 callerId:
+ *                   type: integer
+ *                 callerRole:
+ *                   type: string
+ *                 callDate:
+ *                   type: string
+ *                   format: date-time
+ *                 outcome:
+ *                   type: string
+ *                 sourceType:
+ *                   type: string
+ *                 sourceId:
+ *                   type: string
+ *                 notes:
+ *                   type: string
+ *                 branchId:
+ *                   type: integer
+ *                 actionLog:
+ *                   type: object
+ *                 answeredBy:
+ *                   type: string
+ *                 communicationChannel:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                 createdAt:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: Invalid request parameters
+ *       404:
+ *         description: Call log not found
+ *       500:
+ *         description: Server error
+ */
 router.patch(
   '/calls/:callId',
   requirePermission('clients.edit', 'telemarketing.calls.create'),
@@ -395,7 +731,110 @@ router.patch(
 );
 
 // ── GET /api/customers/:id/purchase-history ───────────────────────────────────
-
+/**
+ * @swagger
+ * /api/customers/{id}/purchase-history:
+ *   get:
+ *     tags: [System → Customer Calls]
+ *     summary: Get purchase history for a customer
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Customer ID
+ *     responses:
+ *       200:
+ *         description: Customer purchase history records and summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 customerId:
+ *                   type: integer
+ *                 records:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       customerId:
+ *                         type: integer
+ *                       branchId:
+ *                         type: integer
+ *                       purchaseDate:
+ *                         type: string
+ *                       sourceType:
+ *                         type: string
+ *                       sourceId:
+ *                         type: string
+ *                       sourceLabel:
+ *                         type: string
+ *                       itemType:
+ *                         type: string
+ *                       itemId:
+ *                         type: integer
+ *                       itemName:
+ *                         type: string
+ *                       itemCode:
+ *                         type: string
+ *                       quantity:
+ *                         type: integer
+ *                       unitPrice:
+ *                         type: number
+ *                       totalPrice:
+ *                         type: number
+ *                       currency:
+ *                         type: string
+ *                       paymentType:
+ *                         type: string
+ *                       isInstalled:
+ *                         type: boolean
+ *                       oldPartRemoved:
+ *                         type: boolean
+ *                       warrantyContext:
+ *                         type: string
+ *                       warrantyUntil:
+ *                         type: string
+ *                       deviceContext:
+ *                         type: object
+ *                         properties:
+ *                           contractId:
+ *                             type: integer
+ *                           deviceModelName:
+ *                             type: string
+ *                       discountInfo:
+ *                         type: object
+ *                       notes:
+ *                         type: string
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     totalPurchases:
+ *                       type: integer
+ *                     totalDevices:
+ *                       type: integer
+ *                     totalParts:
+ *                       type: integer
+ *                     totalSpent:
+ *                       type: number
+ *       400:
+ *         description: Invalid customer ID
+ *       404:
+ *         description: Customer not found
+ *       500:
+ *         description: Server error
+ */
 router.get(
   '/:id/purchase-history',
   requirePermission('clients.view'),

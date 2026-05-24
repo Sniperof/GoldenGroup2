@@ -10,9 +10,49 @@ const LEVEL_TYPE: Record<number, string> = {
   4: 'neighborhood',
 };
 
-// GET /api/public/areas?parent_id=
-// No parent_id → top-level areas (governorates, level 1)
-// parent_id → children of that area
+/**
+ * @swagger
+ * /api/public/areas:
+ *   get:
+ *     tags: [Public → Areas]
+ *     summary: Retrieve geography areas publicly
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context ID
+ *       - in: query
+ *         name: parent_id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Parent Area ID (omitting returns level 1 governorates)
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/', async (req, res) => {
   try {
     const { parent_id } = req.query;

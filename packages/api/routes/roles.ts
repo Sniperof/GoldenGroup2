@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db.js';
 import { requirePermission, requireSuperAdmin, clearPermissionCache } from '../middleware/permission.js';
@@ -22,6 +22,29 @@ const VALID_TEAM_SLOT_TYPES = new Set(['SUPERVISOR', 'TECHNICIAN', 'TRAINEE', 'T
 //   includeLegacy=true -> include legacy/dev template roles in admin inventory.
 // Admin role management is template-only. Branch access is assigned to users,
 // not encoded as branch-specific role clones.
+/**
+ * @swagger
+ * /api/admin/roles:
+ *   get:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: List role templates
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: includeLegacy
+ *         schema:
+ *           type: string
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/roles', requirePermission('admin.roles.view'), async (req, res) => {
   try {
     const includeLegacy = req.query.includeLegacy === 'true';
@@ -75,6 +98,31 @@ function canWriteRole(context: { isSuperAdmin: boolean; actingBranchId: number |
 }
 
 // ── GET /roles/:id — Role detail with permissions ───────────────────────────
+/**
+ * @swagger
+ * /api/admin/roles/{id}:
+ *   get:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Get role details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ *       404:
+ *         description: Not Found
+ */
 router.get('/roles/:id', requirePermission('admin.roles.view'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -102,6 +150,29 @@ router.get('/roles/:id', requirePermission('admin.roles.view'), async (req, res)
   }
 });
 
+/**
+ * @swagger
+ * /api/admin/roles/{id}/permissions:
+ *   get:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Get permissions granted to a role
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/roles/:id/permissions', requirePermission('admin.roles.view'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -130,6 +201,41 @@ router.get('/roles/:id/permissions', requirePermission('admin.roles.view'), asyn
 // ── POST /roles — Create role ───────────────────────────────────────────────
 // New product-managed roles are always templates. Branch access belongs to
 // user_branch_assignments, not role rows.
+/**
+ * @swagger
+ * /api/admin/roles:
+ *   post:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Create a custom role template
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, displayName]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               displayName:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               teamSlotType:
+ *                 type: string
+ *                 enum: [SUPERVISOR, TECHNICIAN, TRAINEE, TELEMARKETER]
+ *     responses:
+ *       201:
+ *         description: Created
+ */
 router.post('/roles', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
     const { name, displayName, description, teamSlotType } = req.body;
@@ -157,6 +263,45 @@ router.post('/roles', requirePermission('admin.roles.manage'), async (req, res) 
 });
 
 // ── PUT /roles/:id — Update role ────────────────────────────────────────────
+/**
+ * @swagger
+ * /api/admin/roles/{id}:
+ *   put:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Update role details
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               displayName:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               isActive:
+ *                 type: boolean
+ *               teamSlotType:
+ *                 type: string
+ *                 enum: [SUPERVISOR, TECHNICIAN, TRAINEE, TELEMARKETER]
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.put('/roles/:id', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -201,6 +346,29 @@ router.put('/roles/:id', requirePermission('admin.roles.manage'), async (req, re
 });
 
 // ── DELETE /roles/:id — Delete role ─────────────────────────────────────────
+/**
+ * @swagger
+ * /api/admin/roles/{id}:
+ *   delete:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Delete custom role template
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.delete('/roles/:id', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -234,6 +402,51 @@ router.delete('/roles/:id', requirePermission('admin.roles.manage'), async (req,
 });
 
 // ── PUT /roles/:id/permissions — Assign permissions to role ─────────────────
+/**
+ * @swagger
+ * /api/admin/roles/{id}/permissions:
+ *   put:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Update permissions granted to a role
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               permissionIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               grants:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [permissionId, scopeType]
+ *                   properties:
+ *                     permissionId:
+ *                       type: integer
+ *                     scopeType:
+ *                       type: string
+ *                       enum: [GLOBAL, BRANCH, ASSIGNED]
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -347,6 +560,29 @@ router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), as
 
 // ── POST /role-templates/:id/propagate ──────────────────────────────────────
 // Deprecated: roles are centrally managed and no longer propagated to branch clones.
+/**
+ * @swagger
+ * /api/admin/role-templates/{id}/propagate:
+ *   post:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Propagate template role changes (Deprecated)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       410:
+ *         description: Deprecated
+ */
 router.post('/role-templates/:id/propagate', requireSuperAdmin, async (req, res) => {
   void req;
   return res.status(410).json({
@@ -355,6 +591,24 @@ router.post('/role-templates/:id/propagate', requireSuperAdmin, async (req, res)
 });
 
 // ── GET /permissions — List all permissions (global catalog) ────────────────
+/**
+ * @swagger
+ * /api/admin/permissions:
+ *   get:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: List all permissions in global catalog
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/permissions', requirePermission('admin.roles.view'), async (_req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM permissions ORDER BY display_order');
@@ -366,6 +620,45 @@ router.get('/permissions', requirePermission('admin.roles.view'), async (_req, r
 });
 
 // ── PUT /permissions/scopes — Update allowed scopes for permissions (super admin only)
+/**
+ * @swagger
+ * /api/admin/permissions/scopes:
+ *   put:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Update allowed scope types for permissions
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [updates]
+ *             properties:
+ *               updates:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [id, allowedScopes]
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     allowedScopes:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                         enum: [GLOBAL, BRANCH, ASSIGNED]
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.put('/permissions/scopes', requireSuperAdmin, async (req, res) => {
   try {
     const { updates } = req.body;
@@ -421,6 +714,44 @@ router.put('/permissions/scopes', requireSuperAdmin, async (req, res) => {
 // Returns active HR users whose role has the 'clients.can_be_assigned' grant.
 // Branch-scoped: non-super-admins see only users from their own branch.
 // Requires clients.view_list so any user who can see clients can fetch this list.
+/**
+ * @swagger
+ * /api/admin/hr-users/assignable:
+ *   get:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: List HR users assignable to clients
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/hr-users/assignable', requirePermission('clients.view_list'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -463,6 +794,44 @@ router.get('/hr-users/assignable', requirePermission('clients.view_list'), async
 
 // ── GET /hr-users — List HR users ───────────────────────────────────────────
 // Branch admin sees users of their branch; super admin sees all.
+/**
+ * @swagger
+ * /api/admin/hr-users:
+ *   get:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: List HR users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/hr-users', requirePermission('admin.roles.view'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -497,6 +866,44 @@ router.get('/hr-users', requirePermission('admin.roles.view'), async (req, res) 
 // ── POST /hr-users — Create HR user ────────────────────────────────────────
 // Branch admin: new user is always scoped to the admin's branch.
 // Super admin: must specify a target branchId (or omit to mint another super admin).
+/**
+ * @swagger
+ * /api/admin/hr-users:
+ *   post:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Create an HR user
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, username, password]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               username:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               roleId:
+ *                 type: integer
+ *               branchId:
+ *                 type: integer
+ *               isSuperAdmin:
+ *                 type: boolean
+ *     responses:
+ *       201:
+ *         description: Created
+ */
 router.post('/hr-users', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -559,6 +966,46 @@ router.post('/hr-users', requirePermission('admin.roles.manage'), async (req, re
 });
 
 // ── PUT /hr-users/:id — Update HR user ──────────────────────────────────────
+/**
+ * @swagger
+ * /api/admin/hr-users/{id}:
+ *   put:
+ *     tags: [Admin → Roles & Permissions]
+ *     summary: Update an HR user details
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               username:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               roleId:
+ *                 type: integer
+ *               isActive:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.put('/hr-users/:id', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;

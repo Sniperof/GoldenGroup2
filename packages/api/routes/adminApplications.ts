@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import pool from '../db.js';
 import { insertAuditLog } from '../utils/auditLog.js';
 import {
@@ -78,6 +78,79 @@ function deriveDecisionFromLegacy(legacyStatus: string): string | null {
 }
 
 // GET /api/admin/applications
+/**
+ * @swagger
+ * /api/admin/applications:
+ *   get:
+ *     tags: [Admin → Applications]
+ *     summary: List job applications
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: vacancyId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: branch
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: gender
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: stage
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: applicationSource
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: isArchived
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/', requirePermission('jobs.applications.view_list'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -171,6 +244,87 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
 });
 
 // POST /api/admin/applications — manual admin entry (Internal / External Platforms)
+/**
+ * @swagger
+ * /api/admin/applications:
+ *   post:
+ *     tags: [Admin → Applications]
+ *     summary: Create job application (Internal/External entry)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [jobVacancyId, submissionType, applicationSource, applicant]
+ *             properties:
+ *               jobVacancyId:
+ *                 type: integer
+ *               submissionType:
+ *                 type: string
+ *                 enum: [Apply, Refer a Candidate]
+ *               applicationSource:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *               enteredByName:
+ *                 type: string
+ *               applicant:
+ *                 type: object
+ *                 required: [firstName, lastName, mobileNumber, dob, gender, maritalStatus, governorate, detailedAddress, hasCar]
+ *                 properties:
+ *                   firstName:
+ *                     type: string
+ *                   lastName:
+ *                     type: string
+ *                   dob:
+ *                     type: string
+ *                   gender:
+ *                     type: string
+ *                   maritalStatus:
+ *                     type: string
+ *                   email:
+ *                     type: string
+ *                   mobileNumber:
+ *                     type: string
+ *                   secondaryMobile:
+ *                     type: string
+ *                   governorate:
+ *                     type: string
+ *                   cityOrArea:
+ *                     type: string
+ *                   subArea:
+ *                     type: string
+ *                   neighborhood:
+ *                     type: string
+ *                   detailedAddress:
+ *                     type: string
+ *                   hasCar:
+ *                     type: boolean
+ *               referrer:
+ *                 type: object
+ *                 properties:
+ *                   type:
+ *                     type: string
+ *                     enum: [Client, Employee]
+ *                   fullName:
+ *                     type: string
+ *                   lastName:
+ *                     type: string
+ *                   mobileNumber:
+ *                     type: string
+ *     responses:
+ *       201:
+ *         description: Created
+ */
 router.post('/', requirePermission('jobs.applications.create'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -363,6 +517,31 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
 });
 
 // GET /api/admin/applications/:id
+/**
+ * @swagger
+ * /api/admin/applications/{id}:
+ *   get:
+ *     tags: [Admin → Applications]
+ *     summary: Get job application details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ *       404:
+ *         description: Not Found
+ */
 router.get('/:id', requirePermission('jobs.applications.view_detail'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -491,6 +670,43 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
 });
 
 // PATCH /api/admin/applications/:id/stage
+/**
+ * @swagger
+ * /api/admin/applications/{id}/stage:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Transition application to a new stage
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [stage, status]
+ *             properties:
+ *               stage:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *               internalNotes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/stage', requirePermission('jobs.applications.change_stage'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -602,6 +818,29 @@ router.patch('/:id/stage', requirePermission('jobs.applications.change_stage'), 
 });
 
 // PATCH /api/admin/applications/:id/hire — Final Hired (no override allowed)
+/**
+ * @swagger
+ * /api/admin/applications/{id}/hire:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Finalize hiring for an application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -709,6 +948,29 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
 });
 
 // PATCH /api/admin/applications/:id/decision — New decision endpoint (stage_status/decision model)
+/**
+ * @swagger
+ * /api/admin/applications/{id}/employee:
+ *   post:
+ *     tags: [Admin → Applications]
+ *     summary: Mint an employee profile for a hired candidate
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       201:
+ *         description: Created
+ */
 router.post('/:id/employee', requirePermission('employees.create'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -906,6 +1168,29 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
   }
 });
 
+/**
+ * @swagger
+ * /api/admin/applications/{id}/employee-legacy-disabled:
+ *   post:
+ *     tags: [Admin → Applications]
+ *     summary: Legacy disabled employee endpoint
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.post('/:id/employee-legacy-disabled', requirePermission('employees.create'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -1028,6 +1313,43 @@ router.post('/:id/employee-legacy-disabled', requirePermission('employees.create
   }
 });
 
+/**
+ * @swagger
+ * /api/admin/applications/{id}/decision:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Record decision on job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [stage, decision]
+ *             properties:
+ *               stage:
+ *                 type: string
+ *               decision:
+ *                 type: string
+ *               internalNotes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/decision', requirePermission('jobs.applications.record_decision'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -1130,6 +1452,39 @@ router.patch('/:id/decision', requirePermission('jobs.applications.record_decisi
 });
 
 // PATCH /api/admin/applications/:id/escalate
+/**
+ * @swagger
+ * /api/admin/applications/{id}/escalate:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Escalate a job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [notes]
+ *             properties:
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -1180,6 +1535,42 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
 });
 
 // PATCH /api/admin/applications/:id/resolve-escalation
+/**
+ * @swagger
+ * /api/admin/applications/{id}/resolve-escalation:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Resolve escalation on a job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [notes, actionType]
+ *             properties:
+ *               notes:
+ *                 type: string
+ *               actionType:
+ *                 type: string
+ *                 enum: [resolve, reject, re_evaluate]
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/resolve-escalation', requirePermission('jobs.applications.resolve_escalation'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -1222,6 +1613,39 @@ router.patch('/:id/resolve-escalation', requirePermission('jobs.applications.res
 });
 
 // PATCH /api/admin/applications/:id/notes
+/**
+ * @swagger
+ * /api/admin/applications/{id}/notes:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Edit internal notes on a job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [internalNotes]
+ *             properties:
+ *               internalNotes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/notes', requirePermission('jobs.applications.edit_notes'), async (req, res) => {
   try {
     const appId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -1242,6 +1666,29 @@ router.patch('/:id/notes', requirePermission('jobs.applications.edit_notes'), as
 });
 
 // PATCH /api/admin/applications/:id/archive
+/**
+ * @swagger
+ * /api/admin/applications/{id}/archive:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Archive a job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/archive', requirePermission('jobs.applications.archive'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -1305,6 +1752,29 @@ router.patch('/:id/archive', requirePermission('jobs.applications.archive'), asy
 });
 
 // GET /api/admin/applications/:id/audit-logs
+/**
+ * @swagger
+ * /api/admin/applications/{id}/audit-logs:
+ *   get:
+ *     tags: [Admin → Applications]
+ *     summary: View audit logs for an application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/:id/audit-logs', requirePermission('jobs.applications.view_audit_logs'), async (req, res) => {
   try {
     const { rows } = await pool.query(

@@ -59,6 +59,65 @@ async function assertDeptBranchAccess(
 // ── Routes ─────────────────────────────────────────────────────────────────────
 
 // GET /api/departments?branchId=X
+/**
+ * @swagger
+ * /api/departments:
+ *   get:
+ *     tags: [Admin → Departments]
+ *     summary: List departments
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Filter departments by branch ID
+ *     responses:
+ *       200:
+ *         description: A list of departments
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   name:
+ *                     type: string
+ *                   branchId:
+ *                     type: integer
+ *                   departmentTypeId:
+ *                     type: integer
+ *                   departmentTypeName:
+ *                     type: string
+ *                   departmentTypeMetadata:
+ *                     type: object
+ *                   deviceModelIds:
+ *                     type: array
+ *                     items:
+ *                       type: integer
+ *                   notes:
+ *                     type: string
+ *                   createdAt:
+ *                     type: string
+ *                     format: date-time
+ *                   updatedAt:
+ *                     type: string
+ *                     format: date-time
+ *                   employeeCount:
+ *                     type: integer
+ *       500:
+ *         description: Server error
+ */
 router.get('/', requirePermission('departments.view_list'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -89,6 +148,65 @@ router.get('/', requirePermission('departments.view_list'), async (req, res) => 
 });
 
 // GET /api/departments/:id
+/**
+ * @swagger
+ * /api/departments/{id}:
+ *   get:
+ *     tags: [Admin → Departments]
+ *     summary: Get a department by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Department ID
+ *     responses:
+ *       200:
+ *         description: Department details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 name:
+ *                   type: string
+ *                 branchId:
+ *                   type: integer
+ *                 departmentTypeId:
+ *                   type: integer
+ *                 departmentTypeName:
+ *                   type: string
+ *                 departmentTypeMetadata:
+ *                   type: object
+ *                 deviceModelIds:
+ *                   type: array
+ *                   items:
+ *                     type: integer
+ *                 notes:
+ *                   type: string
+ *                 createdAt:
+ *                   type: string
+ *                   format: date-time
+ *                 updatedAt:
+ *                   type: string
+ *                   format: date-time
+ *                 employeeCount:
+ *                   type: integer
+ *       404:
+ *         description: Department not found
+ *       500:
+ *         description: Server error
+ */
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(`${SELECT_QUERY} WHERE d.id = $1`, [req.params.id]);
@@ -102,6 +220,80 @@ router.get('/:id', requireAuth, async (req, res) => {
 });
 
 // POST /api/departments
+/**
+ * @swagger
+ * /api/departments:
+ *   post:
+ *     tags: [Admin → Departments]
+ *     summary: Create a department
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *               departmentTypeId:
+ *                 type: integer
+ *               deviceModelIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               notes:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: Department created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 name:
+ *                   type: string
+ *                 branchId:
+ *                   type: integer
+ *                 departmentTypeId:
+ *                   type: integer
+ *                 departmentTypeName:
+ *                   type: string
+ *                 departmentTypeMetadata:
+ *                   type: object
+ *                 deviceModelIds:
+ *                   type: array
+ *                   items:
+ *                     type: integer
+ *                 notes:
+ *                   type: string
+ *                 createdAt:
+ *                   type: string
+ *                   format: date-time
+ *                 updatedAt:
+ *                   type: string
+ *                   format: date-time
+ *                 employeeCount:
+ *                   type: integer
+ *       400:
+ *         description: Missing department name
+ *       500:
+ *         description: Server error
+ */
 router.post('/', requirePermission('employees.create'), async (req, res) => {
   try {
     const { name, departmentTypeId, deviceModelIds, notes, branchId: bodyBranchId } = req.body;
@@ -134,6 +326,86 @@ router.post('/', requirePermission('employees.create'), async (req, res) => {
 });
 
 // PUT /api/departments/:id
+/**
+ * @swagger
+ * /api/departments/{id}:
+ *   put:
+ *     tags: [Admin → Departments]
+ *     summary: Update a department by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Department ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *               departmentTypeId:
+ *                 type: integer
+ *               deviceModelIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Department updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 name:
+ *                   type: string
+ *                 branchId:
+ *                   type: integer
+ *                 departmentTypeId:
+ *                   type: integer
+ *                 departmentTypeName:
+ *                   type: string
+ *                 departmentTypeMetadata:
+ *                   type: object
+ *                 deviceModelIds:
+ *                   type: array
+ *                   items:
+ *                     type: integer
+ *                 notes:
+ *                   type: string
+ *                 createdAt:
+ *                   type: string
+ *                   format: date-time
+ *                 updatedAt:
+ *                   type: string
+ *                   format: date-time
+ *                 employeeCount:
+ *                   type: integer
+ *       400:
+ *         description: Missing department name
+ *       404:
+ *         description: Department not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
   try {
     const deptId = Number(req.params.id);
@@ -167,6 +439,41 @@ router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
 });
 
 // DELETE /api/departments/:id
+/**
+ * @swagger
+ * /api/departments/{id}:
+ *   delete:
+ *     tags: [Admin → Departments]
+ *     summary: Delete a department by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Department ID
+ *     responses:
+ *       200:
+ *         description: Department deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       404:
+ *         description: Department not found
+ *       500:
+ *         description: Server error
+ */
 router.delete('/:id', requirePermission('employees.delete'), async (req, res) => {
   try {
     const deptId = Number(req.params.id);

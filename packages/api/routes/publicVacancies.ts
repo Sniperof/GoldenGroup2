@@ -3,7 +3,43 @@ import pool from '../db.js';
 
 const router = Router();
 
-// GET /api/public/vacancies — only open vacancies with all fields
+/**
+ * @swagger
+ * /api/public/vacancies:
+ *   get:
+ *     tags: [Public → Vacancies]
+ *     summary: List open vacancies for public users
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context ID
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/', async (_req, res) => {
   try {
     const { rows } = await pool.query(
@@ -33,7 +69,29 @@ router.get('/', async (_req, res) => {
   }
 });
 
-// GET /api/public/vacancies/:id — single open vacancy within its active date range
+/**
+ * @swagger
+ * /api/public/vacancies/{id}:
+ *   get:
+ *     tags: [Public → Vacancies]
+ *     summary: Get a single open public vacancy by ID
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ *       404:
+ *         description: Not Found
+ */
 router.get('/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(

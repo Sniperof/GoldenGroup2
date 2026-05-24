@@ -71,7 +71,117 @@ async function fetchVacancyById(client: any, vacancyId: string | number) {
   return rows[0] ?? null;
 }
 
-// GET /api/admin/vacancies
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Vacancy:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         title:
+ *           type: string
+ *         branch:
+ *           type: string
+ *         branchId:
+ *           type: integer
+ *         departmentId:
+ *           type: integer
+ *         departmentName:
+ *           type: string
+ *         governorate:
+ *           type: string
+ *         cityOrArea:
+ *           type: string
+ *         subArea:
+ *           type: string
+ *         neighborhood:
+ *           type: string
+ *         detailedAddress:
+ *           type: string
+ *         workType:
+ *           type: string
+ *         requiredGender:
+ *           type: string
+ *         requiredAgeMin:
+ *           type: integer
+ *         requiredAgeMax:
+ *           type: integer
+ *         contactMethods:
+ *           type: array
+ *           items:
+ *             type: string
+ *         requiredCertificate:
+ *           type: string
+ *         requiredMajor:
+ *           type: string
+ *         requiredExperienceYears:
+ *           type: integer
+ *         requiredSkills:
+ *           type: string
+ *         responsibilities:
+ *           type: string
+ *         drivingLicenseRequired:
+ *           type: boolean
+ *         hasCarRequired:
+ *           type: boolean
+ *         vacancyCount:
+ *           type: integer
+ *         startDate:
+ *           type: string
+ *         endDate:
+ *           type: string
+ *         status:
+ *           type: string
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         updatedAt:
+ *           type: string
+ *           format: date-time
+ */
+
+/**
+ * @swagger
+ * /api/admin/vacancies:
+ *   get:
+ *     tags: [HR → Vacancies]
+ *     summary: List job vacancies
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context ID
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: branch
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Vacancy'
+ */
 router.get('/', requirePermission('jobs.vacancies.view_list'), async (req, res) => {
   try {
     const authContext = req.authContext!;
@@ -111,7 +221,31 @@ router.get('/', requirePermission('jobs.vacancies.view_list'), async (req, res) 
   }
 });
 
-// GET /api/admin/vacancies/:id
+/**
+ * @swagger
+ * /api/admin/vacancies/{id}:
+ *   get:
+ *     tags: [HR → Vacancies]
+ *     summary: Get a job vacancy by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ *       404:
+ *         description: Not Found
+ */
 router.get('/:id', requirePermission('jobs.vacancies.view_detail'), async (req, res) => {
   try {
     const vacancyId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -143,7 +277,82 @@ router.get('/:id', requirePermission('jobs.vacancies.view_detail'), async (req, 
   }
 });
 
-// POST /api/admin/vacancies
+/**
+ * @swagger
+ * /api/admin/vacancies:
+ *   post:
+ *     tags: [HR → Vacancies]
+ *     summary: Create a job vacancy
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [title, vacancyCount, startDate, endDate]
+ *             properties:
+ *               title:
+ *                 type: string
+ *               branch:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *               departmentId:
+ *                 type: integer
+ *               governorate:
+ *                 type: string
+ *               cityOrArea:
+ *                 type: string
+ *               subArea:
+ *                 type: string
+ *               neighborhood:
+ *                 type: string
+ *               detailedAddress:
+ *                 type: string
+ *               workType:
+ *                 type: string
+ *               requiredGender:
+ *                 type: string
+ *               requiredAgeMin:
+ *                 type: integer
+ *               requiredAgeMax:
+ *                 type: integer
+ *               contactMethods:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               requiredCertificate:
+ *                 type: string
+ *               requiredMajor:
+ *                 type: string
+ *               requiredExperienceYears:
+ *                 type: integer
+ *               requiredSkills:
+ *                 type: string
+ *               responsibilities:
+ *                 type: string
+ *               drivingLicenseRequired:
+ *                 type: boolean
+ *               hasCarRequired:
+ *                 type: boolean
+ *               vacancyCount:
+ *                 type: integer
+ *               startDate:
+ *                 type: string
+ *               endDate:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.post('/', requirePermission('jobs.vacancies.create'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -215,7 +424,46 @@ router.post('/', requirePermission('jobs.vacancies.create'), async (req, res) =>
   }
 });
 
-// PUT /api/admin/vacancies/:id
+/**
+ * @swagger
+ * /api/admin/vacancies/{id}:
+ *   put:
+ *     tags: [HR → Vacancies]
+ *     summary: Update a job vacancy
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               vacancyCount:
+ *                 type: integer
+ *               startDate:
+ *                 type: string
+ *               endDate:
+ *                 type: string
+ *               departmentId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -332,7 +580,40 @@ router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) =>
   }
 });
 
-// PATCH /api/admin/vacancies/:id/status
+/**
+ * @swagger
+ * /api/admin/vacancies/{id}/status:
+ *   patch:
+ *     tags: [HR → Vacancies]
+ *     summary: Update a vacancy status
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [Open, Closed, Archived]
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/status', requirePermission('jobs.vacancies.change_status'), async (req, res) => {
   const client = await pool.connect();
   try {

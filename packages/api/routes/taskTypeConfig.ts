@@ -23,6 +23,69 @@ const SELECT_COLS = `
 `;
 
 // GET /api/admin/task-types — list all task type configs
+/**
+ * @swagger
+ * /api/admin/task-types:
+ *   get:
+ *     tags: [Admin → Task Type Config]
+ *     summary: List all task type configurations
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: activeOnly
+ *         schema:
+ *           type: boolean
+ *         required: false
+ *         description: Filter active-only configurations
+ *     responses:
+ *       200:
+ *         description: List of task type configs
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   taskType:
+ *                     type: string
+ *                   taskFamily:
+ *                     type: string
+ *                   arabicLabel:
+ *                     type: string
+ *                   schedulingPattern:
+ *                     type: string
+ *                   windowBasis:
+ *                     type: string
+ *                   planningWindowDays:
+ *                     type: integer
+ *                   contractRequired:
+ *                     type: boolean
+ *                   allowMultiple:
+ *                     type: boolean
+ *                   hasDueDate:
+ *                     type: boolean
+ *                   displayOrder:
+ *                     type: integer
+ *                   isActive:
+ *                     type: boolean
+ *                   locationBasis:
+ *                     type: string
+ *                   createdAt:
+ *                     type: string
+ *                     format: date-time
+ *                   updatedAt:
+ *                     type: string
+ *                     format: date-time
+ *       500:
+ *         description: Server error
+ */
 // Open to any authenticated user (the planning engine and UI dropdowns both need it).
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -42,6 +105,86 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // PATCH /api/admin/task-types/:taskType — update mutable fields only
+/**
+ * @swagger
+ * /api/admin/task-types/{taskType}:
+ *   patch:
+ *     tags: [Admin → Task Type Config]
+ *     summary: Update task type config mutable fields
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: taskType
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Task type identifier (e.g. installation, filter_change, etc.)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               planningWindowDays:
+ *                 type: integer
+ *                 description: Non-negative integer (max 3650)
+ *               isActive:
+ *                 type: boolean
+ *               locationBasis:
+ *                 type: string
+ *                 enum: [client, contract]
+ *     responses:
+ *       200:
+ *         description: Updated task type configuration
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 taskType:
+ *                   type: string
+ *                 taskFamily:
+ *                   type: string
+ *                 arabicLabel:
+ *                   type: string
+ *                 schedulingPattern:
+ *                   type: string
+ *                 windowBasis:
+ *                   type: string
+ *                 planningWindowDays:
+ *                   type: integer
+ *                 contractRequired:
+ *                   type: boolean
+ *                 allowMultiple:
+ *                   type: boolean
+ *                 hasDueDate:
+ *                   type: boolean
+ *                 displayOrder:
+ *                   type: integer
+ *                 isActive:
+ *                   type: boolean
+ *                 locationBasis:
+ *                   type: string
+ *                 createdAt:
+ *                   type: string
+ *                   format: date-time
+ *                 updatedAt:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: Invalid parameters or business logic rules violated
+ *       404:
+ *         description: Task type config not found
+ *       500:
+ *         description: Server error
+ */
 router.patch('/:taskType', requirePermission('admin.task_types.manage'), async (req, res) => {
   try {
     const { taskType } = req.params;
