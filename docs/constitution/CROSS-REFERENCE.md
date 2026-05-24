@@ -282,6 +282,22 @@ erDiagram
 | `device_models` | `category` | `Residential`, `Industrial`, `Commercial` | ✅ نعم |
 | `spare_parts` | `maintenance_type` | `Periodic`, `Emergency`, `Accessory` | ✅ نعم |
 
+### 3.4 Allowed Scopes Configuration Patterns (أنماط قيود النطاقات المسموحة)
+
+يتحكم الجدول/الحقل `permissions.allowed_scopes` بالحدود الجغرافية والتشغيلية المسموح إسنادها لأي دور أمني بالنظام عبر الـ tRPC/Express APIs:
+
+- **وظائف إدارية محدودة (`GLOBAL` فقط):** مثل `admin.roles.view`, `admin.roles.manage` لمنع مديري الفروع من اللعب بالصلاحيات أمنياً خارج HQ.
+- **عمليات تشغيلية مشتركة (`GLOBAL` و `BRANCH`):** مثل `clients.view`, `clients.view_list` لمنع تخصيص نطاق شخصي للعملاء كلياً بسبب قيود الـ DB الميكانيكية (GAP-002).
+- **وظائف شخصية/ميدانية بالكامل (`GLOBAL` و `BRANCH` و `ASSIGNED`):** مثل صلاحيات الاتصال بالـ `telemarketing.*` أو جدول التكليف والفرق حيث يسمح بالفلترة حتى مستوى الموظف الفردي.
+
+### 3.5 Permission Naming Patterns (أنماط تسمية الصلاحيات)
+
+يوجد عدم اتساق منهجي في تسمية مفاتيح الصلاحيات المعتمدة بقاعدة البيانات مقارنة بكيانات الكود الفعلي (انظر GAP-017 و GAP-027):
+
+- **مفتاح الصلاحية بالنظام (Key):** `'marketing_visits.view'` و `'marketing_visits.update_result'`.
+- **الكيان البرمجي والمسارات بالكود (Express Routers):** تستخدم هذه المفاتيح لحماية كيانين تشغيليين منفصلين تماماً هما المهام المفتوحة (`open_tasks`) والزيارات الميدانية (`field_visits`)، مما يعيق الفرز الوظيفي الدقيق للموظفين.
+- **نمط الفرز في الأقسام الأخرى:** يعتمد الفرز الصحيح المبني على النقاط والكيان مثل `clients.view` أو `candidates.create`.
+
 ---
 
 ## 4. الـ APIs المتقاطعة (Shared API Patterns)

@@ -22,7 +22,7 @@
 | المناطق الجغرافية (Geo Units) | [domains/geo-units.md](domains/geo-units.md) | ✅ مكتمل | 240 سطر | 10+ | 7 |
 | التسويق الهاتفي (Telemarketing) | [domains/telemarketing.md](domains/telemarketing.md) | ✅ مكتمل | 311 سطر | 7+ | 5 |
 | البنية التنظيمية | [domains/org-structure.md](domains/org-structure.md) | ⚠️ فاضي | 218 بايت | — | — |
-| الصلاحيات | [domains/permissions.md](domains/permissions.md) | ⚠️ فاضي | 218 بايت | — | — |
+| الصلاحيات والأدوار (Permissions & Roles) | [domains/permissions.md](domains/permissions.md) | ✅ مكتمل | 382 سطر | 12+ | 9 |
 | الإعدادات الإدارية | [domains/admin-settings.md](domains/admin-settings.md) | ⚠️ فاضي | 221 بايت | — | — |
 | المهام الموحدة | [domains/tasks-unified.md](domains/tasks-unified.md) | ⚠️ قديم | 10,991 بايت | — | — |
 
