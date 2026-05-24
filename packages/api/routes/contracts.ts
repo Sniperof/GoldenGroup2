@@ -18,11 +18,24 @@ const contractSelect = `
   c.down_payment AS "downPayment", c.installments_count AS "installmentsCount",
   c.delivery_date AS "deliveryDate", c.installation_date AS "installationDate",
   c.status, c.created_at AS "createdAt", c.branch_id AS "branchId",
+  c.sale_type AS "saleType",
   c.installation_geo_unit_id AS "installationGeoUnitId",
   c.installation_address_text AS "installationAddressText",
   c.installation_lat AS "installationLat",
   c.installation_lng AS "installationLng"
 `;
+
+function mapContract(c: any) {
+  return {
+    ...c,
+    basePrice:   Number(c.basePrice),
+    finalPrice:  Number(c.finalPrice),
+    downPayment: Number(c.downPayment),
+  };
+}
+function mapDue(d: any) {
+  return { ...d, originalAmount: Number(d.originalAmount), remainingBalance: Number(d.remainingBalance) };
+}
 
 const dueSelect = `
   id, contract_id AS "contractId", type, scheduled_date AS "scheduledDate",
@@ -33,35 +46,57 @@ const dueSelect = `
 
 router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
-  let where = '';
   const params: any[] = [];
+  const conditions: string[] = [];
+
   if (!authContext.isSuperAdmin) {
-    where = 'WHERE c.branch_id = $1';
-    params.push(authContext.actingBranchId);
+    conditions.push(`c.branch_id = $${params.push(authContext.actingBranchId)}`);
   } else {
     const hb = Number(req.header('x-branch-id'));
-    if (Number.isFinite(hb) && hb > 0) {
-      where = 'WHERE c.branch_id = $1';
-      params.push(hb);
-    }
+    if (Number.isFinite(hb) && hb > 0) conditions.push(`c.branch_id = $${params.push(hb)}`);
   }
-  const { rows: contracts } = await pool.query(`SELECT ${contractSelect} FROM contracts c ${where} ORDER BY c.id`, params);
-  const ids = contracts.map(c => c.id);
+  // Optional filter by customerId
+  const cid = Number(req.query.customerId);
+  if (cid > 0) conditions.push(`c.customer_id = $${params.push(cid)}`);
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const { rows: contracts } = await pool.query(`SELECT ${contractSelect} FROM contracts c ${where} ORDER BY c.id DESC`, params);
+  const ids = contracts.map((c: any) => c.id);
   const { rows: dues } = ids.length
-    ? await pool.query(`SELECT ${dueSelect} FROM dues WHERE contract_id = ANY($1) ORDER BY contract_id, id`, [ids])
+    ? await pool.query(`SELECT ${dueSelect} FROM dues WHERE contract_id = ANY($1) ORDER BY contract_id, scheduled_date`, [ids])
     : { rows: [] as any[] };
-  const result = contracts.map(c => ({
-    ...c,
-    basePrice: Number(c.basePrice),
-    finalPrice: Number(c.finalPrice),
-    downPayment: Number(c.downPayment),
-    dues: dues.filter(d => d.contractId === c.id).map(d => ({
-      ...d,
-      originalAmount: Number(d.originalAmount),
-      remainingBalance: Number(d.remainingBalance),
-    }))
-  }));
-  res.json(result);
+  res.json(contracts.map((c: any) => ({ ...mapContract(c), dues: dues.filter((d: any) => d.contractId === c.id).map(mapDue) })));
+});
+
+router.get('/:id', requirePermission('contracts.view_list'), async (req, res) => {
+  const { rows } = await pool.query(`SELECT ${contractSelect} FROM contracts c WHERE c.id = $1`, [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ message: 'العقد غير موجود' });
+  const contract = mapContract(rows[0]);
+  const { rows: dues } = await pool.query(
+    `SELECT ${dueSelect} FROM dues WHERE contract_id = $1 ORDER BY scheduled_date`,
+    [contract.id],
+  );
+  // Linked open tasks (emergency, maintenance, collection, service, etc.)
+  const { rows: tasks } = await pool.query(
+    `SELECT ot.id, ot.task_type AS "taskType", ot.task_family AS "taskFamily",
+            ot.status, ot.priority, ot.due_date AS "dueDate", ot.notes,
+            ot.created_at AS "createdAt",
+            ttc.arabic_label AS "taskLabel"
+       FROM open_tasks ot
+       LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+      WHERE ot.contract_id = $1
+      ORDER BY ot.created_at DESC`,
+    [contract.id],
+  );
+  // Client snapshot
+  const { rows: clientRows } = await pool.query(
+    `SELECT id, name, mobile, contacts, neighborhood, district, governorate,
+            detailed_address AS "detailedAddress", rating, national_id AS "nationalId"
+       FROM clients WHERE id = $1`,
+    [contract.customerId],
+  );
+  const client = clientRows[0] ?? null;
+  res.json({ ...contract, dues: dues.map(mapDue), tasks, client });
 });
 
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
@@ -81,15 +116,15 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
         source_visit, device_model_id, device_model_name, serial_number, maintenance_plan,
         base_price, final_price, payment_type, down_payment, installments_count,
-        delivery_date, installation_date, status, branch_id,
+        delivery_date, installation_date, status, branch_id, sale_type,
         installation_geo_unit_id, installation_address_text, installation_lat, installation_lng)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
       RETURNING ${contractSelect.replace(/c\./g, '')}`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
-       c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
-       c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate, c.installationDate,
-       c.status || 'draft', targetBranchId,
+       c.maintenancePlan, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
+       c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate || null, c.installationDate || null,
+       c.status || 'draft', targetBranchId, c.saleType || c.saleType || 'marketing',
        installationGeoUnitId, installationAddressText, installationLat, installationLng]
     );
     const contract = rows[0];
@@ -115,7 +150,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json({ ...contract, basePrice: Number(contract.basePrice), finalPrice: Number(contract.finalPrice), downPayment: Number(contract.downPayment), dues: duesResult });
+    res.json({ ...mapContract(contract), dues: duesResult.map(mapDue) });
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

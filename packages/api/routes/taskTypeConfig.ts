@@ -17,6 +17,7 @@ const SELECT_COLS = `
   has_due_date         AS "hasDueDate",
   display_order        AS "displayOrder",
   is_active            AS "isActive",
+  location_basis       AS "locationBasis",
   created_at           AS "createdAt",
   updated_at           AS "updatedAt"
 `;
@@ -44,7 +45,7 @@ router.get('/', requireAuth, async (req, res) => {
 router.patch('/:taskType', requirePermission('admin.task_types.manage'), async (req, res) => {
   try {
     const { taskType } = req.params;
-    const { planningWindowDays, isActive } = req.body ?? {};
+    const { planningWindowDays, isActive, locationBasis } = req.body ?? {};
 
     const { rows: existingRows } = await pool.query(
       `SELECT scheduling_pattern, window_basis FROM task_type_config WHERE task_type = $1`,
@@ -83,6 +84,14 @@ router.patch('/:taskType', requirePermission('admin.task_types.manage'), async (
       }
       params.push(isActive);
       updates.push(`is_active = $${params.length}`);
+    }
+
+    if (locationBasis !== undefined) {
+      if (!['client', 'contract'].includes(locationBasis)) {
+        return res.status(400).json({ error: 'locationBasis must be "client" or "contract"' });
+      }
+      params.push(locationBasis);
+      updates.push(`location_basis = $${params.length}`);
     }
 
     if (updates.length === 0) {

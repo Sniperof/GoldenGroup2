@@ -146,6 +146,7 @@ async function resolveMarketingActorHrUserIds(params: {
   branchId: number;
   telemarketerEmployeeIds: unknown;
   supervisorHrUserId: number | null;
+  technicianHrUserId?: number | null;
 }): Promise<number[]> {
   const selectedTelemarketerEmployeeIds = normalizeNumberList(params.telemarketerEmployeeIds);
 
@@ -176,6 +177,7 @@ async function resolveMarketingActorHrUserIds(params: {
 
   const actorIds = [
     params.supervisorHrUserId,
+    params.technicianHrUserId ?? null,   // technician owns clients too
     ...rows.map(row => Number(row.id)),
   ].filter((id): id is number => Number.isInteger(id) && id > 0);
 
@@ -374,6 +376,7 @@ export async function getPlanningMarketingTargets(params: {
     branchId,
     telemarketerEmployeeIds: team.telemarketers,
     supervisorHrUserId,
+    technicianHrUserId,   // include technician: clients personally assigned to the technician are visible
   });
   const assignmentKey = `${date}_${teamKey}`;
   const { rows: assignmentRows } = await pool.query(
@@ -412,61 +415,97 @@ export async function getPlanningMarketingTargets(params: {
     });
   }
 
+  // ── Load calculation per zone ─────────────────────────────────────────────
+  // Effective zone depends on location_basis (§PL-R008 / §PC-G001 resolution):
+  //   'client'   → clients.neighborhood
+  //   'contract' → contracts.installation_geo_unit_id (COALESCE → client neighborhood)
+  //
+  // Task eligibility includes BOTH:
+  //   1. Waiting tasks (open/needs_follow_up) that pass the N-window check
+  //   2. Already-assigned tasks for THIS team/date (post-sync idempotency fix)
+  //   This prevents the zone count from dropping to 0 after syncAssignedTasks runs.
   const { rows: countsByZoneRows } = await pool.query(
     `
       SELECT
-        c.neighborhood::int AS "zoneId",
-        COUNT(*)::int AS count
-      FROM clients c
-      LEFT JOIN LATERAL (
-        SELECT ot_inner.id
-        FROM open_tasks ot_inner
-        INNER JOIN task_type_config ttc_inner ON ttc_inner.task_type = ot_inner.task_type
-        WHERE ot_inner.client_id = c.id
-          AND ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', mode)}
-          AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
-        ORDER BY ot_inner.created_at DESC
-        LIMIT 1
-      ) ot ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT 1 AS has_unfinished_visit
-        FROM marketing_visit_tasks mvt
-        JOIN marketing_visits mv ON mv.id = mvt.visit_id
-        WHERE mvt.source_open_task_id = ot.id
-          AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
-          AND NULLIF(mv.scheduled_date, '')::date < $4::date
-        LIMIT 1
-      ) unfinished_visit ON TRUE
-      WHERE c.is_candidate = FALSE
-        AND c.branch_id = $1
-        AND NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
-        AND c.neighborhood::int = ANY($2::int[])
-        AND ${buildTeamOwnedClientScopePredicate('c')}
-        AND ot.id IS NOT NULL
-        AND unfinished_visit.has_unfinished_visit IS NULL
-        AND NOT EXISTS (
-          SELECT 1
+        effective_zone AS "zoneId",
+        COUNT(*)::int  AS count
+      FROM (
+        SELECT DISTINCT ON (c.id)
+          CASE
+            WHEN ttc_eff.location_basis = 'contract' AND ct_loc.installation_geo_unit_id IS NOT NULL
+              THEN ct_loc.installation_geo_unit_id
+            ELSE
+              CASE WHEN NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
+                THEN c.neighborhood::int
+                ELSE NULL
+              END
+          END AS effective_zone
+        FROM clients c
+        LEFT JOIN LATERAL (
+          SELECT ot_inner.id, ttc_inner.location_basis
+          FROM open_tasks ot_inner
+          INNER JOIN task_type_config ttc_inner ON ttc_inner.task_type = ot_inner.task_type
+          WHERE ot_inner.client_id = c.id
+            AND (
+              -- Branch 1: unsynced — still in waiting phase
+              (
+                ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', 'planning')}
+                AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
+              )
+              -- Branch 2: already synced to this team (any sync date) — still unprocessed
+              OR (
+                ot_inner.status = 'assigned'
+                AND ot_inner.assigned_team_key = $5
+                AND ttc_inner.is_active = TRUE
+                AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
+              )
+            )
+          ORDER BY ot_inner.created_at DESC
+          LIMIT 1
+        ) ttc_eff ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT ct.installation_geo_unit_id
           FROM contracts ct
           WHERE ct.customer_id = c.id
-        )
-        AND (
-          NOT EXISTS (
-            SELECT 1
-            FROM visits v
-            WHERE v.customer_id = c.id
+            AND ct.installation_geo_unit_id IS NOT NULL
+          ORDER BY ct.created_at DESC
+          LIMIT 1
+        ) ct_loc ON ttc_eff.location_basis = 'contract'
+        LEFT JOIN LATERAL (
+          SELECT 1 AS has_unfinished_visit
+          FROM marketing_visit_tasks mvt
+          JOIN marketing_visits mv ON mv.id = mvt.visit_id
+          WHERE mvt.source_open_task_id = ttc_eff.id
+            AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
+            AND NULLIF(mv.scheduled_date, '')::date < $4::date
+          LIMIT 1
+        ) unfinished_visit ON TRUE
+        WHERE c.is_candidate = FALSE
+          AND c.branch_id = $1
+          AND ${buildTeamOwnedClientScopePredicate('c')}
+          AND ttc_eff.id IS NOT NULL
+          AND unfinished_visit.has_unfinished_visit IS NULL
+          AND (
+            NOT EXISTS (SELECT 1 FROM visits v WHERE v.customer_id = c.id)
+            OR EXISTS (
+              SELECT 1
+              FROM open_tasks ot_scope
+              INNER JOIN task_type_config ttc_scope ON ttc_scope.task_type = ot_scope.task_type
+              WHERE ot_scope.client_id = c.id
+                AND (
+                  (${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', 'planning')}
+                   AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date))
+                  OR (ot_scope.status = 'assigned' AND ot_scope.assigned_team_key = $5
+                      AND ttc_scope.is_active = TRUE
+                      AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date))
+                )
+            )
           )
-          OR EXISTS (
-            SELECT 1
-            FROM open_tasks ot_scope
-            INNER JOIN task_type_config ttc_scope ON ttc_scope.task_type = ot_scope.task_type
-            WHERE ot_scope.client_id = c.id
-              AND ${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', mode)}
-              AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date)
-          )
-        )
-      GROUP BY c.neighborhood::int
+      ) sub
+      WHERE effective_zone = ANY($2::int[])
+      GROUP BY effective_zone
     `,
-    [branchId, zoneIds, actorHrUserIds, date],
+    [branchId, zoneIds, actorHrUserIds, date, teamKey],
   );
 
   const countsByZoneMap = new Map<number, number>();
@@ -596,15 +635,38 @@ export async function getPlanningMarketingTargets(params: {
         LIMIT 1
       ) other_queued ON TRUE
       LEFT JOIN LATERAL (
-        SELECT ot_inner.id, ot_inner.task_type, ot_inner.task_family, ot_inner.reason, ot_inner.status, ot_inner.due_date, ot_inner.priority, ot_inner.notes
+        SELECT ot_inner.id, ot_inner.task_type, ot_inner.task_family, ot_inner.reason,
+               ot_inner.status, ot_inner.due_date, ot_inner.priority, ot_inner.notes,
+               ttc_inner.location_basis
         FROM open_tasks ot_inner
         INNER JOIN task_type_config ttc_inner ON ttc_inner.task_type = ot_inner.task_type
         WHERE ot_inner.client_id = c.id
-          AND ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', mode)}
-          AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
+          AND (
+            -- Branch 1: unsynced — still in waiting phase
+            (
+              ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', 'planning')}
+              AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
+            )
+            -- Branch 2: already synced to this team (any sync date) — still unprocessed
+            OR (
+              ot_inner.status = 'assigned'
+              AND ot_inner.assigned_team_key = $5
+              AND ttc_inner.is_active = TRUE
+              AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
+            )
+          )
         ORDER BY ot_inner.created_at DESC
         LIMIT 1
       ) ot ON TRUE
+      -- Resolve the contract's installation zone for 'contract'-basis tasks
+      LEFT JOIN LATERAL (
+        SELECT ct.installation_geo_unit_id
+        FROM contracts ct
+        WHERE ct.customer_id = c.id
+          AND ct.installation_geo_unit_id IS NOT NULL
+        ORDER BY ct.created_at DESC
+        LIMIT 1
+      ) ct_zone ON ot.location_basis = 'contract'
       LEFT JOIN LATERAL (
         SELECT 1 AS has_unfinished_visit
         FROM marketing_visit_tasks mvt
@@ -616,29 +678,31 @@ export async function getPlanningMarketingTargets(params: {
       ) unfinished_visit ON TRUE
       WHERE c.is_candidate = FALSE
         AND c.branch_id = $1
-        AND NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
-        AND c.neighborhood::int = ANY($2::int[])
         AND ${buildTeamOwnedClientScopePredicate('c')}
         AND ot.id IS NOT NULL
         AND unfinished_visit.has_unfinished_visit IS NULL
-        AND NOT EXISTS (
-          SELECT 1
-          FROM contracts ct
-          WHERE ct.customer_id = c.id
+        -- Zone filter: use contract installation zone OR client neighborhood based on location_basis
+        AND (
+          (ot.location_basis = 'contract' AND ct_zone.installation_geo_unit_id = ANY($2::int[]))
+          OR
+          (COALESCE(ot.location_basis, 'client') = 'client'
+            AND NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
+            AND c.neighborhood::int = ANY($2::int[]))
         )
         AND (
-          NOT EXISTS (
-            SELECT 1
-            FROM visits v
-            WHERE v.customer_id = c.id
-          )
+          NOT EXISTS (SELECT 1 FROM visits v WHERE v.customer_id = c.id)
           OR EXISTS (
             SELECT 1
             FROM open_tasks ot_scope
             INNER JOIN task_type_config ttc_scope ON ttc_scope.task_type = ot_scope.task_type
             WHERE ot_scope.client_id = c.id
-              AND ${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', mode)}
-              AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date)
+              AND (
+                (${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', 'planning')}
+                 AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date))
+                OR (ot_scope.status = 'assigned' AND ot_scope.assigned_team_key = $5
+                    AND ttc_scope.is_active = TRUE
+                    AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date))
+              )
           )
         )
       ORDER BY c.id

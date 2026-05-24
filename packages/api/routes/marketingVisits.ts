@@ -133,11 +133,34 @@ function mapVisitRows(rows: any[]) {
         technicianEmployeeId: row.technicianEmployeeId,
         traineeEmployeeId: row.traineeEmployeeId,
         teamSnapshot: row.teamSnapshot,
+        reassignedSupervisorId: row.reassignedSupervisorId ?? null,
+        reassignedTechnicianId: row.reassignedTechnicianId ?? null,
+        reassignedTraineeId: row.reassignedTraineeId ?? null,
+        reassignedTeamSnapshot: row.reassignedTeamSnapshot ?? null,
+        reassignedAt: row.reassignedAt ?? null,
+        reassignedBy: row.reassignedBy ?? null,
         createdBy: row.createdBy,
         completedBy: row.completedBy,
         completedAt: row.completedAt,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        visitNumber: row.visitNumber ?? null,
+        visitStartGps: row.visitStartGps ?? null,
+        visitStartedAt: row.visitStartedAt ?? null,
+        visitEndGps: row.visitEndGps ?? null,
+        visitEndedAt: row.visitEndedAt ?? null,
+        clientFirstName: row.clientFirstName ?? null,
+        clientFatherName: row.clientFatherName ?? null,
+        clientLastName: row.clientLastName ?? null,
+        clientBirthDate: row.clientBirthDate ?? null,
+        clientNationalId: row.clientNationalId ?? null,
+        clientReferrerType: row.clientReferrerType ?? null,
+        clientReferrerName: row.clientReferrerName ?? null,
+        clientReferralNotes: row.clientReferralNotes ?? null,
+        clientReferrers: row.clientReferrers ?? null,
+        clientSpouseOccupation: row.clientSpouseOccupation ?? null,
+        clientNotes: row.clientNotes ?? null,
+        appointmentAnsweredBy: row.appointmentAnsweredBy ?? null,
         workRouteCount: row.workRouteCount ?? 0,
         additionalAreaCount: row.additionalAreaCount ?? 0,
         task: null,
@@ -233,15 +256,45 @@ function buildVisitSelect(whereClause: string) {
       mv.technician_employee_id AS "technicianEmployeeId",
       mv.trainee_employee_id AS "traineeEmployeeId",
       mv.team_snapshot AS "teamSnapshot",
+      mv.reassigned_supervisor_id AS "reassignedSupervisorId",
+      mv.reassigned_technician_id AS "reassignedTechnicianId",
+      mv.reassigned_trainee_id AS "reassignedTraineeId",
+      mv.reassigned_team_snapshot AS "reassignedTeamSnapshot",
+      mv.reassigned_at AS "reassignedAt",
+      mv.reassigned_by AS "reassignedBy",
       mv.created_by AS "createdBy",
       mv.completed_by AS "completedBy",
       mv.completed_at AS "completedAt",
       mv.created_at AS "createdAt",
       mv.updated_at AS "updatedAt",
+      mv.visit_number AS "visitNumber",
+      mv.visit_start_gps AS "visitStartGps",
+      mv.visit_started_at AS "visitStartedAt",
+      mv.visit_end_gps AS "visitEndGps",
+      mv.visit_ended_at AS "visitEndedAt",
+      c.first_name AS "clientFirstName",
+      c.father_name AS "clientFatherName",
+      c.last_name AS "clientLastName",
+      c.birth_date AS "clientBirthDate",
+      c.national_id AS "clientNationalId",
+      c.referrer_type AS "clientReferrerType",
+      c.referrer_name AS "clientReferrerName",
+      c.referral_notes AS "clientReferralNotes",
+      c.referrers AS "clientReferrers",
+      c.spouse_occupation AS "clientSpouseOccupation",
+      c.notes AS "clientNotes",
+      (SELECT ccl.answered_by
+         FROM customer_call_logs ccl
+        WHERE ccl.source_type = 'telemarketing_task'
+          AND ccl.source_id = mv.task_list_item_id
+          AND ccl.outcome = 'booked_marketing_appointment'
+        ORDER BY ccl.call_date DESC
+        LIMIT 1) AS "appointmentAnsweredBy",
       COALESCE(jsonb_array_length(ra.routes), 0) AS "workRouteCount",
       COALESCE(jsonb_array_length(ra.extra_zones), 0) AS "additionalAreaCount",
       mvt.id AS "taskId",
       mvt.task_type AS "taskType",
+      ttc.task_family AS "taskFamily",
       mvt.status AS "taskStatus",
       mvt.result AS "taskResult",
       mvt.cash_offer_amount AS "cashOfferAmount",
@@ -282,6 +335,7 @@ function buildVisitSelect(whereClause: string) {
     ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
     LEFT JOIN route_assignments ra ON ra.key = mv.scheduled_date || '_' || mv.team_key
     LEFT JOIN marketing_visit_tasks mvt ON mvt.visit_id = mv.id
+    LEFT JOIN task_type_config ttc ON ttc.task_type = mvt.task_type
     LEFT JOIN open_tasks ot ON ot.id = mvt.source_open_task_id
     LEFT JOIN system_lists cr ON cr.id = mvt.cancellation_reason_id
     LEFT JOIN system_lists rr ON rr.id = mvt.reschedule_reason_id
@@ -421,6 +475,55 @@ router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) 
   if (!visit) {
     return res.status(404).json({ error: 'Marketing visit not found' });
   }
+
+  // Lazy trigger: if today is the scheduled date and visit is still 'scheduled',
+  // move linked open_tasks to 'waiting_execution' (§7.2 — بانتظار التنفيذ).
+  // This avoids needing a cron for the first execution-phase transition.
+  if (visit.status === 'scheduled' && visit.scheduledDate) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (visit.scheduledDate === today) {
+      const pgClient = await pool.connect();
+      try {
+        await pgClient.query('BEGIN');
+        const { rows: linkRows } = await pgClient.query(
+          `SELECT source_open_task_id AS id FROM marketing_visit_tasks
+            WHERE visit_id = $1 AND source_open_task_id IS NOT NULL`,
+          [visit.id],
+        );
+        const taskIds = linkRows.map((r: any) => Number(r.id));
+        if (taskIds.length > 0) {
+          const { rows: eligible } = await pgClient.query(
+            `SELECT id, status FROM open_tasks
+              WHERE id = ANY($1::int[]) AND status = 'scheduled'`,
+            [taskIds],
+          );
+          if (eligible.length > 0) {
+            const eligibleIds = eligible.map((r: any) => Number(r.id));
+            await pgClient.query(
+              `UPDATE open_tasks SET status = 'waiting_execution', updated_at = NOW()
+                WHERE id = ANY($1::int[])`,
+              [eligibleIds],
+            );
+            for (const row of eligible) {
+              await pgClient.query(
+                `INSERT INTO task_activity_log
+                   (task_id, event_type, performed_by, old_value, new_value, reason)
+                 VALUES ($1, 'status_change', NULL, 'scheduled', 'waiting_execution', 'استحقاق يوم الزيارة')`,
+                [row.id],
+              );
+            }
+          }
+        }
+        await pgClient.query('COMMIT');
+      } catch {
+        await pgClient.query('ROLLBACK');
+        // Silent — don't fail the GET if this lazy update fails
+      } finally {
+        pgClient.release();
+      }
+    }
+  }
+
   return res.json(visit);
 });
 
@@ -609,7 +712,7 @@ async function applyTaskResult(req: any, res: any, visit: any, task: any) {
       }
       const mvUpdateResult = await pgClient.query(
         `UPDATE open_tasks SET status = $1, updated_at = NOW()
-         WHERE id = $2 AND status IN ('in_execution', 'scheduled', 'in_scheduling')`,
+         WHERE id = $2 AND status IN ('in_execution', 'scheduled', 'in_scheduling', 'waiting_execution', 'ended')`,
         [newOpenTaskStatus, openTaskId],
       );
       if ((mvUpdateResult as any).rowCount > 0 && oldOpenTaskStatus && oldOpenTaskStatus !== newOpenTaskStatus) {
@@ -787,17 +890,218 @@ router.patch('/:id/status', requirePermission('marketing_visits.update_result'),
   const visit = await loadVisitById(req, String(req.params.id));
   if (!visit) return res.status(404).json({ error: 'Marketing visit not found' });
 
-  const newStatus = req.body?.status as string | undefined;
+  const requestedStatus = req.body?.status as string | undefined;
   const allowed = VISIT_STATUS_ALLOWED_TRANSITIONS[visit.status] ?? [];
-  if (!newStatus || !allowed.includes(newStatus)) {
+  if (!requestedStatus || !allowed.includes(requestedStatus)) {
     return res.status(400).json({
-      error: `Cannot transition from "${visit.status}" to "${newStatus}"`,
+      error: `Cannot transition from "${visit.status}" to "${requestedStatus}"`,
     });
   }
 
+  // GPS coordinates captured by the client at transition time
+  const gpsPayload = req.body?.gps ?? null;
+  const validGps = gpsPayload && typeof gpsPayload.lat === 'number' && typeof gpsPayload.lng === 'number'
+    ? { lat: gpsPayload.lat, lng: gpsPayload.lng, accuracy: gpsPayload.accuracy ?? null }
+    : null;
+
+  const performedBy = (req.authContext as any)?.userId ?? null;
+  const pgClient = await pool.connect();
+
+  try {
+    await pgClient.query('BEGIN');
+
+    // ── Determine the actual final visit status ───────────────────────────────
+    // §7.3: if "إنهاء الزيارة" is pressed but all tasks already have outcomes,
+    // skip 'ended' and jump straight to 'completed'.
+    let finalVisitStatus = requestedStatus;
+    let completedAt: string | null = null;
+
+    if (requestedStatus === 'ended') {
+      const { rows: pendingRows } = await pgClient.query(
+        `SELECT COUNT(*)::int AS count
+           FROM marketing_visit_tasks
+          WHERE visit_id = $1 AND outcome IS NULL`,
+        [visit.id],
+      );
+      if (Number(pendingRows[0]?.count ?? 1) === 0) {
+        finalVisitStatus = 'completed';
+        completedAt = new Date().toISOString();
+      }
+    }
+
+    // ── 1. Update visit status + GPS + timestamps (single write) ─────────────
+    if (finalVisitStatus === 'completed') {
+      await pgClient.query(
+        `UPDATE marketing_visits
+            SET status       = 'completed',
+                completed_by = $1,
+                completed_at = NOW(),
+                updated_at   = NOW(),
+                visit_end_gps   = COALESCE($3::jsonb, visit_end_gps),
+                visit_ended_at  = COALESCE(NOW(), visit_ended_at)
+          WHERE id = $2`,
+        [performedBy, visit.id, validGps ? JSON.stringify(validGps) : null],
+      );
+    } else if (finalVisitStatus === 'in_visit') {
+      await pgClient.query(
+        `UPDATE marketing_visits
+            SET status          = 'in_visit',
+                visit_start_gps = COALESCE($1::jsonb, visit_start_gps),
+                visit_started_at= COALESCE(NOW(), visit_started_at),
+                updated_at      = NOW()
+          WHERE id = $2`,
+        [validGps ? JSON.stringify(validGps) : null, visit.id],
+      );
+    } else if (finalVisitStatus === 'ended') {
+      await pgClient.query(
+        `UPDATE marketing_visits
+            SET status         = 'ended',
+                visit_end_gps  = COALESCE($1::jsonb, visit_end_gps),
+                visit_ended_at = COALESCE(NOW(), visit_ended_at),
+                updated_at     = NOW()
+          WHERE id = $2`,
+        [validGps ? JSON.stringify(validGps) : null, visit.id],
+      );
+    } else {
+      await pgClient.query(
+        'UPDATE marketing_visits SET status = $1, updated_at = NOW() WHERE id = $2',
+        [finalVisitStatus, visit.id],
+      );
+    }
+    void completedAt;
+
+    // ── 2. Sync linked open_tasks with the execution phase lifecycle ───────────
+    // §7.2 task-lifecycle-analysis.md — tasks mirror visit state collectively:
+    //   visit in_visit  → task in_execution   (بدء الزيارة)
+    //   visit ended     → task ended           (إنهاء الزيارة)
+    // Note: if finalVisitStatus === 'completed' we still apply the 'ended' task
+    // transition (from 'in_execution') so tasks pass through correctly.
+    const taskTransition: Record<string, { from: string[]; to: string; note: string }> = {
+      in_visit: { from: ['scheduled', 'waiting_execution'], to: 'in_execution', note: 'بدء الزيارة' },
+      ended:    { from: ['in_execution'],                   to: 'ended',        note: 'إنهاء الزيارة'  },
+      completed:{ from: ['in_execution'],                   to: 'ended',        note: 'إنهاء الزيارة'  },
+    };
+    const transition = taskTransition[finalVisitStatus];
+
+    if (transition) {
+      const { rows: linkRows } = await pgClient.query(
+        `SELECT source_open_task_id AS id FROM marketing_visit_tasks
+          WHERE visit_id = $1 AND source_open_task_id IS NOT NULL`,
+        [visit.id],
+      );
+      const allTaskIds = linkRows.map((r: any) => Number(r.id));
+
+      if (allTaskIds.length > 0) {
+        const { rows: eligible } = await pgClient.query(
+          `SELECT id, status FROM open_tasks
+            WHERE id = ANY($1::int[])
+              AND status = ANY($2::varchar[])`,
+          [allTaskIds, transition.from],
+        );
+
+        if (eligible.length > 0) {
+          const eligibleIds = eligible.map((r: any) => Number(r.id));
+          await pgClient.query(
+            `UPDATE open_tasks SET status = $1, updated_at = NOW()
+              WHERE id = ANY($2::int[])`,
+            [transition.to, eligibleIds],
+          );
+          for (const row of eligible) {
+            await pgClient.query(
+              `INSERT INTO task_activity_log
+                 (task_id, event_type, performed_by, old_value, new_value, reason)
+               VALUES ($1, 'status_change', $2, $3, $4, $5)`,
+              [row.id, performedBy, row.status, transition.to, transition.note],
+            );
+          }
+        }
+      }
+    }
+
+    await pgClient.query('COMMIT');
+    const updated = await loadVisitById(req, visit.id);
+    return res.json(updated);
+  } catch (err) {
+    await pgClient.query('ROLLBACK');
+    throw err;
+  } finally {
+    pgClient.release();
+  }
+});
+
+// ─── PATCH /:id/team — reassign visit to a different team ────────────────────
+// Only allowed when visit is still `scheduled` (before بدء الزيارة).
+// Writes to reassigned_* columns; original team fields stay intact for audit.
+router.patch('/:id/team', requirePermission('marketing_visits.update_result'), async (req, res) => {
+  const visit = await loadVisitById(req, String(req.params.id));
+  if (!visit) return res.status(404).json({ error: 'Marketing visit not found' });
+
+  if (visit.status !== 'scheduled') {
+    return res.status(400).json({
+      error: 'لا يمكن تبديل الفريق بعد بدء الزيارة — التبديل مسموح فقط قبل بدء الزيارة',
+    });
+  }
+
+  const performedBy = (req.authContext as any)?.userId ?? null;
+  const {
+    supervisorEmployeeId,
+    technicianEmployeeId,
+    traineeEmployeeId,
+    telemarketerEmployeeIds,
+  } = req.body ?? {};
+
+  // At least one field must be provided
+  if (
+    supervisorEmployeeId === undefined &&
+    technicianEmployeeId === undefined &&
+    traineeEmployeeId === undefined &&
+    telemarketerEmployeeIds === undefined
+  ) {
+    return res.status(400).json({ error: 'يجب تحديد عضو واحد على الأقل للتبديل' });
+  }
+
+  // Build the new snapshot by merging with existing reassigned (or original) snapshot
+  const base = (visit as any).reassignedTeamSnapshot ?? (visit as any).teamSnapshot ?? {};
+  const newSnapshot = {
+    ...base,
+    ...(supervisorEmployeeId !== undefined ? { supervisorEmployeeId: supervisorEmployeeId ?? null } : {}),
+    ...(technicianEmployeeId !== undefined ? { technicianEmployeeId: technicianEmployeeId ?? null } : {}),
+    ...(traineeEmployeeId !== undefined    ? { traineeEmployeeId: traineeEmployeeId ?? null }    : {}),
+    ...(Array.isArray(telemarketerEmployeeIds) ? { telemarketerEmployeeIds } : {}),
+  };
+
   await pool.query(
-    'UPDATE marketing_visits SET status = $1, updated_at = NOW() WHERE id = $2',
-    [newStatus, visit.id],
+    `UPDATE marketing_visits
+        SET reassigned_supervisor_id = CASE WHEN $1::boolean THEN $2 ELSE reassigned_supervisor_id END,
+            reassigned_technician_id = CASE WHEN $3::boolean THEN $4 ELSE reassigned_technician_id END,
+            reassigned_trainee_id    = CASE WHEN $5::boolean THEN $6 ELSE reassigned_trainee_id    END,
+            reassigned_team_snapshot = $7::jsonb,
+            reassigned_at            = NOW(),
+            reassigned_by            = $8,
+            updated_at               = NOW()
+      WHERE id = $9`,
+    [
+      supervisorEmployeeId !== undefined, supervisorEmployeeId ?? null,
+      technicianEmployeeId !== undefined, technicianEmployeeId ?? null,
+      traineeEmployeeId    !== undefined, traineeEmployeeId    ?? null,
+      JSON.stringify(newSnapshot),
+      performedBy,
+      visit.id,
+    ],
+  );
+
+  // Audit log
+  await pool.query(
+    `INSERT INTO task_activity_log (task_id, event_type, performed_by, old_value, new_value, reason)
+     SELECT source_open_task_id, 'team_changed', $1, $2, $3, 'إعادة إسناد الزيارة'
+       FROM marketing_visit_tasks
+      WHERE visit_id = $4 AND source_open_task_id IS NOT NULL`,
+    [
+      performedBy,
+      JSON.stringify({ supervisorEmployeeId: visit.supervisorEmployeeId, technicianEmployeeId: visit.technicianEmployeeId }),
+      JSON.stringify(newSnapshot),
+      visit.id,
+    ],
   );
 
   const updated = await loadVisitById(req, visit.id);
@@ -1635,5 +1939,88 @@ async function applyTaskOutcome(req: any, res: any, visit: any, task: any) {
   const updatedVisit = await loadVisitById(req, String(visit.id));
   return res.json(updatedVisit);
 }
+
+// ─── POST /:id/close — supervisor closes tasks after reviewing results ────────
+//
+// Transitions all linked open_tasks from 'completed' → 'closed'.
+// This is a manual, irreversible action by someone with update_result permission.
+// Preconditions:
+//   - visit.status must be 'completed'
+//   - all marketing_visit_tasks must have an outcome (no pending tasks)
+//   - open_tasks must be in 'completed' state (not already closed)
+router.post('/:id/close', requirePermission('marketing_visits.update_result'), async (req, res) => {
+  try {
+    const visit = await loadVisitById(req, String(req.params.id));
+    if (!visit) return res.status(404).json({ error: 'زيارة غير موجودة' });
+
+    if (visit.status !== 'completed') {
+      return res.status(400).json({
+        error: 'لا يمكن إقفال مهام زيارة غير مكتملة — يجب أن تكون الزيارة بحالة "تمت" أولاً',
+      });
+    }
+
+    const pendingTasks = (visit.tasks ?? []).filter((t: any) => !t.outcome);
+    if (pendingTasks.length > 0) {
+      return res.status(400).json({
+        error: `لا يمكن الإقفال — ${pendingTasks.length} مهمة لم تُسجَّل نتيجتها بعد`,
+      });
+    }
+
+    const performedBy = (req.authContext as any)?.userId ?? null;
+    const closingNotes = typeof req.body?.closingNotes === 'string'
+      ? req.body.closingNotes.trim() || null
+      : null;
+
+    // Find all open_tasks linked to this visit
+    const { rows: taskLinks } = await pool.query(
+      `SELECT source_open_task_id AS id
+         FROM marketing_visit_tasks
+        WHERE visit_id = $1
+          AND source_open_task_id IS NOT NULL`,
+      [visit.id],
+    );
+    const taskIds = taskLinks.map((r: any) => Number(r.id));
+
+    if (taskIds.length > 0) {
+      const pgClient = await pool.connect();
+      try {
+        await pgClient.query('BEGIN');
+
+        // Transition completed → closed (irreversible)
+        const { rows: updated } = await pgClient.query(
+          `UPDATE open_tasks
+              SET status = 'closed', updated_at = NOW()
+            WHERE id = ANY($1::int[])
+              AND status = 'completed'
+            RETURNING id, status`,
+          [taskIds],
+        );
+
+        // Activity log per task
+        for (const row of updated) {
+          await pgClient.query(
+            `INSERT INTO task_activity_log
+               (task_id, event_type, performed_by, old_value, new_value, reason)
+             VALUES ($1, 'status_change', $2, 'completed', 'closed', $3)`,
+            [row.id, performedBy, closingNotes ?? 'إقفال يدوي بعد مراجعة النتائج'],
+          );
+        }
+
+        await pgClient.query('COMMIT');
+      } catch (err) {
+        await pgClient.query('ROLLBACK');
+        throw err;
+      } finally {
+        pgClient.release();
+      }
+    }
+
+    const updated = await loadVisitById(req, visit.id);
+    return res.json(updated);
+  } catch (err: any) {
+    console.error('[marketing-visits] close error:', err);
+    return res.status(500).json({ error: err.message || 'فشل إقفال المهام' });
+  }
+});
 
 export default router;

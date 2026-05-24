@@ -51,6 +51,8 @@ import workScopesRouter from './routes/workScopes.js';
 import fieldVisitsRouter from './routes/fieldVisits.js';
 import customerCallsRouter from './routes/customerCalls.js';
 import taskTypeConfigRouter from './routes/taskTypeConfig.js';
+import emergencyActionTypesRouter from './routes/emergencyActionTypes.js';
+import emergencyResultRouter from './routes/emergencyResult.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -114,6 +116,8 @@ app.use('/api/departments', departmentsRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/admin', rolesRouter);
 app.use('/api/admin/task-types', taskTypeConfigRouter);
+app.use('/api/admin/emergency-action-types', emergencyActionTypesRouter);
+app.use('/api/emergency-result', emergencyResultRouter);
 
 // Serve uploaded files (photos, CVs) — always active
 app.use('/uploads', express.static(UPLOADS_DIR));

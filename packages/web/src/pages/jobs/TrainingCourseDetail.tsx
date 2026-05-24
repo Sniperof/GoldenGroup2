@@ -95,6 +95,11 @@ export default function TrainingCourseDetail() {
 
   const course = selectedCourse;
   const dates = generateDates(course.attendance || []);
+  const latestAttendanceDate = dates.length > 0 ? dates[dates.length - 1] : '';
+  const latestAttendanceLabel = latestAttendanceDate
+    ? new Date(latestAttendanceDate).toLocaleDateString('ar-IQ')
+    : '';
+  const minimumAllowedEndDate = latestAttendanceDate || course.startDate;
 
   // Build attendance lookup: { applicationId_date: status }
   const attMap: Record<string, 'Present' | 'Absent'> = {};
@@ -157,8 +162,11 @@ export default function TrainingCourseDetail() {
       setEndDateError('تاريخ نهاية الدورة مطلوب');
       return;
     }
-    if (new Date(endDateDraft) < new Date(course.startDate)) {
-      setEndDateError('يجب أن يكون تاريخ نهاية الدورة مساوياً أو بعد تاريخ البداية');
+    const minAllowedDate = minimumAllowedEndDate || course.startDate;
+    if (new Date(endDateDraft) < new Date(minAllowedDate)) {
+      setEndDateError(latestAttendanceDate
+        ? `يجب أن يكون تاريخ نهاية الدورة مساوياً أو بعد آخر يوم حضور مسجل (${latestAttendanceLabel})`
+        : 'يجب أن يكون تاريخ نهاية الدورة مساوياً أو بعد تاريخ البداية');
       return;
     }
     setEndDateSubmitting(true);
@@ -311,11 +319,15 @@ export default function TrainingCourseDetail() {
                 <input
                   type="date"
                   value={endDateDraft}
-                  min={course.startDate}
+                  min={minimumAllowedEndDate}
                   onChange={e => setEndDateDraft(e.target.value)}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500"
                 />
-                <p className="mt-1 text-xs text-slate-400">لا يمكن أن يكون التاريخ أقدم من تاريخ البداية.</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {latestAttendanceDate
+                    ? `لا يمكن أن يكون التاريخ أقدم من آخر يوم حضور مسجل (${latestAttendanceLabel}).`
+                    : 'لا يمكن أن يكون التاريخ أقدم من تاريخ البداية.'}
+                </p>
               </div>
               {endDateError && (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2 text-sm">{endDateError}</div>

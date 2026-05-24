@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     FileText, ChevronDown, Search, Calendar, Monitor, Hash, Wrench,
@@ -145,6 +146,7 @@ const selectClass = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2
 /* ------------------------------------------------------------------ */
 
 export default function ContractForm() {
+    const navigate = useNavigate();
     // ─── API Data ───
     const [customers, setCustomers] = useState<MockCustomer[]>([]);
     const [deviceModels, setDeviceModels] = useState<any[]>([]);
@@ -274,7 +276,18 @@ export default function ContractForm() {
         if (!isValid || saving) return;
         setSaving(true);
         try {
-            await api.contracts.create({
+            const dues = paymentType === 'installment' && schedule.length > 0
+                ? schedule.map((s, i) => ({
+                    type: i === 0 ? 'down_payment' : 'installment',
+                    scheduledDate: s.date,
+                    originalAmount: s.amount,
+                    remainingBalance: s.amount,
+                    status: 'Pending',
+                    escalated: false,
+                }))
+                : [];
+
+            const created = await api.contracts.create({
                 customerId: selectedCustomer?.id,
                 customerName: selectedCustomer?.name,
                 deviceModelId,
@@ -284,24 +297,24 @@ export default function ContractForm() {
                 contractDate,
                 saleType,
                 paymentType,
+                basePrice,
                 finalPrice,
                 downPayment: parseInt(downPayment, 10) || 0,
                 installmentsCount: parseInt(installmentsCount, 10) || 0,
-                currency,
                 geoSelection,
                 detailedAddress,
                 mapPosition,
                 fatherName: fatherNameOverride || selectedCustomer?.fatherName,
                 nationalId: nationalIdOverride || selectedCustomer?.nationalId,
+                dues,
             });
-            alert('تم حفظ العقد بنجاح ✅');
+            navigate(`/contracts/${created.id}`);
         } catch (err) {
             console.error('Failed to save contract:', err);
-            alert('فشل في حفظ العقد ❌');
         } finally {
             setSaving(false);
         }
-    }, [isValid, saving, selectedCustomer, deviceModelId, selectedDevice, serialNumber, maintenancePlan, contractDate, saleType, paymentType, finalPrice, downPayment, installmentsCount, currency, geoSelection, detailedAddress, mapPosition, fatherNameOverride, nationalIdOverride]);
+    }, [isValid, saving, selectedCustomer, deviceModelId, selectedDevice, serialNumber, maintenancePlan, contractDate, saleType, paymentType, basePrice, finalPrice, downPayment, installmentsCount, schedule, geoSelection, detailedAddress, mapPosition, fatherNameOverride, nationalIdOverride, navigate]);
 
     const handleReset = () => {
         setSelectedCustomer(null); setCustomerSearch(''); setFatherNameOverride(''); setNationalIdOverride('');

@@ -78,47 +78,55 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
       return res.status(400).json({ error: 'A branch context is required' });
     }
 
-    // ── Step 1: collect all relevant client IDs for this team/date ─────────
-    // NOTE: explicit type casts are required because telemarketing_task_lists.date
-    // is character varying while open_tasks.assigned_for_date / excluded_for_date
-    // are DATE — PostgreSQL cannot resolve the type of $2 in a UNION without casts.
+    // ── Step 1: determine whether a task list has been generated ────────────
+    // Two modes:
+    //   PRE-GENERATION  (no task list) → show all assigned contacts (mutable preview)
+    //   POST-GENERATION (task list exists) → show ONLY what was generated + excluded
+    //     New assignments after generation are invisible until a new generation is triggered.
+    const { rows: taskListRows } = await pool.query(
+      `SELECT id FROM telemarketing_task_lists
+        WHERE team_key = $1 AND date = $2 AND branch_id = $3
+        LIMIT 1`,
+      [teamKey, date, branchId],
+    );
+    const taskListGenerated = taskListRows.length > 0;
+
+    // ── Step 2: collect relevant client IDs ──────────────────────────────────
     const { rows: clientIdRows } = await pool.query(
       `SELECT DISTINCT sub.client_id
        FROM (
-         -- Has assigned task for this team today
-         SELECT ot.client_id
-           FROM open_tasks ot
-          WHERE ot.assigned_team_key = $1
-            AND ot.assigned_for_date = $2::date
-            AND ot.branch_id         = $3
-            AND ot.status            = 'assigned'
+         ${taskListGenerated
+           ? `-- POST-GENERATION: only clients in the generated list
+              SELECT tli.entity_id AS client_id
+                FROM telemarketing_task_list_items tli
+                JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
+               WHERE tl.team_key    = $1
+                 AND tl.date        = $2::text
+                 AND tl.branch_id   = $3
+                 AND tli.entity_type = 'client'`
+           : `-- PRE-GENERATION: all assigned tasks for this team (any sync date)
+              SELECT ot.client_id
+                FROM open_tasks ot
+               WHERE ot.assigned_team_key = $1
+                 AND ot.branch_id         = $3
+                 AND ot.status            = 'assigned'
+                 AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)`}
 
          UNION
 
-         -- Was excluded today and belongs to this branch
+         -- Always: excluded contacts (visible regardless of generation state)
          SELECT ot.client_id
            FROM open_tasks ot
           WHERE ot.excluded_for_date = $2::date
             AND ot.branch_id         = $3
             AND ot.status IN ('open', 'needs_follow_up')
-
-         UNION
-
-         -- Has entry in today's task list for this team (generated)
-         SELECT tli.entity_id AS client_id
-           FROM telemarketing_task_list_items tli
-           JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
-          WHERE tl.team_key    = $1
-            AND tl.date        = $2::text
-            AND tl.branch_id   = $3
-            AND tli.entity_type = 'client'
        ) sub`,
       [teamKey, date, branchId],
     );
     const clientIds = clientIdRows.map((r: any) => Number(r.client_id));
 
     if (clientIds.length === 0) {
-      return res.json({ teamKey, date, clients: [], summary: { assigned: 0, inList: 0, booked: 0, closed: 0, excluded: 0 } });
+      return res.json({ teamKey, date, taskListGenerated, clients: [], summary: { assigned: 0, inList: 0, booked: 0, closed: 0, excluded: 0 } });
     }
 
     // ── Step 2: client meta (name, phone, classification, station) ────────
@@ -296,7 +304,7 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
       excluded:  clients.filter(c => c.assignedCount === 0 && c.excludedCount > 0).length,
     };
 
-    return res.json({ teamKey, date, clients, summary });
+    return res.json({ teamKey, date, taskListGenerated, clients, summary });
   } catch (err: any) {
     console.error('Failed to load assigned tasks:', err);
     return res.status(500).json({ error: err.message || 'Failed to load assigned tasks' });

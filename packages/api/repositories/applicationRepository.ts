@@ -51,13 +51,15 @@ export async function insertApplicant(client: PoolClient, applicant: any) {
 export async function insertReferrer(client: PoolClient, referrer: any) {
   const { rows } = await client.query(
     `INSERT INTO referrers (
-      type, employee_id, full_name, last_name, mobile_number,
+      type, employee_id, referral_entity_id, full_name, last_name, mobile_number,
       governorate, city_or_area, sub_area, neighborhood,
       detailed_address, referrer_work, referrer_notes
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
     RETURNING id`,
     [
-      referrer.type || 'Customer', referrer.employeeId || null,
+      (referrer.type === 'Customer' ? 'Client' : referrer.type) || 'Client',
+      (referrer.type === 'Employee' ? (referrer.employeeId ?? null) : null),
+      referrer.referralEntityId ?? (referrer.type === 'Employee' ? (referrer.employeeId ?? null) : null) ?? null,
       sanitizeText(referrer.fullName), referrer.lastName ? sanitizeText(referrer.lastName) : null, referrer.mobileNumber || null,
       referrer.governorate ? sanitizeText(referrer.governorate) : null, referrer.cityOrArea ? sanitizeText(referrer.cityOrArea) : null,
       referrer.subArea ? sanitizeText(referrer.subArea) : null, referrer.neighborhood ? sanitizeText(referrer.neighborhood) : null,

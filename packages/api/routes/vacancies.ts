@@ -135,7 +135,7 @@ router.get('/:id', requirePermission('jobs.vacancies.view_detail'), async (req, 
       ...vacancy,
       applicationsCount,
       hiredCount,
-      remainingSlots: vacancy.vacancyCount - hiredCount,
+      remainingSlots: vacancy.vacancyCount,
     });
   } catch (err: any) {
     console.error('Error fetching vacancy:', err);
@@ -238,6 +238,10 @@ router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) =>
     const total = parseInt(appCountRows[0].total);
     const pastSubmitted = parseInt(appCountRows[0].past_submitted || '0');
 
+    if (!v.vacancyCount || v.vacancyCount <= 0) {
+      return res.status(400).json({ error: 'عدد الشواغر يجب أن يكون أكبر من 0' });
+    }
+
     let editTier: 1 | 2 | 3;
 
     if (total === 0) {
@@ -285,20 +289,20 @@ router.put('/:id', requirePermission('jobs.vacancies.edit'), async (req, res) =>
       await client.query(
         `UPDATE job_vacancies SET
           end_date=$1, responsibilities=$2, required_skills=$3,
-          contact_methods=$4, updated_at=NOW()
-        WHERE id=$5`,
+          contact_methods=$4, vacancy_count=$5, updated_at=NOW()
+        WHERE id=$6`,
         [
           v.endDate || null, v.responsibilities || null, v.requiredSkills || null,
-          JSON.stringify(v.contactMethods || []), vacancyId,
+          JSON.stringify(v.contactMethods || []), v.vacancyCount, vacancyId,
         ]
       );
     } else {
       editTier = 3;
       await client.query('BEGIN');
       await client.query(
-        `UPDATE job_vacancies SET end_date=$1, updated_at=NOW()
-        WHERE id=$2`,
-        [v.endDate || null, vacancyId]
+        `UPDATE job_vacancies SET end_date=$1, vacancy_count=$2, updated_at=NOW()
+        WHERE id=$3`,
+        [v.endDate || null, v.vacancyCount, vacancyId]
       );
     }
 

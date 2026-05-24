@@ -514,6 +514,53 @@ export default function TelemarketerWorkspace() {
             );
         }
 
+        // ── Inline appointment booking — atomic: no separate modal ──────────────
+        if (outcome === 'booked_marketing_appointment' && extras?.visitDate && extras?.visitTime && activeTaskList) {
+            // Filter out tasks with no linked openTaskId (backend rejects null IDs via G-PL-05)
+            const selectedTaskEntries = selectedCustomer.openTasks
+                .filter(t => t.openTaskId != null)
+                .map(t => ({
+                    taskListItemId: t.taskListItemId,
+                    openTaskId: t.openTaskId,
+                    taskType: t.openTaskType || 'device_demo',
+                }));
+
+            try {
+                await addAppointment({
+                    entityType: selectedCustomer.entityType,
+                    entityId: selectedCustomer.entityId,
+                    customerName: selectedCustomer.name,
+                    customerAddress: selectedCustomer.addressText,
+                    customerMobile: selectedCustomer.mobile,
+                    teamKey: selectedTeamKey,
+                    taskListItemId: selectedCustomer.primaryItem.id,
+                    taskListId: activeTaskList.id,
+                    date: extras.visitDate,
+                    timeSlot: extras.visitTime,
+                    occupation: '',
+                    waterSource: extras.waterSource || '',
+                    notes: extras.technicianNotes || '',
+                    visitTasks: selectedTaskEntries.map(t => t.taskType),
+                    requestedDeviceModelId: null,
+                    requestedDeviceName: '',
+                }, selectedTaskEntries.length > 0 ? selectedTaskEntries : undefined);
+
+                if (selectedCustomer.entityType === 'client' && extras.waterSource) {
+                    await updateClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
+                }
+                // Mark as booked AFTER appointment is confirmed
+                await Promise.all(selectedCustomer.allItems.map(item =>
+                    updateTaskListItemStatus(activeTaskList.id, item.id, 'booked', outcome)
+                ));
+                setIsOutcomeModalOpen(false);
+                await loadData(date);
+            } catch (err: any) {
+                setCallLogSaveError(err.message || 'فشل حجز الموعد — تحقق من التفاصيل وحاول مجدداً');
+            }
+            return;
+        }
+
+        // ── Normal flow for all other outcomes ────────────────────────────────────
         const newStatus = meta.itemStatusAfterSave;
         await Promise.all(selectedCustomer.allItems.map(item =>
             updateTaskListItemStatus(activeTaskList.id, item.id, newStatus, outcome)
@@ -526,14 +573,13 @@ export default function TelemarketerWorkspace() {
             setIsManualCloseOpen(true);
         } else if (outcome === 'service_request' && extras?.serviceTaskType) {
             setServiceTaskType(extras.serviceTaskType);
-            // Resolve Arabic label via the already-loaded task type options (stored in modal)
-            // We pass the code; the modal shows it. Arabic label resolved on next open if needed.
             const foundLabel = taskTypeOptions.find(t => t.taskType === extras.serviceTaskType)?.arabicLabel;
             setServiceTaskTypeLabel(foundLabel ?? extras.serviceTaskType);
             setServiceTaskNotes('');
             setServiceTaskPriority('');
             setIsServiceTaskOpen(true);
         } else if (meta.opensAppointment) {
+            // Fallback: legacy path if inline data is missing
             setIsAppointmentModalOpen(true);
         } else if (outcome === 'address_updated' || outcome === 'new_number') {
             setIsClientEditModalOpen(true);
@@ -1155,20 +1201,16 @@ export default function TelemarketerWorkspace() {
                                     </div>
                                 </button>
 
-                                <button
-                                    onClick={() => { if (!selectedAppointment) setIsAppointmentModalOpen(true); }}
-                                    disabled={!isBookedForSelected || !!selectedAppointment}
-                                    className={`flex-1 py-1.5 px-3 flex items-center justify-center gap-2 border-none rounded-xl transition-all group active:scale-[0.98] ${(!isBookedForSelected || !!selectedAppointment)
-                                        ? 'bg-slate-100 border border-slate-200 text-slate-400 grayscale cursor-not-allowed shadow-none'
-                                        : 'bg-gradient-to-br from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/10 text-white'}`}>
-                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${(!isBookedForSelected || !!selectedAppointment) ? 'bg-slate-200' : 'bg-white/20'}`}>
-                                        <Calendar className={`w-3.5 h-3.5 ${(!isBookedForSelected || !!selectedAppointment) ? 'text-slate-400' : ''}`} />
+                                {/* Appointment badge — shown when visit is confirmed */}
+                                {selectedAppointment && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 shrink-0">
+                                        <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <div className="text-right">
+                                            <p className="font-black text-[10px] text-emerald-700 leading-tight">موعد مؤكد</p>
+                                            <p className="text-[9px] font-bold text-emerald-500" dir="ltr">{selectedAppointment.date} {selectedAppointment.timeSlot}</p>
+                                        </div>
                                     </div>
-                                    <div className="text-right overflow-hidden">
-                                        <p className="font-black text-[11px] leading-tight truncate">{selectedAppointment ? 'تم حجز الموعد' : 'جدولة زيارة التسويق'}</p>
-                                        <p className={`text-[8px] font-bold opacity-70 truncate ${(!isBookedForSelected || !!selectedAppointment) ? 'text-slate-400' : 'text-emerald-50'}`}>{selectedAppointment ? selectedAppointment.timeSlot : 'موعد جديد'}</p>
-                                    </div>
-                                </button>
+                                )}
 
                                 {/* Manual close button — only when CT is not yet closed */}
                                 {!isCtClosedForSelected && (
@@ -1410,6 +1452,7 @@ export default function TelemarketerWorkspace() {
                 entityDetails={entityDetails}
                 canBook={canBook}
                 preselectedContactId={preselectedContactId || undefined}
+                customerOpenTasks={selectedCustomer?.openTasks}
                 onSave={handleSaveOutcome}
             />
 

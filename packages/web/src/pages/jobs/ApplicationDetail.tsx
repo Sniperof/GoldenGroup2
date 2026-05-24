@@ -106,9 +106,7 @@ function getDecisionActions(stage: ApplicationStage, status: string): WorkflowAc
       ];
       return [];
     case 'Training':
-      if (status === 'Training Started') return [
-        { label: 'إعادة تدريب', description: 'يحتاج المتدرب لدورة إضافية', newStage: 'Training', newStatus: 'Retraining', icon: RotateCcw, variant: 'warning' },
-      ];
+      // أثناء التدريب الجاري لا يظهر أي قرار؛ القرار/النتيجة تُتاح فقط بعد اكتمال الدورة.
       if (status === 'Training Completed') return [
         { label: 'ناجح — تحويل للقرار النهائي', description: 'اجتاز التدريب بتفوق', newStage: 'Final Decision', newStatus: 'Passed', icon: Sparkles, variant: 'success' },
       ];
@@ -206,10 +204,13 @@ function buildEmployeeInitialValuesFromApplication(detail: JobApplicationDetail)
     workType: detail.vacancy?.workType ?? '',
     previousEmployment: detail.applicant?.previousEmployment ?? '',
     jobTitle: detail.vacancy?.title ?? '',
-    referrerType: detail.referrer?.type ?? (detail.submissionType === 'Refer a Candidate' ? 'Unknown' : ''),
+    referrerType: detail.referrer?.type === 'Customer'
+      ? 'Client'
+      : detail.referrer?.type ?? (detail.submissionType === 'Refer a Candidate' ? 'Unknown' : ''),
     sourceChannel: detail.applicationSource ?? '',
     referrerName: detail.referrer?.fullName ?? '',
     referralNotes: detail.referrer?.referrerNotes ?? '',
+    referralEntityId: detail.referrer?.referralEntityId ?? detail.referrer?.employeeId ?? null,
   };
 }
 
@@ -217,6 +218,7 @@ export default function ApplicationDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const authUser = useAuthStore(s => s.user);
+  const hasPermission = useAuthStore(s => s.hasPermission);
   const actorRole = authUser?.role || 'HR_MANAGER';
   const { scheduleInterview: storeScheduleInterview, fetchInterviews } = useInterviewStore();
   const [detail, setDetail] = useState<JobApplicationDetail | null>(null);
@@ -430,14 +432,45 @@ export default function ApplicationDetail() {
   };
 
   const [showEscalateConfirm, setShowEscalateConfirm] = useState(false);
+  const [escalateReason, setEscalateReason] = useState('');
   const [escalateLoading, setEscalateLoading] = useState(false);
   const [escalateError, setEscalateError] = useState('');
+  const [resolveEscalationLoading, setResolveEscalationLoading] = useState(false);
+  const [resolveEscalationError, setResolveEscalationError] = useState('');
 
   const handleEscalate = async () => {
+    const reason = escalateReason.trim();
+    if (!reason) {
+      setEscalateError('سبب التصعيد مطلوب');
+      return;
+    }
     setEscalateLoading(true);
     setEscalateError('');
     try {
       const res = await authFetch(`/api/admin/applications/${id}/escalate`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setShowEscalateConfirm(false);
+      setEscalateReason('');
+      fetchDetail();
+    } catch (err: any) {
+      setEscalateError(err.message);
+    } finally {
+      setEscalateLoading(false);
+    }
+  };
+
+  const handleResolveEscalation = async () => {
+    setResolveEscalationLoading(true);
+    setResolveEscalationError('');
+    try {
+      const res = await authFetch(`/api/admin/applications/${id}/resolve-escalation`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -445,12 +478,11 @@ export default function ApplicationDetail() {
         const err = await res.json();
         throw new Error(err.error);
       }
-      setShowEscalateConfirm(false);
       fetchDetail();
     } catch (err: any) {
-      setEscalateError(err.message);
+      setResolveEscalationError(err.message);
     } finally {
-      setEscalateLoading(false);
+      setResolveEscalationLoading(false);
     }
   };
 
@@ -528,11 +560,11 @@ export default function ApplicationDetail() {
   const currentStageIdx = STAGES_ORDER.indexOf(detail.currentStage);
   const workflowActions = getWorkflowActions(detail.currentStage, detail.applicationStatus);
   const decisionActions = getDecisionActions(detail.currentStage, detail.applicationStatus);
-  const isFinalDecision = detail.currentStage === 'Final Decision';
   const isTerminal = TERMINAL_STATUSES.includes(detail.applicationStatus);
   const isAssistantEscalationLock = authUser?.role === 'HR_ASSISTANT' && detail.isEscalated;
   const isAssistantFinalDecisionLock = authUser?.role === 'HR_ASSISTANT' && detail.currentStage === 'Final Decision';
   const isAssistantWorkflowLocked = isAssistantEscalationLock || isAssistantFinalDecisionLock;
+  const canResolveEscalation = detail.isEscalated;
   const assistantLockMessage = isAssistantEscalationLock
     ? 'تم تصعيد الطلب للإدارة، ولا يمكن لمساعد الموارد البشرية متابعة هذا الطلب بعد الآن.'
     : isAssistantFinalDecisionLock
@@ -1320,13 +1352,13 @@ export default function ApplicationDetail() {
             )}
 
             {/* ── Secondary actions row ── */}
-            {!isTerminal && !isFinalDecision && !isAssistantWorkflowLocked && (
+            {!isTerminal && !isAssistantWorkflowLocked && (
               <div className="flex gap-2">
                 {/* Escalate */}
                 {!detail.isEscalated && (
                   <PermissionGate permission="jobs.applications.escalate">
                     <button
-                      onClick={() => { setEscalateError(''); setShowEscalateConfirm(true); }}
+                      onClick={() => { setEscalateError(''); setEscalateReason(''); setShowEscalateConfirm(true); }}
                       disabled={actionLoading}
                       className="flex-1 py-2.5 px-3 rounded-xl text-xs font-medium border border-dashed border-orange-300 text-orange-400 hover:text-orange-600 hover:border-orange-400 hover:bg-orange-50 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
                     >
@@ -1335,6 +1367,7 @@ export default function ApplicationDetail() {
                     </button>
                   </PermissionGate>
                 )}
+
                 {/* Retreat */}
                 <PermissionGate permission="jobs.applications.change_stage">
                   <button
@@ -1349,11 +1382,39 @@ export default function ApplicationDetail() {
               </div>
             )}
 
+            {canResolveEscalation && !isAssistantWorkflowLocked && (authUser?.isSuperAdmin === true || authUser?.role === 'branch_manager' || hasPermission('jobs.applications.resolve_escalation')) && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <h3 className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-2">
+                      <RotateCcw className="w-3.5 h-3.5" /> فك التصعيد
+                    </h3>
+                    <p className="text-xs text-emerald-700 mt-1 leading-relaxed">
+                      الطلب مصعّد حالياً ويمكن فك التصعيد فقط من خلال هذه الصلاحية.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleResolveEscalation}
+                    disabled={resolveEscalationLoading}
+                    className="py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {resolveEscalationLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                    فك التصعيد
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Internal Notes */}
             {detail.internalNotes && (
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
                 <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">ملاحظات داخلية</h3>
                 <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{detail.internalNotes}</p>
+              </div>
+            )}
+            {resolveEscalationError && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 mt-3 text-xs text-red-700 flex items-center gap-2">
+                <XCircle className="w-4 h-4 shrink-0" />{resolveEscalationError}
               </div>
             )}
           </div>
@@ -1365,14 +1426,7 @@ export default function ApplicationDetail() {
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
               <Users className="w-4 h-4 text-sky-500" /> المقابلات
             </h3>
-            <PermissionGate permission="jobs.interviews.schedule">
-              <button
-                onClick={() => setShowScheduleInterviewModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-xs font-bold transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" /> جدولة مقابلة
-              </button>
-            </PermissionGate>
+
           </div>
           {!detail.interviews || detail.interviews.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">لا توجد مقابلات مسجلة</p>
@@ -1996,16 +2050,24 @@ export default function ApplicationDetail() {
                   <span className="font-bold">{detail.applicant?.firstName} {detail.applicant?.lastName}</span>
                   {' — '}{detail.vacancy?.title}
                   <br />
-                  <span className="text-orange-500 mt-1 block">هذا الإجراء لا يمكن التراجع عنه. هل أنت متأكد؟</span>
+                  <span className="text-orange-500 mt-1 block">هذا الإجراء لا يمكن التراجع عنه. الرجاء كتابة سبب التصعيد.</span>
                 </p>
               </div>
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">سبب التصعيد</label>
+              <textarea
+                value={escalateReason}
+                onChange={e => setEscalateReason(e.target.value)}
+                rows={4}
+                placeholder="اكتب سبب التصعيد هنا..."
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500 mb-4 resize-none"
+              />
               {escalateError && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-700 flex items-center gap-2">
                   <XCircle className="w-4 h-4 shrink-0" />{escalateError}
                 </div>
               )}
               <div className="flex gap-3">
-                <button onClick={() => setShowEscalateConfirm(false)}
+                <button onClick={() => { setShowEscalateConfirm(false); setEscalateReason(''); }}
                   className="flex-1 px-4 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors font-medium">
                   إلغاء
                 </button>

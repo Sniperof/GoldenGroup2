@@ -5,12 +5,12 @@ import { motion } from 'framer-motion';
 import {
     Phone, CheckCircle2, PhoneOff, PhoneMissed, X, Send,
     MessageSquare, PhoneForwarded, UserCheck, PhoneCall,
-    MapPin, AlertTriangle, Calendar, Edit3,
+    MapPin, AlertTriangle, Calendar, Edit3, Clock, Droplets, FileText,
 } from 'lucide-react';
 import {
     TelemarketingOutcomeCode, OUTCOME_MAP, OUTCOMES_BY_GROUP,
     PHONE_STATUS_LABELS, PHONE_STATUS_TO_CONTACT_ENTRY,
-    getOutcomeMeta, normaliseOutcomeCode,
+    getOutcomeMeta, normaliseOutcomeCode, WORKING_HOURS,
 } from '@golden-crm/shared';
 import type { PhoneStatusUpdate } from '@golden-crm/shared';
 import { TaskListItem, ContactStatus } from '../../lib/types';
@@ -46,6 +46,11 @@ export interface SaveExtras {
     rescheduleReason?: string;
     /** Task type selected when outcome = service_request */
     serviceTaskType?: string;
+    /** Inline appointment booking data (when outcome = booked_marketing_appointment) */
+    visitDate?: string;
+    visitTime?: string;
+    waterSource?: string;
+    technicianNotes?: string;
 }
 
 interface OutcomeRecorderModalProps {
@@ -59,12 +64,14 @@ interface OutcomeRecorderModalProps {
     /** Whether the current user has telemarketing.appointments.book permission.
      *  Only relevant for non-free-call (task list) mode; ignored for free calls. */
     canBook?: boolean;
+    /** Open tasks for this customer — used to determine if water source is required */
+    customerOpenTasks?: Array<{ openTaskType: string | null }>;
     onSave: (
         contactId: string,
         outcome: TelemarketingOutcomeCode,
         notes: string,
         extras?: SaveExtras,
-    ) => void;
+    ) => void | Promise<void>;
 }
 
 // ── Free-call outcome layout ──────────────────────────────────────────────────
@@ -162,6 +169,17 @@ const OUTCOME_ICON_COLORS: Record<string, { color: string; bg: string; border: s
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function getTomorrow(): string {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getToday(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function nowLocal(): string {
     const d = new Date();
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -221,6 +239,7 @@ export default function OutcomeRecorderModal({
     title,
     preselectedContactId,
     canBook = false,
+    customerOpenTasks = [],
     onSave,
 }: OutcomeRecorderModalProps) {
     const [method, setMethod] = useState<'cellular' | 'whatsapp'>('cellular');
@@ -239,11 +258,17 @@ export default function OutcomeRecorderModal({
     const [followUpDueDate, setFollowUpDueDate] = useState('');
     const [followUpPriority, setFollowUpPriority] = useState<'high' | 'medium' | 'low' | ''>('');
     const [rescheduleReason, setRescheduleReason] = useState('');
+    const [saving, setSaving] = useState(false);
     const currentUser = useAuthStore((state) => state.user);
     const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
     const { items: rescheduleReasons } = useSystemList('telemarketing_reschedule_reason');
     const [taskTypeOptions, setTaskTypeOptions] = useState<{ taskType: string; arabicLabel: string }[]>([]);
     const [serviceTaskType, setServiceTaskType] = useState('');
+    // ── Inline appointment booking state ─────────────────────────────────────────
+    const [visitDate, setVisitDate] = useState('');
+    const [visitTime, setVisitTime] = useState('');
+    const [apptWaterSource, setApptWaterSource] = useState('');
+    const [apptNotes, setApptNotes] = useState('');
 
     useEffect(() => {
         api.telemarketing.taskTypeOptions()
@@ -273,6 +298,10 @@ export default function OutcomeRecorderModal({
             setFollowUpPriority('');
             setRescheduleReason('');
             setServiceTaskType('');
+            setVisitDate(getTomorrow());
+            setVisitTime('');
+            setApptWaterSource((entityDetails as any)?.waterSource || '');
+            setApptNotes('');
         }
     }, [isOpen, task, preselectedContactId]);
 
@@ -326,16 +355,25 @@ export default function OutcomeRecorderModal({
 
     const requiresRejectionReason = showRejectScheduling && rejectScheduling;
 
+    // Inline booking
+    const isBookingOutcome = outcome === 'booked_marketing_appointment' && !isFreeCall;
+    const hasDeviceDemo = customerOpenTasks.some(t => t.openTaskType === 'device_demo');
+    const bookingValid = !isBookingOutcome || (
+        !!visitDate && !!visitTime && (!hasDeviceDemo || !!apptWaterSource)
+    );
+
     const canSave =
-        !!selectedContactId &&
+        !!(selectedContactId || preselectedContactId) &&
         (isTextMessage || !!outcome) &&
         isWhatsAppSelectable &&
         (!requiresNotes || notes.trim().length > 0) &&
         (!requiresPhoneStatus || !!selectedPhoneStatus) &&
-        (!requiresRejectionReason || !!rejectionReason);
+        (!requiresRejectionReason || !!rejectionReason) &&
+        bookingValid;
 
-    const handleSave = () => {
-        if (!canSave) return;
+    const handleSave = async () => {
+        if (!canSave || saving) return;
+        setSaving(true);
 
         const communicationChannel = methodToChannel(method, cellularSubtype, whatsappSubtype);
         const status: 'pending' | 'completed' = isTextMessage ? 'pending' : 'completed';
@@ -353,6 +391,10 @@ export default function OutcomeRecorderModal({
                 : null,
             rejectScheduling: showRejectScheduling ? rejectScheduling : undefined,
             serviceTaskType: (finalOutcome === 'service_request' && serviceTaskType) ? serviceTaskType : undefined,
+            visitDate:  isBookingOutcome ? visitDate  : undefined,
+            visitTime:  isBookingOutcome ? visitTime  : undefined,
+            waterSource: isBookingOutcome ? apptWaterSource : undefined,
+            technicianNotes: isBookingOutcome && apptNotes ? apptNotes : undefined,
             // rejectionReason is shared by two flows:
             //   1. "رفض الجدولة" checkbox (not-reached outcomes)
             //   2. "غير مهتم" reason picker (reached, telemarketer only)
@@ -362,7 +404,11 @@ export default function OutcomeRecorderModal({
             rescheduleReason: showFollowUpDate && rescheduleReason ? rescheduleReason : undefined,
         };
 
-        onSave(selectedContactId, finalOutcome, notes, extras);
+        try {
+            await onSave(selectedContactId || preselectedContactId || '', finalOutcome, notes, extras);
+        } finally {
+            setSaving(false);
+        }
     };
 
     // ── Outcome groups to render ──────────────────────────────────────────────
@@ -700,6 +746,86 @@ export default function OutcomeRecorderModal({
                         </div>
                     )}
 
+                    {/* ── تفاصيل الموعد — inline booking (expands when حجز موعد is selected) ── */}
+                    {isBookingOutcome && (
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl overflow-hidden">
+                            <div className="px-4 py-3 bg-emerald-100 border-b border-emerald-200 flex items-center gap-2">
+                                <Calendar className="w-4 h-4 text-emerald-700" />
+                                <p className="text-sm font-black text-emerald-800">تفاصيل الموعد</p>
+                            </div>
+                            <div className="px-4 py-4 space-y-4">
+                                {/* Date + Time row */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                                            <Calendar className="w-3.5 h-3.5" />
+                                            تاريخ الزيارة <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={visitDate}
+                                            onChange={e => setVisitDate(e.target.value)}
+                                            min={getToday()}
+                                            className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none font-mono"
+                                            dir="ltr"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                                            <Clock className="w-3.5 h-3.5" />
+                                            وقت الزيارة <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={visitTime}
+                                            onChange={e => setVisitTime(e.target.value)}
+                                            min={`${String(WORKING_HOURS.start).padStart(2,'0')}:00`}
+                                            max={`${String(WORKING_HOURS.end).padStart(2,'0')}:00`}
+                                            className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none font-mono"
+                                            dir="ltr"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Water source — only for device_demo tasks */}
+                                {hasDeviceDemo && (
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                                            <Droplets className="w-3.5 h-3.5" />
+                                            مصدر المياه <span className="text-red-500">*</span>
+                                        </label>
+                                        <select
+                                            value={apptWaterSource}
+                                            onChange={e => setApptWaterSource(e.target.value)}
+                                            className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none"
+                                        >
+                                            <option value="">— اختر مصدر المياه —</option>
+                                            {['الاسالة الحكومية','شراء قناني معبأة (RO)','ماء بئر / جوفي','تناكر / حوضيات','غير معروف'].map(o => (
+                                                <option key={o} value={o}>{o}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {/* Technician notes */}
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                                        <FileText className="w-3.5 h-3.5" />
+                                        ملاحظات للفني
+                                        <span className="text-emerald-500 font-normal">(اختياري)</span>
+                                    </label>
+                                    <textarea
+                                        value={apptNotes}
+                                        onChange={e => setApptNotes(e.target.value)}
+                                        placeholder="أي تعليمات خاصة للفريق الميداني..."
+                                        rows={2}
+                                        className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none resize-none"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* سبب عدم الاهتمام — telemarketer only, when not_interested is selected */}
                     {outcome === 'not_interested' && !isFreeCall && !isTextMessage && rejectionReasons.length > 0 && (
                         <div className="space-y-2">
@@ -940,11 +1066,19 @@ export default function OutcomeRecorderModal({
                     </button>
                     <button
                         onClick={handleSave}
-                        disabled={!canSave}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl text-sm font-bold shadow-md shadow-violet-500/20 disabled:shadow-none transition-all"
+                        disabled={!canSave || saving}
+                        className={`flex items-center gap-2 px-6 py-2.5 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl text-sm font-bold shadow-md disabled:shadow-none transition-all ${
+                            isBookingOutcome
+                                ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+                                : 'bg-violet-600 hover:bg-violet-700 shadow-violet-500/20'
+                        }`}
                     >
-                        <CheckCircle2 className="w-4 h-4" />
-                        {isTextMessage ? 'إرسال الرسالة' : 'حفظ النتيجة'}
+                        {saving
+                            ? <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            : <CheckCircle2 className="w-4 h-4" />}
+                        {isTextMessage ? 'إرسال الرسالة'
+                            : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
+                            : 'حفظ النتيجة'}
                     </button>
                 </div>
             </motion.div>

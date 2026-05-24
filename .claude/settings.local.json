@@ -46,7 +46,9 @@
       "Bash(awk '{print $6, $7, $8, $9}')",
       "Bash(pm2 show *)",
       "Bash(pm2 status *)",
-      "Bash(awk -F: '{print $1}')"
+      "Bash(awk -F: '{print $1}')",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 *)"
     ],
     "deny": [
       "Bash(rm -rf /*)",

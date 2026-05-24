@@ -9,7 +9,6 @@ import {
 import { checkVacancyCapacity, checkDuplicate } from '../utils/applicationHelpers.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
-import { requireRole } from '../middleware/auth.js';
 import {
   deriveEmployeeRoleFromVacancyTitle,
   getApplicationProcessingBlockReason,
@@ -289,15 +288,21 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
     let referrerId: number | null = null;
     if (submissionType === 'Refer a Candidate' && body.referrer) {
       const r = body.referrer;
+      const normalizedReferrerType = r.type === 'Customer' ? 'Client' : r.type;
+      const referrerEntityId = normalizedReferrerType === 'Employee'
+        ? (r.referralEntityId ?? r.employeeId ?? null)
+        : (r.referralEntityId ?? null);
       const { rows: refRows } = await client.query(
         `INSERT INTO referrers (
-          type, employee_id, full_name, last_name, mobile_number,
+          type, employee_id, referral_entity_id, full_name, last_name, mobile_number,
           governorate, city_or_area, sub_area, neighborhood,
           detailed_address, referrer_work, referrer_notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         RETURNING id`,
         [
-          r.type || 'Customer', r.employeeId || null,
+          normalizedReferrerType || 'Client',
+          normalizedReferrerType === 'Employee' ? (r.employeeId ?? null) : null,
+          referrerEntityId,
           sanitizeText(r.fullName), r.lastName ? sanitizeText(r.lastName) : null, r.mobileNumber || null,
           r.governorate ? sanitizeText(r.governorate) : null, r.cityOrArea ? sanitizeText(r.cityOrArea) : null,
           r.subArea ? sanitizeText(r.subArea) : null, r.neighborhood ? sanitizeText(r.neighborhood) : null,
@@ -420,7 +425,7 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
     let referrer = null;
     if (app.referrerId) {
       const { rows: refRows } = await pool.query(
-        `SELECT id, type, employee_id AS "employeeId",
+        `SELECT id, type, employee_id AS "employeeId", referral_entity_id AS "referralEntityId",
           full_name AS "fullName", last_name AS "lastName",
           mobile_number AS "mobileNumber", governorate,
           city_or_area AS "cityOrArea", sub_area AS "subArea",
@@ -1131,6 +1136,12 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
     const appId = req.params.id as string;
     if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
+    const reason = sanitizeText(String(req.body?.reason ?? '').trim());
+    if (!reason) {
+      client.release();
+      return res.status(400).json({ error: 'سبب التصعيد مطلوب' });
+    }
+
     await client.query('BEGIN');
 
     const { rows } = await client.query(
@@ -1144,7 +1155,7 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'الطلب غير موجود ?? ?القرار مطلوب?' });
+      return res.status(400).json({ error: 'الطلب غير موجود أو مصعّد مسبقاً' });
     }
 
     await insertAuditLog(client, {
@@ -1154,6 +1165,7 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
       actionType: 'Escalated',
       performedByRole: req.user!.role,
       performedByUserId: req.user!.id,
+      internalReason: reason,
     });
 
     await client.query('COMMIT');
@@ -1168,7 +1180,7 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
 });
 
 // PATCH /api/admin/applications/:id/resolve-escalation
-router.patch('/:id/resolve-escalation', requireRole('HR_MANAGER'), async (req, res) => {
+router.patch('/:id/resolve-escalation', requirePermission('jobs.applications.resolve_escalation'), async (req, res) => {
   const client = await pool.connect();
   try {
     const appId = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id)!;

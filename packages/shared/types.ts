@@ -26,6 +26,7 @@ export type ClientRating = 'Committed' | 'NotCommitted' | 'Undefined';
 
 export interface ReferralSheetStats {
     totalCandidates: number;
+    targetCandidates?: number;
     qualityPercentage: number;
     conversionPercentage: number;
 }
@@ -393,7 +394,13 @@ export type FieldVisitStatus =
     | 'cancelled'
     | 'needs_reschedule';
 
-export type MarketingVisitTaskType = 'device_demo';
+export type MarketingVisitTaskType =
+  | 'device_demo' | 'device_purchase' | 'device_delivery' | 'device_installation'
+  | 'device_activation' | 'periodic_maintenance' | 'emergency_maintenance'
+  | 'installment_collection' | 'maintenance_collection' | 'gift_delivery'
+  | 'device_checkup' | 'parts_sale' | 'device_retrieval' | 'device_repair'
+  | 'device_return' | 'golden_warranty' | 'warranty_cancellation'
+  | 'warranty_reactivation' | 'device_disconnection' | 'device_transfer';
 
 export type MarketingVisitTaskStatus = 'pending' | 'completed' | 'not_completed';
 
@@ -934,7 +941,7 @@ export type ApplicationStatus =
 export type StageStatus = 'Pending' | 'Under Review' | 'Ready' | 'Scheduled' | 'Completed' | 'In Progress' | 'Awaiting Decision';
 export type Decision = 'Qualified' | 'Approved' | 'Passed' | 'Hired' | 'Rejected' | 'Failed' | 'Retraining' | 'Retreated';
 
-export type ReferrerType = 'Employee' | 'Customer';
+export type ReferrerType = ReferralType | 'Customer';
 export type ApplicantSegment = 'OP' | 'FOP' | 'Lead' | 'Visitor';
 
 export interface JobVacancy {
@@ -1005,6 +1012,7 @@ export interface JobReferrer {
   id: number;
   type: ReferrerType;
   employeeId: number | null;
+  referralEntityId?: number | null;
   fullName: string;
   lastName: string | null;
   mobileNumber: string;
@@ -1146,6 +1154,8 @@ export type OpenTaskReason = 'new_lead' | 'follow_up' | 'renewal' | 'service_req
 // Task type configuration (see docs/analysis/task-scheduling-patterns.md)
 export type TaskSchedulingPattern = 'immediate' | 'short_window' | 'long_window' | 'expected_window';
 export type TaskWindowBasis = 'none' | 'due_date' | 'expected_date';
+/** Which geographic point determines this task's zone in work-scope matching. */
+export type TaskLocationBasis = 'client' | 'contract';
 
 export interface TaskTypeConfig {
   taskType: string;
@@ -1159,6 +1169,7 @@ export interface TaskTypeConfig {
   hasDueDate: boolean;
   displayOrder: number;
   isActive: boolean;
+  locationBasis: TaskLocationBasis;
   createdAt: string;
   updatedAt: string;
 }
@@ -1181,6 +1192,16 @@ export const TASK_WINDOW_BASIS_LABELS: Record<TaskWindowBasis, string> = {
   none:          'لا ينطبق',
   due_date:      'تاريخ الاستحقاق',
   expected_date: 'الموعد المتوقع',
+};
+
+export const TASK_LOCATION_BASIS_LABELS: Record<TaskLocationBasis, string> = {
+  client:   'موقع الزبون',
+  contract: 'موقع الجهاز (العقد)',
+};
+
+export const TASK_LOCATION_BASIS_DESCRIPTIONS: Record<TaskLocationBasis, string> = {
+  client:   'الفريق يتوجه إلى موقع الزبون — مناسب لمهام التسويق والهدايا والمبيعات الجديدة',
+  contract: 'الفريق يتوجه إلى موقع تركيب الجهاز — مناسب لمهام الصيانة والتحصيل والخدمة',
 };
 
 /** Map each status to its lifecycle phase. Phase is derived, never stored. */

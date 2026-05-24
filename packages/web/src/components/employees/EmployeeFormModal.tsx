@@ -390,6 +390,49 @@ export default function EmployeeFormModal({
     setEmployeeSearchError('');
     setClientSearch('');
     setClientSuggestions([]);
+
+    let cancelled = false;
+    const initialReferralEntityId = (initialValues as any)?.referralEntityId ?? null;
+    const initialReferrerType = initialValues?.referrerType ? String(initialValues.referrerType) : '';
+
+    if (initialReferrerType === 'Employee' && initialReferralEntityId != null) {
+      void (async () => {
+        try {
+          const employee = await api.employees.get(Number(initialReferralEntityId));
+          if (cancelled || !employee) return;
+          const mediator = toMediatorEmployee(employee);
+          setEmployeeFound(mediator);
+          setEmployeeIdInput(String(mediator.employeeNumber ?? mediator.id));
+          setEmployeeSearchError('');
+          setForm((current) => ({
+            ...current,
+            referrerName: current.referrerName || mediator.name,
+            referralEntityId: mediator.id,
+          }));
+        } catch {
+          if (!cancelled) {
+            setEmployeeSearchError('تعذر استرجاع بيانات الوسيط من سجل الموظف');
+          }
+        }
+      })();
+    } else if (initialReferrerType === 'Client' && initialReferralEntityId != null) {
+      void (async () => {
+        try {
+          const client = await api.clients.get(Number(initialReferralEntityId));
+          if (cancelled || !client) return;
+          setClientSearch(client.name || '');
+          setForm((current) => ({
+            ...current,
+            referrerName: current.referrerName || client.name || '',
+            referralEntityId: client.id,
+          }));
+        } catch {
+          // best-effort only; existing snapshot text is enough for save
+        }
+      })();
+    }
+
+    return () => { cancelled = true; };
   }, [isOpen, initialValues, fixedBranchId]);
 
   useEffect(() => {

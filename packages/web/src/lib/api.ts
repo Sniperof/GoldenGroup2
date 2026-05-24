@@ -93,6 +93,15 @@ export const api = {
           body: JSON.stringify(data),
         }),
     },
+    emergencyActionTypes: {
+      list:   () => request<any[]>('/admin/emergency-action-types'),
+      active: () => request<any[]>('/admin/emergency-action-types/active'),
+      create: (data: { arabicLabel: string; description?: string; displayOrder?: number }) =>
+        request<any>('/admin/emergency-action-types', { method: 'POST', body: JSON.stringify(data) }),
+      update: (id: number, data: { arabicLabel?: string; description?: string; displayOrder?: number; isActive?: boolean }) =>
+        request<any>(`/admin/emergency-action-types/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (id: number) => request<any>(`/admin/emergency-action-types/${id}`, { method: 'DELETE' }),
+    },
   },
   employees: {
     list: () => request<any[]>('/employees'),
@@ -152,7 +161,11 @@ export const api = {
     delete: (id: number) => request<any>(`/tasks/${id}`, { method: 'DELETE' }),
   },
   contracts: {
-    list: () => request<any[]>('/contracts'),
+    list: (params?: { customerId?: number }) => {
+      const qs = params?.customerId ? `?customerId=${params.customerId}` : '';
+      return request<any[]>(`/contracts${qs}`);
+    },
+    get: (id: number) => request<any>(`/contracts/${id}`),
     create: (data: any) => request<any>('/contracts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/contracts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/contracts/${id}`, { method: 'DELETE' }),
@@ -177,6 +190,21 @@ export const api = {
     list: () => request<any[]>('/maintenance-requests'),
     create: (data: any) => request<any>('/maintenance-requests', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/maintenance-requests/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  },
+  emergencyResult: {
+    get:          (taskId: number)            => request<any>(`/emergency-result/${taskId}`),
+    savePreState: (taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/pre-state`,  { method: 'PUT', body: JSON.stringify(data) }),
+    saveActions:  (taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/actions`,    { method: 'PUT', body: JSON.stringify(data) }),
+    savePostState:(taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/post-state`, { method: 'PUT', body: JSON.stringify(data) }),
+    saveCosts:    (taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/costs`,      { method: 'PUT', body: JSON.stringify(data) }),
+    saveParts:          (taskId: number, parts: any[]) => request<any[]>(`/emergency-result/${taskId}/parts`, { method: 'PUT', body: JSON.stringify({ parts }) }),
+    getParts:           (taskId: number)              => request<any[]>(`/emergency-result/${taskId}/parts`),
+    deviceHistory:      (contractId: number)          => request<any[]>(`/emergency-result/device/${contractId}/history`),
+    getPaymentEntries:  (taskId: number)              => request<any[]>(`/emergency-result/${taskId}/payment-entries`),
+    savePaymentEntries: (taskId: number, entries: any[]) => request<any>(`/emergency-result/${taskId}/payment-entries`, { method: 'PUT', body: JSON.stringify({ entries }) }),
+    getInstallments:    (taskId: number)              => request<any>(`/emergency-result/${taskId}/installments`),
+    saveInstallments:   (taskId: number, data: any)   => request<any>(`/emergency-result/${taskId}/installments`, { method: 'PUT', body: JSON.stringify(data) }),
+    confirmInstallments:(taskId: number)              => request<any>(`/emergency-result/${taskId}/installments/confirm`, { method: 'POST' }),
   },
   emergencyTickets: {
     list: (params?: { openTaskId?: number }) => {
@@ -293,14 +321,25 @@ export const api = {
     get: (id: string) => request<any>(`/marketing-visits/${id}`),
     updateResult: (id: string, data: any) => request<any>(`/marketing-visits/${id}/result`, { method: 'PATCH', body: JSON.stringify(data) }),
     updateTaskResult: (visitId: string, taskId: string, data: any) => request<any>(`/marketing-visits/${visitId}/tasks/${taskId}/result`, { method: 'PATCH', body: JSON.stringify(data) }),
-    updateStatus: (visitId: string, status: string) =>
-      request<any>(`/marketing-visits/${visitId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    updateStatus: (visitId: string, status: string, gps?: { lat: number; lng: number; accuracy: number | null }) =>
+      request<any>(`/marketing-visits/${visitId}/status`, { method: 'PATCH', body: JSON.stringify({ status, gps: gps ?? null }) }),
     updateTaskOutcome: (visitId: string, taskId: string, data: any) =>
       request<any>(`/marketing-visits/${visitId}/tasks/${taskId}/outcome`, { method: 'PATCH', body: JSON.stringify(data) }),
     reschedule: (visitId: string, data: MarketingVisitRescheduleRequest) =>
       request<any>(`/marketing-visits/${visitId}/reschedule`, { method: 'PATCH', body: JSON.stringify(data) }),
     cancel: (visitId: string, data: MarketingVisitCancelRequest) =>
       request<any>(`/marketing-visits/${visitId}/cancel`, { method: 'PATCH', body: JSON.stringify(data) }),
+    close: (visitId: string, closingNotes?: string) =>
+      request<any>(`/marketing-visits/${visitId}/close`, {
+        method: 'POST',
+        body: JSON.stringify({ closingNotes: closingNotes ?? null }),
+      }),
+    updateTeam: (visitId: string, data: {
+      supervisorEmployeeId?: number | null;
+      technicianEmployeeId?: number | null;
+      traineeEmployeeId?: number | null;
+      telemarketerEmployeeIds?: number[];
+    }) => request<any>(`/marketing-visits/${visitId}/team`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
 telemarketing: {
     snapshot: (date?: string) => {

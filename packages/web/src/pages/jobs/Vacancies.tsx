@@ -591,7 +591,7 @@ export default function Vacancies() {
       render: (v) => <span className="flex items-center gap-1.5 text-slate-600"><GraduationCap className="w-3.5 h-3.5 text-slate-400 shrink-0" />{v.requiredCertificate || '—'}</span>,
     },
     {
-      key: 'vacancyCount', label: 'الشواغر', sortable: true,
+      key: 'vacancyCount', label: 'الشواغر المتبقية', sortable: true,
       render: (v) => <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold"><Users className="w-3 h-3" />{v.vacancyCount}</span>,
       getValue: (v) => v.vacancyCount,
     },
