@@ -416,40 +416,40 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [geo-units.md §9.2](domains/geo-units.md#gap-034-تخزين-سكن-الموظفين-كـ-varchar) |
 
-### GAP-035: Missing CHECK constraints on level values 🟢 منخفضة — **جديد**
+### GAP-035: Missing CHECK constraints on level values 🟢 منخفضة — **محلول**
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | geo_units |
 | **الموقع** | `migrations/001_core_tables.sql` (geo_units) |
-| **الوصف** | لا يفرض الجدول بقاعدة البيانات أي قيود فحص (`CHECK constraint`) على قيم الحقل `level` للتأكد من انحصارها في المستويات الثلاثة المعيارية (1، 2، 3). |
-| **التأثير** | إمكانية إدخال مستويات عشوائية تالفة بالنظام (مثل المستوى 0 أو 4 أو أرقام سالبة) مما يتسبب في تعطل الواجهات الرسومية وعمليات الشجرة. |
-| **الحل المقترح** | إضافة قيد الفحص المباشر للجدول: `ALTER TABLE geo_units ADD CHECK (level IN (1, 2, 3));` |
-| **الحالة** | ⏳ مفتوحة |
+| **الوصف** | لا يفرض الجدول بقاعدة البيانات أي قيود فحص (`CHECK constraint`) على قيم الحقل `level`. **اكتشاف أثناء الحل:** النظام الفعلي يدعم 4 مستويات (وليس 3 كما وُثّق) — Level 4 يُمثّل الأحياء والقرى الدقيقة. |
+| **التأثير** | إمكانية إدخال مستويات عشوائية تالفة (0، 5، أرقام سالبة). |
+| **الحل المقترح** | `ALTER TABLE geo_units ADD CONSTRAINT geo_units_level_check CHECK (level IN (1, 2, 3, 4));` |
+| **الحالة** | ✅ محلول — `migrations/168_geo_units_constraints.sql` |
 | **ملف الدستور** | [geo-units.md §9.3](domains/geo-units.md#gap-035-غياب-قيد-التحقق-من-المستويات-الإدارية-no-level-validation-check) |
 
-### GAP-036: No parent-child level hierarchy validation 🟢 منخفضة — **جديد**
+### GAP-036: No parent-child level hierarchy validation 🟢 منخفضة — **محلول**
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | geo_units |
 | **الموقع** | `migrations/001_core_tables.sql` (geo_units) |
-| **الوصف** | لا يوجد أي فحص بقاعدة البيانات يضمن النزاهة الهرمية، حيث يمكن تقنياً ربط حي (`level = 3`) بمحافظة مباشرة (`level = 1`) متجاوزاً إدخال المنطقة التابعة لها (`level = 2`). |
-| **التأثير** | تشويه كلي لهيكلية شجرة العناوين الجغرافية وعجز الفلترة والتقارير الإحصائية المعتمدة على المستويات الإدارية. |
-| **الحل المقترح** | تطبيق فحص في الخادم يمنع الحفظ في حال لم تكن معادلة `parent.level = child.level - 1` متحققة تماماً. |
-| **الحالة** | ⏳ مفتوحة |
+| **الوصف** | لا يوجد فحص يضمن النزاهة الهرمية — ممكن ربط حي (level=4) بمحافظة (level=1) مباشرة. |
+| **التأثير** | تشويه كلي لهيكلية شجرة العناوين وعجز فلترة `geoScopeService`. |
+| **الحل المقترح** | فحص API: `parent.level = child.level - 1` مع رسائل خطأ واضحة. |
+| **الحالة** | ✅ محلول — `packages/api/routes/geoUnits.ts` (POST handler) |
 | **ملف الدستور** | [geo-units.md §9.4](domains/geo-units.md#gap-036-غياب-التحقق-الهرمي-بين-الأب-والابن-no-parent-level-validation) |
 
-### GAP-037: PUT/PATCH Endpoints Missing for Geo Units 🟡 متوسطة — **جديد**
+### GAP-037: PUT/PATCH Endpoints Missing for Geo Units 🟡 متوسطة — **محلول**
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | geo_units |
 | **الموقع** | `packages/api/routes/geoUnits.ts` |
-| **الوصف** | يفتقر ملف مسارات الكيان تماماً لوجود مسار التحديث `PUT /api/geo-units/:id` أو مسار قراءة تقسيم فردي `GET /api/geo-units/:id`. |
-| **التأثير** | لتصحيح خطأ إملائي بسيط باسم حي، يضطر الإداري لحذف الحي بالكامل (مسبباً حذف الأبناء والارتباطات) وإعادة إنشائه من الصفر. |
-| **الحل المقترح** | إضافة مسار `PUT /api/geo-units/:id` لتعديل الأسماء فقط، وتوفير مسار `GET /api/geo-units/:id` للتفاصيل الفردية. |
-| **الحالة** | ⏳ مفتوحة |
+| **الوصف** | يفتقر ملف المسارات لـ `PUT /api/geo-units/:id` و`GET /api/geo-units/:id`. |
+| **التأثير** | لتصحيح خطأ إملائي بسيط، يضطر الإداري لحذف الحي (Cascade) وإعادة إنشائه. |
+| **الحل المقترح** | إضافة `PUT /:id` لتعديل الاسم فقط + `GET /:id` للقراءة الفردية. |
+| **الحالة** | ✅ محلول — `packages/api/routes/geoUnits.ts` (GET /:id + PUT /:id) |
 | **ملف الدستور** | [geo-units.md §9.5](domains/geo-units.md#gap-037-انعدام-مسارات-التحديث-وقراءة-العنصر-الفردي-بالـ-api) |
 
 ### GAP-038: Branches covered areas JSONB lacks referential integrity 🟡 متوسطة — **جديد**
@@ -464,16 +464,16 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [geo-units.md §9.6](domains/geo-units.md#gap-038-تراجع-النزاهة-على-تغطية-الفروع-covered_geo_ids-bypass) |
 
-### GAP-039: Dangerous recursive deletion cascade 🟡 متوسطة — **جديد**
+### GAP-039: Dangerous recursive deletion cascade 🟡 متوسطة — **محلول**
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | geo_units |
 | **الموقع** | `migrations/001_core_tables.sql` (geo_units.parent_id) |
-| **الوصف** | يتم تعريف حقل `parent_id` بقاعدة البيانات بقيد الحذف المتتالي المتكامل `ON DELETE CASCADE`. |
-| **التأثير** | عند قيام المدير الإداري للنظام بحذف تقسيم جغرافي بمستوى عالٍ (مثل محافظة بالكامل)، يقوم محرك قاعدة البيانات أوتوماتيكياً وبشكل فوري بحذف كافة المناطق والأحياء التابعة لها بدون فحص أمان مسبق أو طلب تأكيد، مما قد يتسبب بمسح شامل لمعطيات التوزيع وتخلف بيانات يتيمة في جداول العملاء بسبب ثغرة VARCHAR. |
-| **الحل المقترح** | استبدال قيد CASCADE بـ `ON DELETE RESTRICT` لفرض إخلاء الوحدات التابعة يدوياً قبل حذف الأب، أو تصميم آلية حماية وأمان ذكية بالـ API تمنع الحذف في حال وجود ارتباطات تشغيلية جارية. |
-| **الحالة** | ⏳ مفتوحة |
+| **الوصف** | حقل `parent_id` كان مُعرَّفاً بـ `ON DELETE CASCADE` — حذف محافظة يمسح كل مناطقها وأحياءها فوراً وبصمت. |
+| **التأثير** | حذف محافظة واحدة = ضياع عشرات الأحياء + بيانات يتيمة بجدول العملاء. |
+| **الحل المقترح** | استبدال CASCADE بـ `ON DELETE RESTRICT` + معالجة خطأ 23503 بالـ API برسالة واضحة. |
+| **الحالة** | ✅ محلول — `migrations/168_geo_units_constraints.sql` + معالجة `23503` في DELETE handler |
 | **ملف الدستور** | [geo-units.md §9.7](domains/geo-units.md#gap-039-خطورة-الحذف-المتتالي-التلقائي-dangerous-deletion-cascade) |
 
 ### GAP-040: Legacy role string column duplication on hr_users 🟢 منخفضة — **جديد**
@@ -596,15 +596,160 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [branches.md §9.5](domains/branches.md#gap-049-تعطل-فحص-حالة-الفرع-غير-النشط-بالمهام-والعقود-الجديدة) |
 
+### GAP-050: Public Access على إدارة الأجهزة وقطع الغيار ⭐ حرجة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | device_models / spare_parts |
+| **الموقع** | `packages/api/routes/deviceModels.ts` (POST/PUT/DELETE) / `packages/api/routes/spareParts.ts` (كل المسارات) |
+| **الوصف** | مسارات إنشاء وتعديل وحذف الأجهزة وقطع الغيار تخلو تماماً من `requireAuth` أو `requirePermission` — متاحة لأي شخص بالإنترنت. |
+| **التأثير** | أي مهاجم يستطيع تعديل أسعار الكتالوج أو حذف موديلات الأجهزة كاملاً دون تسجيل دخول. |
+| **الحل المقترح** | إضافة `requireAuth` + `requirePermission('catalog.manage')` لجميع مسارات الكتابة. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §6](domains/devices-maintenance.md#6-صلاحيات-الوصول-والمصفوفة-الأمنية-permission-matrix) |
+
+### GAP-051: غياب صلاحيات مخصصة لإدارة الخصومات 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | device_discounts |
+| **الموقع** | `packages/api/routes/deviceModels.ts` (Discounts endpoints POST/PUT/DELETE) |
+| **الوصف** | مسارات إنشاء وتعديل وحذف الخصومات المالية تكتفي بـ `requireAuth` دون صلاحية مخصصة لإدارة السياسات المالية. |
+| **التأثير** | أي موظف بحساب نشط يستطيع إنشاء خصم 100% وتطبيقه على مبيعات الأجهزة. |
+| **الحل المقترح** | بذر صلاحية `devices.discounts.manage` وتطبيقها على مسارات الخصومات. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §6](domains/devices-maintenance.md#6-صلاحيات-الوصول-والمصفوفة-الأمنية-permission-matrix) |
+
+### GAP-052: Hard Delete يتيّم بيانات العقود التاريخية 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | device_models / spare_parts |
+| **الموقع** | `packages/api/routes/deviceModels.ts` سطر 468 / `spareParts.ts` سطر 248 |
+| **الوصف** | حذف موديل جهاز يُفرغ `contracts.device_model_id` إلى NULL ويتيم البيانات التاريخية. لا يوجد soft-delete. |
+| **التأثير** | فقدان الربط التاريخي بين العقود وموديلات الأجهزة — ضرب التقارير المالية والمبيعات. |
+| **الحل المقترح** | إضافة `deleted_at TIMESTAMPTZ` لجدولي `device_models` و`spare_parts`. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
+
+### GAP-053: JSONB Arrays بدون تكامل مرجعي فيزيائي 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | spare_parts / device_models |
+| **الموقع** | `spare_parts.compatible_device_ids` / `device_models.supported_visit_types` |
+| **الوصف** | مصفوفات JSONB تخزن معرفات أجهزة وأنواع زيارات بدون Foreign Key — حذف جهاز لا يُنظّف مصفوفات التوافق. |
+| **التأثير** | معرفات تالفة ويتيمة تُسبب فشل استعلامات التوافق وأخطاء واجهة المستخدم. |
+| **الحل المقترح** | جداول ربط مستقلة أو trigger يُنظّف المصفوفات عند الحذف. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
+
+### GAP-054: غياب فحص التداخل الزمني للخصومات 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | device_discounts |
+| **الموقع** | `packages/api/routes/deviceModels.ts` (POST /:id/discounts، PUT /:id/discounts/:did) |
+| **الوصف** | لا يوجد فحص يمنع وجود خصمين متداخلين زمنياً بنسب مختلفة لنفس الجهاز في نفس الفترة. |
+| **التأثير** | السيرفر لا يعرف أي خصم يطبق عند التعارض — قد يطبق الأرخص عشوائياً مما يُسبب خسائر مالية. |
+| **الحل المقترح** | فحص OVERLAPS في SQL عند إنشاء/تعديل الخصم أو قيد EXCLUDE في PostgreSQL. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
+
+### GAP-055: `visit_task_device_demo_results` يفتقر لمعرف الجهاز المعروض 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | visit_task_device_demo_results |
+| **الموقع** | `migrations/070_visit_core_schema.sql` |
+| **الوصف** | الجدول يحفظ العرض والعقد المنشأ لكن لا يحتوي على `offered_device_model_id` لمعرفة الجهاز المعروض في الزيارة. |
+| **التأثير** | تعذّر تحليل نسبة التحويل per-device للعروض الميدانية — ضعف في تقارير المبيعات. |
+| **الحل المقترح** | إضافة `offered_device_model_id INTEGER REFERENCES device_models(id) ON DELETE SET NULL`. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
+
+### GAP-056: ازدواجية حقلي `name`/`brand` مع `name_ar`/`name_en` ⭐ عالية — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | device_models |
+| **الموقع** | `packages/api/routes/deviceModels.ts` دالة `normalizeDevicePayload()` سطر 38-40 |
+| **الوصف** | الكود يُجبر دائماً: `name = name_ar` و`brand = name_en`. الحقلان الأصليان من المهجرة 001 زائدان وغير مستقلان ويُضيّعان مساحة تخزين ويربكون المطورين. |
+| **التأثير** | تضليل المطورين الجدد — أربعة حقول بدلاً من اثنين، وتكرار بيانات في كل سجل، وإمكانية تعارض القيم. |
+| **الحل المقترح** | مهجرة تُسقط `name` و`brand` وتوجّه الاستعلامات للحقول الثنائية. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §2.1](domains/devices-maintenance.md#21-جدول-موديلات-الأجهزة-device_models) |
+
+### GAP-057: `visit_task_device_activation_results` غير موجود في المهجرات ⭐ عالية — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | device_activation task / field_visits |
+| **الموقع** | مهجرات 001-147 (مفحوصة كاملاً) |
+| **الوصف** | الوثائق السابقة والمخطط تشير لجدول `visit_task_device_activation_results` لكنه لم يُنشأ في أي مهجرة مفحوصة حتى المهجرة 147. مرحلة التشغيل تُحدّث `device_status` برمجياً فقط دون تخزين نتائج تقنية. |
+| **التأثير** | لا يوجد تتبع تقني لقياسات TDS ومعايرة الجهاز عند التشغيل الأولي — ثغرة جودة خدمة. |
+| **الحل المقترح** | إنشاء المهجرة المناسبة بحقول: `tds_before`, `tds_after`, `pump_pressure`, `uv_status`, `customer_trained`. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §2.5](domains/devices-maintenance.md#25-جداول-نتائج-المهام-المتخصصة) |
+
+### GAP-058: `maintenance_interval` VARCHAR غير مقيد وغير مُفعَّل 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | device_models |
+| **الموقع** | `migrations/001_core_tables.sql` + `deviceModels.ts` سطر 43 |
+| **الوصف** | الحقل `maintenance_interval` من نوع `VARCHAR(50)` بدون CHECK constraint، وافتراضيه في الكود `'6 أشهر'` (نص عربي غير معياري). لا يوجد منطق جدولة أوتوماتيكية للصيانة بناءً عليه. |
+| **التأثير** | الحقل "تزييني" فقط — لا يُولّد مهام صيانة ولا يُطبّق فترة صيانة معيارية. |
+| **الحل المقترح** | تحويل إلى `INTEGER` (عدد أشهر) + منطق جدولة صيانة دورية في `task_type_config`. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §3](domains/devices-maintenance.md#3-القيود-والقواعد-التشغيلية-business-rules) |
+
+### GAP-059: القيمة الافتراضية لـ category مخالفة للـ CHECK Constraint ⭐ عالية — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | device_models |
+| **الموقع** | `packages/api/routes/deviceModels.ts` سطر 42 |
+| **الوصف** | `category: body.category \|\| 'صناعي'` — القيمة الافتراضية `'صناعي'` (عربية) بينما قيد DB يسمح فقط بـ `'Residential', 'Industrial', 'Commercial'` (إنجليزية). |
+| **التأثير** | أي طلب POST/PUT بدون category → يحاول تخزين `'صناعي'` → يخالف CHECK constraint → خطأ 500 بالـ DB. |
+| **الحل المقترح** | تصحيح الافتراضي: `category: body.category \|\| 'Industrial'` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §3](domains/devices-maintenance.md#3-القيود-والقواعد-التشغيلية-business-rules) |
+
+### GAP-060: محدودية حالات `device_status` — غياب حالات الخدمة 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | contracts |
+| **الموقع** | `migrations/142_contract_device_tracking.sql` |
+| **الوصف** | القيم المسموحة `pending_delivery, delivered, installed, active` فقط. لا توجد حالات للأجهزة المعطوبة (`faulty`)، المسحوبة (`retrieved`)، الموقوفة مؤقتاً (`disconnected`)، أو التحت صيانة (`under_maintenance`). |
+| **التأثير** | لا يمكن تتبع أجهزة تحتاج إصلاحاً أو أجهزة أُعيدت للشركة — ثغرة في إدارة الأصول. |
+| **الحل المقترح** | توسيع CHECK: إضافة `'under_maintenance', 'faulty', 'retrieved', 'disconnected'`. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §5](domains/devices-maintenance.md#5-آلة-الحالات-التشغيلية-lifecycle-state-machine) |
+
+### GAP-061: حقل `code` بدون UNIQUE constraint 🟢 منخفضة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | device_models |
+| **الموقع** | `migrations/125_device_code.sql` |
+| **الوصف** | الحقل `device_models.code` لا يملك قيد UNIQUE — يمكن نظرياً أن يتكرر نفس الكود لأجهزة مختلفة. |
+| **التأثير** | فشل استعلامات البحث بالكود وإرباك فرق المخازن والتوزيع. |
+| **الحل المقترح** | `CREATE UNIQUE INDEX ON device_models(code) WHERE code IS NOT NULL;` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
+
 ---
 
 ## الثغرات المحلولة (Resolved Gaps)
 
-| الرقم | الكيان | الوصف | تاريخ الحل | ملاحظات |
+| الرقم | الكيان | الوصف | تاريخ الحل | الملفات المتأثرة |
 |---|---|---|---|---|
-| — | — | — | — | — |
-
-*(ما فيه ثغرات محلولة لهلق — أول ما يُحل واحد، ننقلو لهون)*
+| GAP-035 | geo_units | إضافة CHECK constraint على `level IN (1,2,3,4)` | 2026-05-24 | `migrations/168_geo_units_constraints.sql` |
+| GAP-036 | geo_units | فحص هرمي `parent.level = child.level - 1` في POST handler | 2026-05-24 | `packages/api/routes/geoUnits.ts` |
+| GAP-037 | geo_units | إضافة `GET /:id` + `PUT /:id` (تعديل الاسم فقط) | 2026-05-24 | `packages/api/routes/geoUnits.ts` |
+| GAP-039 | geo_units | استبدال `ON DELETE CASCADE` بـ `ON DELETE RESTRICT` + معالجة 23503 | 2026-05-24 | `migrations/168_geo_units_constraints.sql` + `geoUnits.ts` |
 
 ---
 
@@ -646,9 +791,10 @@
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 49 |
-| **عالية الخطورة** | 7 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027) |
-| **متوسطة** | 26 (GAP-003, GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-034, GAP-037, GAP-038, GAP-039, GAP-042, GAP-044, GAP-045, GAP-046, GAP-049) |
-| **منخفضة** | 16 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-035, GAP-036, GAP-040, GAP-041, GAP-043, GAP-047, GAP-048) |
-| **الكيان الأكثر ثغرات** | field_visits (7) / branches (6) / geo_units (6) / permissions (6) / telemarketing (5) / open_tasks (5) / contracts (6, including dues) / clients (5) / candidates (5) |
+| **عدد الثغرات المفتوحة** | 57 |
+| **عدد الثغرات المحلولة** | 4 (GAP-035, GAP-036, GAP-037, GAP-039) |
+| **عالية الخطورة** | 11 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059) |
+| **متوسطة** | 28 (GAP-003, GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-034, GAP-038, GAP-042, GAP-044, GAP-045, GAP-046, GAP-049, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
+| **منخفضة** | 17 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-047, GAP-048, GAP-061) |
+| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / branches (6) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / geo_units (3 مفتوحة) |
 | **قرارات معلقة** | 1 (multi-branch client) |
