@@ -33,8 +33,9 @@
 |---|---|---|---|---|---|---|
 | `id` | `INTEGER` | ❌ | `nextval()` | `PRIMARY KEY` | المعرف الفريد للتقسيم الجغرافي | `12` (المزة) |
 | `name` | `VARCHAR(255)` | ❌ | — | — | الاسم الجغرافي للتقسيم | `"المزة"` |
-| `level` | `INTEGER` | ❌ | — | — | المستوى الهرمي الإداري (1، 2، 3) | `2` (منطقة/مدينة) |
-| `parent_id` | `INTEGER` | ✅ | — | `FK → geo_units(id) ON DELETE CASCADE` | معرف التقسيم الأب الأعلى التابع له | `1` (معرف محافظة دمشق) |
+| `level` | `INTEGER` | ❌ | — | `CHECK (level IN (1,2,3,4))` | المستوى الهرمي الإداري (1→4) | `2` (منطقة/مدينة) |
+| `parent_id` | `INTEGER` | ✅ | — | `FK → geo_units(id) ON DELETE RESTRICT` | معرف التقسيم الأب الأعلى التابع له | `1` (معرف محافظة دمشق) |
+| `status` | `VARCHAR(10)` | ❌ | `'active'` | `CHECK (status IN ('active','inactive'))` | حالة الوحدة — inactive يخفيها من selectors العناوين | `'active'` |
 
 ---
 
@@ -89,6 +90,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS geo_units_name_level_parent_unique
 $$\text{Full Address} = \text{Governorate Name} \rightarrow \text{District Name} \rightarrow \text{Neighborhood Name} \rightarrow \text{Detailed Physical Address}$$
 - **مثال واقعي:** `"حمص، القصير، حي البلدية، بناية النور ط2"`
 
+### BR-5: قاعدة حالة الوحدة الجغرافية (Geo Unit Status)
+- **`active`:** الوحدة متاحة للاختيار في جميع selectors (عناوين الزبائن، تغطية الفروع، عناوين العقود).
+- **`inactive`:** الوحدة معطّلة — تظهر في إدارة المستويات للـ admin فقط، ولا تظهر في selectors العناوين للمستخدمين.
+- **التأثير الحالي (2026-05-24):** التبديل يغيّر الحالة للوحدة المحددة فقط — الأبناء لا يتأثرون آلياً. البيانات التاريخية (زبائن/زيارات/عقود مرتبطة بالوحدة) لا تُحذف ولا تُخفى.
+- **⚠️ قرار منتج معلّق:** هل تعطيل وحدة أب يجب أن يُعطّل أبناءها آلياً؟ وهل تُستبعد الوحدات المعطّلة من `serviceGeoIds` في `geoScopeService`؟ (انظر GAP-040 المقترحة)
+
 ---
 
 ## 4. العلاقات الهيكلية (Entity Relationships)
@@ -96,9 +103,9 @@ $$\text{Full Address} = \text{Governorate Name} \rightarrow \text{District Name}
 ```mermaid
 erDiagram
     geo_units ||--o{ geo_units : "parent_id (hierarchy)"
-    geo_units ||--o{ clients : "as governorate (VARCHAR)"
-    geo_units ||--o{ clients : "as district (VARCHAR)"
-    geo_units ||--o{ clients : "as neighborhood (VARCHAR)"
+    geo_units ||--o{ clients : "as governorate (INTEGER FK)"
+    geo_units ||--o{ clients : "as district (INTEGER FK)"
+    geo_units ||--o{ clients : "as neighborhood (INTEGER FK)"
     geo_units ||--o{ branches : "branch location (location_geo_id)"
     geo_units ||--o{ contracts : "installation location (installation_geo_unit_id)"
     geo_units ||--o{ candidates : "candidate residence (geo_unit_id)"
@@ -204,11 +211,13 @@ erDiagram
   - تصحيح `routes/clients.ts` سطر 892 و 1056: `c.governorate || ''` → `Number(c.governorate) || null`
 * **التاريخ:** 2026-05-24
 
-### GAP-034: 🔴 يتطلب قرار منتج — سكن الموظفين نص حر غير قابل للترحيل الآلي
-* **الموقع:** `migrations/001_core_tables.sql` (employees.residence) + `packages/api/routes/adminApplications.ts` سطر 1259
-* **الوصف:** حقل `employees.residence` يُخزَّن كنص حر مُجمَّع من حقول طلب التوظيف في `adminApplications.ts`: `[app.governorate, app.cityOrArea, app.subArea, app.neighborhood, app.detailedAddress].filter(Boolean).join(' - ')`. مثال: `"طرطوس - صافيتا - الجروية - السعن"`. ليس `geo_unit_id` بل نص لا يمكن تحويله للـ ID دون إعادة هيكلة واجهة التوظيف.
-* **التأثير:** يستحيل ترحيل هذا الحقل آلياً دون خسارة بيانات.
-* **ما يلزم:** قرار من Product Owner حول: (أ) إضافة حقل `residence_geo_unit_id` بجانب `residence` المحفوظ كأرشيف، أو (ب) إعادة تصميم نموذج طلب التوظيف ليختار الموظف منطقته من قائمة `geo_units`.
+### GAP-034: ✅ محلول — Option B: حذف `employees.residence` النصي
+* **الموقع:** `migrations/171_drop_employees_residence_text.sql` + `packages/api/routes/adminApplications.ts`
+* **الحل المُطبَّق:**
+  - حذف عمود `employees.residence` النصي (بيانات اختبار — لا خسارة حقيقية)
+  - الأعمدة `residence_governorate_id`, `residence_region_id`, `residence_sub_area_id`, `residence_neighborhood_id` كانت موجودة بالفعل مع FK → `geo_units(id)`
+  - تنظيف `adminApplications.ts`: حذف كود بناء النص + تصحيح INSERT/RETURNING/SELECT
+* **التاريخ:** 2026-05-24
 
 ### GAP-035: ✅ محلول — إضافة CHECK constraint على `level`
 * **الموقع:** `migrations/168_geo_units_constraints.sql`
@@ -261,3 +270,5 @@ erDiagram
 | **2026-05-24** | `168_geo_units_constraints.sql`| **GAP-035 + GAP-039:** إضافة `CHECK (level IN (1,2,3,4))` + استبدال `ON DELETE CASCADE` بـ `ON DELETE RESTRICT` على `parent_id`. |
 | **2026-05-24** | `169_branch_geo_coverage_table.sql`| **GAP-038:** إنشاء جدول `branch_geo_coverage` + ترحيل بيانات `covered_geo_ids` + حذف العمود القديم. |
 | **2026-05-24** | `170_clients_geo_integer.sql`| **GAP-003:** تحويل `clients.governorate`, `district`, `neighborhood` من `VARCHAR` → `INTEGER` + إضافة `FK → geo_units(id) ON DELETE SET NULL`. |
+| **2026-05-24** | `171_drop_employees_residence_text.sql`| **GAP-034 B:** حذف `employees.residence` النصي — الأعمدة الصحيحة `residence_*_id` كانت موجودة بالفعل. |
+| **2026-05-24** | `172_geo_units_status.sql`| إضافة `geo_units.status VARCHAR(10) DEFAULT 'active' CHECK IN ('active','inactive')` + endpoint `PATCH /:id/status` + `GET /active`. |
