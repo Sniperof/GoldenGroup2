@@ -452,16 +452,16 @@
 | **الحالة** | ✅ محلول — `packages/api/routes/geoUnits.ts` (GET /:id + PUT /:id) |
 | **ملف الدستور** | [geo-units.md §9.5](domains/geo-units.md#gap-037-انعدام-مسارات-التحديث-وقراءة-العنصر-الفردي-بالـ-api) |
 
-### GAP-038: Branches covered areas JSONB lacks referential integrity 🟡 متوسطة — **جديد**
+### GAP-038: Branches covered areas JSONB lacks referential integrity 🟡 متوسطة — **محلول**
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | branches |
 | **الموقع** | `migrations/014_branch_id_domain_tables.sql` (branches.covered_geo_ids) |
-| **الوصف** | يتم تتبع نطاق تغطية الفروع عبر مصفوفة JSONB بجدول الفروع دون فرض أي قيد ربط مرجعي (Foreign Key) بجدول `geo_units`. |
-| **التأثير** | حذف حي جغرافي من `geo_units` لا يزيله من مصفوفات تغطية الفروع، مما يترك معرفات تالفة ويتيمة بالخلفية تسبب خطأ بفلترة النطاقات. |
-| **الحل المقترح** | استبدال حقل JSONB بجدول ربط مستقل (Junction Table) يسمى `branch_geo_coverage` يفرض الربط المباشر مع الحذف المتتالي. |
-| **الحالة** | ⏳ مفتوحة |
+| **الوصف** | `branches.covered_geo_ids` كانت JSONB بدون FK — حذف geo_unit يترك IDs يتيمة تكسر عزل النطاق في `geoScopeService`. |
+| **التأثير** | نطاقات فروع خاطئة → إمكانية رؤية بيانات فروع أخرى أو إخفاء بيانات مشروعة. |
+| **الحل المقترح** | جدول ربط `branch_geo_coverage (branch_id FK, geo_unit_id FK ON DELETE CASCADE)`. |
+| **الحالة** | ✅ محلول — `migrations/169_branch_geo_coverage_table.sql` + `geoScopeService.ts` + `branches.ts` |
 | **ملف الدستور** | [geo-units.md §9.6](domains/geo-units.md#gap-038-تراجع-النزاهة-على-تغطية-الفروع-covered_geo_ids-bypass) |
 
 ### GAP-039: Dangerous recursive deletion cascade 🟡 متوسطة — **محلول**
@@ -750,6 +750,7 @@
 | GAP-036 | geo_units | فحص هرمي `parent.level = child.level - 1` في POST handler | 2026-05-24 | `packages/api/routes/geoUnits.ts` |
 | GAP-037 | geo_units | إضافة `GET /:id` + `PUT /:id` (تعديل الاسم فقط) | 2026-05-24 | `packages/api/routes/geoUnits.ts` |
 | GAP-039 | geo_units | استبدال `ON DELETE CASCADE` بـ `ON DELETE RESTRICT` + معالجة 23503 | 2026-05-24 | `migrations/168_geo_units_constraints.sql` + `geoUnits.ts` |
+| GAP-038 | branches / geo_units | استبدال `covered_geo_ids` JSONB بجدول `branch_geo_coverage` مع FK | 2026-05-24 | `migrations/169_branch_geo_coverage_table.sql` + `geoScopeService.ts` + `branches.ts` |
 
 ---
 
@@ -791,10 +792,10 @@
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 57 |
-| **عدد الثغرات المحلولة** | 4 (GAP-035, GAP-036, GAP-037, GAP-039) |
+| **عدد الثغرات المفتوحة** | 56 |
+| **عدد الثغرات المحلولة** | 5 (GAP-035, GAP-036, GAP-037, GAP-038, GAP-039) |
 | **عالية الخطورة** | 11 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059) |
-| **متوسطة** | 28 (GAP-003, GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-034, GAP-038, GAP-042, GAP-044, GAP-045, GAP-046, GAP-049, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
+| **متوسطة** | 27 (GAP-003, GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-034, GAP-042, GAP-044, GAP-045, GAP-046, GAP-049, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
 | **منخفضة** | 17 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-047, GAP-048, GAP-061) |
-| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / branches (6) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / geo_units (3 مفتوحة) |
+| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (4 مفتوحة) / geo_units (3 مفتوحة) |
 | **قرارات معلقة** | 1 (multi-branch client) |

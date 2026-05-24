@@ -226,11 +226,16 @@ erDiagram
 * **الحل المُطبَّق:** `GET /:id` للقراءة الفردية + `PUT /:id` لتعديل الاسم فقط (level وparent محميان من التعديل).
 * **التاريخ:** 2026-05-24
 
-### GAP-038: تراجع النزاهة على تغطية الفروع (covered_geo_ids bypass)
-* **الموقع:** `migrations/014_branch_id_domain_tables.sql` (branches.covered_geo_ids)
-* **الوصف:** يتم تتبع نطاق تغطية الفروع عبر مصفوفة JSONB بجدول `branches` دون أي قيد ربط مرجعي بجدول `geo_units`.
-* **التأثير:** حذف حي جغرافي من `geo_units` لا يزيله من مصفوفات الفروع، مما يبقي على معرفات تالفة ويتيمة بالخلفية تسبب أخطاء فادحة عند تصفية النطاقات.
-* **الحل المقترح:** استبدال حقل JSONB بجدول ربط مستقل (Junction Table) يسمى `branch_geo_coverage` يفرض الربط المباشر مع الحذف المتتالي.
+### GAP-038: ✅ محلول — استبدال `covered_geo_ids` JSONB بجدول `branch_geo_coverage`
+* **الموقع:** `migrations/169_branch_geo_coverage_table.sql` + `geoScopeService.ts` + `branches.ts`
+* **الحل المُطبَّق:**
+  - إنشاء `branch_geo_coverage (branch_id FK → branches ON DELETE CASCADE, geo_unit_id FK → geo_units ON DELETE CASCADE, PRIMARY KEY (branch_id, geo_unit_id))`
+  - ترحيل بيانات `covered_geo_ids` الموجودة — فقط IDs المرتبطة بـ `geo_units` حقيقية
+  - حذف عمود `branches.covered_geo_ids`
+  - تعديل `loadBranchCoveredGeoIds()` في `geoScopeService` للاستعلام من الجدول الجديد
+  - تعديل GET/POST/PUT في `branches.ts` لإدارة الـ junction table باستخدام transactions
+* **الفائدة:** حذف أي `geo_unit` يُنظّف تغطية الفروع أوتوماتيكياً — عزل الفروع لا يكسر بعد الآن.
+* **التاريخ:** 2026-05-24
 
 ### GAP-039: ✅ محلول — استبدال CASCADE بـ RESTRICT
 * **الموقع:** `migrations/168_geo_units_constraints.sql` + `packages/api/routes/geoUnits.ts`
@@ -254,3 +259,4 @@ erDiagram
 | **2026-04-27** | `113_task_type_config_location_basis.sql`| تأسيس عمود `location_basis` لتنظيم مطابقة وتوزيع المهام الجغرافية للفرق. |
 | **2026-05-24** | `167_snapshot_backfill.sql`| ترحيل ونسخ البيانات التاريخية لـ snapshots مع تصفية وعمل casting لحقول VARCHAR الجغرافية لعملاء CRM. |
 | **2026-05-24** | `168_geo_units_constraints.sql`| **GAP-035 + GAP-039:** إضافة `CHECK (level IN (1,2,3,4))` + استبدال `ON DELETE CASCADE` بـ `ON DELETE RESTRICT` على `parent_id`. |
+| **2026-05-24** | `169_branch_geo_coverage_table.sql`| **GAP-038:** إنشاء جدول `branch_geo_coverage` + ترحيل بيانات `covered_geo_ids` + حذف العمود القديم. |

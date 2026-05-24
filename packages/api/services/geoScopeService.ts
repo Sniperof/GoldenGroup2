@@ -91,11 +91,16 @@ export function areRoutePointsInsideScope(
 
 async function loadBranchCoveredGeoIds(branchId: number): Promise<number[]> {
   const { rows } = await pool.query(
-    `SELECT location_geo_id AS "locationGeoId",
-            COALESCE(covered_geo_ids, '[]'::jsonb) AS "coveredGeoIds"
-       FROM branches
-      WHERE id = $1
-        AND status = 'active'`,
+    `SELECT b.location_geo_id AS "locationGeoId",
+            COALESCE(
+              ARRAY_AGG(bgc.geo_unit_id) FILTER (WHERE bgc.geo_unit_id IS NOT NULL),
+              ARRAY[]::int[]
+            ) AS "coveredGeoIds"
+       FROM branches b
+       LEFT JOIN branch_geo_coverage bgc ON bgc.branch_id = b.id
+      WHERE b.id = $1
+        AND b.status = 'active'
+      GROUP BY b.id, b.location_geo_id`,
     [branchId],
   );
 
