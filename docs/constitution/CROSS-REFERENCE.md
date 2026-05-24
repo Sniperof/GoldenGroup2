@@ -60,8 +60,18 @@
 | `emergency_tickets` | `VARCHAR(50)` | `New`, `Assigned`, `In Progress`, `Completed`, `Cancelled` | ✅ نعم |
 | `candidates` | `VARCHAR(50)` | `New`, `Suggested`, `FollowUp`, `Contacted`, `Qualified`, `Junk` | ✅ نعم |
 | `referral_sheets` | `VARCHAR(50)` | `New`, `In-Progress`, `Completed`, `Archived` | ✅ نعم |
+| `telemarketing_task_list_items` | `VARCHAR(20)` | `pending`, `called`, `booked` | ✅ نعم |
+| `contact_targets` | `VARCHAR(50)` | `new`, `queued`, `in_call_list`, `contacted`, `booked`, `closed`, `cancelled` | ✅ نعم |
 
 **⚠️ ملاحظة:** `status` كل جدول enum مختلف — لا خلط!
+
+**⚠️ نتائج المكالمات الهاتفية (Telemarketing Outcome System - 21 نتيجة):**
+يفرض الجدول `telemarketing_call_logs` عبر الحقل `outcome` قيد فحص متكامل لـ 21 نتيجة معيارية مقسمة تشغيلياً لـ 5 مجموعات كبرى بالاتساق مع السيرفر:
+1. **لم يتم التواصل (`not_reached`):** `no_answer` (لم يتم الرد)، `busy` (مشغول)، `out_of_coverage` (خارج التغطية)، `not_in_service` (خارج الخدمة)، `wrong_number` (رقم خاطئ)، `auto_disconnected` (انقطع تلقائياً)، `message_sent` (مرسل رسالة).
+2. **تم التواصل - بدون موعد (`reached`):** `currently_busy` (العميل مشغول حالياً)، `interrupted` (انقطع الاتصال)، `not_interested` (غير مهتم)، `other_company_not_interested` (لديه جهاز آخر وغير مهتم)، `seen_offer_not_interested` (اطلع سابقاً وغير مهتم)، `address_updated` (تم تحديث العنوان)، `new_number` (رقم إضافي).
+3. **تم التواصل - يحتاج متابعة (`follow_up`):** `other_company_callback` (لديه جهاز آخر وطلب المتابعة)، `seen_offer_callback` (اطلع وطلب المتابعة).
+4. **تم التواصل - طلب خدمة (`service_request`):** `service_request` (طلب صيانة)، `company_customer_missing_phone` (رقم مفقود).
+5. **حجز موعد (`booked`):** `booked_marketing_appointment`.
 
 ### 1.4 `created_at` / `created_by` (التدقيق والأرشيف)
 
@@ -75,6 +85,14 @@
 | `referral_sheets` | ✅ TIMESTAMPTZ | ✅ FK → hr_users | — | — | ❌ لا |
 | `tasks` | — | — | — | — | ❌ لا |
 | `visits` | — | — | — | — | ❌ لا |
+| `telemarketing_task_lists` | ✅ TIMESTAMPTZ | — | — | — | ❌ لا |
+| `telemarketing_task_list_items` | — | — | — | — | ❌ لا |
+| `telemarketing_call_logs` | ✅ TIMESTAMPTZ (via `timestamp`) | ✅ FK → hr_users (via `called_by`) | — | — | ❌ لا |
+| `telemarketing_appointments` | ✅ TIMESTAMPTZ | ✅ FK → hr_users (via `created_by`) | — | — | ❌ لا |
+| `contact_targets` | ✅ TIMESTAMPTZ | — | ✅ TIMESTAMPTZ | — | ❌ لا |
+
+**⚠️ ملاحظة:** يتميز جدول `telemarketing_appointments` باحتوائه على حقل `answered_by` لتوثيق اسم متلقي المكالمة الفعلي وقت الاتصال (مثلاً "أخت العميل")، وهو يختلف عن الحقل `created_by` المخصص لتوثيق معرف الموظف الذي قام بالحجز.
+
 
 ---
 
@@ -138,6 +156,26 @@ referral_sheets (1) ──────► (N) candidates
                                  │
                                  └───────► (1) branches
 ```
+
+### 2.1.3 علاقات التسويق الهاتفي والتعددية (Telemarketing Polymorphism)
+
+يعتمد نظام التسويق الهاتفي على بنية علاقات متعددة الأشكال (Polymorphic Relationships) للربط الديناميكي بين الكشوف والمكالمات والمواعيد من جهة، والزبائن (`clients`) أو المرشحين (`candidates`) من جهة أخرى عبر الحقلين المشتركين `entity_type` و `entity_id`.
+
+```mermaid
+erDiagram
+    telemarketing_task_list_items }o--|| clients : "polymorphic (entity_type = 'client')"
+    telemarketing_task_list_items }o--|| candidates : "polymorphic (entity_type = 'candidate')"
+    telemarketing_call_logs }o--|| clients : "polymorphic (entity_type = 'client')"
+    telemarketing_call_logs }o--|| candidates : "polymorphic (entity_type = 'candidate')"
+    telemarketing_appointments }o--|| clients : "polymorphic (entity_type = 'client')"
+    telemarketing_appointments }o--|| candidates : "polymorphic (entity_type = 'candidate')"
+```
+
+| الجدول | حقل النوع | حقل المعرف | الكيانات المستهدفة | وصف السلوك |
+|---|---|---|---|---|
+| `telemarketing_task_list_items` | `entity_type` | `entity_id` | `client`, `candidate` | يحدد جهة الاتصال الفردية المدرجة بالكشف اليومي |
+| `telemarketing_call_logs` | `entity_type` | `entity_id` | `client`, `candidate` | يحدد المستهدف الذي جرت معه المكالمة الهاتفية المسجلة |
+| `telemarketing_appointments` | `entity_type` | `entity_id` | `client`, `candidate` | يحدد من حجز الموعد (عميل حالي للصيانة/الترقية، أو مرشح لمبيعات جديدة) |
 
 ### 2.2 الجداول الربطية (Junction Tables)
 
@@ -317,11 +355,11 @@ referral_sheets (1) ──────► (N) candidates
 
 | # | الجدول | PK | FKs | وصف |
 |---|---|---|---|---|
-| 53 | `telemarketing_task_lists` | `id` | — | كشوف التسويق |
-| 54 | `telemarketing_task_list_items` | `id` | `task_list_id` | بنود الكشف |
-| 55 | `telemarketing_call_logs` | `id` | `task_list_id` | سجل المكالمات |
-| 56 | `telemarketing_appointments` | `id` | — | مواعيد التسويق |
-| 57 | `contact_targets` | `id` | — | أهداف الاتصال |
+| 53 | [`telemarketing_task_lists`](domains/telemarketing.md) | `id` | — | كشوف التسويق اليومية الموزعة على الفرق |
+| 54 | [`telemarketing_task_list_items`](domains/telemarketing.md) | `id` | `task_list_id` | بنود الاتصال والعملاء/المرشحين الفرديين داخل الكشف |
+| 55 | [`telemarketing_call_logs`](domains/telemarketing.md) | `id` | `task_list_id`, `contact_target_id` | سجلات توثيق المكالمات الهاتفية الجارية ونتائجها |
+| 56 | [`telemarketing_appointments`](domains/telemarketing.md) | `id` | `contact_target_id` | مواعيد الزيارات الميدانية المحجوزة هاتفياً |
+| 57 | [`contact_targets`](domains/telemarketing.md) | `id` | `branch_id`, `supervisor_hr_user_id` | الأهداف والذمم اليومية المخصصة للمتابعة |
 
 ### 5.5 التوظيف (HR)
 

@@ -18,7 +18,7 @@
 | التخطيط (Planning) | [domains/planning.md](domains/planning.md) | ⚠️ قديم | 14,126 بايت | — | — |
 | التوظيف (Jobs) | [domains/jobs-recruitment.md](domains/jobs-recruitment.md) | ⚠️ قديم | 26,418 بايت | — | — |
 | الأجهزة والصيانة | [domains/devices-maintenance.md](domains/devices-maintenance.md) | ⚠️ فاضي | 241 بايت | — | — |
-| التسويق الهاتفي | [domains/telemarketing.md](domains/telemarketing.md) | ⚠️ فاضي | 246 بايت | — | — |
+| التسويق الهاتفي (Telemarketing) | [domains/telemarketing.md](domains/telemarketing.md) | ✅ مكتمل | 311 سطر | 7+ | 5 |
 | البنية التنظيمية | [domains/org-structure.md](domains/org-structure.md) | ⚠️ فاضي | 218 بايت | — | — |
 | الصلاحيات | [domains/permissions.md](domains/permissions.md) | ⚠️ فاضي | 218 بايت | — | — |
 | الإعدادات الإدارية | [domains/admin-settings.md](domains/admin-settings.md) | ⚠️ فاضي | 221 بايت | — | — |
