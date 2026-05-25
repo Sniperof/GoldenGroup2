@@ -251,8 +251,15 @@ erDiagram
 | `employees` | — | — |
 | `branches` | `covered_geo_ids` | مناطق التغطية |
 | `branches` | `contact_info` | معلومات التواصل |
-| `device_models` | `supported_visit_types` | أنواع الزيارات |
-| `spare_parts` | `compatible_device_ids` | الأجهزة المتوافقة |
+| `device_models` | `supported_visit_types` | أنواع الزيارات المدعومة (بدون FK — GAP-053) |
+| `device_models` | `golden_warranty_periods` | فترات الكفالة الذهبية |
+| `device_models` | `images` | صور المنتج |
+| `device_models` | `videos` | فيديوهات المنتج |
+| `device_models` | `documents` | مستندات المنتج |
+| `spare_parts` | `compatible_device_ids` | الأجهزة المتوافقة (بدون FK — GAP-053) |
+| `open_task_installation_results` | `installed_accessories` | الملحقات المركبة |
+| `visit_task_device_delivery_results` | `delivery_photos` | صور التسليم |
+| `open_task_delivery_results` | `delivery_photos` | صور التسليم (open tasks) |
 | `emergency_tickets` | `attachments` | مرفقات |
 | `maintenance_requests` | `technical_report` | تقرير فني |
 
@@ -280,13 +287,20 @@ erDiagram
 | `task_type_config` | `scheduling_pattern` | `immediate`, `short_window`, `long_window`, `expected_window` | ✅ نعم |
 | `task_type_config` | `window_basis` | `none`, `due_date`, `expected_date` | ✅ نعم |
 | `task_type_config` | `location_basis` | `client`, `contract` | ✅ نعم |
+| `contracts` | `device_status` | `pending_delivery`, `delivered`, `installed`, `active` | ✅ نعم |
 | `device_technical_states` | `phase` | `pre`, `post`, `standalone` | ✅ نعم |
 | `emergency_result_costs` | `final_decision` | `resolved`, `partially_resolved`, `unresolved`, `needs_followup`, `cancelled` | ✅ نعم |
 | `tasks` | `type` | `emergency`, `dues`, `periodic`, `returns`, `followup` | ✅ نعم |
 | `tasks` | `status` | `pending`, `in-progress`, `completed` | ✅ نعم |
 | `tasks` | `priority` | `high`, `medium`, `low` | ✅ نعم |
 | `device_models` | `category` | `Residential`, `Industrial`, `Commercial` | ✅ نعم |
+| `device_models` | `device_status` (على contracts) | `pending_delivery`, `delivered`, `installed`, `active` | ✅ نعم |
 | `spare_parts` | `maintenance_type` | `Periodic`, `Emergency`, `Accessory` | ✅ نعم |
+| `contract_line_items` | `item_type` | `device`, `accessory`, `service_fee` | ✅ نعم |
+| `visit_task_device_delivery_results` | `delivery_condition` | `perfect`, `minor_damage`, `missing_accessories` | ✅ نعم |
+| `open_task_delivery_results` | `outcome` | `delivered_successfully`, `customer_not_available`, `wrong_address`, `refused_delivery` | ✅ نعم |
+| `open_task_installation_results` | `outcome` | `installed_successfully`, `installation_incomplete`, `site_not_ready` | ✅ نعم |
+| `visit_task_device_demo_results` | `offer_type` | `cash`, `installment` | ✅ نعم |
 
 ### 3.4 Allowed Scopes Configuration Patterns (أنماط قيود النطاقات المسموحة)
 
@@ -353,9 +367,9 @@ erDiagram
 | 10 | [`contract_payment_entries`](domains/contracts.md) | `id` | `contract_id` | سجلات المقبوضات والدفعات المباشرة |
 | 11 | [`contract_installments`](domains/contracts.md) | `id` | `contract_id` | جدول وجدولة الأقساط والتواريخ |
 | 12 | [`dues`](domains/contracts.md) | `id` | `contract_id` | الذمم والديون والمتابعة المالية |
-| 13 | `device_models` | `id` | — | موديلات الأجهزة |
-| 14 | `spare_parts` | `id` | — | قطع الغيار |
-| 15 | `device_discounts` | `id` | `device_model_id` | خصومات الأجهزة |
+| 13 | [`device_models`](domains/devices-maintenance.md) | `id` | — | موديلات الأجهزة |
+| 14 | [`spare_parts`](domains/devices-maintenance.md) | `id` | — | قطع الغيار |
+| 15 | [`device_discounts`](domains/devices-maintenance.md) | `id` | `device_model_id` | خصومات الأجهزة |
 | 16 | [`device_technical_states`](domains/open-tasks.md) | `id` | `contract_id`, `open_task_id` | الحالات التقنية للأجهزة (طوارئ/صيانة) |
 
 ### 5.3 الزيارات والمهام (Visits & Tasks)

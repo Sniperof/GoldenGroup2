@@ -150,7 +150,10 @@ erDiagram
 | الصلاحية المطلوبة (Permission Key) | النطاق المسموح (Allowed Scopes) | الوصف والشرح بالعربية |
 |---|---|---|
 | `branches.view` | `GLOBAL / BRANCH` | استعراض قائمة الفروع وتفاصيلها — مطلوبة لـ `GET /` و `GET /:id` |
-| `branches.manage` | `GLOBAL / BRANCH` | الصلاحية الإدارية الكاملة لإنشاء فروع جديدة وتعديلها وتغيير حالتها وحذفها |
+| `branches.edit` | `GLOBAL / BRANCH` | تعديل البيانات التشغيلية للفرع (الاسم، العنوان، معلومات التواصل) — لا تتيح تغيير التغطية الجغرافية أو الحالة |
+| `branches.manage` | `GLOBAL / BRANCH` | الصلاحية الإدارية الكاملة: إنشاء فرع جديد، حذفه، تغيير حالته (`status`)، وتعديل نطاق التغطية الجغرافية (`coveredGeoIds`) |
+
+**ملاحظة التسلسل الهرمي:** `PUT /:id` يقبل `branches.edit` أو `branches.manage`. إذا تضمن الطلب `coveredGeoIds` أو `status`، يُتحقق تلقائياً من وجود `branches.manage` — وإلا يُعاد `403`.
 
 ---
 
@@ -204,9 +207,9 @@ erDiagram
 - **رموز الأخطاء:** `404` إذا لم يوجد الفرع.
 
 #### 4. `PUT /api/branches/:id`
-- **الوصف:** تعديل بيانات الفرع (الاسم، المقر، التغطية، معلومات التواصل، الحالة).
-- **الصلاحية المطلوبة:** `branches.manage`.
-- **رموز الأخطاء:** `404` إذا لم يوجد الفرع.
+- **الوصف:** تعديل بيانات الفرع. الحقول التشغيلية (الاسم، العنوان، التواصل) تتطلب `branches.edit` أو `branches.manage`. الحقول الحساسة (`coveredGeoIds`، `status`) تتطلب `branches.manage` حصراً.
+- **الصلاحية المطلوبة:** `branches.edit` أو `branches.manage` (حسب الحقول المرسلة).
+- **رموز الأخطاء:** `400` (حقل مطلوب ناقص أو contactInfo غير صالح) / `403` (صلاحية غير كافية) / `404` (فرع غير موجود).
 
 #### 5. `DELETE /api/branches/:id`
 - **الوصف:** حذف الفرع المحدد — يفشل إذا كان مرتبطاً بعملاء أو موظفين أو عقود.
@@ -228,7 +231,8 @@ erDiagram
 | **TC-07** | حظر حذف فرع يحتوي على موظفين | `DELETE /api/branches/2` | `id = 2` (يحتوي على موظفين) | الرد بـ `409` بنفس الرسالة. |
 | **TC-08** | حذف فرع فارغ تماماً بنجاح | `DELETE /api/branches/9` | `id = 9` (فرع خالٍ من السجلات) | الرد بـ `200` مع حذف CASCADE لتعيينات الفروع التابعة. |
 | **TC-09** | تعديل تغطية الفرع الجغرافية | `PUT /api/branches/3` | `{ "name": "فرع حمص", "coveredGeoIds": [10, 43, 44] }` | الرد بـ `200` وتحديث `branch_geo_coverage` ضمن transaction. |
-| **TC-10** | حظر التعديل بدون صلاحيات إدارة | `PUT /api/branches/3` | طلب مستخدم بدون `branches.manage` | الرد بـ `403`. |
+| **TC-10** | حظر تغيير الحالة بدون `branches.manage` | `PUT /api/branches/3` | مستخدم لديه `branches.edit` فقط، يرسل `{ "name": "...", "status": "inactive" }` | الرد بـ `403` "تعديل حالة الفرع يتطلب branches.manage" (GAP-063 ✅). |
+| **TC-16** | السماح بتعديل التواصل بـ `branches.edit` | `PUT /api/branches/3` | مستخدم لديه `branches.edit` فقط، يرسل `{ "name": "...", "contactInfo": [...] }` بدون `status`/`coveredGeoIds` | الرد بـ `200` (GAP-063 ✅). |
 | **TC-11** | محاولة الوصول لفرع غير معرّف | `GET /api/branches/999` | `id = 999` | الرد بـ `404` "الفرع غير موجود". |
 | **TC-12** | رفض contactInfo بنوع غير مدعوم | `POST /api/branches` | `{ "name": "فرع", "contactInfo": [{"type":"fax","department":"hr","value":"031"}] }` | الرد بـ `400` "نوع التواصل غير مدعوم" (GAP-047 ✅). |
 | **TC-13** | رفض تسجيل زبون لفرع موقوف | `POST /api/clients` | طلب لفرع `status=inactive` | الرد بـ `400` "لا يمكن تسجيل زبون جديد — الفرع المحدد موقوف عن العمل" (GAP-049 ✅). |
@@ -252,6 +256,11 @@ erDiagram
 ### GAP-047: ✅ محلول — التحقق من بنية `contact_info` في POST وPUT
 * **الموقع:** `packages/api/routes/branches.ts`
 * **الحل المُطبَّق:** دالة `validateContactInfo()` تتحقق من كل عنصر: `type` ∈ (email/phone/mobile/website)، `department` ∈ (customer_service/hr/management/accounting/other)، `value` غير فارغ. تُستدعى في بداية POST وPUT قبل الوصول للـ DB وتُعيد `400` فورًا عند أي خطأ.
+* **التاريخ:** 2026-05-25
+
+### GAP-063: ✅ محلول — إضافة `branches.edit` كصلاحية وسيطة
+* **الموقع:** `migrations/173_branches_edit_permission.sql` + `packages/api/routes/branches.ts`
+* **الحل المُطبَّق:** صلاحية جديدة `branches.edit` (`GLOBAL/BRANCH`) تتيح لـ `PUT /:id` تعديل الاسم والعنوان والتواصل فقط. إذا أرسل الطلب `coveredGeoIds` أو `status`، يُجري الكود فحصاً إضافياً inline لـ `branches.manage` — يُعيد `403` إن لم تتوفر. تم أيضاً إصلاح `status = COALESCE($5, status)` بدل `status || 'active'` لمنع إعادة تفعيل الفروع الموقوفة عرضياً.
 * **التاريخ:** 2026-05-25
 
 ### GAP-048: انعدام سجل التدقيق ومراقبة التغييرات للفروع
@@ -282,3 +291,4 @@ erDiagram
 | **2026-05-24** | `169_branch_geo_coverage_table.sql`| **GAP-046:** استبدال `covered_geo_ids` JSONB بجدول `branch_geo_coverage` مع `ON DELETE CASCADE` على كلا الطرفين + ترحيل البيانات الموجودة. |
 | **2026-05-25** | `routes/branches.ts` (no migration) | **GAP-045 + GAP-047:** `requirePermission('branches.view')` على GET endpoints + `validateContactInfo()` لـ POST/PUT. |
 | **2026-05-25** | `routes/clients.ts` + `routes/contracts.ts` + `routes/openTasks.ts` (no migration) | **GAP-049:** فحص `branch.status` قبل كل INSERT — يمنع إنشاء سجلات لفروع موقوفة. |
+| **2026-05-25** | `migrations/173_branches_edit_permission.sql` + `routes/branches.ts` | **GAP-063:** إضافة `branches.edit` كصلاحية وسيطة — `PUT /:id` يقبل `edit` أو `manage`، لكن `coveredGeoIds`/`status` تتطلب `manage` حصراً. إصلاح `COALESCE($5, status)` لحفظ الحالة الحالية عند غياب `status` في الطلب. |

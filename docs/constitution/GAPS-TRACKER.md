@@ -805,6 +805,20 @@ if (neighborhood) {
 
 ---
 
+### GAP-063: `branches.manage` يجمع صلاحيات بمستويات حساسية مختلفة — لا يوجد مستوى وسيط 🟡 متوسطة
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | branches |
+| **الموقع** | `packages/api/routes/branches.ts` + `migrations/permissions` |
+| **الوصف** | `PUT /:id` كان يتطلب `branches.manage` لأي تعديل — سواء كان اسم + عنوان + تواصل (بيانات تشغيلية) أو نطاق التغطية + الحالة (تأثير على عزل البيانات والعمليات). مدير الفرع يحتاج تعديل معلومات التواصل بدون صلاحية إنشاء/حذف فروع أو تغيير نطاقها الجغرافي. |
+| **التأثير** | إما يعطى مدير الفرع صلاحية كاملة (خطر أمني) أو لا يستطيع تعديل بياناته (عرقلة تشغيلية). |
+| **الحل المقترح** | إضافة `branches.edit` كصلاحية وسيطة تسمح بتعديل الاسم والعنوان والتواصل فقط. |
+| **الحالة** | ✅ محلول — `migrations/173_branches_edit_permission.sql` + `routes/branches.ts` |
+| **ملف الدستور** | [branches.md §6](domains/branches.md#6-الصلاحيات-والأدوار) |
+
+---
+
 ## الثغرات المحلولة (Resolved Gaps)
 
 | الرقم | الكيان | الوصف | تاريخ الحل | الملفات المتأثرة |
@@ -820,6 +834,10 @@ if (neighborhood) {
 | GAP-046 | branches | استبدال `covered_geo_ids` JSONB بـ `branch_geo_coverage` junction table مع CASCADE | 2026-05-24 | `migrations/169_branch_geo_coverage_table.sql` + `branches.ts` + `geoScopeService.ts` |
 | GAP-047 | branches | التحقق من بنية `contact_info` (type/department/value) في POST وPUT | 2026-05-25 | `routes/branches.ts` |
 | GAP-049 | clients / contracts / open_tasks | منع إنشاء سجلات لفرع inactive | 2026-05-25 | `routes/clients.ts` + `routes/contracts.ts` + `routes/openTasks.ts` |
+| GAP-063 | branches | إضافة `branches.edit` كمستوى وسيط بين `branches.view` و`branches.manage` | 2026-05-25 | `migrations/173_branches_edit_permission.sql` + `routes/branches.ts` |
+| GAP-064 | open_tasks | تعريب رسائل الخطأ في POST / (`clientId`، `branchId`، `reason`) | 2026-05-25 | `routes/openTasks.ts` |
+| GAP-065 | open_tasks | إضافة validation لـ `taskFamily` و`taskType` في POST / قبل الوصول للـ DB | 2026-05-25 | `routes/openTasks.ts` |
+| GAP-066 | open_tasks | توثيق §7 API Contract الكامل — الدستور كان يوثق 4 endpoints من أصل 20 | 2026-05-25 | `docs/constitution/domains/open-tasks.md §7` |
 
 ---
 
@@ -862,7 +880,7 @@ if (neighborhood) {
 | | |
 |---|---|
 | **عدد الثغرات المفتوحة** | 51 |
-| **عدد الثغرات المحلولة** | 11 (GAP-003, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049) |
+| **عدد الثغرات المحلولة** | 15 (GAP-003, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049, GAP-063, GAP-064, GAP-065, GAP-066) |
 | **عالية الخطورة** | 12 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059, GAP-062) |
 | **متوسطة** | 22 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
 | **منخفضة** | 16 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-048, GAP-061) |

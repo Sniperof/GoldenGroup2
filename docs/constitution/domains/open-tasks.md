@@ -240,46 +240,80 @@ erDiagram
 ## 6. صلاحيات الوصول (Permission Matrix)
 
 > [!WARNING]
-> **ثغرة هيكلية حرجة (GAP-017):** جميع مسارات الكيان `open_tasks` برمز المسارات `routes/openTasks.ts` محمية بالكامل بمسميات الصلاحيات التابعة للكيان القديم المسمى `marketing_visits` (مثل `marketing_visits.view` و `marketing_visits.update_result`)، وهو ما يتنافى مع الهيكل المعياري الجديد للنظام.
+> **ثغرة هيكلية مؤجلة (GAP-017):** جميع مسارات الكيان `open_tasks` في `routes/openTasks.ts` محمية بصلاحيات الكيان القديم `marketing_visits` (`marketing_visits.view` و`marketing_visits.update_result`). الجدول أدناه يعرض الوضع الفعلي الحالي والمستهدف المقترح. لا يوجد خطر أمني — الصلاحيات موجودة ومطبّقة — لكن التسمية تخلط المفاهيم على المطورين الجدد. الحل يتطلب مرحلة migration مستقلة.
 
-| المسار التشغيلي (Route Path) | الصلاحية الفعلية بالكود | الصلاحية المعيارية المقترحة | النطاق (Scope) | الوصف والشرح بالعربية |
+| المسار التشغيلي | الصلاحية الفعلية الحالية | الصلاحية المستهدفة | النطاق | الوصف |
 |---|---|---|---|---|
-| `GET /api/open-tasks` | `marketing_visits.view` | `open_tasks.view` | BRANCH / GLOBAL | استعراض كشوف المهام للفرع |
-| `POST /api/open-tasks` | `marketing_visits.update_result`| `open_tasks.create` | BRANCH / GLOBAL | إنشاء تكليف تشغيلي جديد يدوي |
-| `POST /:id/assign-team` | `marketing_visits.update_result`| `open_tasks.edit` | BRANCH / GLOBAL | تعيين وتخصيص الفنيين للمهمة |
-| `PATCH /:id` | `marketing_visits.update_result`| `open_tasks.edit` | BRANCH / GLOBAL | تحديث الحالات والمراحل والتواريخ |
-| `POST /:id/emergency-result` | `marketing_visits.update_result`| `open_tasks.edit` | BRANCH / GLOBAL | إغلاق الطوارئ وحسم التكاليف |
-| `POST /:id/exclude` | `marketing_visits.update_result`| `open_tasks.edit` | BRANCH / GLOBAL | استبعاد التكليف من القوائم الجارية |
+| `GET /` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | كشف المهام للفرع |
+| `GET /client/:clientId` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | مهام زبون محدد |
+| `GET /device-demo` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | كشف مهام عروض الأجهزة |
+| `GET /scope/:scopeId` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | مهام نطاق عمل |
+| `GET /:id` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | تفاصيل مهمة واحدة |
+| `GET /:id/emergency-result` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | تفاصيل نتيجة الطوارئ |
+| `GET /:id/activity` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | سجل الأنشطة |
+| `GET /:id/devices` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | أجهزة المهمة |
+| `GET /:id/calls` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | مكالمات المهمة |
+| `POST /` | `marketing_visits.update_result` | `open_tasks.create` | BRANCH/GLOBAL | إنشاء مهمة جديدة |
+| `POST /:id/assign-team` | `marketing_visits.update_result` | `open_tasks.edit` | BRANCH/GLOBAL | تعيين الفريق |
+| `PATCH /:id` | `marketing_visits.update_result` | `open_tasks.edit` | BRANCH/GLOBAL | تحديث الحالة والتواريخ |
+| `POST /:id/emergency-result` | `marketing_visits.update_result` | `open_tasks.edit` | BRANCH/GLOBAL | إغلاق الطوارئ |
+| `POST /:id/assign-scope` | `marketing_visits.update_result` | `open_tasks.edit` | BRANCH/GLOBAL | تعيين نطاق عمل |
+| `POST /:id/exclude` | `marketing_visits.update_result` | `open_tasks.edit` | BRANCH/GLOBAL | استبعاد المهمة |
+| `POST /:id/restore` | `marketing_visits.update_result` | `open_tasks.edit` | BRANCH/GLOBAL | استرجاع المهمة |
+| `POST /bulk-exclude` | `marketing_visits.update_result` | `open_tasks.edit` | BRANCH/GLOBAL | استبعاد مجمّع |
+| `POST /bulk-restore` | `marketing_visits.update_result` | `open_tasks.edit` | BRANCH/GLOBAL | استرجاع مجمّع |
+| `GET /:id/activity` | `marketing_visits.view` | `open_tasks.view` | BRANCH/GLOBAL | قراءة سجل النشاط |
+| `POST /:id/activity` | `marketing_visits.update_result` | `open_tasks.edit` | BRANCH/GLOBAL | إضافة نشاط يدوي |
 
 ---
 
 ## 7. عقد API (API Contract)
 
-### 7.1 قائمةendpoints الرئيسية (Core Endpoints)
+### 7.1 قائمة endpoints الكاملة
 
-1. **`GET /api/open-tasks`**
-   - **الغرض:** استرجاع كشف المهام المفتوحة المفلترة للفرع والتواريخ الجارية.
-   - **الباراميترات الاستعلامية (Query Params):**
-     - `branchId` (فلترة حسب الفرع).
-     - `status` (تصفية حسب الحالة الفرعية للـ 11 حالة).
-     - `phase` (تصفية حسب المرحلة الكبرى المشتقة: `waiting`, `planning`, `execution`, `closure`).
-     - `taskType` (تصفية لنوع المهام).
-     - `exclude` (قراءة المستبعدة صراحة `true` أو غير المستبعدة).
+| المسار | الصلاحية | الوصف | Query Params / Body |
+|---|---|---|---|
+| `GET /` | `marketing_visits.view` | كشف مهام الفرع | `branchId`، `status`، `taskType` |
+| `GET /client/:clientId` | `marketing_visits.view` | مهام زبون محدد — بدون فلترة فرع للسوبرأدمن | — |
+| `GET /device-demo` | `marketing_visits.view` | كشف مهام عروض الأجهزة مع بيانات الزيارة | `status`، `visitStatus`، `scheduledDate`، `hideSnoozed`، `hideFutureTasks` |
+| `GET /scope/:scopeId` | `marketing_visits.view` | مهام نطاق عمل جغرافي محدد | — |
+| `GET /:id` | `marketing_visits.view` | تفاصيل مهمة واحدة كاملة | — |
+| `GET /:id/emergency-result` | `marketing_visits.view` | تفاصيل نتيجة الصيانة الطارئة | — |
+| `GET /:id/activity` | `marketing_visits.view` | سجل أنشطة المهمة مرتب تصاعدياً | — |
+| `GET /:id/devices` | `marketing_visits.view` | أجهزة المهمة المرفقة | — |
+| `GET /:id/calls` | `marketing_visits.view` | مكالمات المهمة (مع legacy fallback) | — |
+| `POST /` | `marketing_visits.update_result` | إنشاء مهمة يدوية | `clientId`✱، `branchId`✱، `taskType`، `taskFamily`، `reason`✱، `priority`، `dueDate`، `expectedDate`، `contractId`، `devices[]`، `preOffers[]` |
+| `POST /:id/assign-team` | `marketing_visits.update_result` | تعيين فريق → يُحوّل الحالة لـ `scheduled` | `supervisorId`، `technicianId`، `traineeId` |
+| `PATCH /:id` | `marketing_visits.update_result` | تحديث حالة / تواريخ / أولوية | `status`، `dueDate`، `expectedDate`، `priority`، `waitingReasonId`، `waitingReasonText`، `notes` |
+| `POST /:id/emergency-result` | `marketing_visits.update_result` | إغلاق طوارئ وتوليد مهمة متابعة | `finalDecision`، `laborCost`، `partsCost`، `discountPercentage`، `followUpExpectedDate` |
+| `POST /:id/assign-scope` | `marketing_visits.update_result` | تعيين نطاق عمل جغرافي للمهمة | `scopeId` |
+| `POST /:id/exclude` | `marketing_visits.update_result` | استبعاد مهمة من قوائم اليوم | `reason`، (date تلقائي = today) |
+| `POST /:id/restore` | `marketing_visits.update_result` | استرجاع مهمة مستبعدة | — |
+| `POST /bulk-exclude` | `marketing_visits.update_result` | استبعاد مجمّع لعدة مهام | `taskIds[]`✱، `reason` |
+| `POST /bulk-restore` | `marketing_visits.update_result` | استرجاع مجمّع لعدة مهام | `taskIds[]`✱ |
+| `GET /:id/activity` | `marketing_visits.view` | قراءة سجل النشاط | — |
+| `POST /:id/activity` | `marketing_visits.update_result` | إضافة نشاط / ملاحظة يدوية | `eventType`، `note`، `oldValue`، `newValue` |
+| `POST /:id/devices` | `marketing_visits.update_result` | إضافة جهاز للمهمة | `deviceModelId`، `deviceNameSnapshot`، `quantity` |
 
-2. **`POST /api/open-tasks`**
-   - **الغرض:** إنشاء مهمة يدوية جديدة وتدشين لقطة البيانات الأولى للعميل.
-   - **المدخلات (Request Body):**
-     `{ "clientId": 1024, "taskType": "device_demo", "branchId": 1, "priority": "high", "expectedDate": "2026-05-30" }`
+✱ = حقل مطلوب
 
-3. **`PATCH /api/open-tasks/:id`**
-   - **الغرض:** التحديث التفصيلي للمهمة وتعديل الحالات التشغيلية والمراحل والتواريخ وتوثيق سجل النشاط.
-   - **المدخلات:**
-     `{ "status": "in_execution", "expectedDate": "2026-05-28", "waitingReasonId": 105 }`
+### 7.2 منطق أساسي في POST /
 
-4. **`POST /api/open-tasks/:id/emergency-result`**
-   - **الغرض:** توثيق تفاصيل ومبالغ المرحلة الرابعة لنتائج الصيانة الطارئة وحسم القرارات المالية والالتزامات وتوليد المهام اللاحقة.
-   - **المدخلات:**
-     `{ "finalDecision": "needs_followup", "laborCost": 15000, "partsCost": 45000, "discountPercentage": 10, "followUpPriority": "High", "followUpExpectedDate": "2026-06-01" }`
+- `taskType` يُتحقق منه مقابل `task_type_config` → يُعيد `400` إن لم يوجد (GAP-065 ✅)
+- `taskFamily` يُتحقق منه مقابل قيم CHECK constraint → يُعيد `400` (GAP-065 ✅)
+- `reason` يُتحقق منه مقابل `system_lists` → يُعيد `400`
+- فحص `branch.status = 'inactive'` → يُعيد `400` (GAP-049 ✅)
+- عند النجاح: يحفظ `client_snapshot` تلقائياً + يُنشئ `open_task_devices` و`open_task_pre_offers` ضمن transaction
+
+### 7.3 رموز الاستجابة الموحدة
+
+| الرمز | الحالة |
+|---|---|
+| `200` | نجاح |
+| `400` | حقل مطلوب ناقص أو قيمة غير صالحة |
+| `403` | لا صلاحية أو المهمة لفرع آخر |
+| `404` | المهمة غير موجودة |
+| `500` | خطأ داخلي |
 
 ---
 
@@ -321,6 +355,18 @@ erDiagram
 - **التضارب:** في مسار confirm لجدولة أقساط الطوارئ (`POST /:id/installments/confirm`)، لا يتأكد النظام من اتساق تواريخ استحقاق الأقساط أو خلوها من التداخل الزمني، كما يقبل إدخال قيم وذمم غير مطابقة محاسبياً دون فحص رياضي رادع.
 - **الأثر التشغيلي:** توليد ذمم وديون مشوهة تاريخياً بالداتابيز قد تؤدي لعرقلة نظام التحصيل والمتابعة الهاتفية للفروع.
 - **التوصية:** فرض تحقق رياضي وفني صارم بالـ Backend قبل إجراء الـ Commit النهائي.
+
+### ✅ GAP-064: رسائل خطأ POST / كانت بالإنجليزية
+* **الموقع:** `packages/api/routes/openTasks.ts:564-592`
+* **الحل المُطبَّق:** استبدال `'clientId is required'`، `'branchId is required'`، و`'reason is required and must be selected from system lists'` برسائل عربية متسقة مع بقية الـ API.
+* **التاريخ:** 2026-05-25
+
+### ✅ GAP-065: غياب validation لـ `taskFamily` و`taskType` في POST /
+* **الموقع:** `packages/api/routes/openTasks.ts:560-561`
+* **الحل المُطبَّق:** 
+  - `taskFamily`: فحص مقابل `Set` ثابت للقيم الثمانية المسموحة → `400` فوري بدل انتظار فشل CHECK constraint من الـ DB
+  - `taskType`: استعلام `SELECT FROM task_type_config` → `400` إن لم يوجد النوع بدل فشل FK violation يُعيد `500`
+* **التاريخ:** 2026-05-25
 
 ### ⚠️ 9.5 الثغرة الخامسة: عدم مطابقة فرع المهمة لفرع تسجيل الزبون الأصلي (Branch Context Inconsistency)
 - **التضارب:** يسمح النظام تشغيلياً بإنشاء مهمة للمستخدم بفرع مختلف عن فرع العميل الأصلي. ولكن عمليات التصفية وقراءة البيانات للمشرفين في واجهة المستخدم تفترض أحياناً حصرها الجغرافي استناداً لفرع الزبون مما يؤدي لاختفاء و"توهان" بعض المهام من لوحة التحكم.
@@ -364,3 +410,4 @@ erDiagram
 | **2026-05** | `145_device_installation_results.sql`| دمج قراءة نتائج التركيب الفعلي للأجهزة وقطع البنود الملحقة بالداتابيز. |
 | **2026-05** | `146_field_visit_reassignment.sql` | توسيع قيود أحداث النشاط بجدول `task_activity_log` ليتسع للتغييرات التشغيلية للفرق ميدانياً. |
 | **2026-05** | `150_backfill_postsale_results.sql`| تعبئة وترحيل بيانات نتائج مهام التوصيل والتركيب لضمان اتساق السجل التاريخي للأجهزة المبيعة. |
+| **2026-05-25** | `routes/openTasks.ts` (no migration) | **GAP-064 + GAP-065:** تعريب رسائل الخطأ في POST / + إضافة validation لـ `taskFamily` (ثابت) و`taskType` (استعلام `task_type_config`) → `400` بدل `500`. |

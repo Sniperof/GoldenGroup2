@@ -18,7 +18,7 @@
 | المهام (Tasks) | [domains/tasks.md](domains/tasks.md) | ⚠️ قديم | 17,165 بايت | — | — |
 | التخطيط (Planning) | [domains/planning.md](domains/planning.md) | ⚠️ قديم | 14,126 بايت | — | — |
 | التوظيف (Jobs) | [domains/jobs-recruitment.md](domains/jobs-recruitment.md) | ⚠️ قديم | 26,418 بايت | — | — |
-| الأجهزة والصيانة | [domains/devices-maintenance.md](domains/devices-maintenance.md) | ⚠️ فاضي | 241 بايت | — | — |
+| الأجهزة والصيانة (Devices & Maintenance) | [domains/devices-maintenance.md](domains/devices-maintenance.md) | ✅ مكتمل | 757 سطر | 15+ | 12 |
 | المناطق الجغرافية (Geo Units) | [domains/geo-units.md](domains/geo-units.md) | ✅ مكتمل | 240 سطر | 10+ | 7 |
 | التسويق الهاتفي (Telemarketing) | [domains/telemarketing.md](domains/telemarketing.md) | ✅ مكتمل | 311 سطر | 7+ | 5 |
 | الفروع (Branches) | [domains/branches.md](domains/branches.md) | ✅ مكتمل | 323 سطر | 12+ | 5 |
@@ -59,6 +59,28 @@
 | العلاقات بين الجداول | [CROSS-REFERENCE.md](CROSS-REFERENCE.md) |
 | الثغرات المفتوحة بكل الكيانات | [GAPS-TRACKER.md](GAPS-TRACKER.md) |
 | القالب لتوثيق كيان جديد | [templates/entity-constitution.md](templates/entity-constitution.md) |
+
+---
+
+## دليل العمل مع الدستور (Workflow Guide)
+
+> **⚠️ هذا أهم ملف بالمشروع بعد هذا الفهرس.**
+> بيشرح كيف نضيف كيان، كيف نحل ثغرة، كيف نكتب prompt، كيف نضيف feature.
+>
+> [📖 اقرأ دليل العمل كاملاً](CONSTITUTION-WORKFLOW.md)
+
+### شو بتحتوي الدليل؟
+
+| البند | الرابط |
+|---|---|
+| السياق الحالي (9/72 كيان مكتمل) | [§1](CONSTITUTION-WORKFLOW.md#1-السياق-الحالي-current-context) |
+| آلية العمل (إضافة كيان / حل ثغرة / feature جديدة) | [§2](CONSTITUTION-WORKFLOW.md#2-آلية-العمل-workflow) |
+| قالب كتابة Prompts الدقيقة | [§3](CONSTITUTION-WORKFLOW.md#3-كيفية-كتابة-الـ-prompts-الدقيقة-prompt-writing-guide) |
+| كيفية توثيق حل Gap | [§4](CONSTITUTION-WORKFLOW.md#4-كيفية-توثيق-حل-gap-gap-fix-documentation) |
+| كيفية إضافة Feature جديدة | [§5](CONSTITUTION-WORKFLOW.md#5-كيفية-إضافة-feature-جديدة-new-feature-documentation) |
+| الكيانات الناقصة (62 كيان) | [§6](CONSTITUTION-WORKFLOW.md#6-الكيانات-الناقصة-remaining-entities--6272) |
+| نماذج جاهزة للاستخدام | [§7](CONSTITUTION-WORKFLOW.md#7-نماذج-جاهزة-للاستخدام-ready-to-use-templates) |
+| قائمة التحقق النهائية (16 نقطة) | [§9](CONSTITUTION-WORKFLOW.md#9-قائمة-التحقق-النهائية-final-checklist) |
 
 ---
 

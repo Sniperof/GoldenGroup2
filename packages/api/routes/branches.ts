@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 
 const router = Router();
 
@@ -298,11 +299,24 @@ router.post('/', requirePermission('branches.manage'), async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
+router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async (req, res) => {
   const client = await pool.connect();
   try {
     const { id } = req.params;
     const { name, locationGeoId, detailedAddress, coveredGeoIds, contactInfo, status } = req.body;
+
+    // coveredGeoIds and status are security-sensitive (affect data scoping / operations).
+    // branches.edit is insufficient — branches.manage is required.
+    const sensitiveFieldsPresent = coveredGeoIds !== undefined || status !== undefined;
+    if (sensitiveFieldsPresent && req.authContext) {
+      const manageCheck = authorize(req.authContext, { permission: 'branches.manage' });
+      if (!manageCheck.allowed) {
+        client.release();
+        return res.status(403).json({
+          error: 'غير مسموح: تعديل نطاق التغطية الجغرافية أو حالة الفرع يتطلب صلاحية branches.manage',
+        });
+      }
+    }
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       client.release();
@@ -324,7 +338,7 @@ router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
          location_geo_id  = $2,
          detailed_address = $3,
          contact_info     = $4,
-         status           = $5
+         status           = COALESCE($5, status)
        WHERE id = $6
        RETURNING id, name,
                  location_geo_id AS "locationGeoId",
@@ -337,7 +351,7 @@ router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
         locationGeoId || null,
         detailedAddress || null,
         JSON.stringify(contactInfo || []),
-        status || 'active',
+        status ?? null,
         id,
       ]
     );

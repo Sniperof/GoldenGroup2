@@ -561,11 +561,24 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
   const taskFamily = typeof req.body?.taskFamily === 'string' ? req.body.taskFamily.trim() : 'marketing';
   const contractId = Number(req.body?.contractId) || null;
 
+  const VALID_TASK_FAMILIES = new Set(['marketing', 'service', 'maintenance', 'emergency', 'delivery', 'sales', 'collection', 'warranty']);
+
   if (!clientId || !Number.isInteger(clientId)) {
-    return res.status(400).json({ error: 'clientId is required' });
+    return res.status(400).json({ error: 'معرف الزبون مطلوب' });
   }
   if (!branchId || !Number.isInteger(branchId)) {
-    return res.status(400).json({ error: 'branchId is required' });
+    return res.status(400).json({ error: 'معرف الفرع مطلوب' });
+  }
+  if (!VALID_TASK_FAMILIES.has(taskFamily)) {
+    return res.status(400).json({ error: `عائلة المهمة "${taskFamily}" غير مدعومة — المسموح: marketing, service, maintenance, emergency, delivery, sales, collection, warranty` });
+  }
+
+  const { rows: taskTypeRows } = await pool.query(
+    'SELECT task_type FROM task_type_config WHERE task_type = $1 LIMIT 1',
+    [taskType],
+  );
+  if (taskTypeRows.length === 0) {
+    return res.status(400).json({ error: `نوع المهمة "${taskType}" غير مدعوم — يجب أن يكون من أنواع المهام المعتمدة في النظام` });
   }
 
   const { rows: branchStatus } = await pool.query(
@@ -589,7 +602,7 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
       : ['new_lead', 'follow_up', 'renewal', 'service_request', 'other'],
   );
   if (!reason || !allowedReasons.has(reason)) {
-    return res.status(400).json({ error: 'reason is required and must be selected from system lists' });
+    return res.status(400).json({ error: 'سبب المهمة مطلوب ويجب اختياره من القوائم المعتمدة في النظام' });
   }
 
   const pgClient = await pool.connect();
