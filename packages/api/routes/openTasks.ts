@@ -568,6 +568,14 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
     return res.status(400).json({ error: 'branchId is required' });
   }
 
+  const { rows: branchStatus } = await pool.query(
+    'SELECT status FROM branches WHERE id = $1',
+    [branchId],
+  );
+  if (branchStatus[0]?.status === 'inactive') {
+    return res.status(400).json({ error: 'لا يمكن إنشاء مهمة جديدة — الفرع المحدد موقوف عن العمل' });
+  }
+
   const { rows: reasonRows } = await pool.query(
     `SELECT value
      FROM system_lists

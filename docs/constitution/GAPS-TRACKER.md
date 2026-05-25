@@ -565,8 +565,8 @@
 | **الوصف** | يتم تخزين حقل معلومات التواصل كـ JSONB مرن وحر دون وجود قيد فحص أو التحقق من صحة تطابق الكائنات البرمجية (Contact Schema Structure validation). |
 | **التأثير** | إمكانية إدخال بيانات تالفة أو كائنات مشوهة بالداتابيز تؤدي لحدوث أخطاء فادحة وتوقف تام بالواجهات الأمامية للعملاء عند محاولة تفكيك وقراءة مصفوفة الفروع بالمتصفح. |
 | **الحل المقترح** | تطبيق فحص وتحقق صارم في السيرفر باستخدام Zod Schema للـ `contactInfo` المدخل بطلب الـ PUT/POST قبل ترحيل الحفظ بقاعدة البيانات. |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [branches.md §9.3](domains/branches.md#gap-047-غياب-النزاهة-والتحقق-من-بنية-معلومات-التواصل-للفرع) |
+| **الحالة** | ✅ محلول — `validateContactInfo()` في POST وPUT بـ `branches.ts` |
+| **ملف الدستور** | [branches.md §9.3](domains/branches.md#gap-047-محلول--التحقق-من-بنية-contact_info-في-post-وput) |
 
 ### GAP-048: Absence of audit log for branch changes 🟢 منخفضة — **جديد**
 
@@ -589,8 +589,8 @@
 | **الوصف** | لا يفرض السيرفر أي فحوصات تمنع إسناد أو تسجيل عقود أو عملاء أو مهام جديدة لفرع تم تحويل حالته ميدانياً لـ غير نشط (`status = 'inactive'`). |
 | **التأثير** | إمكانية ترحيل سجلات وعمليات جديدة لفروع مغلقة مما يؤدي لضياع السجلات ميدانياً لغياب فرق العمل النشطة التابعة للفرع. |
 | **الحل المقترح** | تطبيق قيد فحص بالـ Controllers يحظر ترحيل السجلات الجديدة في حال لم تكن حالة الفرع المرجعي `active` بالداتابيز. |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [branches.md §9.5](domains/branches.md#gap-049-تعطل-فحص-حالة-الفرع-غير-النشط-بالمهام-والعقود-الجديدة) |
+| **الحالة** | ✅ محلول — فحص branch.status قبل INSERT في clients + contracts + openTasks |
+| **ملف الدستور** | [branches.md §9.5](domains/branches.md#gap-049-محلول--منع-إنشاء-سجلات-جديدة-لفرع-موقوف) |
 
 ### GAP-050: Public Access على إدارة الأجهزة وقطع الغيار ⭐ حرجة — **جديد**
 
@@ -818,6 +818,8 @@ if (neighborhood) {
 | GAP-034 | employees | حذف `employees.residence` النصي — أعمدة `residence_*_id` FK كانت موجودة بالفعل | 2026-05-24 | `migrations/171_drop_employees_residence_text.sql` + `routes/adminApplications.ts` |
 | GAP-045 | branches | استبدال `requireAuth` بـ `requirePermission('branches.view')` على GET / وGET /:id | 2026-05-24 | `routes/branches.ts` |
 | GAP-046 | branches | استبدال `covered_geo_ids` JSONB بـ `branch_geo_coverage` junction table مع CASCADE | 2026-05-24 | `migrations/169_branch_geo_coverage_table.sql` + `branches.ts` + `geoScopeService.ts` |
+| GAP-047 | branches | التحقق من بنية `contact_info` (type/department/value) في POST وPUT | 2026-05-25 | `routes/branches.ts` |
+| GAP-049 | clients / contracts / open_tasks | منع إنشاء سجلات لفرع inactive | 2026-05-25 | `routes/clients.ts` + `routes/contracts.ts` + `routes/openTasks.ts` |
 
 ---
 
@@ -859,10 +861,10 @@ if (neighborhood) {
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 53 |
-| **عدد الثغرات المحلولة** | 9 (GAP-003, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046) |
+| **عدد الثغرات المفتوحة** | 51 |
+| **عدد الثغرات المحلولة** | 11 (GAP-003, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049) |
 | **عالية الخطورة** | 12 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059, GAP-062) |
-| **متوسطة** | 23 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-049, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
-| **منخفضة** | 17 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-047, GAP-048, GAP-061) |
-| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (2 مفتوحة) / geo_units (1 مفتوحة) |
+| **متوسطة** | 22 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
+| **منخفضة** | 16 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-048, GAP-061) |
+| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (1 مفتوحة — GAP-048 audit log) / geo_units (1 مفتوحة) |
 | **قرارات معلقة** | 1 (multi-branch client) |

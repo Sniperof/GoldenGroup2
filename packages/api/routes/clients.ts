@@ -831,6 +831,14 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
+    const { rows: branchStatus } = await pool.query(
+      'SELECT status FROM branches WHERE id = $1',
+      [targetBranchId],
+    );
+    if (branchStatus[0]?.status === 'inactive') {
+      return res.status(400).json({ error: 'لا يمكن تسجيل زبون جديد — الفرع المحدد موقوف عن العمل' });
+    }
+
     // Resolve the list of users this client will be assigned to.
     // Non-super-admin is always included in their own assignments (self-assign).
     const resolvedAssignees = await resolveAssignmentUserIds(

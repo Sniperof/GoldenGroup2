@@ -429,6 +429,14 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
   if (targetBranchId == null) return;
 
+  const { rows: branchStatus } = await pool.query(
+    'SELECT status FROM branches WHERE id = $1',
+    [targetBranchId],
+  );
+  if (branchStatus[0]?.status === 'inactive') {
+    return res.status(400).json({ error: 'لا يمكن إنشاء عقد جديد — الفرع المحدد موقوف عن العمل' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

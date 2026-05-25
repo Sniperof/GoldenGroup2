@@ -4,6 +4,23 @@ import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
 
+const VALID_CONTACT_TYPES = new Set(['email', 'phone', 'mobile', 'website']);
+const VALID_DEPARTMENTS   = new Set(['customer_service', 'hr', 'management', 'accounting', 'other']);
+
+function validateContactInfo(contactInfo: unknown): string | null {
+  if (!Array.isArray(contactInfo)) return 'contactInfo يجب أن يكون مصفوفة';
+  for (const item of contactInfo) {
+    if (typeof item !== 'object' || item === null) return 'كل عنصر في contactInfo يجب أن يكون كائناً';
+    if (!VALID_CONTACT_TYPES.has((item as any).type))
+      return `نوع التواصل "${(item as any).type}" غير مدعوم — المسموح: email, phone, mobile, website`;
+    if (!VALID_DEPARTMENTS.has((item as any).department))
+      return `القسم "${(item as any).department}" غير مدعوم — المسموح: customer_service, hr, management, accounting, other`;
+    if (typeof (item as any).value !== 'string' || !(item as any).value.trim())
+      return 'حقل value مطلوب لكل عنصر في contactInfo';
+  }
+  return null;
+}
+
 // Helper: sync branch_geo_coverage rows within an open transaction client
 async function syncBranchGeoCoverage(
   client: typeof pool,
@@ -185,6 +202,17 @@ router.post('/', requirePermission('branches.manage'), async (req, res) => {
   const client = await pool.connect();
   try {
     const { name, locationGeoId, detailedAddress, coveredGeoIds, contactInfo, status } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      client.release();
+      return res.status(400).json({ error: 'اسم الفرع مطلوب' });
+    }
+    const contactErr = validateContactInfo(contactInfo ?? []);
+    if (contactErr) {
+      client.release();
+      return res.status(400).json({ error: contactErr });
+    }
+
     const ids: number[] = Array.isArray(coveredGeoIds) ? coveredGeoIds.map(Number).filter(Boolean) : [];
 
     await client.query('BEGIN');
@@ -275,6 +303,17 @@ router.put('/:id', requirePermission('branches.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, locationGeoId, detailedAddress, coveredGeoIds, contactInfo, status } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      client.release();
+      return res.status(400).json({ error: 'اسم الفرع مطلوب' });
+    }
+    const contactErr = validateContactInfo(contactInfo ?? []);
+    if (contactErr) {
+      client.release();
+      return res.status(400).json({ error: contactErr });
+    }
+
     const ids: number[] = Array.isArray(coveredGeoIds) ? coveredGeoIds.map(Number).filter(Boolean) : [];
 
     await client.query('BEGIN');
