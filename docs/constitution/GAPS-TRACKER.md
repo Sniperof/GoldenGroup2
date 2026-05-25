@@ -209,8 +209,8 @@
 | **الوصف** | يعتمد الكود برمجياً بشكل كامل في التحقق وحماية مسارات الكيان `open_tasks` على صلاحيات قديمة وموروثة تخص كياناً آخر `marketing_visits` (مثل `marketing_visits.view` و `marketing_visits.update_result`). |
 | **التأثير** | إرباك شديد للمطورين وتداخل مفاهيم الحماية والأدوار الإدارية وصعوبة التحكم بامتيازات موظفي المتابعة هاتفياً والفرق الميدانية بشكل معزول ونظيف. |
 | **الحل المقترح** | بذر صلاحيات مستقلة ومخصصة للمهام المفتوحة (`open_tasks.view` و `open_tasks.edit`) وتعديل الكود للاعتماد عليها. |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [permissions.md §9.3](domains/permissions.md#gap-017--gap-027-تضارب-مسميات-صلاحيات-المهام-والزيارات-الميدانية) |
+| **الحالة** | ✅ محلول جزئي — `openTasks.ts` محدّث (migration 174). تبقى `fieldVisits.ts`، `workScopes.ts`، `emergencyResult.ts` تستخدم `marketing_visits.*` حتى مراجعة دوماناتها. |
+| **ملف الدستور** | [open-tasks.md §6](domains/open-tasks.md#6-صلاحيات-الوصول-permission-matrix) |
 
 ### GAP-018: Legacy Database Duplications 🟡 متوسطة — **جديد**
 
@@ -819,6 +819,90 @@ if (neighborhood) {
 
 ---
 
+### GAP-067: Type Conflict in Employee Number between Migrations 🔴 عالية — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | employees |
+| **الموقع** | `migrations/017_employee_profiles.sql` & `migrations/017_employees_extended_profile.sql` |
+| **الوصف** | يحدد المهجر الأول الحقل `employee_number` بنوع `BIGINT` بينما يعيد المهجر الثاني تعريفه بنوع `VARCHAR(50)` دون أي حماية أو فحص تكاملي. |
+| **التأثير** | حدوث مشاكل وتوقف مفاجئ في الـ API وقاعدة البيانات عند مقارنة الأرقام وظيفياً، وتعطل واجهات البحث. |
+| **الحل المقترح** | توحيد العمود بالكامل ليكون `BIGINT` وربطه بالمتسلسلة لضمان التوليد التلقائي الفريد. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [employees.md §9.1](domains/employees.md#gap-067-type-conflict-in-employee-number-between-migrations-عالية-الخطورة) |
+
+---
+
+### GAP-068: Discrepancy between Legacy text `branch` and `branch_id` FK 🔴 عالية — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | employees |
+| **الموقع** | `migrations/001_core_tables.sql` & `migrations/013_multi_branch_identity.sql` |
+| **الوصف** | بقاء الحقل النصي القديم `branch` (VARCHAR) متوازياً مع الحقل المرجعي الحقيقي `branch_id` (INTEGER REFERENCES branches) دون أي مزامنة أو حظر. |
+| **التأثير** | إمكانية إدخال اسم فرع نصي لا يتطابق إطلاقاً مع معرف الفرع الفعلي للموظف، مما يتسبب بتشوش البيانات وفشل التقارير. |
+| **الحل المقترح** | إسقاط الحقل النصي `branch` من جدول الموظفين نهائياً والاعتماد الكلي على `branch_id`. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [employees.md §9.2](domains/employees.md#gap-068-discrepancy-between-legacy-text-branch-and-branch_id-عالية-الخطورة) |
+
+---
+
+### GAP-069: Missing Soft Delete on Employees 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | employees |
+| **الموقع** | `packages/api/routes/employees.ts` |
+| **الوصف** | يمسح مسار الحذف الموظف فيزياياً بشكل نهائي من قاعدة البيانات طالما لا توجد قيود مباشرة، دون وجود حقل أرشفة `deleted_at`. |
+| **التأثير** | ضياع الهوية والبيانات التشغيلية التاريخية للموظفين السابقين في التقارير المجمعة وسجلات المراقبة (Audit Logs). |
+| **الحل المقترح** | إضافة حقل `deleted_at` وتفعيل الحذف الناعم (Soft Delete) بجميع مستودعات الموظفين. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [employees.md §9.3](domains/employees.md#gap-069-missing-soft-delete-on-employees-متوسطة) |
+
+---
+
+### GAP-070: Status Desynchronization in User Branch Assignments 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | employees / branches |
+| **الموقع** | `packages/api/services/userBranchAssignmentService.ts` |
+| **الوصف** | غياب آلية أوتوماتيكية تعطل الفروع المرتبطة بالموظف الموقوف مؤقتاً أو المفصول بـ `user_branch_assignments` عند تغيير حالته بـ `employees` أو `hr_users`. |
+| **التأثير** | بقاء تخصيصات الفروع نشطة للموظفين المعطلين بالداتابيز، مما يشوه تقارير الموارد البشرية وتوزيع الموظفين. |
+| **الحل المقترح** | كتابة trigger أو Hook يقوم بتحديث `user_branch_assignments.status = 'inactive'` تلقائياً عند تعطيل حساب الموظف. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [employees.md §9.4](domains/employees.md#gap-070-status-desynchronization-in-user-branch-assignments-متوسطة) |
+
+---
+
+### GAP-071: Operational Role Ambiguity in System Models 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | employees / hr_users |
+| **الموقع** | `employees.role` VS `hr_users.role` VS `hr_users.role_id` |
+| **الوصف** | تشتت مفهوم الدور بنية الكود: دور فني بالموظف (لتسجيل المهام)، ودور نصي بالمستخدم، ودور فيزيائي حقيقي مربوط بالصلاحيات بجدول الأدوار `roles`. |
+| **التأثير** | إمكانية منح الموظف صلاحية محاسب أو مدير فرع بالدخول بينما هو فني بسيط بالمهام، مما يحدث ثغرات أمنية وتعارضاً بالصلاحيات. |
+| **الحل المقترح** | توحيد مرجعية الأدوار بالكامل والاعتماد المطلق على معرف الأدوار المربوط بالصلاحيات `role_id`. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [employees.md §9.5](domains/employees.md#gap-071-operational-role-ambiguity-in-system-models-متوسطة) |
+
+---
+
+### GAP-072: Absence of Audit Trails for Employee Profile Changes 🟡 متوسطة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | employees |
+| **الموقع** | `packages/api/routes/employees.ts` |
+| **الوصف** | خلو عمليات تحديث الموظف بالكامل (معلومات السكن، أرقام التواصل، تفاصيل الخبرة) من تسجيل ورقابة التغييرات بنظام الـ Audit Trail العام للشركة. |
+| **التأثير** | عدم القدرة على تحديد المسؤول عن تعديل تواريخ مباشرة العمل أو تغيير العنوان الجغرافي للموظفين بشكل احتيالي. |
+| **الحل المقترح** | ربط عمليات التعديل والـ PUT للموظفين بجدول المراقبة العام `audit_logs` مع تسجيل القيم القديمة والجديدة. |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [employees.md §9.6](domains/employees.md#gap-072-absence-of-audit-trails-for-employee-profile-changes-متوسطة) |
+
+---
+
 ## الثغرات المحلولة (Resolved Gaps)
 
 | الرقم | الكيان | الوصف | تاريخ الحل | الملفات المتأثرة |
@@ -838,6 +922,7 @@ if (neighborhood) {
 | GAP-064 | open_tasks | تعريب رسائل الخطأ في POST / (`clientId`، `branchId`، `reason`) | 2026-05-25 | `routes/openTasks.ts` |
 | GAP-065 | open_tasks | إضافة validation لـ `taskFamily` و`taskType` في POST / قبل الوصول للـ DB | 2026-05-25 | `routes/openTasks.ts` |
 | GAP-066 | open_tasks | توثيق §7 API Contract الكامل — الدستور كان يوثق 4 endpoints من أصل 20 | 2026-05-25 | `docs/constitution/domains/open-tasks.md §7` |
+| GAP-017 | open_tasks | استبدال `marketing_visits.*` بـ `open_tasks.view/edit` في openTasks.ts (محلول جزئي) | 2026-05-25 | `migrations/174_open_tasks_permissions.sql` + `routes/openTasks.ts` |
 
 ---
 
@@ -879,10 +964,10 @@ if (neighborhood) {
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 51 |
-| **عدد الثغرات المحلولة** | 15 (GAP-003, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049, GAP-063, GAP-064, GAP-065, GAP-066) |
-| **عالية الخطورة** | 12 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-017, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059, GAP-062) |
-| **متوسطة** | 22 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060) |
+| **عدد الثغرات المفتوحة** | 56 |
+| **عدد الثغرات المحلولة** | 16 (GAP-003, GAP-017, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049, GAP-063, GAP-064, GAP-065, GAP-066) |
+| **عالية الخطورة** | 13 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059, GAP-062, GAP-067, GAP-068) |
+| **متوسطة** | 26 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060, GAP-069, GAP-070, GAP-071, GAP-072) |
 | **منخفضة** | 16 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-048, GAP-061) |
-| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (1 مفتوحة — GAP-048 audit log) / geo_units (1 مفتوحة) |
+| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / employees (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (1) / geo_units (1) |
 | **قرارات معلقة** | 1 (multi-branch client) |

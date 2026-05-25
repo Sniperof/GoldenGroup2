@@ -278,7 +278,7 @@ erDiagram
 | `contract_installments` | `status` | `pending`, `paid`, `partial`, `overdue` | ✅ نعم |
 | `dues` | `status` | `Pending`, `Partial`, `Paid`, `Overdue` | ✅ نعم |
 | `open_tasks` | `status` | `open`, `needs_follow_up`, `assigned`, `in_scheduling`, `scheduled`, `waiting_execution`, `in_execution`, `ended`, `completed`, `closed`, `cancelled` | ✅ نعم |
-| `open_tasks` | `task_family` | `marketing`, `service`, `maintenance`, `emergency` | ✅ نعم |
+| `open_tasks` | `task_family` | `marketing`, `service`, `maintenance`, `emergency`, `delivery`, `sales`, `collection`, `warranty` | ✅ نعم |
 | `open_tasks` | `reason` | `new_lead`, `follow_up`, `renewal`, `service_request`, `other` | ✅ نعم |
 | `open_tasks` | `priority` | `high`, `medium`, `low` | ✅ نعم |
 | `open_tasks` | `last_waiting_status` | `open`, `needs_follow_up` | ✅ نعم |
@@ -312,11 +312,18 @@ erDiagram
 
 ### 3.5 Permission Naming Patterns (أنماط تسمية الصلاحيات)
 
-يوجد عدم اتساق منهجي في تسمية مفاتيح الصلاحيات المعتمدة بقاعدة البيانات مقارنة بكيانات الكود الفعلي (انظر GAP-017 و GAP-027):
+**النمط المعياري المعتمد:** `<entity>.<action>` — مثل `clients.view`، `branches.manage`، `open_tasks.edit`.
 
-- **مفتاح الصلاحية بالنظام (Key):** `'marketing_visits.view'` و `'marketing_visits.update_result'`.
-- **الكيان البرمجي والمسارات بالكود (Express Routers):** تستخدم هذه المفاتيح لحماية كيانين تشغيليين منفصلين تماماً هما المهام المفتوحة (`open_tasks`) والزيارات الميدانية (`field_visits`)، مما يعيق الفرز الوظيفي الدقيق للموظفين.
-- **نمط الفرز في الأقسام الأخرى:** يعتمد الفرز الصحيح المبني على النقاط والكيان مثل `clients.view` أو `candidates.create`.
+**حالة GAP-017 (تضارب التسمية) — محلول جزئي:**
+
+| الملف | الصلاحية المستخدمة | الحالة |
+|---|---|---|
+| `routes/openTasks.ts` | `open_tasks.view` / `open_tasks.edit` | ✅ محدّث (migration 174) |
+| `routes/fieldVisits.ts` | `marketing_visits.view` / `marketing_visits.update_result` | ⏳ ينتظر مراجعة دومان field-visits |
+| `routes/workScopes.ts` | `marketing_visits.view` / `marketing_visits.update_result` | ⏳ ينتظر مراجعة دومان workScopes |
+| `routes/emergencyResult.ts` | `marketing_visits.view` / `marketing_visits.update_result` | ⏳ ينتظر مراجعة دومان open-tasks §emergency |
+
+صلاحيات `marketing_visits.*` لا تزال في الـ DB وممنوحة للأدوار — لا تُحذف حتى تنتهي مراجعة جميع الملفات التي تعتمد عليها (انظر GAP-027).
 
 ---
 
@@ -352,8 +359,8 @@ erDiagram
 |---|---|---|---|---|---|
 | 1 | `geo_units` | `id` | `parent_id` → geo_units | ❌ | ❌ |
 | 2 | `branches` | `id` | `location_geo_id` → geo_units | ❌ | ✅ |
-| 3 | `employees` | `id` | — | ❌ | ✅ |
-| 4 | `hr_users` | `id` | `employee_id` → employees | ❌ | — |
+| 3 | [`employees`](domains/employees.md) | `id` | — | ❌ | ✅ |
+| 4 | [`hr_users`](domains/employees.md) | `id` | `employee_id` → employees | ❌ | — |
 | 5 | `clients` | `id` | `branch_id`, `referral_sheet_id`, `created_by` | ✅ | ❌ |
 | 6 | `candidates` | `id` | `referral_sheet_id` | ❌ | ✅ |
 | 7 | `referral_sheets` | `id` | `owner_user_id`, `created_by` | ❌ | ✅ |
@@ -446,9 +453,9 @@ erDiagram
 | 66 | `roles` | `id` | — | الأدوار |
 | 67 | `permissions` | `id` | — | الصلاحيات |
 | 68 | `role_permissions` | `id` | `role_id`, `permission_id` | صلاحيات الدور |
-| 69 | `role_permission_grants` | `id` | `role_id`, `permission_id` | منح الصلاحيات |
+| 69 | [`role_permission_grants`](domains/employees.md) | `id` | `role_id`, `permission_id` | منح الصلاحيات |
 | 70 | `role_job_tasks` | `id` | `role_id` | مهام الدور |
-| 71 | `user_branch_assignments` | `id` | `user_id`, `branch_id` | فروع المستخدم |
+| 71 | [`user_branch_assignments`](domains/employees.md) | `id` | `user_id`, `branch_id` | فروع المستخدم |
 
 ### 5.7 النظام والمساعدة (System)
 

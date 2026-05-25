@@ -19,6 +19,7 @@
 | التخطيط (Planning) | [domains/planning.md](domains/planning.md) | ⚠️ قديم | 14,126 بايت | — | — |
 | التوظيف (Jobs) | [domains/jobs-recruitment.md](domains/jobs-recruitment.md) | ⚠️ قديم | 26,418 بايت | — | — |
 | الأجهزة والصيانة (Devices & Maintenance) | [domains/devices-maintenance.md](domains/devices-maintenance.md) | ✅ مكتمل | 757 سطر | 15+ | 12 |
+| الموظفون (Employees) | [domains/employees.md](domains/employees.md) | ✅ مكتمل | 480 سطر | 12+ | 6 |
 | المناطق الجغرافية (Geo Units) | [domains/geo-units.md](domains/geo-units.md) | ✅ مكتمل | 240 سطر | 10+ | 7 |
 | التسويق الهاتفي (Telemarketing) | [domains/telemarketing.md](domains/telemarketing.md) | ✅ مكتمل | 311 سطر | 7+ | 5 |
 | الفروع (Branches) | [domains/branches.md](domains/branches.md) | ✅ مكتمل | 323 سطر | 12+ | 5 |

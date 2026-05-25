@@ -430,7 +430,7 @@ export async function persistOpenTaskSnapshots(db: Queryable, openTaskId: number
  *       500:
  *         description: Internal Server Error
  */
-router.get('/', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
 
@@ -546,7 +546,7 @@ router.get('/', requirePermission('marketing_visits.view'), async (req, res) => 
  *       500:
  *         description: Internal Server Error
  */
-router.post('/', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   const authContext = getAuthContext(req);
   const clientId = Number(req.body?.clientId);
   const branchId = Number(req.body?.branchId ?? authContext.actingBranchId);
@@ -736,7 +736,7 @@ router.post('/', requirePermission('marketing_visits.update_result'), async (req
  *       500:
  *         description: Internal Server Error
  */
-router.get('/client/:clientId', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/client/:clientId', requirePermission('open_tasks.view'), async (req, res) => {
   const authContext = getAuthContext(req);
   const clientId = Number(req.params.clientId);
   if (!Number.isInteger(clientId) || clientId <= 0) {
@@ -896,7 +896,7 @@ router.get('/client/:clientId', requirePermission('marketing_visits.view'), asyn
  *       500:
  *         description: Internal Server Error
  */
-router.get('/device-demo', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/device-demo', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
 
@@ -1089,7 +1089,7 @@ router.get('/device-demo', requirePermission('marketing_visits.view'), async (re
  *       500:
  *         description: Internal Server Error
  */
-router.post('/:id/assign-team', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/assign-team', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -1204,7 +1204,7 @@ router.post('/:id/assign-team', requirePermission('marketing_visits.update_resul
  *       500:
  *         description: Internal Server Error
  */
-router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -1360,7 +1360,7 @@ router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) 
  *       500:
  *         description: Internal Server Error
  */
-router.patch('/:id', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -1595,7 +1595,7 @@ function mapDecisionToOpenTaskStatus(finalDecision: string): string {
  *       500:
  *         description: Internal Server Error
  */
-router.get('/:id/emergency-result', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:id/emergency-result', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -1764,7 +1764,7 @@ router.get('/:id/emergency-result', requirePermission('marketing_visits.view'), 
  *       500:
  *         description: Internal Server Error
  */
-router.post('/:id/emergency-result', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/emergency-result', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -2067,7 +2067,7 @@ router.post('/:id/emergency-result', requirePermission('marketing_visits.update_
  *       500:
  *         description: Internal Server Error
  */
-router.get('/scope/:scopeId', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/scope/:scopeId', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const scopeId = Number(req.params.scopeId);
     if (!Number.isFinite(scopeId)) {
@@ -2131,7 +2131,7 @@ router.get('/scope/:scopeId', requirePermission('marketing_visits.view'), async 
  *       500:
  *         description: Internal Server Error
  */
-router.post('/:id/assign-scope', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/assign-scope', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -2220,7 +2220,7 @@ router.post('/:id/assign-scope', requirePermission('marketing_visits.update_resu
  *       500:
  *         description: Internal Server Error
  */
-router.post('/:id/exclude', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/exclude', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -2307,7 +2307,7 @@ router.post('/:id/exclude', requirePermission('marketing_visits.update_result'),
  *       500:
  *         description: Internal Server Error
  */
-router.post('/:id/restore', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/restore', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -2379,7 +2379,7 @@ router.post('/:id/restore', requirePermission('marketing_visits.update_result'),
  *       500:
  *         description: Internal Server Error
  */
-router.post('/bulk-exclude', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/bulk-exclude', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const taskIds = Array.isArray(req.body?.taskIds) ? req.body.taskIds.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id)) : [];
@@ -2464,7 +2464,7 @@ router.post('/bulk-exclude', requirePermission('marketing_visits.update_result')
  *       500:
  *         description: Internal Server Error
  */
-router.post('/bulk-restore', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/bulk-restore', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const taskIds = Array.isArray(req.body?.taskIds) ? req.body.taskIds.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id)) : [];
@@ -2550,7 +2550,7 @@ router.post('/bulk-restore', requirePermission('marketing_visits.update_result')
  *       500:
  *         description: Internal Server Error
  */
-router.get('/:id/activity', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:id/activity', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -2635,7 +2635,7 @@ router.get('/:id/activity', requirePermission('marketing_visits.view'), async (r
  *       500:
  *         description: Internal Server Error
  */
-router.post('/:id/activity', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/activity', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -2749,7 +2749,7 @@ router.post('/:id/activity', requirePermission('marketing_visits.update_result')
  *       500:
  *         description: Internal Server Error
  */
-router.get('/:id/devices', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:id/devices', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -2855,7 +2855,7 @@ router.get('/:id/devices', requirePermission('marketing_visits.view'), async (re
  *       500:
  *         description: Internal Server Error
  */
-router.post('/:id/devices', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/devices', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -2944,7 +2944,7 @@ router.post('/:id/devices', requirePermission('marketing_visits.update_result'),
  *       500:
  *         description: Internal Server Error
  */
-router.get('/:id/calls', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:id/calls', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
