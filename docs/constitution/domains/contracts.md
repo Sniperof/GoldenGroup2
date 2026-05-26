@@ -592,7 +592,7 @@ erDiagram
 | **3 — ربط المهام بالجهاز** | إضافة `open_tasks.device_id` + backfill + تحديث openTasks.ts | ✅ مكتمل (migration 194, 2026-05-26) |
 | **4 — device_warranties** | إنشاء `device_warranties` + نقل بيانات الكفالة من installed_devices | ⏳ مخطط |
 | **5 — device_installed_parts** | إنشاء `device_installed_parts` + ربط `emergency_result_parts` | ⏳ مخطط |
-| **6 — حذف الحقول Legacy** | DROP 13 حقلاً فيزيائياً من `contracts` + `maintenance_interval` من `device_models` | ⏳ موثق — [§9.2 في installed-devices.md](installed-devices.md#92-phase-6-drop-الحقول-legacy-من-contracts) |
+| **6 — حذف الحقول Legacy** | DROP 13 حقلاً فيزيائياً من `contracts` | ✅ مكتمل (migration 195, 2026-05-26) |
 
 ### الحقول المنتقلة من `contracts` → `installed_devices`
 

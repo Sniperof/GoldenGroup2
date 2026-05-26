@@ -1539,16 +1539,17 @@ async function maybeCompleteFieldVisit(db: Queryable, fieldVisitId: bigint | str
 
 async function updateContractDeviceStatusOnTaskCompletion(db: Queryable, taskId: number) {
   const { rows: tasks } = await db.query(
-    'SELECT contract_id, task_type, status FROM open_tasks WHERE id = $1',
+    'SELECT contract_id, device_id, task_type, status FROM open_tasks WHERE id = $1',
     [taskId]
   );
   if (!tasks[0] || !tasks[0].contract_id || tasks[0].status !== 'completed') return;
   const contractId = tasks[0].contract_id;
+  const deviceId = tasks[0].device_id;
   const taskType = tasks[0].task_type;
-  
+
   let newDeviceStatus: string | null = null;
   let newContractStatus: string | null = null;
-  
+
   if (taskType === 'device_delivery') {
     newDeviceStatus = 'delivered';
   } else if (taskType === 'device_installation') {
@@ -1557,19 +1558,26 @@ async function updateContractDeviceStatusOnTaskCompletion(db: Queryable, taskId:
     newDeviceStatus = 'active';
     newContractStatus = 'active';
   }
-  
-  if (newDeviceStatus) {
-    if (newContractStatus) {
-      await db.query(
-        'UPDATE contracts SET device_status = $1, status = $2 WHERE id = $3',
-        [newDeviceStatus, newContractStatus, contractId]
-      );
-    } else {
-      await db.query(
-        'UPDATE contracts SET device_status = $1 WHERE id = $2',
-        [newDeviceStatus, contractId]
-      );
-    }
+
+  // Phase 6: device_status lives on installed_devices, not contracts
+  if (newDeviceStatus && deviceId) {
+    await db.query(
+      'UPDATE installed_devices SET status = $1 WHERE id = $2',
+      [newDeviceStatus, deviceId]
+    );
+  } else if (newDeviceStatus && contractId) {
+    // fallback via contract_id for tasks that predate Phase 3 backfill
+    await db.query(
+      'UPDATE installed_devices SET status = $1 WHERE contract_id = $2',
+      [newDeviceStatus, contractId]
+    );
+  }
+
+  if (newContractStatus) {
+    await db.query(
+      'UPDATE contracts SET status = $1 WHERE id = $2',
+      [newContractStatus, contractId]
+    );
   }
 }
 

@@ -152,7 +152,7 @@ interval_days = floor((warranty_months × 30) / warranty_visits)
 | **Phase 3** | ربط `open_tasks.device_id` | ✅ مكتمل (migration 194, 2026-05-26) |
 | **Phase 4** | إنشاء `device_warranties` | ⏳ مخطط |
 | **Phase 5** | إنشاء `device_installed_parts` | ⏳ مخطط |
-| **Phase 6** | DROP الحقول Legacy من `contracts` | ⏳ موثق — انظر §9.2 |
+| **Phase 6** | DROP الحقول Legacy من `contracts` | ✅ مكتمل (migration 195, 2026-05-26) |
 
 ---
 
@@ -435,3 +435,4 @@ packages/api/routes/contracts.ts contractSelect:
 | **2026-05-26** | `192_sync_installed_device_trigger.sql` | *(Phase 2B انتقالي — محذوف في 193)* trigger AFTER UPDATE → مزامنة الحقول الفيزيائية |
 | **2026-05-26** | `193_drop_sync_trigger.sql` | حذف trigger المزامنة — Phase 2C اكتملت، الكتابات مباشرةً |
 | **2026-05-26** | `194_open_tasks_device_id.sql` | **Phase 3:** إضافة `open_tasks.device_id FK → installed_devices` + index + backfill للـ4 مهام الموجودة. تحديث `openTasks.ts POST` و`contracts.ts` (auto-create delivery task) لملء `device_id` تلقائياً. |
+| **2026-05-26** | `195_phase6_drop_contract_device_columns.sql` | **Phase 6:** حذف 13 حقلاً فيزيائياً من `contracts` (serial_number, device_status, delivery_date, installation_date, installation_geo/address/lat/lng, warranty_*, is_golden_warranty, *_warranty_end_date). تعديل trigger 191 ليُنشئ installed_devices بالحقول الأساسية فقط. تحويل `updateContractDeviceStatusOnTaskCompletion` لتكتب على `installed_devices.status`. |
