@@ -657,7 +657,7 @@ export interface DeviceModel {
     basePrice: number;
     supportedVisitTypes: ('تسليم' | 'تركيب' | 'صيانة' | 'تعليم')[];
     isGoldenWarranty?: boolean;
-    goldenWarrantyPeriods?: ('3 أشهر' | '6 أشهر' | '9 أشهر' | '12 شهرًا')[];
+    goldenWarrantyPeriods?: Array<{ months: number; label: string }>;
     isFeatured?: boolean;
     description?: string | null;
     descriptionEn?: string | null;

@@ -197,6 +197,28 @@
 عند إنشاء مصفوفة أقساط غير مؤكدة، يظل بإمكان المشرف تعديل قيمها وإعادتها. بمجرد استدعاء مسار التأكيد (`POST /api/contracts/:id/installments/confirm`):
 - يتم تحويل كافة الأقساط للحالة `confirmed = TRUE` لتصبح التزامات مالية نهائية غير قابلة للتعديل العشوائي من واجهة العميل العادية.
 
+#### BR-7: نظام الكفالات المزدوجة (Dual Warranty System)
+يدعم كل عقد بيع نوعين مستقلين من الكفالة:
+
+**كفالة العقد القياسية (`contract_warranty_end_date`):**
+- مصدرها: العقد نفسه عند إنشائه.
+- آلية الحساب: يختار المستخدم فترة من `[6، 12، 24، 36 شهرًا]` في نموذج الإنشاء، يحسب الـ API تلقائياً: `contract_warranty_end_date = contract_date + warrantyMonths`.
+- تُطبّق على جميع عقود البيع بصرف النظر عن نوع الجهاز.
+
+**الكفالة الذهبية (`is_golden_warranty` + `golden_warranty_end_date`):**
+- الشرط المسبق: الجهاز يجب أن يدعمها (`device_models.is_golden_warranty = TRUE`).
+- الفترات المتاحة: مخزّنة على موديل الجهاز كـ `golden_warranty_periods: [{months, label}]` (بنية object بعد migration 186).
+- مصدرها: **إيصال ينشأ كنتيجة لمهمة تسليم كفالة ذهبية** — وليس عند إنشاء العقد.
+- آلية التطبيق: عند اكتمال مهمة التسليم، يختار الفني/المستخدم الفترة المناسبة، يُكتب: `is_golden_warranty = TRUE` و `golden_warranty_end_date = task_completion_date + selectedMonths`.
+- **⚠️ الجزء الثالث من BR-7 معلّق التنفيذ** — راجع GAP-078.
+
+**منطق الأولوية في `customerCalls.ts`:**
+```sql
+WHEN c.is_golden_warranty = TRUE THEN 'golden_warranty'
+ELSE 'contract_warranty'
+```
+الذهبية تحل محل القياسية — النظام يعمل بمبدأ "إما/أو" حالياً.
+
 ---
 
 ## 4. العلاقات (Relationships)
@@ -480,6 +502,21 @@ erDiagram
 - **الحل المطبق:** إضافة `const access = authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId })` قبل `mapContract()` في handler الـ GET /:id.
 - **تاريخ الحل:** 2026-05-25
 
+### GAP-076: غياب تاريخ انتهاء كفالة العقد لجميع العقود الحالية ✅ محلول جزئي
+- **التضارب:** حقل `contract_warranty_end_date` موجود بـ DB منذ migration 156 لكن لم يكن يُملأ — لا يوجد في ContractForm حقل اختيار فترة، ولا يحسبه الـ API تلقائياً.
+- **الحل المطبق (2026-05-26):** إضافة dropdown "فترة كفالة العقد" في ContractForm، والـ API يحسب التاريخ تلقائياً: `contract_warranty_end_date = contract_date + warrantyMonths`.
+- **المتبقي:** العقود القديمة (قبل 2026-05-26) تبقى بـ `contract_warranty_end_date = NULL` — لا backfill ممكن لأننا لا نعرف الفترة المتفق عليها.
+
+### GAP-077: بنية `golden_warranty_periods` نصية غير قابلة للحساب ✅ محلول
+- **التضارب:** `device_models.golden_warranty_periods` كان يخزن نصاً حراً `["12 شهرًا"]` لا يمكن جمعه رياضياً على تاريخ لحساب `golden_warranty_end_date`.
+- **الحل المطبق (2026-05-26):** migration 186 حوّل البنية إلى `[{"months": 12, "label": "12 شهرًا"}]`، وتحديث النوع في `shared/types.ts`، وتحديث UI في `DeviceManagement.tsx`.
+
+### GAP-078: غياب واجهة تفعيل الكفالة الذهبية من مهمة التسليم ⚠️ معلق
+- **التضارب:** الكفالة الذهبية يجب أن تُفعَّل عند اكتمال مهمة "تسليم كفالة ذهبية"، لكن لا يوجد UI لاختيار الفترة من `golden_warranty_periods` ولا API يكتب `is_golden_warranty + golden_warranty_end_date` على العقد.
+- **الأثر التشغيلي:** `is_golden_warranty` يبقى `FALSE` و`golden_warranty_end_date = NULL` لجميع العقود حتى بعد تسليم الكفالة فعلياً — نظام الكفالة الذهبية غير فعّال كلياً.
+- **التوصية:** تحديد صفحة نتيجة مهمة التسليم الذهبي وإضافة dropdown + API endpoint لكتابة الكفالة على العقد.
+- **الملف المتوقع:** صفحة نتائج الزيارة الميدانية + `fieldVisits.ts` أو `openTasks.ts`.
+
 ### ⚠️ 9.2 الثغرة الثانية: تعارض حالة الأحرف لحالات السداد بين جدول الأقساط والديون (Casing Mismatch in Payments Statuses)
 - **التضارب:** يفرض جدول الأقساط `contract_installments` قيد تحقق بحروف صغيرة كلياً:
   `CHECK (status IN ('pending', 'paid', 'partial', 'overdue'))`.
@@ -505,7 +542,70 @@ erDiagram
 
 ---
 
-## 10. تاريخ التغييرات الهيكلية (Schema Changelog)
+## 10. الخطة المعمارية: فصل الجهاز عن العقد (Device Separation Roadmap)
+
+> **الحالة:** قيد التخطيط — التنفيذ مرحلي. انظر مهام التنفيذ المفصلة في `docs/tasks/TASK_WARRANTY_PERIOD_SELECTION.md`.
+
+### الإشكالية الجوهرية
+يحمل جدول `contracts` حالياً مسؤوليتين متعارضتين:
+1. **الصفقة المالية والقانونية** — العقد الحقيقي.
+2. **تتبع الجهاز المادي** — دورة حياة الجهاز في منزل الزبون.
+
+هذا التداخل يعيق: نقل ملكية الجهاز، تتبع تاريخ القطع، وإدارة كفالات متعددة.
+
+### الحقول المنوي نقلها من `contracts` إلى `installed_devices`
+
+| الحقل | السبب |
+|-------|-------|
+| `serial_number` | هوية فيزيائية للجهاز، لا للصفقة |
+| `device_status` | حالة مادية تتبدل مستقلة عن حالة العقد |
+| `installation_geo_unit_id` + `installation_address_text` + `installation_lat/lng` | موقع الجهاز قد يتغير (نقل الجهاز) |
+| `delivery_date` + `installation_date` | وقائع مادية لا شروط مالية |
+| `maintenance_plan` | جدول صيانة مرتبط بعمر الجهاز |
+| `is_golden_warranty` + `*_warranty_end_date` | ضمان على المنتج لا بند في الصفقة |
+
+### البنية المستهدفة
+
+```
+installed_devices          — كيان جديد
+├── id, serial_number
+├── contract_id            → contracts (مصدر الجهاز)
+├── customer_id            → clients (قابل للتغيير — نقل ملكية)
+├── device_model_id        → device_models
+├── status                 (pending_delivery → delivered → installed → active)
+├── delivery_date, installation_date, activation_date
+├── installation_geo_unit_id, installation_address_text, lat, lng
+└── maintenance_plan, next_maintenance_date
+
+device_warranties          — sub-entity
+├── device_id → installed_devices
+├── warranty_type          (standard | golden)
+├── start_date, end_date
+└── source_task_id         (للكفالة الذهبية: مهمة التسليم)
+
+device_installed_parts     — sub-entity
+├── device_id → installed_devices
+├── spare_part_id → spare_parts
+├── installed_at, replaced_at
+└── task_id → open_tasks
+```
+
+### مسار الهجرة (مراحل مرتبة)
+
+| المرحلة | العمل | الحالة |
+|---------|-------|--------|
+| **0** | إصلاح `golden_warranty_periods` بنية JSONB | ✅ مكتمل (migration 186) |
+| **0** | إضافة `contract_warranty_end_date` لـ ContractForm + API | ✅ مكتمل (2026-05-26) |
+| **1** | تفعيل الكفالة الذهبية من مهمة التسليم (GAP-078) | ⏳ معلق |
+| **2** | إنشاء جدول `installed_devices` + migration + نقل البيانات | ⏳ |
+| **3** | ربط `open_tasks` بـ `device_id` إضافةً لـ `contract_id` | ⏳ |
+| **4** | إنشاء `device_warranties` + نقل بيانات الكفالة | ⏳ |
+| **5** | إنشاء `device_installed_parts` + ربط `emergency_result_parts` | ⏳ |
+| **6** | تنظيف `contracts` — حذف الحقول المنقولة | ⏳ (بعد التحقق الكامل) |
+
+---
+
+## 11. تاريخ التغييرات الهيكلية (Schema Changelog)
 
 يوثق الجدول التالي تتابع نمو وتطور كيان العقود والديون والأقساط عبر هجرات قواعد البيانات المتتالية:
 
@@ -532,3 +632,9 @@ erDiagram
 | **2026-05** | `156_purchase_history_fields.sql` | إضافة الكفالة الذهبية والقياسية الإضافية وتواريخ انتهاء الصيانة المجانية للزبائن. |
 | **2026-05** | `167_snapshot_backfill.sql` | ترحيل وتعبئة لقطات العقود والذمم والمشتريات لضمان سلامة السجل التاريخي وقراءته ميدانياً. |
 | **2026-05-25** | *(كود فقط — لا هجرة)* | **GAP-074:** إضافة `requireAuth` + `requirePermission` لـ `dues.ts` مع فلترة الفرع — حل ثغرة Auth كاملة. **GAP-075:** إضافة `authorize()` branch check على `GET /api/contracts/:id`. |
+| **2026-05-26** | `182_contract_number_autogen.sql` | إنشاء sequence + BEFORE INSERT trigger لتوليد `contract_number` تلقائياً بصيغة `C-YYYY-NNNNN`، وbackfill للعقود الموجودة. |
+| **2026-05-26** | `183_contracts_add_code.sql` | إضافة حقل `code VARCHAR(100)` لتخزين الرمز التشغيلي للعقد. |
+| **2026-05-26** | `184_contracts_created_by.sql` | إضافة `created_by INTEGER FK → hr_users` لتتبع منشئ العقد — يُملأ تلقائياً من JWT عند الإنشاء. |
+| **2026-05-26** | `185_unify_referrers.sql` | تعبئة `clients.referrers` JSONB من حقول legacy (`referrer_name/type/id`) لـ 29 زبون. |
+| **2026-05-26** | `186_fix_golden_warranty_periods.sql` | **GAP-077:** تحويل `device_models.golden_warranty_periods` من string array إلى `[{months, label}]` objects لتمكين الحساب الرياضي للكفالة. |
+| **2026-05-26** | *(كود فقط)* | **GAP-076:** إضافة dropdown "فترة كفالة العقد" في ContractForm + حساب `contract_warranty_end_date` في `contracts.ts POST`. **BR-7:** توثيق نظام الكفالات المزدوجة. |

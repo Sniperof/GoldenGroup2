@@ -40,7 +40,14 @@ const supportedServiceOptions = [
     { id: 'تعليم', icon: <GraduationCap size={16} />, label: 'تعليم', desc: 'تعليم استخدام الجهاز' },
 ] satisfies Array<{ id: DeviceModel['supportedVisitTypes'][number]; icon: React.ReactNode; label: string; desc: string }>;
 
-const warrantyPeriodOptions = ['3 أشهر', '6 أشهر', '9 أشهر', '12 شهرًا'] as const;
+const warrantyPeriodOptions: Array<{ months: number; label: string }> = [
+    { months: 3,  label: '3 أشهر'  },
+    { months: 6,  label: '6 أشهر'  },
+    { months: 9,  label: '9 أشهر'  },
+    { months: 12, label: '12 شهرًا' },
+    { months: 24, label: '24 شهرًا' },
+    { months: 36, label: '36 شهرًا' },
+];
 
 type DeviceAttachment = { id: string; name: string; url: string };
 type SupportedVisitType = DeviceModel['supportedVisitTypes'][number];
@@ -189,10 +196,11 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
         });
     };
 
-    const toggleWarrantyPeriod = (period: (typeof warrantyPeriodOptions)[number]) => {
+    const toggleWarrantyPeriod = (period: { months: number; label: string }) => {
         setNewDevice(prev => {
             const current = prev.goldenWarrantyPeriods || [];
-            return { ...prev, goldenWarrantyPeriods: current.includes(period) ? current.filter(p => p !== period) : [...current, period] };
+            const exists = current.some(p => p.months === period.months);
+            return { ...prev, goldenWarrantyPeriods: exists ? current.filter(p => p.months !== period.months) : [...current, period] };
         });
     };
 
@@ -458,14 +466,14 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                                 <div className="flex flex-wrap gap-2">
                                     {warrantyPeriodOptions.map(period => (
                                         <button
-                                            type="button" key={period}
+                                            type="button" key={period.months}
                                             onClick={() => toggleWarrantyPeriod(period)}
                                             className={`px-4 py-2 rounded-lg border-2 text-xs font-bold transition-all
-                                                ${newDevice.goldenWarrantyPeriods?.includes(period)
+                                                ${newDevice.goldenWarrantyPeriods?.some(p => p.months === period.months)
                                                     ? 'bg-amber-50 border-amber-400 text-amber-700 shadow-sm'
                                                     : 'border-slate-200 text-slate-500 hover:border-amber-200 hover:text-amber-600'}`}
                                         >
-                                            {period}
+                                            {period.label}
                                         </button>
                                     ))}
                                 </div>

@@ -521,6 +521,15 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     const installationLat = c.mapPosition?.[0] ?? null;
     const installationLng = c.mapPosition?.[1] ?? null;
 
+    // Calculate contract_warranty_end_date from warrantyMonths + contractDate
+    let contractWarrantyEndDate: string | null = null;
+    const warrantyMonths = Number(c.warrantyMonths) || 0;
+    if (warrantyMonths > 0 && c.contractDate) {
+      const d = new Date(c.contractDate);
+      d.setMonth(d.getMonth() + warrantyMonths);
+      contractWarrantyEndDate = d.toISOString().slice(0, 10);
+    }
+
     const { rows } = await client.query(
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
         source_visit, device_model_id, device_model_name, serial_number, maintenance_plan,
@@ -533,8 +542,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         buyer_national_id_issue_date, buyer_national_id_box,
         buyer_birth_date, buyer_gender,
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number, no_closing_reason_id, sale_subtype,
-        device_status, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43)
+        device_status, created_by, contract_warranty_end_date)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44)
       RETURNING ${contractSelect.replace(/c\./g, '')}`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
@@ -550,7 +559,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        c.buyerBirthDate || null, c.buyerGender || null,
        c.contractType || 'sale_contract', c.sourceOpenTaskId || null, c.sourceTaskOfferId || null, c.saleReferenceNumber || null,
        c.noClosingReasonId || null, c.saleSubtype || 'definitive',
-       c.deviceStatus || 'pending_delivery', (req as any).user?.id || null]
+       c.deviceStatus || 'pending_delivery', (req as any).user?.id || null, contractWarrantyEndDate]
     );
     const contract = rows[0];
 

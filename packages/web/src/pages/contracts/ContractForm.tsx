@@ -335,6 +335,7 @@ export default function ContractForm() {
     const [contractDate, setContractDate] = useState(new Date().toISOString().slice(0, 10));
     const [deliveryDate, setDeliveryDate] = useState('');
     const [installationDate, setInstallationDate] = useState('');
+    const [warrantyMonths, setWarrantyMonths] = useState(0);
     // Trade-in context
     const [oldContractNumber, setOldContractNumber] = useState('');
     const [oldDeviceCondition, setOldDeviceCondition] = useState<OldDeviceCondition>('good');
@@ -830,6 +831,7 @@ export default function ContractForm() {
                 contractDate,
                 deliveryDate: (!isMaintenance && deliveryDate) ? deliveryDate : null,
                 installationDate: (!isMaintenance && installationDate) ? installationDate : null,
+                warrantyMonths: (!isMaintenance && warrantyMonths > 0) ? warrantyMonths : 0,
                 saleType: isMaintenance ? null : saleType,
                 saleSource: isMaintenance ? null : (saleSource || null),
                 sourceVisit: (!isMaintenance && saleSource === 'device_demo_task') ? (sourceTaskId.trim() || null) : null,
@@ -1318,6 +1320,23 @@ export default function ContractForm() {
                                     <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
                                     <input type="date" value={installationDate} onChange={e => setInstallationDate(e.target.value)} className={`${inputClass} pr-10`} />
                                 </div>
+                            </Field>
+                            <Field label="فترة كفالة العقد">
+                                <div className="relative">
+                                    <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                    <select value={warrantyMonths} onChange={e => setWarrantyMonths(Number(e.target.value))} className={`${inputClass} pr-10`}>
+                                        <option value={0}>بدون كفالة</option>
+                                        <option value={6}>6 أشهر</option>
+                                        <option value={12}>12 شهرًا</option>
+                                        <option value={24}>24 شهرًا</option>
+                                        <option value={36}>36 شهرًا</option>
+                                    </select>
+                                </div>
+                                {warrantyMonths > 0 && contractDate && (
+                                    <p className="text-xs text-slate-400 mt-1 pr-1">
+                                        تنتهي: {new Date(new Date(contractDate).setMonth(new Date(contractDate).getMonth() + warrantyMonths)).toISOString().slice(0, 10)}
+                                    </p>
+                                )}
                             </Field>
                         </div>
 
