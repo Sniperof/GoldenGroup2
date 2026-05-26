@@ -11,7 +11,8 @@
 |---|---|---|---|---|---|
 | الزبائن (Clients) | [domains/clients.md](domains/clients.md) | ✅ مكتمل | 533 سطر | 12+ | 5 |
 | المرشحون (Candidates) | [domains/candidates.md](domains/candidates.md) | ✅ مكتمل | 301 سطر | 11+ | 5 |
-| العقود (Contracts) | [domains/contracts.md](domains/contracts.md) | ✅ مكتمل | 534 سطر | 8+ | 7 (GAP-074✅ GAP-075✅ + 5 مؤجلة) |
+| العقود (Contracts) | [domains/contracts.md](domains/contracts.md) | ✅ مكتمل | 700+ سطر | 8+ | 7 (GAP-074✅ GAP-075✅ + 5 مؤجلة) |
+| الأجهزة المركبة (Installed Devices) | [domains/installed-devices.md](domains/installed-devices.md) | ✅ مكتمل | 350+ سطر | — | 2 (GAP-078⏳ GAP-ID-001⏳ GAP-ID-002🔴) |
 | المهام المفتوحة (Open Tasks) | [domains/open-tasks.md](domains/open-tasks.md) | ✅ مكتمل | 402 سطر | 8+ | 7 (GAP-017✅ GAP-064✅ GAP-065✅ GAP-066✅ + 3 مؤجلة) |
 | الزيارات (Visits) | [domains/visits.md](domains/visits.md) | ⚠️ قديم | 202 سطر | — | — |
 | الزيارات الميدانية (Field Visits) | [domains/field-visits.md](domains/field-visits.md) | ✅ مكتمل | 513 سطر | 12+ | 8 (GAP-027✅ + 7 أخرى) |

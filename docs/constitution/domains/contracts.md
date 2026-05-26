@@ -572,51 +572,12 @@ erDiagram
 
 ## 10. الخطة المعمارية: فصل الجهاز عن العقد (Device Separation Roadmap)
 
-> **الحالة:** قيد التخطيط — التنفيذ مرحلي. انظر مهام التنفيذ المفصلة في `docs/tasks/TASK_WARRANTY_PERIOD_SELECTION.md`.
+> **التوثيق التفصيلي:** [domains/installed-devices.md](installed-devices.md) — دستور كيان `installed_devices` المستقل مع توثيق Phase 3 و Phase 6 كاملاً.
 
 ### الإشكالية الجوهرية
-يحمل جدول `contracts` حالياً مسؤوليتين متعارضتين:
-1. **الصفقة المالية والقانونية** — العقد الحقيقي.
-2. **تتبع الجهاز المادي** — دورة حياة الجهاز في منزل الزبون.
-
-هذا التداخل يعيق: نقل ملكية الجهاز، تتبع تاريخ القطع، وإدارة كفالات متعددة.
-
-### الحقول المنوي نقلها من `contracts` إلى `installed_devices`
-
-| الحقل | السبب |
-|-------|-------|
-| `serial_number` | هوية فيزيائية للجهاز، لا للصفقة |
-| `device_status` | حالة مادية تتبدل مستقلة عن حالة العقد |
-| `installation_geo_unit_id` + `installation_address_text` + `installation_lat/lng` | موقع الجهاز قد يتغير (نقل الجهاز) |
-| `delivery_date` + `installation_date` | وقائع مادية لا شروط مالية |
-| `maintenance_plan` | جدول صيانة مرتبط بعمر الجهاز |
-| `is_golden_warranty` + `*_warranty_end_date` | ضمان على المنتج لا بند في الصفقة |
-
-### البنية المستهدفة
-
-```
-installed_devices          — كيان جديد
-├── id, serial_number
-├── contract_id            → contracts (مصدر الجهاز)
-├── customer_id            → clients (قابل للتغيير — نقل ملكية)
-├── device_model_id        → device_models
-├── status                 (pending_delivery → delivered → installed → active)
-├── delivery_date, installation_date, activation_date
-├── installation_geo_unit_id, installation_address_text, lat, lng
-└── maintenance_plan, next_maintenance_date
-
-device_warranties          — sub-entity
-├── device_id → installed_devices
-├── warranty_type          (standard | golden)
-├── start_date, end_date
-└── source_task_id         (للكفالة الذهبية: مهمة التسليم)
-
-device_installed_parts     — sub-entity
-├── device_id → installed_devices
-├── spare_part_id → spare_parts
-├── installed_at, replaced_at
-└── task_id → open_tasks
-```
+يحمل جدول `contracts` مسؤوليتين متعارضتين يجب فصلهما:
+1. **الصفقة المالية والقانونية** — العقد الحقيقي (يبقى في `contracts`).
+2. **تتبع الجهاز المادي** — دورة حياة الجهاز في منزل الزبون (ينتقل إلى `installed_devices`).
 
 ### مسار الهجرة (مراحل مرتبة)
 
@@ -627,11 +588,31 @@ device_installed_parts     — sub-entity
 | **1 — تفعيل الكفالة الذهبية** | تفعيل الكفالة الذهبية من مهمة التسليم (GAP-078) | ⏳ معلق |
 | **2A — إنشاء `installed_devices`** | إنشاء الجدول + backfill 10 عقود + trigger INSERT | ✅ مكتمل (migrations 190–191, 2026-05-26) |
 | **2B — تحويل القراءات** | تحويل كل قراءات API للحقول الفيزيائية إلى `installed_devices` عبر LEFT JOIN | ✅ مكتمل (migration 192 + كود, 2026-05-26) |
-| **2C — تنظيف الكتابات** | توجيه كتابات الحقول الفيزيائية مباشرةً إلى `installed_devices` وإزالة Trigger المزامنة | ✅ مكتمل (migration 193, 2026-05-26) |
-| **3** | ربط `open_tasks` بـ `device_id` إضافةً لـ `contract_id` | ⏳ |
-| **4** | إنشاء `device_warranties` + نقل بيانات الكفالة | ⏳ |
-| **5** | إنشاء `device_installed_parts` + ربط `emergency_result_parts` | ⏳ |
-| **6 — حذف الحقول Legacy** | تنظيف `contracts` — حذف الحقول المنقولة بعد اكتمال 2C | ⏳ (بعد التحقق الكامل) |
+| **2C — تنظيف الكتابات** | توجيه كتابات الحقول الفيزيائية مباشرةً إلى `installed_devices` + حذف trigger المزامنة | ✅ مكتمل (migration 193, 2026-05-26) |
+| **3 — ربط المهام بالجهاز** | إضافة `open_tasks.device_id` + backfill + تحديث openTasks.ts | ⏳ موثق — [§9.1 في installed-devices.md](installed-devices.md#91-phase-3-ربط-open_tasksdevice_id) |
+| **4 — device_warranties** | إنشاء `device_warranties` + نقل بيانات الكفالة من installed_devices | ⏳ مخطط |
+| **5 — device_installed_parts** | إنشاء `device_installed_parts` + ربط `emergency_result_parts` | ⏳ مخطط |
+| **6 — حذف الحقول Legacy** | DROP 13 حقلاً فيزيائياً من `contracts` + `maintenance_interval` من `device_models` | ⏳ موثق — [§9.2 في installed-devices.md](installed-devices.md#92-phase-6-drop-الحقول-legacy-من-contracts) |
+
+### الحقول المنتقلة من `contracts` → `installed_devices`
+
+| الحقل | انتقل إلى | حالة الانتقال |
+|-------|-----------|---------------|
+| `serial_number` | `installed_devices.serial_number` | ✅ قراءة + كتابة |
+| `device_status` | `installed_devices.status` | ✅ قراءة + كتابة |
+| `delivery_date` | `installed_devices.delivery_date` | ✅ قراءة + كتابة |
+| `installation_date` | `installed_devices.installation_date` | ✅ قراءة + كتابة |
+| `installation_geo_unit_id` | `installed_devices.installation_geo_unit_id` | ✅ قراءة + كتابة |
+| `installation_address_text` | `installed_devices.installation_address_text` | ✅ قراءة + كتابة |
+| `installation_lat/lng` | `installed_devices.installation_lat/lng` | ✅ قراءة + كتابة |
+| `is_golden_warranty` | `installed_devices.is_golden_warranty` | ✅ قراءة + كتابة |
+| `golden_warranty_end_date` | `installed_devices.golden_warranty_end_date` | ✅ قراءة + كتابة |
+| `contract_warranty_end_date` | `installed_devices.contract_warranty_end_date` | ✅ قراءة + كتابة |
+| `warranty_months` | `installed_devices.warranty_months` | ✅ قراءة + كتابة |
+| `warranty_visits` | `installed_devices.warranty_visits` | ✅ قراءة + كتابة |
+| `maintenance_plan` | — *(يُحذف مع GAP-079 Phase 3)* | 🕐 legacy — fallback فقط |
+
+> **ملاحظة:** الأعمدة لا تزال موجودة فيزيائياً في جدول `contracts` حتى Phase 6. الكتابة إليها توقفت في Phase 2C.
 
 ---
 
