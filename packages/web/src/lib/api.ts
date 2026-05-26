@@ -192,6 +192,10 @@ export const api = {
     list: () => request<any[]>('/dues'),
     update: (id: number, data: any) => request<any>(`/dues/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
+  deviceWarranties: {
+    list: (deviceId: number) => request<any[]>(`/device-warranties?deviceId=${deviceId}`),
+    update: (id: number, data: any) => request<any>(`/device-warranties/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  },
   installedDevices: {
     list: (params?: { customerId?: number; branchId?: number; status?: string }) => {
       const qs = new URLSearchParams();

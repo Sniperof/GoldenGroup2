@@ -599,6 +599,21 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       );
     }
 
+    // Phase 4: upsert contract warranty into device_warranties
+    if ((c.contractType || 'sale_contract') === 'sale_contract' && warrantyMonthsStored) {
+      await client.query(
+        `INSERT INTO device_warranties (device_id, warranty_type, start_date, end_date, months, visits)
+         SELECT d.id, 'contract', $1::date, $2::date, $3, $4
+         FROM installed_devices d WHERE d.contract_id = $5
+         ON CONFLICT (device_id, warranty_type) DO UPDATE SET
+           start_date = EXCLUDED.start_date,
+           end_date   = EXCLUDED.end_date,
+           months     = EXCLUDED.months,
+           visits     = EXCLUDED.visits`,
+        [c.contractDate || null, contractWarrantyEndDate, warrantyMonthsStored, warrantyVisits, contractId],
+      );
+    }
+
     // Re-fetch with JOIN so installed_devices fields are included in the response
     const { rows: fetchRows } = await client.query(
       `SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id WHERE c.id = $1`,
@@ -827,6 +842,21 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        warrantyMonthsStored, warrantyVisits, contractWarrantyEndDate,
        req.params.id]
     );
+
+    // Phase 4: upsert contract warranty into device_warranties
+    if (warrantyMonthsStored) {
+      await pgClient.query(
+        `INSERT INTO device_warranties (device_id, warranty_type, start_date, end_date, months, visits)
+         SELECT d.id, 'contract', $1::date, $2::date, $3, $4
+         FROM installed_devices d WHERE d.contract_id = $5
+         ON CONFLICT (device_id, warranty_type) DO UPDATE SET
+           start_date = EXCLUDED.start_date,
+           end_date   = EXCLUDED.end_date,
+           months     = EXCLUDED.months,
+           visits     = EXCLUDED.visits`,
+        [c.contractDate || null, contractWarrantyEndDate, warrantyMonthsStored, warrantyVisits, req.params.id],
+      );
+    }
 
     await pgClient.query('COMMIT');
   } catch (err) {

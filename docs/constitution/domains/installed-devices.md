@@ -11,9 +11,9 @@
 - **الاسم الإنجليزي:** Installed Device
 - **اسم الجدول:** `installed_devices`
 - **الوصف:** يمثل الوجود الفيزيائي للجهاز في منزل الزبون بعد إتمام صفقة البيع. بينما يوثق العقد (`contracts`) الاتفاق المالي والقانوني بين الشركة والزبون، يوثّق `installed_devices` واقعة المنتج المادي: أين هو الآن، ما حالته الحالية، متى سُلِّم وركِّب، وأي كفالات تغطيه. الفصل بين الكيانين هو ما يتيح في المستقبل: نقل ملكية جهاز، تتبع تاريخ قطع الغيار لكل وحدة، وإدارة كفالات متعددة المصدر على نفس الجهاز.
-- **الجداول المرتبطة (مخططة — لم تُنشأ بعد):**
-  1. `device_warranties` *(Phase 4)* — كفالات مستقلة مصدرها العقد أو مهمة التسليم أو اتفاق منفصل.
-  2. `device_installed_parts` *(Phase 5)* — تاريخ قطع الغيار المركبة والمستبدلة لكل وحدة.
+- **الجداول المرتبطة:**
+  1. `device_warranties` *(Phase 4 — ✅ مكتمل)* — كفالات مستقلة مصدرها العقد أو مهمة التسليم أو اتفاق منفصل.
+  2. `device_installed_parts` *(Phase 5 — ⏳ مخطط)* — تاريخ قطع الغيار المركبة والمستبدلة لكل وحدة.
 - **الأهمية التشغيلية:** نقطة الحقيقة الوحيدة (`single source of truth`) لكل استفسار ميداني عن الجهاز — يستخدمه نظام المهام، التقارير الجغرافية، وجدولة الصيانة. أي خلل في بياناته يؤثر مباشرة على جودة المهام الميدانية وحسابات الكفالة.
 
 ---
@@ -82,8 +82,8 @@ contracts (1) ────────── (1) installed_devices
                               │── branch_id    → branches
                               │── device_model_id → device_models
                               │── installation_geo_unit_id → geo_units
-                              └── [مخطط] ← open_tasks.device_id  (Phase 3)
-                              └── [مخطط] ← device_warranties.device_id  (Phase 4)
+                              └── ✅ ← open_tasks.device_id  (Phase 3)
+                              └── ✅ ← device_warranties.device_id  (Phase 4)
                               └── [مخطط] ← device_installed_parts.device_id  (Phase 5)
 ```
 
@@ -150,7 +150,7 @@ interval_days = floor((warranty_months × 30) / warranty_visits)
 |---------|-------|--------|
 | **GAP-078** | تفعيل الكفالة الذهبية من مهمة التسليم | ⏳ معلق |
 | **Phase 3** | ربط `open_tasks.device_id` | ✅ مكتمل (migration 194, 2026-05-26) |
-| **Phase 4** | إنشاء `device_warranties` | ⏳ مخطط |
+| **Phase 4** | إنشاء `device_warranties` | ✅ مكتمل (migration 196, 2026-05-26) |
 | **Phase 5** | إنشاء `device_installed_parts` | ⏳ مخطط |
 | **Phase 6** | DROP الحقول Legacy من `contracts` | ✅ مكتمل (migration 195, 2026-05-26) |
 
@@ -436,3 +436,4 @@ packages/api/routes/contracts.ts contractSelect:
 | **2026-05-26** | `193_drop_sync_trigger.sql` | حذف trigger المزامنة — Phase 2C اكتملت، الكتابات مباشرةً |
 | **2026-05-26** | `194_open_tasks_device_id.sql` | **Phase 3:** إضافة `open_tasks.device_id FK → installed_devices` + index + backfill للـ4 مهام الموجودة. تحديث `openTasks.ts POST` و`contracts.ts` (auto-create delivery task) لملء `device_id` تلقائياً. |
 | **2026-05-26** | `195_phase6_drop_contract_device_columns.sql` | **Phase 6:** حذف 13 حقلاً فيزيائياً من `contracts` (serial_number, device_status, delivery_date, installation_date, installation_geo/address/lat/lng, warranty_*, is_golden_warranty, *_warranty_end_date). تعديل trigger 191 ليُنشئ installed_devices بالحقول الأساسية فقط. تحويل `updateContractDeviceStatusOnTaskCompletion` لتكتب على `installed_devices.status`. |
+| **2026-05-26** | `196_device_warranties.sql` | **Phase 4:** إنشاء جدول `device_warranties` (id, device_id FK, warranty_type CHECK('contract'\|'golden'), start_date, end_date, months, visits, source_task_id FK, is_active, notes). UNIQUE(device_id, warranty_type). تحديث `contracts.ts` POST/PUT لـ UPSERT في `device_warranties` عند حفظ warrantyMonths. إنشاء route `GET /api/device-warranties?deviceId=` و`PATCH /api/device-warranties/:id`. |
