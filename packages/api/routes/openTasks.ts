@@ -101,6 +101,7 @@ function mapOpenTaskRow(row: any) {
     clientId: row.client_id,
     branchId: row.branch_id,
     contractId: row.contract_id ?? null,
+    deviceId: row.device_id ?? null,
     branchName: row.branchName ?? null,
     displayBranchName: row.branchName ?? row.clientBranchName ?? row.taskBranchName ?? null,
     displayCreatedByName: row.createdByName ?? row.createdBy?.name ?? row.createdBy?.username ?? null,
@@ -613,14 +614,24 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     await pgClient.query('BEGIN');
 
+    // Phase 3: resolve device_id from installed_devices when contract_id is known
+    let deviceId: number | null = null;
+    if (contractId) {
+      const { rows: devRows } = await pgClient.query(
+        'SELECT id FROM installed_devices WHERE contract_id = $1 LIMIT 1',
+        [contractId],
+      );
+      deviceId = devRows[0]?.id ?? null;
+    }
+
     const { rows: taskRows } = await pgClient.query(
       `INSERT INTO open_tasks (
          client_id, branch_id, task_type, task_family, reason, status,
-         due_date, expected_date, priority, source, notes, created_by, origin, contract_id
+         due_date, expected_date, priority, source, notes, created_by, origin, contract_id, device_id
        ) VALUES ($1, $2, $3, $4, $5, 'open',
-         $6::date, $7::date, $8, 'manual', $9, $10, 'manual_entry', $11)
+         $6::date, $7::date, $8, 'manual', $9, $10, 'manual_entry', $11, $12)
        RETURNING id`,
-      [clientId, branchId, taskType, taskFamily, reason, dueDate, expectedDate, priority, notes, authContext.userId ?? null, contractId],
+      [clientId, branchId, taskType, taskFamily, reason, dueDate, expectedDate, priority, notes, authContext.userId ?? null, contractId, deviceId],
     );
     const openTaskId = taskRows[0].id;
 

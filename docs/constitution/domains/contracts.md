@@ -589,7 +589,7 @@ erDiagram
 | **2A — إنشاء `installed_devices`** | إنشاء الجدول + backfill 10 عقود + trigger INSERT | ✅ مكتمل (migrations 190–191, 2026-05-26) |
 | **2B — تحويل القراءات** | تحويل كل قراءات API للحقول الفيزيائية إلى `installed_devices` عبر LEFT JOIN | ✅ مكتمل (migration 192 + كود, 2026-05-26) |
 | **2C — تنظيف الكتابات** | توجيه كتابات الحقول الفيزيائية مباشرةً إلى `installed_devices` + حذف trigger المزامنة | ✅ مكتمل (migration 193, 2026-05-26) |
-| **3 — ربط المهام بالجهاز** | إضافة `open_tasks.device_id` + backfill + تحديث openTasks.ts | ⏳ موثق — [§9.1 في installed-devices.md](installed-devices.md#91-phase-3-ربط-open_tasksdevice_id) |
+| **3 — ربط المهام بالجهاز** | إضافة `open_tasks.device_id` + backfill + تحديث openTasks.ts | ✅ مكتمل (migration 194, 2026-05-26) |
 | **4 — device_warranties** | إنشاء `device_warranties` + نقل بيانات الكفالة من installed_devices | ⏳ مخطط |
 | **5 — device_installed_parts** | إنشاء `device_installed_parts` + ربط `emergency_result_parts` | ⏳ مخطط |
 | **6 — حذف الحقول Legacy** | DROP 13 حقلاً فيزيائياً من `contracts` + `maintenance_interval` من `device_models` | ⏳ موثق — [§9.2 في installed-devices.md](installed-devices.md#92-phase-6-drop-الحقول-legacy-من-contracts) |

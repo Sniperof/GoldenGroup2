@@ -606,14 +606,19 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     );
     const contract = fetchRows[0];
 
-    // Automatically create a device delivery task for sale contracts
+    // Automatically create a device delivery task for sale contracts (Phase 3: include device_id)
     if (contract.contractType === 'sale_contract') {
       const dueDate = c.deliveryDate || new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
+      const { rows: devIdRows } = await client.query(
+        'SELECT id FROM installed_devices WHERE contract_id = $1 LIMIT 1',
+        [contractId],
+      );
+      const deliveryDeviceId = devIdRows[0]?.id ?? null;
       await client.query(
         `INSERT INTO open_tasks (
-           client_id, branch_id, task_type, task_family, reason, status, due_date, source, origin, contract_id
-         ) VALUES ($1, $2, 'device_delivery', 'delivery', 'service_request', 'open', $3, 'system', 'manual_entry', $4)`,
-        [contract.customerId, contract.branchId, dueDate, contract.id]
+           client_id, branch_id, task_type, task_family, reason, status, due_date, source, origin, contract_id, device_id
+         ) VALUES ($1, $2, 'device_delivery', 'delivery', 'service_request', 'open', $3, 'system', 'manual_entry', $4, $5)`,
+        [contract.customerId, contract.branchId, dueDate, contract.id, deliveryDeviceId]
       );
     }
 

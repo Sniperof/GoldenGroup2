@@ -149,7 +149,7 @@ interval_days = floor((warranty_months × 30) / warranty_visits)
 | المرحلة | الوصف | الحالة |
 |---------|-------|--------|
 | **GAP-078** | تفعيل الكفالة الذهبية من مهمة التسليم | ⏳ معلق |
-| **Phase 3** | ربط `open_tasks.device_id` | ⏳ موثق — انظر §9.1 |
+| **Phase 3** | ربط `open_tasks.device_id` | ✅ مكتمل (migration 194, 2026-05-26) |
 | **Phase 4** | إنشاء `device_warranties` | ⏳ مخطط |
 | **Phase 5** | إنشاء `device_installed_parts` | ⏳ مخطط |
 | **Phase 6** | DROP الحقول Legacy من `contracts` | ⏳ موثق — انظر §9.2 |
@@ -434,3 +434,4 @@ packages/api/routes/contracts.ts contractSelect:
 | **2026-05-26** | `191_installed_devices_trigger.sql` | trigger AFTER INSERT على contracts → auto-create صف installed_devices |
 | **2026-05-26** | `192_sync_installed_device_trigger.sql` | *(Phase 2B انتقالي — محذوف في 193)* trigger AFTER UPDATE → مزامنة الحقول الفيزيائية |
 | **2026-05-26** | `193_drop_sync_trigger.sql` | حذف trigger المزامنة — Phase 2C اكتملت، الكتابات مباشرةً |
+| **2026-05-26** | `194_open_tasks_device_id.sql` | **Phase 3:** إضافة `open_tasks.device_id FK → installed_devices` + index + backfill للـ4 مهام الموجودة. تحديث `openTasks.ts POST` و`contracts.ts` (auto-create delivery task) لملء `device_id` تلقائياً. |
