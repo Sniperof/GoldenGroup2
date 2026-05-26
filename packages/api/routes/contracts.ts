@@ -8,9 +8,9 @@ import { promoteClientToLifecycleStatus } from '../services/clientLifecycleServi
 const router = Router();
 router.use(requireAuth);
 
-// Phase B: physical device fields are read from installed_devices (d.*).
-// Financial / legal fields remain on contracts (c.*).
-// Queries using contractSelect must add:
+// Phase 2C: physical device fields are read AND written via installed_devices only.
+// Financial / legal fields remain on contracts.
+// All queries using contractSelect must add:
 //   LEFT JOIN installed_devices d ON d.contract_id = c.id
 const contractSelect = `
   c.id, c.contract_number AS "contractNumber", c.customer_id AS "customerId",
@@ -542,27 +542,26 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
     const warrantyMonthsStored = warrantyMonths > 0 ? warrantyMonths : null;
 
+    // Phase 2C: physical device fields go directly to installed_devices, not contracts.
     const { rows } = await client.query(
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
-        source_visit, device_model_id, device_model_name, serial_number, maintenance_plan,
+        source_visit, device_model_id, device_model_name, maintenance_plan,
         base_price, final_price, payment_type, down_payment, installments_count,
-        delivery_date, installation_date, status, branch_id, sale_type,
-        installation_geo_unit_id, installation_address_text, installation_lat, installation_lng,
+        status, branch_id, sale_type,
         discount_id, sale_source, closing_employee_id, invoice_notes,
         applied_device_discount_id,
         buyer_mother_name, buyer_national_id_registry, buyer_national_id_issued_by,
         buyer_national_id_issue_date, buyer_national_id_box,
         buyer_birth_date, buyer_gender,
-        contract_type, source_open_task_id, source_task_offer_id, sale_reference_number, no_closing_reason_id, sale_subtype,
-        device_status, created_by, contract_warranty_end_date, warranty_visits, warranty_months)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46)
+        contract_type, source_open_task_id, source_task_offer_id, sale_reference_number,
+        no_closing_reason_id, sale_subtype, created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
       RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
-       c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
+       c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        null, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
-       c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate || null, c.installationDate || null,
+       c.downPayment || 0, c.installmentsCount || 0,
        c.status || 'active', targetBranchId, c.saleType || 'direct',
-       installationGeoUnitId, installationAddressText, installationLat, installationLng,
        c.discountId || null, c.saleSource || null,
        c.closingEmployeeId || null, c.invoiceNotes || null,
        c.appliedDeviceDiscountId || null,
@@ -571,12 +570,39 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        c.buyerBirthDate || null, c.buyerGender || null,
        c.contractType || 'sale_contract', c.sourceOpenTaskId || null, c.sourceTaskOfferId || null, c.saleReferenceNumber || null,
        c.noClosingReasonId || null, c.saleSubtype || 'definitive',
-       c.deviceStatus || 'pending_delivery', (req as any).user?.id || null, contractWarrantyEndDate, warrantyVisits, warrantyMonthsStored]
+       (req as any).user?.id || null]
     );
-    // Re-fetch with JOIN so installed_devices fields are included
+    const contractId = rows[0].id;
+
+    // Trigger 191 fires after INSERT and creates the installed_devices row.
+    // Write physical device fields directly to that row.
+    if ((c.contractType || 'sale_contract') === 'sale_contract') {
+      await client.query(
+        `UPDATE installed_devices SET
+          serial_number             = $1,
+          status                    = $2,
+          delivery_date             = $3,
+          installation_date         = $4,
+          installation_geo_unit_id  = $5,
+          installation_address_text = $6,
+          installation_lat          = $7,
+          installation_lng          = $8,
+          warranty_months           = $9,
+          warranty_visits           = $10,
+          contract_warranty_end_date = $11
+        WHERE contract_id = $12`,
+        [c.serialNumber || null, c.deviceStatus || 'pending_delivery',
+         c.deliveryDate || null, c.installationDate || null,
+         installationGeoUnitId, installationAddressText, installationLat, installationLng,
+         warrantyMonthsStored, warrantyVisits, contractWarrantyEndDate,
+         contractId]
+      );
+    }
+
+    // Re-fetch with JOIN so installed_devices fields are included in the response
     const { rows: fetchRows } = await client.query(
       `SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id WHERE c.id = $1`,
-      [rows[0].id]
+      [contractId]
     );
     const contract = fetchRows[0];
 
@@ -717,50 +743,94 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branch_id });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const c = req.body;
+
+  // Physical device location (for installed_devices)
   const installationGeoUnitId = c.geoSelection?.neighborhoodId || c.installationGeoUnitId || null;
   const installationAddressText = c.detailedAddress?.trim() || c.installationAddressText || null;
   const installationLat = c.mapPosition?.[0] ?? c.installationLat ?? null;
   const installationLng = c.mapPosition?.[1] ?? c.installationLng ?? null;
 
-  const { rows } = await pool.query(
-    `UPDATE contracts SET contract_number=$1, customer_id=$2, customer_name=$3,
-      contract_date=$4, source_visit=$5, device_model_id=$6, device_model_name=$7,
-      serial_number=$8, maintenance_plan=$9, base_price=$10, final_price=$11,
-      payment_type=$12, down_payment=$13, installments_count=$14,
-      delivery_date=$15, installation_date=$16, status=$17,
-      installation_geo_unit_id=$18, installation_address_text=$19,
-      installation_lat=$20, installation_lng=$21,
-      discount_id=$22, sale_source=$23,
-      closing_employee_id=$24, invoice_notes=$25,
-      applied_device_discount_id=$26,
-      buyer_mother_name=$27, buyer_national_id_registry=$28, buyer_national_id_issued_by=$29,
-      buyer_national_id_issue_date=$30, buyer_national_id_box=$31,
-      buyer_birth_date=$32, buyer_gender=$33,
-      contract_type=$34, source_open_task_id=$35, source_task_offer_id=$36,
-      sale_reference_number=$37, no_closing_reason_id=$38, sale_subtype=$39,
-      device_status=$40
-    WHERE id=$41 RETURNING id`,
-    [c.contractNumber, c.customerId, c.customerName, c.contractDate,
-     c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
-     c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
-     c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate, c.installationDate,
-     c.status || 'active',
-     installationGeoUnitId, installationAddressText, installationLat, installationLng,
-     c.discountId || null, c.saleSource || null,
-     c.closingEmployeeId || null, c.invoiceNotes || null,
-     c.appliedDeviceDiscountId || null,
-     c.buyerMotherName || null, c.buyerNationalIdRegistry || null, c.buyerNationalIdIssuedBy || null,
-     c.buyerNationalIdIssueDate || null, c.buyerNationalIdBox || null,
-     c.buyerBirthDate || null, c.buyerGender || null,
-     c.contractType || 'sale_contract',
-     c.sourceOpenTaskId || null,
-     c.sourceTaskOfferId || null,
-     c.saleReferenceNumber || null,
-     c.noClosingReasonId || null,
-     c.saleSubtype || 'definitive',
-     c.deviceStatus || 'pending_delivery',
-     req.params.id]
-  );
+  // Warranty computation for installed_devices
+  let contractWarrantyEndDate: string | null = null;
+  const warrantyMonths = Number(c.warrantyMonths) || 0;
+  if (warrantyMonths > 0 && c.contractDate) {
+    const d = new Date(c.contractDate);
+    d.setMonth(d.getMonth() + warrantyMonths);
+    contractWarrantyEndDate = d.toISOString().slice(0, 10);
+  }
+  const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
+  const warrantyMonthsStored = warrantyMonths > 0 ? warrantyMonths : null;
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    // Phase 2C: contracts holds only financial/legal fields.
+    await pgClient.query(
+      `UPDATE contracts SET contract_number=$1, customer_id=$2, customer_name=$3,
+        contract_date=$4, source_visit=$5, device_model_id=$6, device_model_name=$7,
+        maintenance_plan=$8, base_price=$9, final_price=$10,
+        payment_type=$11, down_payment=$12, installments_count=$13,
+        status=$14,
+        discount_id=$15, sale_source=$16,
+        closing_employee_id=$17, invoice_notes=$18,
+        applied_device_discount_id=$19,
+        buyer_mother_name=$20, buyer_national_id_registry=$21, buyer_national_id_issued_by=$22,
+        buyer_national_id_issue_date=$23, buyer_national_id_box=$24,
+        buyer_birth_date=$25, buyer_gender=$26,
+        contract_type=$27, source_open_task_id=$28, source_task_offer_id=$29,
+        sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32
+      WHERE id=$33`,
+      [c.contractNumber, c.customerId, c.customerName, c.contractDate,
+       c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
+       c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
+       c.downPayment || 0, c.installmentsCount || 0,
+       c.status || 'active',
+       c.discountId || null, c.saleSource || null,
+       c.closingEmployeeId || null, c.invoiceNotes || null,
+       c.appliedDeviceDiscountId || null,
+       c.buyerMotherName || null, c.buyerNationalIdRegistry || null, c.buyerNationalIdIssuedBy || null,
+       c.buyerNationalIdIssueDate || null, c.buyerNationalIdBox || null,
+       c.buyerBirthDate || null, c.buyerGender || null,
+       c.contractType || 'sale_contract',
+       c.sourceOpenTaskId || null,
+       c.sourceTaskOfferId || null,
+       c.saleReferenceNumber || null,
+       c.noClosingReasonId || null,
+       c.saleSubtype || 'definitive',
+       req.params.id]
+    );
+
+    // Write physical device fields directly to installed_devices (Phase 2C)
+    await pgClient.query(
+      `UPDATE installed_devices SET
+        serial_number             = $1,
+        status                    = $2,
+        delivery_date             = $3,
+        installation_date         = $4,
+        installation_geo_unit_id  = $5,
+        installation_address_text = $6,
+        installation_lat          = $7,
+        installation_lng          = $8,
+        warranty_months           = COALESCE($9, warranty_months),
+        warranty_visits           = COALESCE($10, warranty_visits),
+        contract_warranty_end_date = COALESCE($11, contract_warranty_end_date)
+      WHERE contract_id = $12`,
+      [c.serialNumber || null, c.deviceStatus || 'pending_delivery',
+       c.deliveryDate || null, c.installationDate || null,
+       installationGeoUnitId, installationAddressText, installationLat, installationLng,
+       warrantyMonthsStored, warrantyVisits, contractWarrantyEndDate,
+       req.params.id]
+    );
+
+    await pgClient.query('COMMIT');
+  } catch (err) {
+    await pgClient.query('ROLLBACK');
+    throw err;
+  } finally {
+    pgClient.release();
+  }
+
   const { rows: updatedRows } = await pool.query(
     `SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id WHERE c.id = $1`,
     [req.params.id]

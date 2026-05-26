@@ -624,12 +624,14 @@ device_installed_parts     — sub-entity
 |---------|-------|--------|
 | **0** | إصلاح `golden_warranty_periods` بنية JSONB | ✅ مكتمل (migration 186) |
 | **0** | إضافة `contract_warranty_end_date` لـ ContractForm + API | ✅ مكتمل (2026-05-26) |
-| **1** | تفعيل الكفالة الذهبية من مهمة التسليم (GAP-078) | ⏳ معلق |
-| **2** | إنشاء جدول `installed_devices` + migration + نقل البيانات | ⏳ |
+| **1 — تفعيل الكفالة الذهبية** | تفعيل الكفالة الذهبية من مهمة التسليم (GAP-078) | ⏳ معلق |
+| **2A — إنشاء `installed_devices`** | إنشاء الجدول + backfill 10 عقود + trigger INSERT | ✅ مكتمل (migrations 190–191, 2026-05-26) |
+| **2B — تحويل القراءات** | تحويل كل قراءات API للحقول الفيزيائية إلى `installed_devices` عبر LEFT JOIN | ✅ مكتمل (migration 192 + كود, 2026-05-26) |
+| **2C — تنظيف الكتابات** | توجيه كتابات الحقول الفيزيائية مباشرةً إلى `installed_devices` وإزالة Trigger المزامنة | ✅ مكتمل (migration 193, 2026-05-26) |
 | **3** | ربط `open_tasks` بـ `device_id` إضافةً لـ `contract_id` | ⏳ |
 | **4** | إنشاء `device_warranties` + نقل بيانات الكفالة | ⏳ |
 | **5** | إنشاء `device_installed_parts` + ربط `emergency_result_parts` | ⏳ |
-| **6** | تنظيف `contracts` — حذف الحقول المنقولة | ⏳ (بعد التحقق الكامل) |
+| **6 — حذف الحقول Legacy** | تنظيف `contracts` — حذف الحقول المنقولة بعد اكتمال 2C | ⏳ (بعد التحقق الكامل) |
 
 ---
 
@@ -669,3 +671,9 @@ device_installed_parts     — sub-entity
 | **2026-05-26** | `187_device_models_warranty_periods.sql` | إضافة `warranty_periods JSONB DEFAULT '[]'` لـ `device_models` — بنية `[{months, label, visits}]` لتخزين فترات الكفالة مع عدد الزيارات الخاصة بكل جهاز. |
 | **2026-05-26** | `188_contracts_warranty_visits.sql` | إضافة `warranty_visits INT` لـ `contracts` — يخزن عدد الزيارات المتفق عليها لفترة الكفالة، ويُحسب منه الفاصل: `floor((warranty_months × 30) / warranty_visits)` أيام. |
 | **2026-05-26** | *(كود فقط)* | **GAP-079 (جزئي):** حذف حقل "دورة الصيانة" من واجهة إضافة الجهاز (`DeviceManagement.tsx`) — عمود الجدول، فلتر القائمة، وعنصر الـ toggle. الحقل `maintenance_interval` في DB باقٍ مؤقتاً كـ legacy. |
+| **2026-05-26** | `189_contracts_warranty_months.sql` | إضافة `warranty_months INT` لـ `contracts` — يخزن فترة كفالة العقد بالأشهر وينتج منه `contract_warranty_end_date`. |
+| **2026-05-26** | `190_create_installed_devices.sql` | **Phase 2A:** إنشاء جدول `installed_devices` (8 حقول فيزيائية + `contract_id` FK)، backfill جميع `sale_contract` الـ10، إضافة `installed_device_id` على `contracts`، trigger `updated_at`. |
+| **2026-05-26** | `191_installed_devices_trigger.sql` | **Phase 2A:** AFTER INSERT على `contracts` → إنشاء صف `installed_devices` تلقائياً وربط `installed_device_id` بشكل ذري. |
+| **2026-05-26** | `192_sync_installed_device_trigger.sql` | **Phase 2B (انتقالي):** AFTER UPDATE على `contracts` → مزامنة الحقول الفيزيائية الـ8 إلى `installed_devices`. يُزال في Phase 2C بعد تحويل الكتابات مباشرةً. |
+| **2026-05-26** | *(كود فقط)* | **Phase 2B:** تحويل `contractSelect` + جميع queries في `contracts.ts`, `openTasks.ts`, `customerCalls.ts` لقراءة الحقول الفيزيائية من `installed_devices d` عبر LEFT JOIN. إضافة `/api/installed-devices` endpoint جديد. |
+| **2026-05-26** | `193_drop_sync_trigger.sql` | **Phase 2C:** حذف trigger المزامنة `trg_sync_installed_device` — الكتابات الآن تذهب مباشرةً لـ `installed_devices` في POST و PUT بدون الحاجة للـ trigger. الحقول الفيزيائية حُذفت من contracts INSERT/UPDATE. |
