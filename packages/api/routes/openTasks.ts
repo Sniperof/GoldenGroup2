@@ -251,6 +251,7 @@ export async function buildOpenTaskSnapshots(db: Queryable, clientId: number, co
       `SELECT
         c.id, c.contract_number, c.contract_date,
         c.device_model_id, c.device_model_name, c.serial_number, c.maintenance_plan,
+        c.warranty_months, c.warranty_visits,
         c.installation_geo_unit_id, c.installation_address_text,
         c.installation_lat, c.installation_lng,
         c.payment_type, c.final_price, c.down_payment, c.installments_count,
@@ -273,6 +274,8 @@ export async function buildOpenTaskSnapshots(db: Queryable, clientId: number, co
           modelName: cr.device_model_name ?? '',
           serialNumber: cr.serial_number ?? '',
           maintenancePlan: cr.maintenance_plan ?? '',
+          warrantyMonths: cr.warranty_months ? Number(cr.warranty_months) : null,
+          warrantyVisits: cr.warranty_visits ? Number(cr.warranty_visits) : null,
         },
         installationAddress: {
           geoUnitId: cr.installation_geo_unit_id ?? null,

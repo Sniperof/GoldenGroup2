@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Plus, Wrench, PenTool, GraduationCap, Truck, Clock, Package, Cog, X, Save,
+    Plus, Wrench, PenTool, GraduationCap, Truck, Package, Cog, X, Save,
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
     AlertCircle,
 } from 'lucide-react';
@@ -20,11 +20,6 @@ const categoryLabels: Record<string, { label: string; icon: string; color: strin
     'صناعي': { label: 'صناعي', icon: '🏭', color: 'bg-orange-100 text-orange-800' },
 };
 
-const maintenanceLabels: Record<string, string> = {
-    '3 أشهر': '3 أشهر',
-    '6 أشهر': '6 أشهر',
-    '1 سنة': 'سنة واحدة',
-};
 
 const serviceLabels: Record<string, { label: string; icon: string; color: string }> = {
     'تسليم': { label: 'تسليم', icon: '🚚', color: 'bg-sky-100 text-sky-800' },
@@ -74,6 +69,7 @@ const emptyDeviceForm = (): Partial<DeviceModel> => ({
     supportedVisitTypes: [],
     isGoldenWarranty: false,
     goldenWarrantyPeriods: [],
+    warrantyPeriods: [],
     isFeatured: false,
     description: '',
     descriptionEn: null,
@@ -183,6 +179,8 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
     const [newDevice, setNewDevice] = useState<Partial<DeviceModel>>(emptyDeviceForm);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const [wpMonths, setWpMonths] = useState('');
+    const [wpVisits, setWpVisits] = useState('');
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
@@ -202,6 +200,25 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
             const exists = current.some(p => p.months === period.months);
             return { ...prev, goldenWarrantyPeriods: exists ? current.filter(p => p.months !== period.months) : [...current, period] };
         });
+    };
+
+    const addWarrantyPeriod = () => {
+        const months = parseInt(wpMonths, 10);
+        const visits = parseInt(wpVisits, 10);
+        if (!months || months <= 0 || !visits || visits <= 0) return;
+        const alreadyExists = (newDevice.warrantyPeriods || []).some(p => p.months === months);
+        if (alreadyExists) return;
+        const label = months === 1 ? 'شهر' : months < 11 ? `${months} أشهر` : `${months} شهرًا`;
+        setNewDevice(prev => ({
+            ...prev,
+            warrantyPeriods: [...(prev.warrantyPeriods || []), { months, label, visits }].sort((a, b) => a.months - b.months),
+        }));
+        setWpMonths('');
+        setWpVisits('');
+    };
+
+    const removeWarrantyPeriod = (months: number) => {
+        setNewDevice(prev => ({ ...prev, warrantyPeriods: (prev.warrantyPeriods || []).filter(p => p.months !== months) }));
     };
 
     const addAttachments = async (field: 'images' | 'videos' | 'documents', files: FileList | null) => {
@@ -400,22 +417,6 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">دورة الصيانة</label>
-                                <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
-                                    {(['3 أشهر', '6 أشهر', '1 سنة'] as const).map(interval => (
-                                        <button
-                                            type="button" key={interval}
-                                            onClick={() => setNewDevice(prev => ({ ...prev, maintenanceInterval: interval }))}
-                                            className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1
-                                                ${newDevice.maintenanceInterval === interval ? 'bg-white shadow text-sky-600' : 'text-gray-500 hover:text-gray-700'}`}
-                                        >
-                                            <Clock className="w-3 h-3" />
-                                            {maintenanceLabels[interval] || interval}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
                         </div>
 
                         {/* الخدمات المدعومة */}
@@ -442,9 +443,57 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                     </div>
 
                     {/* ── Section: الكفالة والعروض ── */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
+                    <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
                         <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3">الكفالة والعروض</h3>
 
+                        {/* Contract warranty periods */}
+                        <div className="space-y-2">
+                            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide">فترات كفالة العقد</label>
+                            <p className="text-xs text-slate-400">حدد الفترات المتاحة لهذا الجهاز — كل فترة تتضمن عدد زيارات الصيانة خلالها</p>
+
+                            {(newDevice.warrantyPeriods || []).length > 0 && (
+                                <div className="space-y-1.5">
+                                    {(newDevice.warrantyPeriods || []).map(p => {
+                                        const intervalDays = Math.round((p.months * 30) / p.visits);
+                                        return (
+                                            <div key={p.months} className="flex items-center justify-between bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xs font-bold text-sky-700">{p.label}</span>
+                                                    <span className="text-xs text-slate-500">{p.visits} زيارة · كل {intervalDays} يوم</span>
+                                                </div>
+                                                <button type="button" onClick={() => removeWarrantyPeriod(p.months)} className="text-red-400 hover:text-red-600">
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            <div className="flex gap-2">
+                                <input
+                                    type="number" min={1} placeholder="المدة (أشهر)"
+                                    value={wpMonths}
+                                    onChange={e => setWpMonths(e.target.value)}
+                                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                                />
+                                <input
+                                    type="number" min={1} placeholder="عدد الزيارات"
+                                    value={wpVisits}
+                                    onChange={e => setWpVisits(e.target.value)}
+                                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                                />
+                                <button
+                                    type="button" onClick={addWarrantyPeriod}
+                                    disabled={!wpMonths || !wpVisits}
+                                    className="px-3 py-2 rounded-lg bg-sky-500 text-white text-xs font-bold hover:bg-sky-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="border-t border-slate-100 pt-3 space-y-3">
                         <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors">
                             <div>
                                 <span className="text-sm font-semibold text-slate-700 block">الكفالة الذهبية</span>
@@ -462,7 +511,7 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
 
                         {newDevice.isGoldenWarranty && (
                             <div className="px-2 space-y-2">
-                                <label className="block text-xs font-medium text-slate-600">اختر فترات الكفالة المتاحة</label>
+                                <label className="block text-xs font-medium text-slate-600">اختر فترات الكفالة الذهبية المتاحة</label>
                                 <div className="flex flex-wrap gap-2">
                                     {warrantyPeriodOptions.map(period => (
                                         <button
@@ -479,6 +528,7 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                                 </div>
                             </div>
                         )}
+                        </div>
 
                         <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors">
                             <div>
@@ -670,15 +720,6 @@ const DeviceManagement = () => {
             },
         },
         {
-            key: 'maintenanceInterval', label: 'دورة الصيانة', sortable: true,
-            render: (d) => (
-                <span className="text-sm text-slate-600 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-gray-400" />
-                    {maintenanceLabels[d.maintenanceInterval] || d.maintenanceInterval}
-                </span>
-            ),
-        },
-        {
             key: 'basePrice', label: 'السعر', sortable: true,
             render: (d) => (
                 <div className="text-sm">
@@ -755,7 +796,6 @@ const DeviceManagement = () => {
 
     const deviceFilters: FilterDef[] = [
         { key: 'category', label: 'جميع الفئات', options: [{ value: 'منزلي', label: 'منزلي' }, { value: 'صناعي', label: 'صناعي' }] },
-        { key: 'maintenanceInterval', label: 'جميع الدورات', options: [{ value: '3 أشهر', label: '3 أشهر' }, { value: '6 أشهر', label: '6 أشهر' }, { value: '1 سنة', label: 'سنة واحدة' }] },
     ];
 
     const partFilters: FilterDef[] = [

@@ -815,18 +815,51 @@ function VisitsTab({ client }: { client: Client }) {
     );
 }
 
-function NetworkTab({ client, clients, candidates }: any) {
-    const originTouchpoints = [
-        { id: 1, date: client.createdAt, title: ' اقتراح مبدئي', channel: client.sourceChannel || 'App', type: client.referrerType || 'شخصي', ref: client.referrerName || 'مباشر' },
-    ];
+function referrerTypeLabel(type: string): string {
+    const map: Record<string, string> = {
+        client: 'زبون', employee: 'موظف', personal: 'شخصي', customer: 'عميل', unknown: 'غير محدد',
+    };
+    return map[type?.toLowerCase()] ?? type ?? 'غير محدد';
+}
 
-    const referralsMade = clients.filter((c: any) => c.referralEntityId === client.id && c.referrerType === 'Client');
-    const referralsCand = candidates.filter((c: any) => c.referralEntityId === client.id && c.referralType === 'Client');
-    const allReferralsMade = [...referralsMade, ...referralsCand];
+function typeBadgeClass(type: string): string {
+    const map: Record<string, string> = {
+        client: 'bg-sky-100 text-sky-700', employee: 'bg-violet-100 text-violet-700',
+        personal: 'bg-amber-100 text-amber-700', customer: 'bg-emerald-100 text-emerald-700',
+        unknown: 'bg-slate-100 text-slate-500',
+    };
+    return map[type?.toLowerCase()] ?? 'bg-slate-100 text-slate-500';
+}
+
+function outgoingStatusBadge(ref: any): { cls: string; label: string } {
+    if (ref.convertedToLeadId || ref.isCandidate === false) {
+        return { cls: 'bg-emerald-100 text-emerald-700', label: 'تحوّل لزبون' };
+    }
+    const statusMap: Record<string, { cls: string; label: string }> = {
+        Suggested: { cls: 'bg-slate-100 text-slate-600', label: 'مقترح' },
+        FollowUp:  { cls: 'bg-amber-100 text-amber-700', label: 'قيد المتابعة' },
+        Contacted: { cls: 'bg-sky-100 text-sky-700', label: 'تم التواصل' },
+        Qualified: { cls: 'bg-blue-100 text-blue-700', label: 'مؤهل' },
+        Junk:      { cls: 'bg-red-100 text-red-700', label: 'رفض' },
+        New:       { cls: 'bg-slate-100 text-slate-600', label: 'جديد' },
+    };
+    return statusMap[ref.status] ?? { cls: 'bg-slate-100 text-slate-500', label: ref.status ?? 'غير محدد' };
+}
+
+function NetworkTab({ client, clients, candidates }: any) {
+    let incomingReferrals: Array<{ id?: number; name: string; type: string }> = client.referrers ?? [];
+    if (incomingReferrals.length === 0 && client.referrerName && client.referrerName !== 'مجهول') {
+        incomingReferrals = [{ name: client.referrerName, type: client.referrerType || 'unknown' }];
+    }
+
+    const clientReferrals = clients.filter((c: any) => c.referralEntityId === client.id);
+    const candidateReferrals = candidates.filter((c: any) => c.referralEntityId === client.id);
+    const allOutgoing = [...clientReferrals, ...candidateReferrals];
 
     return (
         <div className="space-y-10 max-w-5xl">
-            {/* Section A: All Origins */}
+
+            {/* ══ القسم 1: وسطاء الزبون ══════════════════════════════════════════ */}
             <section>
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
@@ -834,75 +867,86 @@ function NetworkTab({ client, clients, candidates }: any) {
                     </div>
                     <div>
                         <h3 className="text-lg font-black text-slate-800">وسطاء الزبون</h3>
-                        <p className="text-xs text-slate-400 font-medium mt-0.5">عدد مرات ترشيح الزبون</p>
+                        <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الوسطاء: {incomingReferrals.length}</p>
                     </div>
                 </div>
-                <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 overflow-hidden">
-                    <div className="space-y-4">
-                        {originTouchpoints.map(tp => (
-                            <div key={tp.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100 gap-4 hover:border-indigo-200 transition-colors">
-                                <div>
-                                    <h5 className="font-bold text-slate-800 mb-1">{tp.title}</h5>
-                                    <p className="text-sm text-slate-500 font-medium">بواسطة <span className="font-bold">{tp.ref}</span> ({referrerTypesAr[tp.type] || tp.type})</p>
-                                </div>
-                                <span className="font-mono text-sm font-bold text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-slate-100 self-start sm:self-auto">{tp.date?.split('T')[0] || '--'}</span>
+                <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+                    {incomingReferrals.length > 0 ? (
+                        <>
+                            <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-gray-100 text-xs font-black text-slate-500">
+                                <span className="col-span-1">#</span>
+                                <span className="col-span-5">اسم الوسيط</span>
+                                <span className="col-span-3">النوع</span>
+                                <span className="col-span-3">تاريخ الاقتراح</span>
                             </div>
-                        ))}
-                    </div>
+                            {incomingReferrals.map((ref, i) => (
+                                <div key={i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-50 hover:bg-slate-50/50 items-center text-sm">
+                                    <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
+                                    <span className="col-span-5 font-bold text-slate-800">{ref.name}</span>
+                                    <span className="col-span-3">
+                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${typeBadgeClass(ref.type)}`}>
+                                            {referrerTypeLabel(ref.type)}
+                                        </span>
+                                    </span>
+                                    <span className="col-span-3 font-mono text-xs text-slate-500">{client.createdAt?.split('T')[0] || '--'}</span>
+                                </div>
+                            ))}
+                        </>
+                    ) : (
+                        <div className="px-6 py-12 text-center">
+                            <Share2 className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                            <p className="text-slate-400 font-bold">لا يوجد وسطاء مسجّلين لهذا الزبون.</p>
+                        </div>
+                    )}
                 </div>
             </section>
 
-            {/* Section B: Referrals Made */}
+            {/* ══ القسم 2: الأسماء المقترحة ════════════════════════════════════ */}
             <section>
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
                         <Users className="w-5 h-5 text-emerald-500" />
                     </div>
                     <div>
-                        <h3 className="text-lg font-black text-slate-800">الترشيحات الصادرة</h3>
-                        <p className="text-xs text-slate-400 font-medium mt-0.5">الأشخاص الذين قام الزبون بتزكيتهم</p>
+                        <h3 className="text-lg font-black text-slate-800">الأسماء المقترحة</h3>
+                        <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الأسماء: {allOutgoing.length}</p>
                     </div>
                 </div>
-
                 <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                    <table className="w-full text-right">
-                        <thead className="bg-slate-50 border-b border-gray-100">
-                            <tr>
-                                <th className="px-8 py-5 text-xs font-black text-slate-500 uppercase">اسم المرشح</th>
-                                <th className="px-8 py-5 text-xs font-black text-slate-500 uppercase">الرقم</th>
-                                <th className="px-8 py-5 text-xs font-black text-slate-500 uppercase">الحالة</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50">
-                            {allReferralsMade.map((ref: any, idx: number) => (
-                                <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="px-8 py-6">
-                                        <div className="font-bold text-slate-800 text-sm">{ref.name || `${ref.firstName || ''} ${ref.lastName || ''}`}</div>
-                                    </td>
-                                    <td className="px-8 py-6">
-                                        <div className="font-mono text-sm font-bold text-slate-500" dir="ltr">
-                                            {ref.contacts?.find((con: any) => con.isPrimary)?.number || ref.contacts?.[0]?.number || ref.mobile || '--'}
-                                        </div>
-                                    </td>
-                                    <td className="px-8 py-6">
-                                        <span className={`text-xs font-bold px-3 py-1.5 rounded-lg border ${ref.isCandidate ? 'text-amber-600 bg-amber-50 border-amber-100' : 'text-emerald-600 bg-emerald-50 border-emerald-100'}`}>
-                                            {ref.isCandidate ? 'قيد المتابعة' : 'زبون فعال'}
+                    {allOutgoing.length > 0 ? (
+                        <>
+                            <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-gray-100 text-xs font-black text-slate-500">
+                                <span className="col-span-1">#</span>
+                                <span className="col-span-4">الاسم</span>
+                                <span className="col-span-3">الرقم</span>
+                                <span className="col-span-4">الحالة</span>
+                            </div>
+                            {allOutgoing.map((ref: any, i: number) => (
+                                <div key={ref.id ?? i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-50 hover:bg-slate-50/50 items-center text-sm">
+                                    <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
+                                    <span className="col-span-4 font-bold text-slate-800">
+                                        {ref.name || `${ref.firstName || ''} ${ref.lastName || ''}`.trim()}
+                                    </span>
+                                    <span className="col-span-3 font-mono text-slate-500" dir="ltr">
+                                        {ref.mobile || ref.contacts?.find((c: any) => c.isPrimary)?.number || ref.contacts?.[0]?.number || '--'}
+                                    </span>
+                                    <span className="col-span-4">
+                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${outgoingStatusBadge(ref).cls}`}>
+                                            {outgoingStatusBadge(ref).label}
                                         </span>
-                                    </td>
-                                </tr>
+                                    </span>
+                                </div>
                             ))}
-                            {allReferralsMade.length === 0 && (
-                                <tr>
-                                    <td colSpan={3} className="px-8 py-16 text-center">
-                                        <Users className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                                        <p className="text-slate-400 font-bold">لم يقم هذا الزبون بترشيح أي أشخاص حتى الآن.</p>
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+                        </>
+                    ) : (
+                        <div className="px-6 py-12 text-center">
+                            <Users className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                            <p className="text-slate-400 font-bold">لم يقم هذا الزبون بترشيح أي أشخاص حتى الآن.</p>
+                        </div>
+                    )}
                 </div>
             </section>
+
         </div>
     );
 }
@@ -1368,8 +1412,14 @@ function ContractsTab({ client, getFullLocationStr }: ContractsTabProps) {
                                             <p className="font-mono font-bold text-slate-700">{selectedContract.serialNumber || 'غير محدد'}</p>
                                         </div>
                                         <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
-                                            <p className="text-[10px] text-slate-400 font-bold mb-1">خطة الصيانة</p>
-                                            <p className="font-bold text-slate-700">{selectedContract.maintenancePlan || '3'} أشهر</p>
+                                            <p className="text-[10px] text-slate-400 font-bold mb-1">دورة الصيانة</p>
+                                            <p className="font-bold text-slate-700">
+                                              {selectedContract.warrantyMonths && selectedContract.warrantyVisits
+                                                ? `كل ${Math.round((selectedContract.warrantyMonths * 30) / selectedContract.warrantyVisits)} يوم`
+                                                : selectedContract.maintenancePlan
+                                                  ? `كل ${selectedContract.maintenancePlan} أشهر`
+                                                  : '—'}
+                                            </p>
                                         </div>
                                         <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
                                             <p className="text-[10px] text-slate-400 font-bold mb-1">نوع البيع</p>

@@ -11,6 +11,7 @@ const selectFields = `
   supported_visit_types AS "supportedVisitTypes",
   is_golden_warranty AS "isGoldenWarranty",
   golden_warranty_periods AS "goldenWarrantyPeriods",
+  warranty_periods AS "warrantyPeriods",
   is_featured AS "isFeatured",
   description, description_en AS "descriptionEn", images, primary_image_id AS "primaryImageId", videos, documents, code
 `;
@@ -21,6 +22,7 @@ function serializeDevice(row: any) {
     basePrice: Number(row.basePrice ?? 0),
     supportedVisitTypes: Array.isArray(row.supportedVisitTypes) ? row.supportedVisitTypes : [],
     goldenWarrantyPeriods: Array.isArray(row.goldenWarrantyPeriods) ? row.goldenWarrantyPeriods : [],
+    warrantyPeriods: Array.isArray(row.warrantyPeriods) ? row.warrantyPeriods : [],
     descriptionEn: row.descriptionEn || null,
     code: row.code || null,
     images: Array.isArray(row.images) ? row.images : [],
@@ -47,6 +49,7 @@ function normalizeDevicePayload(body: any) {
     goldenWarrantyPeriods: body.isGoldenWarranty === true && Array.isArray(body.goldenWarrantyPeriods)
       ? body.goldenWarrantyPeriods
       : [],
+    warrantyPeriods: Array.isArray(body.warrantyPeriods) ? body.warrantyPeriods : [],
     isFeatured: body.isFeatured === true,
     description: String(body.description ?? '').trim() || null,
     descriptionEn: String(body.descriptionEn ?? '').trim() || null,
@@ -334,15 +337,15 @@ router.post('/', requirePermission('catalog.manage'), async (req, res) => {
     `INSERT INTO device_models (
       name, brand, name_ar, name_en, category, maintenance_interval, base_price,
       supported_visit_types, is_golden_warranty,
-      golden_warranty_periods, is_featured, description, description_en, images, primary_image_id,
+      golden_warranty_periods, warranty_periods, is_featured, description, description_en, images, primary_image_id,
       videos, documents, code
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
     RETURNING ${selectFields}`,
     [
       d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval, d.basePrice,
       JSON.stringify(d.supportedVisitTypes),
-      d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), d.isFeatured,
+      d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), JSON.stringify(d.warrantyPeriods), d.isFeatured,
       d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
       JSON.stringify(d.videos), JSON.stringify(d.documents), d.code,
     ]
@@ -414,14 +417,14 @@ router.put('/:id', requirePermission('catalog.manage'), async (req, res) => {
     `UPDATE device_models SET
       name=$1, brand=$2, name_ar=$3, name_en=$4, category=$5, maintenance_interval=$6,
       base_price=$7, supported_visit_types=$8,
-      is_golden_warranty=$9, golden_warranty_periods=$10, is_featured=$11,
-      description=$12, description_en=$13, images=$14, primary_image_id=$15, videos=$16, documents=$17,
-      code=$18
-     WHERE id=$19 AND deleted_at IS NULL RETURNING ${selectFields}`,
+      is_golden_warranty=$9, golden_warranty_periods=$10, warranty_periods=$11, is_featured=$12,
+      description=$13, description_en=$14, images=$15, primary_image_id=$16, videos=$17, documents=$18,
+      code=$19
+     WHERE id=$20 AND deleted_at IS NULL RETURNING ${selectFields}`,
     [
       d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval, d.basePrice,
       JSON.stringify(d.supportedVisitTypes),
-      d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), d.isFeatured,
+      d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), JSON.stringify(d.warrantyPeriods), d.isFeatured,
       d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
       JSON.stringify(d.videos), JSON.stringify(d.documents), d.code, req.params.id,
     ]

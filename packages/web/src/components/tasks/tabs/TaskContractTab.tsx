@@ -43,7 +43,13 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1.5">
             <InfoLine label="الموديل" value={contract.device.modelName || `#${contract.device.modelId}`} />
             <InfoLine label="الرقم التسلسلي" value={<span className="font-mono">{contract.device.serialNumber || '—'}</span>} />
-            <InfoLine label="خطة الصيانة" value={contract.device.maintenancePlan ? `كل ${contract.device.maintenancePlan} أشهر` : '—'} />
+            <InfoLine label="دورة الصيانة" value={
+              contract.device.warrantyMonths && contract.device.warrantyVisits
+                ? `كل ${Math.round((contract.device.warrantyMonths * 30) / contract.device.warrantyVisits)} يوم`
+                : contract.device.maintenancePlan
+                  ? `كل ${contract.device.maintenancePlan} أشهر`
+                  : '—'
+            } />
           </div>
         </Card>
       )}

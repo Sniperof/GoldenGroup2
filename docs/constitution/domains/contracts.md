@@ -511,6 +511,34 @@ erDiagram
 - **التضارب:** `device_models.golden_warranty_periods` كان يخزن نصاً حراً `["12 شهرًا"]` لا يمكن جمعه رياضياً على تاريخ لحساب `golden_warranty_end_date`.
 - **الحل المطبق (2026-05-26):** migration 186 حوّل البنية إلى `[{"months": 12, "label": "12 شهرًا"}]`، وتحديث النوع في `shared/types.ts`، وتحديث UI في `DeviceManagement.tsx`.
 
+### GAP-079: استئصال حقول دورة الصيانة Legacy ⏳ مرحلي
+
+حقلان لم يعد لهما دور وظيفي بعد تطبيق نظام `warranty_periods`:
+
+| الحقل | الجدول | الحالة |
+|---|---|---|
+| `maintenance_interval` | `device_models` | DB موجود، UI محذوف، API يقبله لكن لا يُعرضه |
+| `maintenance_plan` | `contracts` | DB موجود، تستخدمه `field_visits` للجدولة |
+
+**خطة الاستئصال (3 مراحل):**
+
+**المرحلة 1 — فصل قراءة `maintenance_plan` عن الزيارات الميدانية (شرط مسبق):**
+- تحديد كل الأكواد التي تقرأ `maintenance_plan` لجدولة المواعيد (`fieldVisits.ts`, `customerCalls.ts`).
+- استبدال المصدر بـ `warranty_visits` + `warranty_months` المحسوبَين: `interval_days = floor((warranty_months * 30) / warranty_visits)`.
+- توفير fallback للعقود القديمة (حيث `warranty_visits IS NULL`): إبقاء `maintenance_plan` كمصدر احتياطي مؤقت.
+
+**المرحلة 2 — حذف `maintenance_interval` من `device_models`:**
+- متطلب: التأكد من عدم وجود قراءة نشطة له في الـ API أو الـ frontend بعد المرحلة 1.
+- migration: `ALTER TABLE device_models DROP COLUMN maintenance_interval;`
+- تنظيف: حذف `maintenanceInterval` من `normalizeDevicePayload` وكل الـ queries.
+
+**المرحلة 3 — حذف `maintenance_plan` من `contracts`:**
+- متطلب: اكتمال المرحلة 1 + التأكد من backfill `warranty_visits` على جميع العقود الحية.
+- migration: `ALTER TABLE contracts DROP COLUMN maintenance_plan;`
+- تنظيف: حذف من `contractSelect`, `INSERT`, `ContractForm.tsx`.
+
+**تحذير:** لا تحذف `maintenance_plan` قبل أن تكون جميع العقود النشطة لديها `warranty_visits` مُعبأة — وإلا يفقد نظام جدولة الزيارات مرجعه.
+
 ### GAP-078: غياب واجهة تفعيل الكفالة الذهبية من مهمة التسليم ⚠️ معلق
 - **التضارب:** الكفالة الذهبية يجب أن تُفعَّل عند اكتمال مهمة "تسليم كفالة ذهبية"، لكن لا يوجد UI لاختيار الفترة من `golden_warranty_periods` ولا API يكتب `is_golden_warranty + golden_warranty_end_date` على العقد.
 - **الأثر التشغيلي:** `is_golden_warranty` يبقى `FALSE` و`golden_warranty_end_date = NULL` لجميع العقود حتى بعد تسليم الكفالة فعلياً — نظام الكفالة الذهبية غير فعّال كلياً.
@@ -638,3 +666,6 @@ device_installed_parts     — sub-entity
 | **2026-05-26** | `185_unify_referrers.sql` | تعبئة `clients.referrers` JSONB من حقول legacy (`referrer_name/type/id`) لـ 29 زبون. |
 | **2026-05-26** | `186_fix_golden_warranty_periods.sql` | **GAP-077:** تحويل `device_models.golden_warranty_periods` من string array إلى `[{months, label}]` objects لتمكين الحساب الرياضي للكفالة. |
 | **2026-05-26** | *(كود فقط)* | **GAP-076:** إضافة dropdown "فترة كفالة العقد" في ContractForm + حساب `contract_warranty_end_date` في `contracts.ts POST`. **BR-7:** توثيق نظام الكفالات المزدوجة. |
+| **2026-05-26** | `187_device_models_warranty_periods.sql` | إضافة `warranty_periods JSONB DEFAULT '[]'` لـ `device_models` — بنية `[{months, label, visits}]` لتخزين فترات الكفالة مع عدد الزيارات الخاصة بكل جهاز. |
+| **2026-05-26** | `188_contracts_warranty_visits.sql` | إضافة `warranty_visits INT` لـ `contracts` — يخزن عدد الزيارات المتفق عليها لفترة الكفالة، ويُحسب منه الفاصل: `floor((warranty_months × 30) / warranty_visits)` أيام. |
+| **2026-05-26** | *(كود فقط)* | **GAP-079 (جزئي):** حذف حقل "دورة الصيانة" من واجهة إضافة الجهاز (`DeviceManagement.tsx`) — عمود الجدول، فلتر القائمة، وعنصر الـ toggle. الحقل `maintenance_interval` في DB باقٍ مؤقتاً كـ legacy. |

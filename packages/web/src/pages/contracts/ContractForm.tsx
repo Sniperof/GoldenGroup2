@@ -9,7 +9,6 @@ import {
     BadgeDollarSign, Plus, X, Edit2,
     ExternalLink, Smartphone, Clipboard, Loader2
 } from 'lucide-react';
-import type { MaintenancePlan } from '../../lib/types';
 import { api } from '../../lib/api';
 import MapPicker from '../../components/MapPicker';
 import GeoSmartSearch from '../../components/GeoSmartSearch';
@@ -257,7 +256,6 @@ export default function ContractForm() {
                     setSourceTaskId(c.sourceVisit || '');
                     setDeviceModelId(c.deviceModelId || '');
                     setSerialNumber(c.serialNumber || '');
-                    setMaintenancePlan(c.maintenancePlan || '6');
                     setDetailedAddress(c.detailedAddress || '');
                     setMapPosition(c.mapPosition || null);
                     setClosingEmployeeId(c.closingEmployeeId || '');
@@ -336,6 +334,7 @@ export default function ContractForm() {
     const [deliveryDate, setDeliveryDate] = useState('');
     const [installationDate, setInstallationDate] = useState('');
     const [warrantyMonths, setWarrantyMonths] = useState(0);
+    const [warrantyVisits, setWarrantyVisits] = useState(0);
     // Trade-in context
     const [oldContractNumber, setOldContractNumber] = useState('');
     const [oldDeviceCondition, setOldDeviceCondition] = useState<OldDeviceCondition>('good');
@@ -346,7 +345,6 @@ export default function ContractForm() {
     // ─── 3. Device & Location ───
     const [deviceModelId, setDeviceModelId] = useState<number | ''>('');
     const [serialNumber, setSerialNumber] = useState('');
-    const [maintenancePlan, setMaintenancePlan] = useState<MaintenancePlan>('6');
     // Geo — single smart search
     const [geoSelection, setGeoSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
     const [detailedAddress, setDetailedAddress] = useState('');
@@ -385,6 +383,12 @@ export default function ContractForm() {
         api.deviceModels.getDiscounts(Number(deviceModelId))
             .then(setDeviceDiscounts)
             .catch(() => setDeviceDiscounts([]));
+    }, [deviceModelId]);
+
+    // ─── Effect: reset warranty selection when device changes ───
+    useEffect(() => {
+        setWarrantyMonths(0);
+        setWarrantyVisits(0);
     }, [deviceModelId]);
 
     // ─── Effect: auto-update device line item ───
@@ -827,11 +831,11 @@ export default function ContractForm() {
                 deviceModelId,
                 deviceModelName: selectedDevice?.nameAr || selectedDevice?.name,
                 serialNumber,
-                maintenancePlan,
                 contractDate,
                 deliveryDate: (!isMaintenance && deliveryDate) ? deliveryDate : null,
                 installationDate: (!isMaintenance && installationDate) ? installationDate : null,
                 warrantyMonths: (!isMaintenance && warrantyMonths > 0) ? warrantyMonths : 0,
+                warrantyVisits: (!isMaintenance && warrantyMonths > 0 && warrantyVisits > 0) ? warrantyVisits : null,
                 saleType: isMaintenance ? null : saleType,
                 saleSource: isMaintenance ? null : (saleSource || null),
                 sourceVisit: (!isMaintenance && saleSource === 'device_demo_task') ? (sourceTaskId.trim() || null) : null,
@@ -918,7 +922,7 @@ export default function ContractForm() {
         }
     }, [
         isValid, saving, isEdit, editId, selectedCustomer, deviceModelId, selectedDevice, serialNumber,
-        maintenancePlan, contractDate, saleType, saleSource, sourceTaskId, selectedDiscountId,
+        contractDate, saleType, saleSource, sourceTaskId, selectedDiscountId,
         paymentType, grandTotal, basePrice, installmentDrafts, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
         nationalIdOverride, contractType, saleSubtype, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber,
@@ -947,7 +951,7 @@ export default function ContractForm() {
         setSaleType('direct'); setContractDate(new Date().toISOString().slice(0, 10));
         setOldContractNumber(''); setOldDeviceCondition('good');
         setSaleSource(''); setSourceTaskId('');
-        setDeviceModelId(''); setSerialNumber(''); setMaintenancePlan('6');
+        setDeviceModelId(''); setSerialNumber('');
         setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
         setDetailedAddress(''); setMapPosition(null);
         setPaymentType('cash'); setPaymentEntries([]); setConfirmedEntries(new Set()); setEntryErrors({}); setHasDownPayment(false);
@@ -1324,17 +1328,34 @@ export default function ContractForm() {
                             <Field label="فترة كفالة العقد">
                                 <div className="relative">
                                     <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
-                                    <select value={warrantyMonths} onChange={e => setWarrantyMonths(Number(e.target.value))} className={`${inputClass} pr-10`}>
+                                    <select
+                                        value={warrantyMonths}
+                                        onChange={e => {
+                                            const months = Number(e.target.value);
+                                            setWarrantyMonths(months);
+                                            const period = (selectedDevice?.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).find((p: { months: number }) => p.months === months);
+                                            setWarrantyVisits((period as any)?.visits ?? 0);
+                                        }}
+                                        className={`${inputClass} pr-10`}
+                                    >
                                         <option value={0}>بدون كفالة</option>
-                                        <option value={6}>6 أشهر</option>
-                                        <option value={12}>12 شهرًا</option>
-                                        <option value={24}>24 شهرًا</option>
-                                        <option value={36}>36 شهرًا</option>
+                                        {(selectedDevice?.warrantyPeriods || []).length > 0
+                                            ? (selectedDevice!.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).map((p: { months: number; label: string; visits: number }) => (
+                                                <option key={p.months} value={p.months}>{p.label}</option>
+                                            ))
+                                            : <>
+                                                <option value={6}>6 أشهر</option>
+                                                <option value={12}>12 شهرًا</option>
+                                                <option value={24}>24 شهرًا</option>
+                                                <option value={36}>36 شهرًا</option>
+                                            </>
+                                        }
                                     </select>
                                 </div>
                                 {warrantyMonths > 0 && contractDate && (
                                     <p className="text-xs text-slate-400 mt-1 pr-1">
                                         تنتهي: {new Date(new Date(contractDate).setMonth(new Date(contractDate).getMonth() + warrantyMonths)).toISOString().slice(0, 10)}
+                                        {warrantyVisits > 0 && ` · ${warrantyVisits} زيارة (كل ${Math.round((warrantyMonths * 30) / warrantyVisits)} يوم)`}
                                     </p>
                                 )}
                             </Field>
@@ -1559,18 +1580,6 @@ export default function ContractForm() {
                             <div className="relative">
                                 <Hash className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
                                 <input type="text" value={serialNumber} onChange={e => setSerialNumber(e.target.value)} placeholder="SN-XXXXX" className={`${inputClass} pr-10 font-mono`} dir="ltr" />
-                            </div>
-                        </Field>
-                        <Field label="خطة الصيانة">
-                            <div className="flex gap-1.5">
-                                {([['3', '3 أشهر'], ['6', '6 أشهر'], ['12', '12 شهر']] as const).map(([val, label]) => (
-                                    <button key={val} type="button" onClick={() => setMaintenancePlan(val as MaintenancePlan)}
-                                        className={`flex-1 px-2 py-2.5 rounded-lg border text-xs font-medium transition-all ${maintenancePlan === val
-                                            ? 'bg-sky-50 border-sky-300 text-sky-700 shadow-sm'
-                                            : 'bg-white border-gray-200 text-slate-600 hover:border-gray-300'}`}>
-                                        {label}
-                                    </button>
-                                ))}
                             </div>
                         </Field>
                     </div>

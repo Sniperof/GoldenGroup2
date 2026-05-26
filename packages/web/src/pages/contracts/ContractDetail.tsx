@@ -8,6 +8,15 @@ const PAYMENT_LABELS: Record<string, string> = { cash: 'نقدي', installment: 
 const MAINTENANCE_LABELS: Record<string, string> = {
   '3': '3 أشهر', '6': '6 أشهر', '12': 'سنة', '24': 'سنتان',
 };
+
+function maintenanceIntervalLabel(warrantyMonths?: number | null, warrantyVisits?: number | null, maintenancePlan?: string | null): string | null {
+  if (warrantyMonths && warrantyVisits) {
+    const days = Math.round((warrantyMonths * 30) / warrantyVisits);
+    return `كل ${days} يوم (${warrantyVisits} زيارة / ${warrantyMonths} شهر)`;
+  }
+  if (maintenancePlan) return `كل ${MAINTENANCE_LABELS[maintenancePlan] ?? maintenancePlan}`;
+  return null;
+}
 const SALE_TYPE_LABELS: Record<string, string> = {
   tradein: 'استبدال', retention: 'احتفاظ', direct: 'بيع مباشر',
 };
@@ -466,13 +475,13 @@ export default function ContractDetail() {
                   <span className="text-sm font-mono text-slate-700">{data.serialNumber}</span>
                 </div>
               )}
-              {(data.maintenancePlan || data.deviceStatus) && <div className="h-px bg-gray-100"></div>}
+              {(data.maintenancePlan || data.warrantyMonths || data.deviceStatus) && <div className="h-px bg-gray-100"></div>}
               <div className="grid grid-cols-2 gap-3">
-                {data.maintenancePlan && (
+                {maintenanceIntervalLabel(data.warrantyMonths, data.warrantyVisits, data.maintenancePlan) && (
                   <div>
-                    <span className="text-xs text-slate-400 block mb-1">خطة الصيانة</span>
+                    <span className="text-xs text-slate-400 block mb-1">دورة الصيانة</span>
                     <span className="text-sm text-slate-700">
-                      {MAINTENANCE_LABELS[data.maintenancePlan] ?? data.maintenancePlan}
+                      {maintenanceIntervalLabel(data.warrantyMonths, data.warrantyVisits, data.maintenancePlan)}
                     </span>
                   </div>
                 )}

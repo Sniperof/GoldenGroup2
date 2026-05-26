@@ -47,6 +47,8 @@ const contractSelect = `
   c.is_golden_warranty AS "isGoldenWarranty",
   c.golden_warranty_end_date AS "goldenWarrantyEndDate",
   c.contract_warranty_end_date AS "contractWarrantyEndDate",
+  c.warranty_months AS "warrantyMonths",
+  c.warranty_visits AS "warrantyVisits",
   c.created_by AS "createdById",
   (SELECT name FROM hr_users WHERE id = c.closing_employee_id LIMIT 1) AS "closingEmployeeName",
   (SELECT value FROM system_lists WHERE id = c.no_closing_reason_id LIMIT 1) AS "noClosingReasonName",
@@ -529,6 +531,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       d.setMonth(d.getMonth() + warrantyMonths);
       contractWarrantyEndDate = d.toISOString().slice(0, 10);
     }
+    const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
+    const warrantyMonthsStored = warrantyMonths > 0 ? warrantyMonths : null;
 
     const { rows } = await client.query(
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
@@ -542,12 +546,12 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         buyer_national_id_issue_date, buyer_national_id_box,
         buyer_birth_date, buyer_gender,
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number, no_closing_reason_id, sale_subtype,
-        device_status, created_by, contract_warranty_end_date)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44)
+        device_status, created_by, contract_warranty_end_date, warranty_visits, warranty_months)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46)
       RETURNING ${contractSelect.replace(/c\./g, '')}`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
-       c.maintenancePlan, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
+       null, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0, c.deliveryDate || null, c.installationDate || null,
        c.status || 'active', targetBranchId, c.saleType || 'direct',
        installationGeoUnitId, installationAddressText, installationLat, installationLng,
@@ -559,7 +563,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        c.buyerBirthDate || null, c.buyerGender || null,
        c.contractType || 'sale_contract', c.sourceOpenTaskId || null, c.sourceTaskOfferId || null, c.saleReferenceNumber || null,
        c.noClosingReasonId || null, c.saleSubtype || 'definitive',
-       c.deviceStatus || 'pending_delivery', (req as any).user?.id || null, contractWarrantyEndDate]
+       c.deviceStatus || 'pending_delivery', (req as any).user?.id || null, contractWarrantyEndDate, warrantyVisits, warrantyMonthsStored]
     );
     const contract = rows[0];
 

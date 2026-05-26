@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     ChevronRight, Loader2, Package, Clock, Wrench, PenTool, GraduationCap,
     Truck, Gem, Star, Image, Video, FileText, AlertCircle, RefreshCw,
-    Zap, Tag, Plus, Pencil, Trash2, X, Save,
+    Zap, Tag, Plus, Pencil, Trash2, X, Save, ShieldCheck,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import type { DeviceModel, DeviceDiscount, SparePart, MaintenancePartType } from '../lib/types';
@@ -257,10 +257,19 @@ export default function DeviceDetail() {
                                             <Gem className="w-3.5 h-3.5" />
                                             كفالة ذهبية
                                             {(device.goldenWarrantyPeriods?.length || 0) > 0 && (
-                                                <span className="opacity-70">· {device.goldenWarrantyPeriods!.join(' / ')}</span>
+                                                <span className="opacity-70">· {(device.goldenWarrantyPeriods as Array<{ months: number; label: string }>).map(p => p.label).join(' / ')}</span>
                                             )}
                                         </span>
                                     )}
+                                    {(device.warrantyPeriods as Array<{ months: number; label: string; visits: number }> | undefined)?.length
+                                        ? (device.warrantyPeriods as Array<{ months: number; label: string; visits: number }>).map(p => (
+                                            <span key={p.months} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-50 text-sky-700 border border-sky-200">
+                                                <ShieldCheck className="w-3.5 h-3.5" />
+                                                {p.label} · {p.visits} زيارة
+                                            </span>
+                                        ))
+                                        : null
+                                    }
                                     {device.isFeatured && (
                                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-50 text-sky-700 border border-sky-200">
                                             جهاز بارز

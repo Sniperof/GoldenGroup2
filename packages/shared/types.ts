@@ -658,6 +658,7 @@ export interface DeviceModel {
     supportedVisitTypes: ('تسليم' | 'تركيب' | 'صيانة' | 'تعليم')[];
     isGoldenWarranty?: boolean;
     goldenWarrantyPeriods?: Array<{ months: number; label: string }>;
+    warrantyPeriods?: Array<{ months: number; label: string; visits: number }>;
     isFeatured?: boolean;
     description?: string | null;
     descriptionEn?: string | null;
