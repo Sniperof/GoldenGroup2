@@ -320,7 +320,7 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [telemarketing.md §9.5](domains/telemarketing.md#95-الثغرة-الخامسة) |
 
-### GAP-027: Critical Permission Naming Mismatch ⭐ عالية — **جديد**
+### GAP-027: Critical Permission Naming Mismatch ✅ محلول
 
 | البند | التفصيل |
 |---|---|
@@ -328,9 +328,9 @@
 | **الموقع** | `packages/api/routes/fieldVisits.ts` |
 | **الوصف** | جميع مسارات وإجراءات التحكم بنظام الزيارات الميدانية الموحد `field_visits` يتم التحقق منها وحمايتها بصلاحيات قديمة تتبع الكيان المتروك `marketing_visits` (مثل `marketing_visits.view` و `marketing_visits.update_result`). |
 | **التأثير** | إرباك إداري شديد للمطورين ومسؤولي الأمن وصعوبة فصل أدوار فنيي المبيعات عن فنيي الصيانة. |
-| **الحل المقترح** | استبدال الصلاحيات بالكامل لتعتمد على نطاق نظيف وموحد مثل `field_visits.view` و `field_visits.edit` مع تعديل البذر في الجداول الأمنية. |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [permissions.md §9.3](domains/permissions.md#gap-017--gap-027-تضارب-مسميات-صلاحيات-المهام-والزيارات-الميدانية) |
+| **الحل المطبق** | استبدال 12 صلاحية في `fieldVisits.ts`: 6 × `marketing_visits.view` → `field_visits.view`، 6 × `marketing_visits.update_result` → `field_visits.edit`. هجرة `175_field_visits_permissions.sql` أنشأت `field_visits.edit` ومنحت كلا الصلاحيتين للأدوار. |
+| **الحالة** | ✅ محلول — 2026-05-25 |
+| **ملف الدستور** | [field-visits.md §6](domains/field-visits.md#6-صلاحيات-الوصول-permission-matrix) |
 
 ### GAP-028: Technical Contradiction on result_fields JSONB 🟡 متوسطة — **جديد**
 
@@ -600,8 +600,8 @@
 | **الموقع** | `packages/api/routes/deviceModels.ts` (POST/PUT/DELETE) / `packages/api/routes/spareParts.ts` (كل المسارات) |
 | **الوصف** | مسارات إنشاء وتعديل وحذف الأجهزة وقطع الغيار تخلو تماماً من `requireAuth` أو `requirePermission` — متاحة لأي شخص بالإنترنت. |
 | **التأثير** | أي مهاجم يستطيع تعديل أسعار الكتالوج أو حذف موديلات الأجهزة كاملاً دون تسجيل دخول. |
-| **الحل المقترح** | إضافة `requireAuth` + `requirePermission('catalog.manage')` لجميع مسارات الكتابة. |
-| **الحالة** | ⏳ مفتوحة |
+| **الحل المطبق** | `requirePermission('catalog.manage')` على POST/PUT/DELETE + `requireAuth` على GET في كلا الملفين. `catalog.manage` يمر للـ superAdmin تلقائياً — يحتاج migration لبذر الصلاحية للأدوار الإدارية. |
+| **الحالة** | ✅ محلول — 2026-05-25 |
 | **ملف الدستور** | [devices-maintenance.md §6](domains/devices-maintenance.md#6-صلاحيات-الوصول-والمصفوفة-الأمنية-permission-matrix) |
 
 ### GAP-051: غياب صلاحيات مخصصة لإدارة الخصومات 🟡 متوسطة — **جديد**
@@ -612,8 +612,8 @@
 | **الموقع** | `packages/api/routes/deviceModels.ts` (Discounts endpoints POST/PUT/DELETE) |
 | **الوصف** | مسارات إنشاء وتعديل وحذف الخصومات المالية تكتفي بـ `requireAuth` دون صلاحية مخصصة لإدارة السياسات المالية. |
 | **التأثير** | أي موظف بحساب نشط يستطيع إنشاء خصم 100% وتطبيقه على مبيعات الأجهزة. |
-| **الحل المقترح** | بذر صلاحية `devices.discounts.manage` وتطبيقها على مسارات الخصومات. |
-| **الحالة** | ⏳ مفتوحة |
+| **الحل المطبق** | استبدال `requireAuth` بـ `requirePermission('devices.discounts.manage')` على POST/PUT/DELETE للخصومات. يحتاج migration لبذر الصلاحية للأدوار المناسبة. |
+| **الحالة** | ✅ محلول — 2026-05-25 |
 | **ملف الدستور** | [devices-maintenance.md §6](domains/devices-maintenance.md#6-صلاحيات-الوصول-والمصفوفة-الأمنية-permission-matrix) |
 
 ### GAP-052: Hard Delete يتيّم بيانات العقود التاريخية 🟡 متوسطة — **جديد**
@@ -621,11 +621,11 @@
 | البند | التفصيل |
 |---|---|
 | **الكيان** | device_models / spare_parts |
-| **الموقع** | `packages/api/routes/deviceModels.ts` سطر 468 / `spareParts.ts` سطر 248 |
+| **الموقع** | `packages/api/routes/deviceModels.ts` / `spareParts.ts` |
 | **الوصف** | حذف موديل جهاز يُفرغ `contracts.device_model_id` إلى NULL ويتيم البيانات التاريخية. لا يوجد soft-delete. |
 | **التأثير** | فقدان الربط التاريخي بين العقود وموديلات الأجهزة — ضرب التقارير المالية والمبيعات. |
-| **الحل المقترح** | إضافة `deleted_at TIMESTAMPTZ` لجدولي `device_models` و`spare_parts`. |
-| **الحالة** | ⏳ مفتوحة |
+| **الحل المطبق** | `migrations/180_devices_soft_delete.sql` أضاف `deleted_at` للجدولين. DELETE تحول لـ `UPDATE deleted_at = NOW()`. GET يفلتر `WHERE deleted_at IS NULL`. |
+| **الحالة** | ✅ محلول — 2026-05-25 |
 | **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
 
 ### GAP-053: JSONB Arrays بدون تكامل مرجعي فيزيائي 🟡 متوسطة — **جديد**
@@ -648,8 +648,8 @@
 | **الموقع** | `packages/api/routes/deviceModels.ts` (POST /:id/discounts، PUT /:id/discounts/:did) |
 | **الوصف** | لا يوجد فحص يمنع وجود خصمين متداخلين زمنياً بنسب مختلفة لنفس الجهاز في نفس الفترة. |
 | **التأثير** | السيرفر لا يعرف أي خصم يطبق عند التعارض — قد يطبق الأرخص عشوائياً مما يُسبب خسائر مالية. |
-| **الحل المقترح** | فحص OVERLAPS في SQL عند إنشاء/تعديل الخصم أو قيد EXCLUDE في PostgreSQL. |
-| **الحالة** | ⏳ مفتوحة |
+| **الحل المطبق** | فحص `start_date <= $endDate AND end_date >= $startDate` قبل الإنشاء والتعديل. يُرجع 400 عند التداخل. |
+| **الحالة** | ✅ محلول — 2026-05-25 |
 | **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
 
 ### GAP-055: `visit_task_device_demo_results` يفتقر لمعرف الجهاز المعروض 🟡 متوسطة — **جديد**
@@ -660,8 +660,8 @@
 | **الموقع** | `migrations/070_visit_core_schema.sql` |
 | **الوصف** | الجدول يحفظ العرض والعقد المنشأ لكن لا يحتوي على `offered_device_model_id` لمعرفة الجهاز المعروض في الزيارة. |
 | **التأثير** | تعذّر تحليل نسبة التحويل per-device للعروض الميدانية — ضعف في تقارير المبيعات. |
-| **الحل المقترح** | إضافة `offered_device_model_id INTEGER REFERENCES device_models(id) ON DELETE SET NULL`. |
-| **الحالة** | ⏳ مفتوحة |
+| **الحل المطبق** | `migrations/179_device_demo_offered_model.sql` أضاف `offered_device_model_id INTEGER FK → device_models ON DELETE SET NULL`. |
+| **الحالة** | ✅ محلول — 2026-05-25 |
 | **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
 
 ### GAP-056: ازدواجية حقلي `name`/`brand` مع `name_ar`/`name_en` ⭐ عالية — **جديد**
@@ -684,8 +684,8 @@
 | **الموقع** | مهجرات 001-147 (مفحوصة كاملاً) |
 | **الوصف** | الوثائق السابقة والمخطط تشير لجدول `visit_task_device_activation_results` لكنه لم يُنشأ في أي مهجرة مفحوصة حتى المهجرة 147. مرحلة التشغيل تُحدّث `device_status` برمجياً فقط دون تخزين نتائج تقنية. |
 | **التأثير** | لا يوجد تتبع تقني لقياسات TDS ومعايرة الجهاز عند التشغيل الأولي — ثغرة جودة خدمة. |
-| **الحل المقترح** | إنشاء المهجرة المناسبة بحقول: `tds_before`, `tds_after`, `pump_pressure`, `uv_status`, `customer_trained`. |
-| **الحالة** | ⏳ مفتوحة |
+| **الحل المطبق** | `migrations/181_device_activation_results.sql` أنشأ الجدول بحقول: `tds_before`, `tds_after`, `pump_pressure`, `uv_status`, `customer_trained`, `activated_by_employee_id`. |
+| **الحالة** | ✅ محلول (DB فقط) — 2026-05-25 — يحتاج API endpoint و frontend لاستخدام الجدول. |
 | **ملف الدستور** | [devices-maintenance.md §2.5](domains/devices-maintenance.md#25-جداول-نتائج-المهام-المتخصصة) |
 
 ### GAP-058: `maintenance_interval` VARCHAR غير مقيد وغير مُفعَّل 🟡 متوسطة — **جديد**
@@ -708,8 +708,8 @@
 | **الموقع** | `packages/api/routes/deviceModels.ts` سطر 42 |
 | **الوصف** | `category: body.category \|\| 'صناعي'` — القيمة الافتراضية `'صناعي'` (عربية) بينما قيد DB يسمح فقط بـ `'Residential', 'Industrial', 'Commercial'` (إنجليزية). |
 | **التأثير** | أي طلب POST/PUT بدون category → يحاول تخزين `'صناعي'` → يخالف CHECK constraint → خطأ 500 بالـ DB. |
-| **الحل المقترح** | تصحيح الافتراضي: `category: body.category \|\| 'Industrial'` |
-| **الحالة** | ⏳ مفتوحة |
+| **الحل المطبق** | `category: body.category \|\| 'Industrial'` |
+| **الحالة** | ✅ محلول — 2026-05-25 |
 | **ملف الدستور** | [devices-maintenance.md §3](domains/devices-maintenance.md#3-القيود-والقواعد-التشغيلية-business-rules) |
 
 ### GAP-060: محدودية حالات `device_status` — غياب حالات الخدمة 🟡 متوسطة — **جديد**
@@ -720,8 +720,8 @@
 | **الموقع** | `migrations/142_contract_device_tracking.sql` |
 | **الوصف** | القيم المسموحة `pending_delivery, delivered, installed, active` فقط. لا توجد حالات للأجهزة المعطوبة (`faulty`)، المسحوبة (`retrieved`)، الموقوفة مؤقتاً (`disconnected`)، أو التحت صيانة (`under_maintenance`). |
 | **التأثير** | لا يمكن تتبع أجهزة تحتاج إصلاحاً أو أجهزة أُعيدت للشركة — ثغرة في إدارة الأصول. |
-| **الحل المقترح** | توسيع CHECK: إضافة `'under_maintenance', 'faulty', 'retrieved', 'disconnected'`. |
-| **الحالة** | ⏳ مفتوحة |
+| **الحل المطبق** | `migrations/178_device_status_extend.sql` وسّع CHECK بإضافة `under_maintenance, faulty, retrieved, disconnected`. |
+| **الحالة** | ✅ محلول — 2026-05-25 |
 | **ملف الدستور** | [devices-maintenance.md §5](domains/devices-maintenance.md#5-آلة-الحالات-التشغيلية-lifecycle-state-machine) |
 
 ### GAP-061: حقل `code` بدون UNIQUE constraint 🟢 منخفضة — **جديد**
@@ -732,8 +732,8 @@
 | **الموقع** | `migrations/125_device_code.sql` |
 | **الوصف** | الحقل `device_models.code` لا يملك قيد UNIQUE — يمكن نظرياً أن يتكرر نفس الكود لأجهزة مختلفة. |
 | **التأثير** | فشل استعلامات البحث بالكود وإرباك فرق المخازن والتوزيع. |
-| **الحل المقترح** | `CREATE UNIQUE INDEX ON device_models(code) WHERE code IS NOT NULL;` |
-| **الحالة** | ⏳ مفتوحة |
+| **الحل المطبق** | `migrations/177_device_code_unique.sql`: `CREATE UNIQUE INDEX WHERE code IS NOT NULL` |
+| **الحالة** | ✅ محلول — 2026-05-25 |
 | **ملف الدستور** | [devices-maintenance.md §9](domains/devices-maintenance.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
 
 ### GAP-062: Geo unit status has no operational effect — cascade, scope, tasks, blocks all missing ⭐ عالية
@@ -901,6 +901,30 @@ if (neighborhood) {
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [employees.md §9.6](domains/employees.md#gap-072-absence-of-audit-trails-for-employee-profile-changes-متوسطة) |
 
+### GAP-073: Branch Access Check Missing on Sub-Resource GET Endpoints 🟢 منخفضة — **جديد**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | field_visits |
+| **الموقع** | `packages/api/routes/fieldVisits.ts` — أسطر 521, 577, 1123, 1272 |
+| **الوصف** | مسارات الطفرة (start, end, complete, name-collection إلخ) تفحص `branch_id` وتُرجع 403 إذا كانت الزيارة لفرع مختلف. لكن 4 مسارات قراءة فرعية (`GET /:id/geo`, `GET /:id/source`, `GET /name-collections/:id`, `GET /visit-tasks/:taskId/direct-suggestions`) لا تجري أي فحص للفرع. |
+| **التأثير** | مستخدم من فرع (أ) يستطيع قراءة بيانات جغرافية وأسماء وترشيحات لزيارات فرع (ب) إذا عرف المعرف. |
+| **الحل المقترح** | إضافة JOIN بـ `field_visits` للتحقق من `branch_id` في هذه المسارات الأربعة. مؤجل. |
+| **الحالة** | ⏳ مفتوحة — مؤجل |
+| **ملف الدستور** | [field-visits.md §9](domains/field-visits.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
+
+### GAP-074: ClientAvatar dataQuality mapping mismatch — DB values vs UI expectations 🟢 منخفضة — **جديد**
+
+|| البند | التفصيل |
+||---|---|
+|| **الكيان** | clients / shared UI |
+|| **الموقع** | `packages/api/routes/clients.ts` (SELECT `data_quality`) vs `packages/web/src/components/ClientAvatar.tsx` |
+|| **الوصف** | الـ DB بيخزّن `data_quality` بقيم: `Complete` / `Partial` / `Minimal`. بس المكوّن `ClientAvatar.tsx` بيتوقع `dataQuality` بقيم: `correct` / `incorrect` / `needs_edit`. الـ API بيرجّع القيم من الـ DB بدون mapping — فالقيم ما عم تتطابق أبداً. |
+|| **التأثير** | كل الأفاتارات بالـ UI بيظهرو باللون الرمادي الافتراضي (`bg-slate-100`) حتى لو `data_quality = "Complete"`. المستخدم ما عم يستفيد من نظام ألوان صحة البيانات. |
+|| **الحل المقترح** | خياران: (أ) تعديل `ClientAvatar.tsx` ليقبل القيم الـ DB مباشرة (`Complete` → أخضر، `Partial` → أصفر، `Minimal` → أحمر). (ب) تعديل الـ API (`routes/clients.ts`) ليعمل mapping من DB → UI قبل ما يرجّع الـ JSON. **التوصية: (أ)** — لأنه أبسط وما بيأثر على API contract. |
+|| **الحالة** | ⏳ مفتوحة |
+|| **ملف الدستور** | [client-snapshot.md §قواعد الأفاتار](components/client-snapshot.md#قواعد-الأفاتار-avatar) |
+
 ---
 
 ## الثغرات المحلولة (Resolved Gaps)
@@ -923,6 +947,18 @@ if (neighborhood) {
 | GAP-065 | open_tasks | إضافة validation لـ `taskFamily` و`taskType` في POST / قبل الوصول للـ DB | 2026-05-25 | `routes/openTasks.ts` |
 | GAP-066 | open_tasks | توثيق §7 API Contract الكامل — الدستور كان يوثق 4 endpoints من أصل 20 | 2026-05-25 | `docs/constitution/domains/open-tasks.md §7` |
 | GAP-017 | open_tasks | استبدال `marketing_visits.*` بـ `open_tasks.view/edit` في openTasks.ts (محلول جزئي) | 2026-05-25 | `migrations/174_open_tasks_permissions.sql` + `routes/openTasks.ts` |
+| GAP-027 | field_visits | استبدال 12 × `marketing_visits.*` بـ `field_visits.view/edit` في fieldVisits.ts | 2026-05-25 | `migrations/175_field_visits_permissions.sql` + `routes/fieldVisits.ts` |
+| GAP-074 | dues / contracts | إضافة `requireAuth` + `requirePermission` + branch filter على `dues.ts` — كان مفتوح للعالم | 2026-05-25 | `routes/dues.ts` |
+| GAP-075 | contracts | إضافة `authorize()` branch check على `GET /api/contracts/:id` — كان يكشف عقود فروع أخرى | 2026-05-25 | `routes/contracts.ts` |
+| GAP-050 | device_models / spare_parts | `requirePermission('catalog.manage')` على الكتابة + `requireAuth` على القراءة | 2026-05-25 | `routes/deviceModels.ts` + `routes/spareParts.ts` |
+| GAP-051 | device_discounts | `requirePermission('devices.discounts.manage')` على POST/PUT/DELETE الخصومات | 2026-05-25 | `routes/deviceModels.ts` |
+| GAP-052 | device_models / spare_parts | soft-delete عبر `deleted_at` + فلترة `WHERE deleted_at IS NULL` | 2026-05-25 | `migrations/180` + `routes/deviceModels.ts` + `routes/spareParts.ts` |
+| GAP-054 | device_discounts | فحص التداخل الزمني `start_date <= endDate AND end_date >= startDate` في POST وPUT | 2026-05-25 | `routes/deviceModels.ts` |
+| GAP-055 | visit_task_device_demo_results | إضافة `offered_device_model_id FK → device_models` | 2026-05-25 | `migrations/179_device_demo_offered_model.sql` |
+| GAP-057 | visit_task_device_activation_results | إنشاء الجدول بحقول tds_before/after, pump_pressure, uv_status, customer_trained | 2026-05-25 | `migrations/181_device_activation_results.sql` |
+| GAP-059 | device_models | تصحيح category default من `'صناعي'` → `'Industrial'` | 2026-05-25 | `routes/deviceModels.ts:42` |
+| GAP-060 | contracts | توسيع `device_status` CHECK: إضافة faulty/retrieved/disconnected/under_maintenance | 2026-05-25 | `migrations/178_device_status_extend.sql` |
+| GAP-061 | device_models | `UNIQUE INDEX ON device_models(code) WHERE code IS NOT NULL` | 2026-05-25 | `migrations/177_device_code_unique.sql` |
 
 ---
 
@@ -964,10 +1000,10 @@ if (neighborhood) {
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 56 |
-| **عدد الثغرات المحلولة** | 16 (GAP-003, GAP-017, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049, GAP-063, GAP-064, GAP-065, GAP-066) |
-| **عالية الخطورة** | 13 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-022, GAP-027, GAP-050, GAP-056, GAP-057, GAP-059, GAP-062, GAP-067, GAP-068) |
-| **متوسطة** | 26 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-051, GAP-052, GAP-053, GAP-054, GAP-055, GAP-058, GAP-060, GAP-069, GAP-070, GAP-071, GAP-072) |
-| **منخفضة** | 16 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-048, GAP-061) |
-| **الكيان الأكثر ثغرات** | devices-maintenance (12) / field_visits (7) / permissions (6) / contracts (6) / employees (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / branches (1) / geo_units (1) |
+| **عدد الثغرات المفتوحة** | 43 |
+| **عدد الثغرات المحلولة** | 32 (GAP-003, GAP-017, GAP-027, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049, GAP-050, GAP-051, GAP-052, GAP-054, GAP-055, GAP-057, GAP-059, GAP-060, GAP-061, GAP-063, GAP-064, GAP-065, GAP-066, GAP-074, GAP-075) |
+| **عالية الخطورة** | 6 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-022, GAP-056, GAP-062, GAP-067, GAP-068) |
+| **متوسطة** | 20 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-053, GAP-058, GAP-069, GAP-070, GAP-071, GAP-072) |
+| **منخفضة** | 16 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-048, GAP-073) |
+| **الكيان الأكثر ثغرات** | field_visits (7) / permissions (6) / contracts (6) / employees (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / devices-maintenance (3 مفتوحة) / branches (1) / geo_units (1) |
 | **قرارات معلقة** | 1 (multi-branch client) |

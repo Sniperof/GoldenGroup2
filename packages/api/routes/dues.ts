@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 
 const router = Router();
+router.use(requireAuth);
 
 const selectFields = `
   id, contract_id AS "contractId", type, scheduled_date AS "scheduledDate",
@@ -88,8 +92,27 @@ const selectFields = `
  *       500:
  *         description: Server error
  */
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query(`SELECT ${selectFields} FROM dues ORDER BY id`);
+router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
+  const authContext = req.authContext!;
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (!authContext.isSuperAdmin) {
+    conditions.push(`c.branch_id = $${params.push(authContext.actingBranchId)}`);
+  } else {
+    const hb = Number(req.headers['x-branch-id'] ?? req.query.branchId);
+    if (Number.isFinite(hb) && hb > 0) conditions.push(`c.branch_id = $${params.push(hb)}`);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const { rows } = await pool.query(
+    `SELECT d.id, d.contract_id AS "contractId", d.type,
+            d.scheduled_date AS "scheduledDate", d.adjusted_date AS "adjustedDate",
+            d.original_amount AS "originalAmount", d.remaining_balance AS "remainingBalance",
+            d.assigned_telemarketer_id AS "assignedTelemarketerId", d.status, d.escalated
+     FROM dues d JOIN contracts c ON c.id = d.contract_id ${where} ORDER BY d.id`,
+    params,
+  );
   res.json(rows.map(d => ({ ...d, originalAmount: Number(d.originalAmount), remainingBalance: Number(d.remainingBalance) })));
 });
 
@@ -143,15 +166,27 @@ router.get('/', async (_req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
+  const authContext = req.authContext!;
   const d = req.body;
   const id = req.params.id;
 
-  const { rows: existing } = await pool.query(`SELECT ${selectFields} FROM dues WHERE id=$1`, [id]);
+  const { rows: existing } = await pool.query(
+    `SELECT d.id, d.contract_id AS "contractId", d.type,
+            d.scheduled_date AS "scheduledDate", d.adjusted_date AS "adjustedDate",
+            d.original_amount AS "originalAmount", d.remaining_balance AS "remainingBalance",
+            d.assigned_telemarketer_id AS "assignedTelemarketerId", d.status, d.escalated,
+            c.branch_id AS "branchId"
+     FROM dues d JOIN contracts c ON c.id = d.contract_id WHERE d.id = $1`,
+    [id],
+  );
   if (!existing[0]) {
-    res.status(404).json({ error: 'Due not found' });
+    res.status(404).json({ error: 'الذمة المالية غير موجودة' });
     return;
   }
+
+  const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branchId });
+  if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
 
   const current = existing[0];
   const merged = {

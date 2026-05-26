@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/permission.js';
 
 const router = Router();
 
@@ -38,7 +39,7 @@ function normalizeDevicePayload(body: any) {
     nameEn,
     name: nameAr,
     brand: nameEn,
-    category: body.category || 'صناعي',
+    category: body.category || 'Industrial',
     maintenanceInterval: body.maintenanceInterval || '6 أشهر',
     basePrice,
     supportedVisitTypes: Array.isArray(body.supportedVisitTypes) ? body.supportedVisitTypes : [],
@@ -159,8 +160,8 @@ function normalizeDevicePayload(body: any) {
  *       500:
  *         description: Server error
  */
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query(`SELECT ${selectFields} FROM device_models ORDER BY id`);
+router.get('/', requireAuth, async (_req, res) => {
+  const { rows } = await pool.query(`SELECT ${selectFields} FROM device_models WHERE deleted_at IS NULL ORDER BY id`);
   res.json(rows.map(serializeDevice));
 });
 
@@ -226,6 +227,7 @@ router.get('/for-sale', requireAuth, async (req, res) => {
       const { rows } = await pool.query(
         `SELECT id, name, category
          FROM device_models
+         WHERE deleted_at IS NULL
          ORDER BY name ASC, id ASC`,
       );
       return res.json(rows);
@@ -263,7 +265,7 @@ router.get('/for-sale', requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, name, category
        FROM device_models
-       WHERE id = ANY($1::int[])
+       WHERE id = ANY($1::int[]) AND deleted_at IS NULL
        ORDER BY name ASC, id ASC`,
       [deviceModelIds],
     );
@@ -319,7 +321,7 @@ router.get('/for-sale', requireAuth, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('catalog.manage'), async (req, res) => {
   const d = normalizeDevicePayload(req.body);
   if (!d.nameAr) return res.status(400).json({ error: 'اسم الجهاز باللغة العربية مطلوب' });
   if (!d.nameEn) return res.status(400).json({ error: 'اسم الجهاز بالإنكليزية مطلوب' });
@@ -399,7 +401,7 @@ router.post('/', async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', requirePermission('catalog.manage'), async (req, res) => {
   const d = normalizeDevicePayload(req.body);
   if (!d.nameAr) return res.status(400).json({ error: 'اسم الجهاز باللغة العربية مطلوب' });
   if (!d.nameEn) return res.status(400).json({ error: 'اسم الجهاز بالإنكليزية مطلوب' });
@@ -415,7 +417,7 @@ router.put('/:id', async (req, res) => {
       is_golden_warranty=$9, golden_warranty_periods=$10, is_featured=$11,
       description=$12, description_en=$13, images=$14, primary_image_id=$15, videos=$16, documents=$17,
       code=$18
-     WHERE id=$19 RETURNING ${selectFields}`,
+     WHERE id=$19 AND deleted_at IS NULL RETURNING ${selectFields}`,
     [
       d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval, d.basePrice,
       JSON.stringify(d.supportedVisitTypes),
@@ -465,8 +467,8 @@ router.put('/:id', async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.delete('/:id', async (req, res) => {
-  await pool.query('DELETE FROM device_models WHERE id = $1', [req.params.id]);
+router.delete('/:id', requirePermission('catalog.manage'), async (req, res) => {
+  await pool.query('UPDATE device_models SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
   res.json({ success: true });
 });
 
@@ -658,7 +660,7 @@ router.get('/:id/discounts/all', requireAuth, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.post('/:id/discounts', requireAuth, async (req, res) => {
+router.post('/:id/discounts', requirePermission('devices.discounts.manage'), async (req, res) => {
   const { label, percentage, startDate, endDate } = req.body;
   if (!label || !percentage || !startDate || !endDate) {
     return res.status(400).json({ error: 'جميع الحقول مطلوبة' });
@@ -672,6 +674,15 @@ router.post('/:id/discounts', requireAuth, async (req, res) => {
   );
   if (dupCheck.rows.length > 0) {
     return res.status(400).json({ error: 'في حملة بنفس الاسم لهاد الجهاز' });
+  }
+  const overlapCheck = await pool.query(
+    `SELECT 1 FROM device_discounts
+     WHERE device_model_id = $1 AND start_date <= $3::date AND end_date >= $2::date
+     LIMIT 1`,
+    [req.params.id, startDate, endDate]
+  );
+  if (overlapCheck.rows.length > 0) {
+    return res.status(400).json({ error: 'يوجد خصم آخر يتداخل مع هذه الفترة الزمنية لنفس الجهاز' });
   }
   const pct = Math.max(0, Math.min(100, Number(percentage) || 0));
   const { rows } = await pool.query(
@@ -757,7 +768,7 @@ router.post('/:id/discounts', requireAuth, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:id/discounts/:discountId', requireAuth, async (req, res) => {
+router.put('/:id/discounts/:discountId', requirePermission('devices.discounts.manage'), async (req, res) => {
   const { label, percentage, startDate, endDate, isActive } = req.body;
   if (startDate && endDate && startDate > endDate) {
     return res.status(400).json({ error: 'تاريخ البداية يجب أن يكون قبل أو يساوي تاريخ النهاية' });
@@ -769,6 +780,17 @@ router.put('/:id/discounts/:discountId', requireAuth, async (req, res) => {
     );
     if (dupCheck.rows.length > 0) {
       return res.status(400).json({ error: 'في حملة بنفس الاسم لهاد الجهاز' });
+    }
+  }
+  if (startDate && endDate) {
+    const overlapCheck = await pool.query(
+      `SELECT 1 FROM device_discounts
+       WHERE device_model_id = $1 AND start_date <= $3::date AND end_date >= $2::date AND id != $4
+       LIMIT 1`,
+      [req.params.id, startDate, endDate, req.params.discountId]
+    );
+    if (overlapCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'يوجد خصم آخر يتداخل مع هذه الفترة الزمنية لنفس الجهاز' });
     }
   }
   const pct = percentage != null ? Math.max(0, Math.min(100, Number(percentage) || 0)) : undefined;
@@ -830,7 +852,7 @@ router.put('/:id/discounts/:discountId', requireAuth, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.delete('/:id/discounts/:discountId', requireAuth, async (req, res) => {
+router.delete('/:id/discounts/:discountId', requirePermission('devices.discounts.manage'), async (req, res) => {
   await pool.query(
     'DELETE FROM device_discounts WHERE id = $1 AND device_model_id = $2',
     [req.params.discountId, req.params.id]

@@ -280,7 +280,7 @@ async function resolveVisitSource(visitId: number): Promise<{
  *       500:
  *         description: Server error
  */
-router.post('/:id/start', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/start', requirePermission('field_visits.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
@@ -403,7 +403,7 @@ router.post('/:id/start', requirePermission('marketing_visits.update_result'), a
  *       500:
  *         description: Server error
  */
-router.post('/:id/end', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
@@ -518,7 +518,7 @@ router.post('/:id/end', requirePermission('marketing_visits.update_result'), asy
  *       500:
  *         description: Server error
  */
-router.get('/:id/geo', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:id/geo', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const visitId = Number(req.params.id);
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
@@ -574,7 +574,7 @@ router.get('/:id/geo', requirePermission('marketing_visits.view'), async (req, r
  *       500:
  *         description: Server error
  */
-router.get('/:id/source', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:id/source', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const visitId = Number(req.params.id);
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
@@ -672,7 +672,7 @@ router.get('/:id/source', requirePermission('marketing_visits.view'), async (req
  *       500:
  *         description: Server error
  */
-router.get('/', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const clientId = req.query.clientId ? Number(req.query.clientId) : null;
@@ -769,7 +769,7 @@ router.get('/', requirePermission('marketing_visits.view'), async (req, res) => 
  *       500:
  *         description: Server error
  */
-router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
@@ -911,7 +911,7 @@ router.get('/:id', requirePermission('marketing_visits.view'), async (req, res) 
  *       500:
  *         description: Server error
  */
-router.post('/visit-tasks/:taskId/name-collection', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/visit-tasks/:taskId/name-collection', requirePermission('field_visits.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const taskId = Number(req.params.taskId);
@@ -1031,7 +1031,7 @@ router.post('/visit-tasks/:taskId/name-collection', requirePermission('marketing
  *       500:
  *         description: Server error
  */
-router.put('/name-collections/:id/record-names', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.put('/name-collections/:id/record-names', requirePermission('field_visits.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const id = Number(req.params.id);
@@ -1120,7 +1120,7 @@ router.put('/name-collections/:id/record-names', requirePermission('marketing_vi
  *       500:
  *         description: Server error
  */
-router.get('/name-collections/:id', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/name-collections/:id', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف التوصيل غير صالح' });
@@ -1192,7 +1192,7 @@ router.get('/name-collections/:id', requirePermission('marketing_visits.view'), 
  *       500:
  *         description: Server error
  */
-router.post('/visit-tasks/:taskId/direct-suggestions', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/visit-tasks/:taskId/direct-suggestions', requirePermission('field_visits.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const taskId = Number(req.params.taskId);
@@ -1269,7 +1269,7 @@ router.post('/visit-tasks/:taskId/direct-suggestions', requirePermission('market
  *       500:
  *         description: Server error
  */
-router.get('/visit-tasks/:taskId/direct-suggestions', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/visit-tasks/:taskId/direct-suggestions', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     if (!Number.isFinite(taskId)) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
@@ -1330,7 +1330,7 @@ router.get('/visit-tasks/:taskId/direct-suggestions', requirePermission('marketi
  *       500:
  *         description: Server error
  */
-router.post('/:id/complete', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/complete', requirePermission('field_visits.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);

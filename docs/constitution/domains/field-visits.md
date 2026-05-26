@@ -323,46 +323,85 @@ erDiagram
 
 ## 6. صلاحيات الوصول (Permission Matrix)
 
-> [!WARNING]
-> **ثغرة توافق المسميات (GAP-027):** تعتمد بوابات الأمان والتحقق من الصلاحيات بملف مسارات الزيارات الميدانية `routes/fieldVisits.ts` بالكامل على صلاحيات قديمة ومهاجرة تخص النظام المتروك `marketing_visits` (مثل `marketing_visits.view` و `marketing_visits.update_result`)، وهو ما يربك هيكلية الصلاحيات الجديدة ويؤدي لتشابك المسؤوليات.
+> GAP-027 محلول بتاريخ 2026-05-25 — جميع مسارات `fieldVisits.ts` تعتمد الآن على `field_visits.view` و `field_visits.edit`.
 
-| المسار أو الإجراء التشغيلي | المفتاح الفعلي المطلوب | النطاق (Scope) | الوصف والشرح بالعربية |
+| الصلاحية | النطاق المسموح | الأدوار الممنوحة |
+|---|---|---|
+| `field_visits.view` | GLOBAL / BRANCH | SYSTEM_ADMIN (GLOBAL) · branch_manager (BRANCH) · telemarketer (BRANCH) |
+| `field_visits.edit` | GLOBAL / BRANCH | SYSTEM_ADMIN (GLOBAL) · branch_manager (BRANCH) · telemarketer (BRANCH) |
+
+| المسار أو الإجراء التشغيلي | الصلاحية المطلوبة | النطاق | الوصف |
 |---|---|---|---|
-| `GET /api/field-visits` | `marketing_visits.view` | BRANCH / GLOBAL | عرض قائمة الزيارات للفرع والبحث بها |
-| `GET /api/field-visits/:id` | `marketing_visits.view` | BRANCH / GLOBAL | قراءة تفاصيل الزيارة والمهام الملحقة والنتائج |
-| `POST /api/field-visits/:id/start` | `marketing_visits.update_result` | BRANCH / GLOBAL | بدء الزيارة ميدانياً وتوثيق الموقع GPS للبدء |
-| `POST /api/field-visits/:id/end` | `marketing_visits.update_result` | BRANCH / GLOBAL | إنهاء العمل الميداني وتوثيق موقع الانصراف GPS |
-| `POST /api/field-visits/:id/complete`| `marketing_visits.update_result` | BRANCH / GLOBAL | إغلاق واعتماد الزيارة الفنية بعد إتمام النتائج |
-| `POST /visit-tasks/:taskId/name-collection`| `marketing_visits.update_result` | BRANCH / GLOBAL | إنشاء كشف وقيد تجميع الأسماء والتوصيات |
-| `PUT /name-collections/:id/record-names` | `marketing_visits.update_result` | BRANCH / GLOBAL | توثيق عدد الأسماء الفعلية المستلمة للصحيفة |
-| `POST /visit-tasks/:taskId/direct-suggestions`| `marketing_visits.update_result` | BRANCH / GLOBAL | تسجيل ترشيح مباشر لشخص باسمه وهاتفه |
+| `GET /api/field-visits` | `field_visits.view` | BRANCH / GLOBAL | عرض قائمة الزيارات للفرع والبحث بها |
+| `GET /api/field-visits/:id` | `field_visits.view` | BRANCH / GLOBAL | قراءة تفاصيل الزيارة والمهام الملحقة والنتائج |
+| `GET /api/field-visits/:id/geo` | `field_visits.view` | BRANCH / GLOBAL | قراءة سجل الإحداثيات الجغرافية للزيارة |
+| `GET /api/field-visits/:id/source` | `field_visits.view` | BRANCH / GLOBAL | قراءة مصدر الزيارة ومسببها التشغيلي |
+| `GET /api/field-visits/name-collections/:id` | `field_visits.view` | BRANCH / GLOBAL | قراءة سجل تجميع الأسماء |
+| `GET /api/field-visits/visit-tasks/:taskId/direct-suggestions` | `field_visits.view` | BRANCH / GLOBAL | قراءة الترشيحات المباشرة لمهمة زيارة |
+| `POST /api/field-visits/:id/start` | `field_visits.edit` | BRANCH / GLOBAL | بدء الزيارة ميدانياً وتوثيق الموقع GPS للبدء |
+| `POST /api/field-visits/:id/end` | `field_visits.edit` | BRANCH / GLOBAL | إنهاء العمل الميداني وتوثيق موقع الانصراف GPS |
+| `POST /api/field-visits/:id/complete` | `field_visits.edit` | BRANCH / GLOBAL | إغلاق واعتماد الزيارة الفنية بعد إتمام النتائج |
+| `POST /api/field-visits/visit-tasks/:taskId/name-collection` | `field_visits.edit` | BRANCH / GLOBAL | إنشاء كشف وقيد تجميع الأسماء والتوصيات |
+| `PUT /api/field-visits/name-collections/:id/record-names` | `field_visits.edit` | BRANCH / GLOBAL | توثيق عدد الأسماء الفعلية المستلمة للصحيفة |
+| `POST /api/field-visits/visit-tasks/:taskId/direct-suggestions` | `field_visits.edit` | BRANCH / GLOBAL | تسجيل ترشيح مباشر لشخص باسمه وهاتفه |
 
 ---
 
 ## 7. عقد API (API Contract)
 
-### 7.1Endpoints الرئيسية والبحث والفلترة
+### 7.1 جدول الـ Endpoints الكامل
 
-#### 1. `GET /api/field-visits`
-- **الوصف:** الاستعلام عن قائمة الزيارات الميدانية لفرع المستخدم الجاري.
-- **شروط الفلترة:** يتطلب السيرفر بصرامة إرسال أحد البارامترين: `clientId` أو `date` ولا يقبل الاستعلام العشوائي المفتوح.
-- **شروط الفرع:** يقوم النظام تلقائياً بتحديد فرع المستخدم `actingBranchId` ما لم يكن المستخدم `SuperAdmin` حيث يُسمح بالفلترة حسب `branchId` المرفق.
+| Method | الـ Endpoint | الصلاحية | وصف العملية |
+|---|---|---|---|
+| `GET` | `/api/field-visits` | `field_visits.view` | قائمة الزيارات — يتطلب `clientId` أو `date` |
+| `GET` | `/api/field-visits/:id` | `field_visits.view` | تفاصيل كاملة مع المهام والنتائج والجغرافيا والمصدر |
+| `GET` | `/api/field-visits/:id/geo` | `field_visits.view` | سجل الإحداثيات الجغرافية فقط |
+| `GET` | `/api/field-visits/:id/source` | `field_visits.view` | مصدر الزيارة (شركة، مشرف، فني) — ينشئه lazily |
+| `GET` | `/api/field-visits/name-collections/:id` | `field_visits.view` | سجل تجميع أسماء بمعرفه |
+| `GET` | `/api/field-visits/visit-tasks/:taskId/direct-suggestions` | `field_visits.view` | قائمة الترشيحات المباشرة لمهمة زيارة |
+| `POST` | `/api/field-visits/:id/start` | `field_visits.edit` | بدء الزيارة + تسجيل GPS البداية في `visit_geo_logs` |
+| `POST` | `/api/field-visits/:id/end` | `field_visits.edit` | إنهاء الزيارة + GPS الانصراف + حساب المدة والمسافة (Haversine) |
+| `POST` | `/api/field-visits/:id/complete` | `field_visits.edit` | إغلاق الزيارة — يشترط اكتمال جميع نتائج المهام والأسماء |
+| `POST` | `/api/field-visits/visit-tasks/:taskId/name-collection` | `field_visits.edit` | إنشاء سجل تجميع الأسماء + `referral_sheet` تلقائياً إذا proposedCount > 0 |
+| `PUT` | `/api/field-visits/name-collections/:id/record-names` | `field_visits.edit` | تسجيل العدد الفعلي + تحديث حالة الصحيفة (pending/partial/completed) |
+| `POST` | `/api/field-visits/visit-tasks/:taskId/direct-suggestions` | `field_visits.edit` | إضافة ترشيح مباشر باسم وهاتف لمهمة زيارة |
 
-#### 2. `GET /api/field-visits/:id`
-- **الوصف:** قراءة التفاصيل الكاملة لزيارة ميدانية فردية شاملة قائمة المهام الفردية ونتائجها العامة وجداول الترشيحات والملفات الجغرافية للبدء والانصراف.
+### 7.2 منطق عمليات محورية
 
-#### 3. `POST /api/field-visits/:id/start`
-- **طلب المدخلات (Body):**
-  `{ "lat": 33.5138, "lng": 36.2765, "accuracy": 15 }`
-- **السلوك:** يحفظ القراءة الجغرافية للبدء في `visit_geo_logs` ويحدث حالة الزيارة إلى `in_progress`.
+#### `GET /api/field-visits`
+- يتطلب `clientId` (integer) أو `date` (string YYYY-MM-DD) — يرفض الاستعلام المفتوح بـ `400`.
+- المستخدم غير SuperAdmin مقيد تلقائياً بـ `actingBranchId`.
 
-#### 4. `POST /api/field-visits/:id/end`
-- **طلب المدخلات (Body):**
-  `{ "lat": 33.5201, "lng": 36.2800, "accuracy": 10 }`
-- **السلوك:** يحفظ القراءة الجغرافية للانصراف في `visit_geo_logs` ويحسب المدة الزمنية بالدقائق والمسافة بالمتر بفرمولا الـ Haversine، ويحدث حالة الزيارة إلى `ended`.
+#### `POST /api/field-visits/:id/start`
+- Body اختياري: `{ lat, lng, accuracy }` — إذا غابت الإحداثيات يُسجَّل `location_missing = true`.
+- يُنشئ `visit_source` تلقائياً إذا لم يكن موجوداً.
+- يحدّث حالة الزيارة إلى `in_progress` (إلا إذا كانت `ended`/`completed`/`cancelled`).
 
-#### 5. `POST /api/field-visits/:id/complete`
-- **السلوك:** التحقق من اكتمال قيود الإغلاق (guards) للأسماء والنتائج، وتحديث الحالة نهائياً إلى `completed`.
+#### `POST /api/field-visits/:id/end`
+- يحسب `duration_minutes` من فرق وقت البدء الفعلي.
+- يحسب `distance_meters` بمعادلة Haversine بين نقطتي البدء والانصراف.
+- يحدّث حالة الزيارة إلى `ended` (إلا إذا كانت `completed`/`cancelled`).
+
+#### `POST /api/field-visits/:id/complete` — قيود الإغلاق (Guards)
+1. جميع `visit_tasks` يجب أن يكون لها سجل في `visit_task_results`.
+2. لا يوجد `visit_name_collections` بحالة `pending` وعدد مقترح > 0.
+3. لا يوجد `visit_name_collections` بحالة `partial`.
+
+#### `POST /visit-tasks/:taskId/name-collection`
+- إذا `proposed_count > 0`: ينشئ `referral_sheet` من نوع `client_visit` مرتبطاً بالعميل.
+- إذا `proposed_count = 0`: يُنشئ السجل دون صحيفة ترشيح.
+- عند التعارض (conflict): يحدّث العدد المقترح ويعيد الحالة إلى `pending`.
+
+### 7.3 رموز الاستجابة
+
+| الحالة | الرمز | المعنى |
+|---|---|---|
+| نجاح القراءة | `200` | البيانات موجودة |
+| نجاح الإنشاء | `201` | سجل جديد تم إنشاؤه |
+| خطأ في المدخلات | `400` | معرف غير صالح / فلتر مفقود / قيود الإغلاق |
+| لا صلاحية للعملية | `403` | الزيارة لفرع مختلف عن المستخدم |
+| غير موجود | `404` | الزيارة أو المهمة أو السجل غير موجود |
+| خطأ داخلي | `500` | خطأ قاعدة البيانات أو منطق الحسابات |
 
 ---
 
@@ -387,11 +426,12 @@ erDiagram
 
 ## 9. الثغرات والتضاربات المكتشفة (Gaps & Contradictions)
 
-### GAP-027: تضارب مسميات الصلاحيات (Permission Naming Mismatch)
+### GAP-027: تضارب مسميات الصلاحيات (Permission Naming Mismatch) ✅ محلول
 * **الموقع:** `packages/api/routes/fieldVisits.ts`
 * **الوصف:** جميع مسارات وإجراءات التحكم بنظام الزيارات الميدانية الموحد `field_visits` يتم التحقق منها برمجياً وحمايتها بصلاحيات قديمة تتبع الكيان المتروك `marketing_visits` (مثل `marketing_visits.view` و `marketing_visits.update_result`).
 * **التأثير:** إرباك إداري شديد للمطورين ومسؤولي الأمن وصعوبة فصل أدوار فنيي المبيعات عن فنيي الصيانة.
-* **الحل المقترح:** استبدال الصلاحيات بالكامل لتعتمد على نطاق نظيف وموحد مثل `field_visits.view` و `field_visits.edit` مع تعديل البذر في الجداول الأمنية.
+* **الحل المطبق:** استبدال جميع 12 صلاحية في `fieldVisits.ts` — 6 × `marketing_visits.view` → `field_visits.view` و 6 × `marketing_visits.update_result` → `field_visits.edit`. هجرة `migrations/175_field_visits_permissions.sql` تُنشئ الصلاحيات وتمنحها للأدوار تلقائياً.
+* **تاريخ الحل:** 2026-05-25
 
 ### GAP-028: ثغرة حقل النتيجة الوهمي (Technical Contradiction - result_fields)
 * **الموقع:** `docs/tasks/TASK_FIELD_VISITS_CONSTITUTION_PROMPT.md` vs `migrations/070_visit_core_schema.sql`
@@ -429,6 +469,12 @@ erDiagram
 * **التأثير:** تباين في دقة التحديد الجغرافي وقيم الإحداثيات بين التقارير التشغيلية وتقارير التوصيل المالي.
 * **الحل المقترح:** توحيد نوع الحقول في جميع الجداول كـ `DECIMAL(10,8)` وفرض التحقق من الحدود الرياضية (-90 إلى 90 للخطوط العرضية) في كود الـ Controller.
 
+### GAP-073: تفاوت فحص صلاحية الفرع بين مسارات القراءة (Branch Access Check Inconsistency) 🟢 منخفضة
+* **الموقع:** `packages/api/routes/fieldVisits.ts` — أسطر 521, 577, 1123, 1272
+* **الوصف:** مسارات الطفرة (start, end, complete, name-collection, record-names, direct-suggestions) تفحص `branch_id` برمجياً وتُرجع `403` إذا كانت الزيارة تنتمي لفرع مختلف. لكن مسارات القراءة الفرعية الأربعة (`GET /:id/geo`, `GET /:id/source`, `GET /name-collections/:id`, `GET /visit-tasks/:taskId/direct-suggestions`) لا تجري أي فحص للفرع.
+* **التأثير:** يستطيع مستخدم من فرع (أ) قراءة بيانات جغرافية ومصادر وأسماء وترشيحات تنتمي لزيارات فرع (ب) إذا عرف المعرف. خطورة منخفضة لأن المعرفات ليست عشوائية ولا يوجد endpoint للتعداد بدون فرع.
+* **الحل المقترح:** إضافة JOIN بـ `field_visits` للتحقق من `branch_id` قبل إرجاع البيانات في هذه المسارات الأربعة. مؤجل.
+
 ---
 
 ## 10. تاريخ التغييرات الهيكلية (Schema Changelog)
@@ -464,3 +510,4 @@ erDiagram
 | **2026-05-24** | `165_field_visits_appointment_snapshot.sql`| إضافة تتبع الموعد والمسوق واللقطات المعطلة وأكواد الإلغاء للزيارة الميدانية. |
 | **2026-05-24** | `166_answered_by_and_visit_referral_sheets.sql`| ربط صحائف الترشيح بالزيارات الميدانية لرفع دقة توثيق التوصيات. |
 | **2026-05-24** | `167_snapshot_backfill.sql`| ملء ومزامنة لقطات بيانات العملاء التاريخية في الزيارات المنجزة. |
+| **2026-05-25** | `175_field_visits_permissions.sql`| إضافة `field_visits.edit` — حل GAP-027: استبدال 12 × `marketing_visits.*` بـ `field_visits.view` / `field_visits.edit` في `fieldVisits.ts`. منح الصلاحيات للأدوار الحالية. |

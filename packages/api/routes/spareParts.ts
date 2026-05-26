@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { requirePermission } from '../middleware/permission.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -75,12 +77,12 @@ const router = Router();
  *       500:
  *         description: Server error
  */
-router.get('/', async (_req, res) => {
+router.get('/', requireAuth, async (_req, res) => {
   const { rows } = await pool.query(`
     SELECT id, name, code, base_price AS "basePrice",
       maintenance_type AS "maintenanceType",
       compatible_device_ids AS "compatibleDeviceIds"
-    FROM spare_parts ORDER BY id
+    FROM spare_parts WHERE deleted_at IS NULL ORDER BY id
   `);
   res.json(rows.map(r => ({ ...r, basePrice: Number(r.basePrice) })));
 });
@@ -134,7 +136,7 @@ router.get('/', async (_req, res) => {
  *       500:
  *         description: Server error
  */
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('catalog.manage'), async (req, res) => {
   const s = req.body;
   const { rows } = await pool.query(
     `INSERT INTO spare_parts (name, code, base_price, maintenance_type, compatible_device_ids)
@@ -195,11 +197,11 @@ router.post('/', async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', requirePermission('catalog.manage'), async (req, res) => {
   const s = req.body;
   const { rows } = await pool.query(
     `UPDATE spare_parts SET name=$1, code=$2, base_price=$3, maintenance_type=$4,
-      compatible_device_ids=$5 WHERE id=$6
+      compatible_device_ids=$5 WHERE id=$6 AND deleted_at IS NULL
     RETURNING id, name, code, base_price AS "basePrice",
       maintenance_type AS "maintenanceType", compatible_device_ids AS "compatibleDeviceIds"`,
     [s.name, s.code, s.basePrice, s.maintenanceType, JSON.stringify(s.compatibleDeviceIds || []), req.params.id]
@@ -245,8 +247,8 @@ router.put('/:id', async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.delete('/:id', async (req, res) => {
-  await pool.query('DELETE FROM spare_parts WHERE id = $1', [req.params.id]);
+router.delete('/:id', requirePermission('catalog.manage'), async (req, res) => {
+  await pool.query('UPDATE spare_parts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
   res.json({ success: true });
 });
 
