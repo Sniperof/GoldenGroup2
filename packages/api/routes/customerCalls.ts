@@ -876,12 +876,12 @@ router.get(
             TRUE AS is_installed,
             NULL::boolean AS old_part_removed,
             CASE
-              WHEN c.is_golden_warranty = TRUE THEN 'golden_warranty'
+              WHEN d.is_golden_warranty = TRUE THEN 'golden_warranty'
               ELSE 'contract_warranty'
             END AS warranty_context,
             CASE
-              WHEN c.is_golden_warranty = TRUE THEN c.golden_warranty_end_date
-              ELSE c.contract_warranty_end_date
+              WHEN d.is_golden_warranty = TRUE THEN d.golden_warranty_end_date
+              ELSE d.contract_warranty_end_date
             END AS warranty_until,
             c.id AS device_context_id,
             c.device_model_name AS device_context_name,
@@ -895,6 +895,7 @@ router.get(
             END AS discount_info,
             NULL::text AS notes
           FROM contracts c
+          LEFT JOIN installed_devices d ON d.contract_id = c.id
           WHERE c.customer_id = $1
             AND c.device_model_id IS NOT NULL
         )
@@ -924,13 +925,14 @@ router.get(
             cli.is_installed,
             NULL::boolean AS old_part_removed,
             'contract_warranty' AS warranty_context,
-            c.contract_warranty_end_date AS warranty_until,
+            d.contract_warranty_end_date AS warranty_until,
             c.id AS device_context_id,
             c.device_model_name AS device_context_name,
             NULL::jsonb AS discount_info,
             NULL::text AS notes
           FROM contract_line_items cli
           JOIN contracts c ON c.id = cli.contract_id
+          LEFT JOIN installed_devices d ON d.contract_id = c.id
           LEFT JOIN spare_parts sp ON sp.id = cli.spare_part_id
           WHERE c.customer_id = $1
             AND cli.item_type = 'accessory'
@@ -957,21 +959,21 @@ router.get(
             TRUE AS is_installed,
             vtepu.old_part_removed,
             CASE
-              WHEN c.is_golden_warranty = TRUE
-                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= c.golden_warranty_end_date
+              WHEN d.is_golden_warranty = TRUE
+                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= d.golden_warranty_end_date
                 THEN 'golden_warranty'
-              WHEN c.contract_warranty_end_date IS NOT NULL
-                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= c.contract_warranty_end_date
+              WHEN d.contract_warranty_end_date IS NOT NULL
+                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= d.contract_warranty_end_date
                 THEN 'contract_warranty'
               ELSE 'no_warranty'
             END AS warranty_context,
             CASE
-              WHEN c.is_golden_warranty = TRUE
-                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= c.golden_warranty_end_date
-                THEN c.golden_warranty_end_date
-              WHEN c.contract_warranty_end_date IS NOT NULL
-                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= c.contract_warranty_end_date
-                THEN c.contract_warranty_end_date
+              WHEN d.is_golden_warranty = TRUE
+                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= d.golden_warranty_end_date
+                THEN d.golden_warranty_end_date
+              WHEN d.contract_warranty_end_date IS NOT NULL
+                AND COALESCE(vtr.closed_at, fv.scheduled_date)::date <= d.contract_warranty_end_date
+                THEN d.contract_warranty_end_date
               ELSE NULL
             END AS warranty_until,
             c.id AS device_context_id,
@@ -985,6 +987,7 @@ router.get(
           LEFT JOIN visit_task_emergency_financials vtef ON vtef.visit_task_id = vt.id
           LEFT JOIN spare_parts sp ON sp.id = vtepu.spare_part_id
           LEFT JOIN contracts c ON c.id = vt.contract_id
+          LEFT JOIN installed_devices d ON d.contract_id = c.id
           WHERE fv.client_id = $1
         )
         ORDER BY purchase_date DESC NULLS LAST

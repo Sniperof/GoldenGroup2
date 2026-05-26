@@ -8,25 +8,24 @@ import { promoteClientToLifecycleStatus } from '../services/clientLifecycleServi
 const router = Router();
 router.use(requireAuth);
 
+// Phase B: physical device fields are read from installed_devices (d.*).
+// Financial / legal fields remain on contracts (c.*).
+// Queries using contractSelect must add:
+//   LEFT JOIN installed_devices d ON d.contract_id = c.id
 const contractSelect = `
   c.id, c.contract_number AS "contractNumber", c.customer_id AS "customerId",
   c.customer_name AS "customerName", c.contract_date AS "contractDate",
   c.source_visit AS "sourceVisit", c.device_model_id AS "deviceModelId",
-  c.device_model_name AS "deviceModelName", c.serial_number AS "serialNumber",
+  c.device_model_name AS "deviceModelName",
   c.maintenance_plan AS "maintenancePlan", c.base_price AS "basePrice",
   c.final_price AS "finalPrice", c.payment_type AS "paymentType",
   c.down_payment AS "downPayment", c.installments_count AS "installmentsCount",
-  c.delivery_date AS "deliveryDate", c.installation_date AS "installationDate",
   c.status, c.created_at AS "createdAt", c.branch_id AS "branchId",
   c.sale_type AS "saleType", c.sale_source AS "saleSource",
   c.discount_id AS "discountId",
   c.closing_employee_id AS "closingEmployeeId",
   c.closing_date AS "closingDate",
   c.invoice_notes AS "invoiceNotes",
-  c.installation_geo_unit_id AS "installationGeoUnitId",
-  c.installation_address_text AS "installationAddressText",
-  c.installation_lat AS "installationLat",
-  c.installation_lng AS "installationLng",
   c.applied_device_discount_id AS "appliedDeviceDiscountId",
   c.buyer_mother_name AS "buyerMotherName",
   c.buyer_national_id_registry AS "buyerNationalIdRegistry",
@@ -41,16 +40,24 @@ const contractSelect = `
   c.contract_type AS "contractType",
   c.no_closing_reason_id AS "noClosingReasonId",
   c.sale_subtype AS "saleSubtype",
-  c.device_status AS "deviceStatus",
   c.receipt_number AS "receiptNumber",
   c.code AS "code",
-  c.is_golden_warranty AS "isGoldenWarranty",
-  c.golden_warranty_end_date AS "goldenWarrantyEndDate",
-  c.contract_warranty_end_date AS "contractWarrantyEndDate",
-  c.warranty_months AS "warrantyMonths",
-  c.warranty_visits AS "warrantyVisits",
   c.installed_device_id AS "installedDeviceId",
   c.created_by AS "createdById",
+  -- Physical device fields (source: installed_devices)
+  d.serial_number              AS "serialNumber",
+  d.status                     AS "deviceStatus",
+  d.delivery_date              AS "deliveryDate",
+  d.installation_date          AS "installationDate",
+  d.installation_geo_unit_id   AS "installationGeoUnitId",
+  d.installation_address_text  AS "installationAddressText",
+  d.installation_lat           AS "installationLat",
+  d.installation_lng           AS "installationLng",
+  d.is_golden_warranty         AS "isGoldenWarranty",
+  d.golden_warranty_end_date   AS "goldenWarrantyEndDate",
+  d.contract_warranty_end_date AS "contractWarrantyEndDate",
+  d.warranty_months            AS "warrantyMonths",
+  d.warranty_visits            AS "warrantyVisits",
   (SELECT name FROM hr_users WHERE id = c.closing_employee_id LIMIT 1) AS "closingEmployeeName",
   (SELECT value FROM system_lists WHERE id = c.no_closing_reason_id LIMIT 1) AS "noClosingReasonName",
   (SELECT name FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchName",
@@ -267,7 +274,7 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   if (cid > 0) conditions.push(`c.customer_id = $${params.push(cid)}`);
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const { rows: contracts } = await pool.query(`SELECT ${contractSelect} FROM contracts c ${where} ORDER BY c.id DESC`, params);
+  const { rows: contracts } = await pool.query(`SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id ${where} ORDER BY c.id DESC`, params);
   const ids = contracts.map((c: any) => c.id);
   const { rows: dues } = ids.length
     ? await pool.query(`SELECT ${dueSelect} FROM dues WHERE contract_id = ANY($1) ORDER BY contract_id, scheduled_date`, [ids])
@@ -314,7 +321,7 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
  */
 router.get('/:id', requirePermission('contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
-  const { rows } = await pool.query(`SELECT ${contractSelect} FROM contracts c WHERE c.id = $1`, [req.params.id]);
+  const { rows } = await pool.query(`SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id WHERE c.id = $1`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ message: 'العقد غير موجود' });
   const access = authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
@@ -549,7 +556,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number, no_closing_reason_id, sale_subtype,
         device_status, created_by, contract_warranty_end_date, warranty_visits, warranty_months)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46)
-      RETURNING ${contractSelect.replace(/c\./g, '')}`,
+      RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
        null, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
@@ -566,7 +573,12 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        c.noClosingReasonId || null, c.saleSubtype || 'definitive',
        c.deviceStatus || 'pending_delivery', (req as any).user?.id || null, contractWarrantyEndDate, warrantyVisits, warrantyMonthsStored]
     );
-    const contract = rows[0];
+    // Re-fetch with JOIN so installed_devices fields are included
+    const { rows: fetchRows } = await client.query(
+      `SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id WHERE c.id = $1`,
+      [rows[0].id]
+    );
+    const contract = fetchRows[0];
 
     // Automatically create a device delivery task for sale contracts
     if (contract.contractType === 'sale_contract') {
@@ -727,7 +739,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
       contract_type=$34, source_open_task_id=$35, source_task_offer_id=$36,
       sale_reference_number=$37, no_closing_reason_id=$38, sale_subtype=$39,
       device_status=$40
-    WHERE id=$41 RETURNING ${contractSelect.replace(/c\./g, '')}`,
+    WHERE id=$41 RETURNING id`,
     [c.contractNumber, c.customerId, c.customerName, c.contractDate,
      c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
      c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
@@ -749,7 +761,11 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
      c.deviceStatus || 'pending_delivery',
      req.params.id]
   );
-  res.json(rows[0]);
+  const { rows: updatedRows } = await pool.query(
+    `SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id WHERE c.id = $1`,
+    [req.params.id]
+  );
+  res.json(updatedRows[0]);
 });
 
 /**

@@ -250,15 +250,16 @@ export async function buildOpenTaskSnapshots(db: Queryable, clientId: number, co
     const { rows: contractRows } = await db.query(
       `SELECT
         c.id, c.contract_number, c.contract_date,
-        c.device_model_id, c.device_model_name, c.serial_number, c.maintenance_plan,
-        c.warranty_months, c.warranty_visits,
-        c.installation_geo_unit_id, c.installation_address_text,
-        c.installation_lat, c.installation_lng,
+        c.device_model_id, c.device_model_name, c.maintenance_plan,
         c.payment_type, c.final_price, c.down_payment, c.installments_count,
         c.status,
+        d.serial_number, d.warranty_months, d.warranty_visits,
+        d.installation_geo_unit_id, d.installation_address_text,
+        d.installation_lat, d.installation_lng,
         gu.name AS installation_geo_unit_name
        FROM contracts c
-       LEFT JOIN geo_units gu ON gu.id = c.installation_geo_unit_id
+       LEFT JOIN installed_devices d ON d.contract_id = c.id
+       LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
        WHERE c.id = $1`,
       [contractId],
     );
