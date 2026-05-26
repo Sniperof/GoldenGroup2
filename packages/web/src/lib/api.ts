@@ -192,6 +192,17 @@ export const api = {
     list: () => request<any[]>('/dues'),
     update: (id: number, data: any) => request<any>(`/dues/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
+  installedDevices: {
+    list: (params?: { customerId?: number; branchId?: number; status?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.customerId) qs.set('customerId', String(params.customerId));
+      if (params?.branchId)   qs.set('branchId', String(params.branchId));
+      if (params?.status)     qs.set('status', params.status);
+      return request<any[]>(`/installed-devices?${qs}`);
+    },
+    get: (id: number) => request<any>(`/installed-devices/${id}`),
+    update: (id: number, data: any) => request<any>(`/installed-devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  },
   deviceModels: {
     list: () => request<any[]>('/device-models'),
     create: (data: any) => request<any>('/device-models', { method: 'POST', body: JSON.stringify(data) }),

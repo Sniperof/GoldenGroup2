@@ -24,6 +24,7 @@ import tasksRouter from './routes/tasks.js';
 import contractsRouter from './routes/contracts.js';
 import duesRouter from './routes/dues.js';
 import deviceModelsRouter from './routes/deviceModels.js';
+import installedDevicesRouter from './routes/installedDevices.js';
 import sparePartsRouter from './routes/spareParts.js';
 import maintenanceRequestsRouter from './routes/maintenanceRequests.js';
 import emergencyTicketsRouter from './routes/emergencyTickets.js';
@@ -119,6 +120,7 @@ app.use('/api/customers', requireAuth, customerCallsRouter);
 // ── Shared routes (HQ + branch) ───────────────────────────────────────────────
 app.use('/api/contracts', contractsRouter);
 app.use('/api/device-models', deviceModelsRouter);
+app.use('/api/installed-devices', installedDevicesRouter);
 app.use('/api/spare-parts', sparePartsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/admin/vacancies', vacanciesRouter);

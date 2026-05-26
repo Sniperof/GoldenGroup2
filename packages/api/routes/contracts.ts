@@ -49,6 +49,7 @@ const contractSelect = `
   c.contract_warranty_end_date AS "contractWarrantyEndDate",
   c.warranty_months AS "warrantyMonths",
   c.warranty_visits AS "warrantyVisits",
+  c.installed_device_id AS "installedDeviceId",
   c.created_by AS "createdById",
   (SELECT name FROM hr_users WHERE id = c.closing_employee_id LIMIT 1) AS "closingEmployeeName",
   (SELECT value FROM system_lists WHERE id = c.no_closing_reason_id LIMIT 1) AS "noClosingReasonName",
