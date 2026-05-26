@@ -192,6 +192,9 @@ export const api = {
     list: () => request<any[]>('/dues'),
     update: (id: number, data: any) => request<any>(`/dues/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
+  deviceParts: {
+    list: (deviceId: number) => request<any[]>(`/device-parts?deviceId=${deviceId}`),
+  },
   deviceWarranties: {
     list: (deviceId: number) => request<any[]>(`/device-warranties?deviceId=${deviceId}`),
     update: (id: number, data: any) => request<any>(`/device-warranties/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

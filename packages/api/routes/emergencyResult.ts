@@ -999,6 +999,37 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
         );
         rows.push(inserted[0]);
       }
+
+      // Phase 5: sync parts to device_installed_parts (device-centric history)
+      const { rows: taskRows } = await db.query(
+        'SELECT device_id FROM open_tasks WHERE id = $1',
+        [taskId],
+      );
+      const deviceId: number | null = taskRows[0]?.device_id ?? null;
+      if (deviceId) {
+        await db.query('DELETE FROM device_installed_parts WHERE open_task_id = $1', [taskId]);
+        for (const p of parts) {
+          if (!p.partNameSnapshot?.trim()) continue;
+          await db.query(
+            `INSERT INTO device_installed_parts
+               (device_id, open_task_id, spare_part_id, part_name_snapshot, part_code_snapshot,
+                maintenance_type, unit_price, quantity, line_total)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [
+              deviceId,
+              taskId,
+              p.sparePartId ?? null,
+              p.partNameSnapshot.trim(),
+              p.partCodeSnapshot ?? null,
+              p.maintenanceType ?? null,
+              Number(p.unitPrice) || 0,
+              Number(p.quantity) || 1,
+              (Number(p.unitPrice) || 0) * (Number(p.quantity) || 1),
+            ],
+          );
+        }
+      }
+
       await db.query('COMMIT');
       res.json(rows);
     } catch (err) {

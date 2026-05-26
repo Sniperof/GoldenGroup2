@@ -55,6 +55,7 @@ import taskTypeConfigRouter from './routes/taskTypeConfig.js';
 import emergencyActionTypesRouter from './routes/emergencyActionTypes.js';
 import emergencyResultRouter from './routes/emergencyResult.js';
 import deviceWarrantiesRouter from './routes/deviceWarranties.js';
+import devicePartsRouter from './routes/deviceParts.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -123,6 +124,7 @@ app.use('/api/contracts', contractsRouter);
 app.use('/api/device-models', deviceModelsRouter);
 app.use('/api/installed-devices', installedDevicesRouter);
 app.use('/api/device-warranties', deviceWarrantiesRouter);
+app.use('/api/device-parts', devicePartsRouter);
 app.use('/api/spare-parts', sparePartsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/admin/vacancies', vacanciesRouter);
