@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     FileText, ChevronDown, Search, Calendar, Monitor, Hash, Wrench,
@@ -178,12 +178,15 @@ const selectClass = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2
 
 export default function ContractForm() {
     const navigate = useNavigate();
+    const { id: editId } = useParams<{ id: string }>();
+    const isEdit = Boolean(editId);
     // ─── API Data ───
     const [customers, setCustomers] = useState<MockCustomer[]>([]);
     const [deviceModels, setDeviceModels] = useState<any[]>([]);
     const [geoUnits, setGeoUnits] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [step, setStep] = useState<'type_selection' | 'details'>(isEdit ? 'details' : 'type_selection');
     const [contractType, setContractType] = useState<'sale_contract' | 'maintenance_contract'>('sale_contract');
     const [saleSubtype, setSaleSubtype] = useState<'definitive' | 'temporary' | 'free'>('definitive');
     const [closers, setClosers] = useState<any[]>([]);
@@ -207,17 +210,20 @@ export default function ContractForm() {
     const [selectedOfferTaskId, setSelectedOfferTaskId] = useState<string | null>(null);
 
     useEffect(() => {
-        Promise.all([
+        const baseRequests: Promise<any>[] = [
             api.clients.list(),
             api.deviceModels.list(),
             api.geoUnits.list(),
             api.spareParts.list(),
             api.employees.closers(),
             api.systemLists.list({ category: 'no_closing_reasons' }),
-            api.systemLists.list({ category: 'contract_sale_source' })
-        ])
-            .then(([clientsData, modelsData, geoData, partsData, closersData, reasonsData, sourcesData]) => {
-                setCustomers(clientsData.map((c: any) => ({
+            api.systemLists.list({ category: 'contract_sale_source' }),
+        ];
+        if (isEdit && editId) baseRequests.push(api.contracts.get(Number(editId)));
+
+        Promise.all(baseRequests)
+            .then(([clientsData, modelsData, geoData, partsData, closersData, reasonsData, sourcesData, existingContract]) => {
+                const mappedCustomers = clientsData.map((c: any) => ({
                     id: c.id,
                     name: c.name,
                     mobile: c.mobile || c.phone || '',
@@ -230,17 +236,85 @@ export default function ContractForm() {
                     nationalIdIssuedBy: c.nationalIdIssuedBy,
                     nationalIdIssueDate: c.nationalIdIssueDate,
                     nationalIdBox: c.nationalIdBox,
-                })));
+                }));
+                setCustomers(mappedCustomers);
                 setDeviceModels(modelsData);
                 setGeoUnits(geoData);
                 setSpareParts(partsData);
                 setClosers(closersData);
                 setNoClosingReasons(reasonsData);
                 setCustomSaleSources(sourcesData);
+
+                if (existingContract) {
+                    const c = existingContract;
+                    setContractType(c.contractType || 'sale_contract');
+                    setSaleSubtype(c.saleSubtype || 'definitive');
+                    setSaleType(c.saleType || 'direct');
+                    setContractDate(c.contractDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
+                    setDeliveryDate(c.deliveryDate?.slice(0, 10) || '');
+                    setInstallationDate(c.installationDate?.slice(0, 10) || '');
+                    setSaleSource(c.saleSource || '');
+                    setSourceTaskId(c.sourceVisit || '');
+                    setDeviceModelId(c.deviceModelId || '');
+                    setSerialNumber(c.serialNumber || '');
+                    setMaintenancePlan(c.maintenancePlan || '6');
+                    setDetailedAddress(c.detailedAddress || '');
+                    setMapPosition(c.mapPosition || null);
+                    setClosingEmployeeId(c.closingEmployeeId || '');
+                    setInvoiceNotes(c.invoiceNotes || '');
+                    setNoClosingReasonId(c.noClosingReasonId || '');
+                    setSourceOpenTaskId(c.sourceOpenTaskId || null);
+                    setSourceTaskOfferId(c.sourceTaskOfferId || null);
+                    setSaleReferenceNumber(c.saleReferenceNumber || null);
+                    setFatherNameOverride(c.fatherName || '');
+                    setNationalIdOverride(c.nationalId || '');
+                    setBuyerBirthDate(c.buyerBirthDate?.slice(0, 10) || '');
+                    setBuyerGender(c.buyerGender || '');
+                    setBuyerMotherName(c.buyerMotherName || '');
+                    setBuyerNationalIdRegistry(c.buyerNationalIdRegistry || '');
+                    setBuyerNationalIdIssuedBy(c.buyerNationalIdIssuedBy || '');
+                    setBuyerNationalIdIssueDate(c.buyerNationalIdIssueDate?.slice(0, 10) || '');
+                    setBuyerNationalIdBox(c.buyerNationalIdBox || '');
+                    setGeoSelection({
+                        govId: String(c.governorateId || ''),
+                        regionId: String(c.regionId || ''),
+                        subId: String(c.subDistrictId || ''),
+                        neighborhoodId: String(c.neighborhoodId || ''),
+                    });
+                    if (c.customerId) {
+                        const match = mappedCustomers.find((m: any) => m.id === c.customerId);
+                        if (match) setSelectedCustomer(match);
+                    }
+                    if (c.selectedDiscountId) setSelectedDiscountId(c.selectedDiscountId);
+                    if (Array.isArray(c.lineItems)) setLineItems(c.lineItems.map((li: any) => ({
+                        itemType: li.itemType,
+                        description: li.description,
+                        quantity: li.quantity,
+                        unitPrice: li.unitPrice,
+                        sparePartId: li.sparePartId || undefined,
+                    })));
+                    if (c.paymentType) setPaymentType(c.paymentType);
+                    if (Array.isArray(c.paymentEntries) && c.paymentEntries.length > 0) {
+                        const entries: PaymentEntryDraft[] = c.paymentEntries.map((e: any, idx: number) => ({
+                            id: idx,
+                            paymentCategory: (['transfer', 'barter'].includes(e.method) ? e.method : 'hand') as PaymentCategory,
+                            method: e.method,
+                            currency: e.currency || 'SYP',
+                            amountValue: String(e.amountValue || 0),
+                            exchangeRate: String(e.exchangeRate || ''),
+                            referenceNumber: e.referenceNumber || '',
+                            barterName: e.barterName || '',
+                            barterValueSyp: String(e.barterValueSyp || ''),
+                            notes: e.notes || '',
+                        }));
+                        setPaymentEntries(entries);
+                        setConfirmedEntries(new Set(entries.map((_, i) => i)));
+                    }
+                }
             })
             .catch(err => console.error('Failed to load form data:', err))
             .finally(() => setLoading(false));
-    }, []);
+    }, [isEdit, editId]);
 
     // ─── 1. Customer & Legal ───
     const [customerSearch, setCustomerSearch] = useState('');
@@ -259,6 +333,8 @@ export default function ContractForm() {
     // ─── 2. Sale Details ───
     const [saleType, setSaleType] = useState<SaleType>('direct');
     const [contractDate, setContractDate] = useState(new Date().toISOString().slice(0, 10));
+    const [deliveryDate, setDeliveryDate] = useState('');
+    const [installationDate, setInstallationDate] = useState('');
     // Trade-in context
     const [oldContractNumber, setOldContractNumber] = useState('');
     const [oldDeviceCondition, setOldDeviceCondition] = useState<OldDeviceCondition>('good');
@@ -744,7 +820,7 @@ export default function ContractForm() {
             const finalPaymentType = isNoInitialPayments ? 'cash' : paymentType;
             const finalInstallmentsCount = (isNoInitialPayments || paymentType === 'cash') ? 0 : installmentDrafts.length;
 
-            const created = await api.contracts.create({
+            const payload = {
                 customerId: selectedCustomer?.id,
                 customerName: selectedCustomer?.name,
                 deviceModelId,
@@ -752,6 +828,8 @@ export default function ContractForm() {
                 serialNumber,
                 maintenancePlan,
                 contractDate,
+                deliveryDate: (!isMaintenance && deliveryDate) ? deliveryDate : null,
+                installationDate: (!isMaintenance && installationDate) ? installationDate : null,
                 saleType: isMaintenance ? null : saleType,
                 saleSource: isMaintenance ? null : (saleSource || null),
                 sourceVisit: (!isMaintenance && saleSource === 'device_demo_task') ? (sourceTaskId.trim() || null) : null,
@@ -811,29 +889,33 @@ export default function ContractForm() {
                         amountSyp: Number(i.amountSyp) || 0,
                     }))
                     : []),
-            });
+            };
 
-            // Post-insertion offer linkage
-            if (!isMaintenance && selectedOfferVisitId && selectedOfferTaskId && sourceTaskOfferId) {
+            const result = isEdit && editId
+                ? await api.contracts.update(Number(editId), payload)
+                : await api.contracts.create(payload);
+
+            // Post-insertion offer linkage (create only)
+            if (!isEdit && !isMaintenance && selectedOfferVisitId && selectedOfferTaskId && sourceTaskOfferId) {
                 try {
                     await api.marketingVisits.linkOfferContract(
                         selectedOfferVisitId,
                         selectedOfferTaskId,
                         sourceTaskOfferId,
-                        created.id
+                        result.id
                     );
                 } catch (linkErr) {
                     console.error('Failed to link offer to contract:', linkErr);
                 }
             }
-            navigate(`/contracts/${created.id}`);
+            navigate(`/contracts/${result.id ?? editId}`);
         } catch (err) {
             console.error('Failed to save contract:', err);
         } finally {
             setSaving(false);
         }
     }, [
-        isValid, saving, selectedCustomer, deviceModelId, selectedDevice, serialNumber,
+        isValid, saving, isEdit, editId, selectedCustomer, deviceModelId, selectedDevice, serialNumber,
         maintenancePlan, contractDate, saleType, saleSource, sourceTaskId, selectedDiscountId,
         paymentType, grandTotal, basePrice, installmentDrafts, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
@@ -871,6 +953,8 @@ export default function ContractForm() {
         setClosingEmployeeId(''); setNoClosingReasonId(''); setInvoiceNotes('');
         setDeviceDiscounts([]); setSelectedDiscountId(''); setLineItems([]); setAddingAccessoryCategory('');
         setContractType('sale_contract');
+        setSaleSubtype('definitive');
+        if (!isEdit) setStep('type_selection');
         setSelectedTask(null);
         setSelectedOffer(null);
         setSourceOpenTaskId(null);
@@ -898,6 +982,89 @@ export default function ContractForm() {
             ? (paymentEntries.length > 0 && confirmedEntries.size === paymentEntries.length && totalPaidSyp < grandTotal)
             : true);
 
+    /* ── شاشة اختيار نوع العقد (الخطوة الأولى) ─────────────────── */
+    if (step === 'type_selection') {
+        return (
+            <div className="h-full overflow-y-auto">
+                <div className="max-w-xl mx-auto py-12 px-4 space-y-6">
+                    {/* Header */}
+                    <div className="text-center space-y-1">
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-bl from-sky-500 to-sky-600 flex items-center justify-center shadow-lg shadow-sky-500/25 mx-auto mb-4">
+                            <FileText className="w-6 h-6 text-white" />
+                        </div>
+                        <h1 className="text-xl font-bold text-slate-800">عقد جديد</h1>
+                        <p className="text-sm text-slate-400">اختر نوع العقد للمتابعة</p>
+                    </div>
+
+                    {/* Contract Type */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setContractType('sale_contract')}
+                            className={`flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all ${contractType === 'sale_contract'
+                                ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-md shadow-blue-500/10'
+                                : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                        >
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${contractType === 'sale_contract' ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                                <FileText className="w-6 h-6" />
+                            </div>
+                            <div className="text-center">
+                                <p className="text-sm font-bold">عقد بيع</p>
+                                <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">بيع جهاز مع التفاصيل المالية والأقساط</p>
+                            </div>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setContractType('maintenance_contract')}
+                            className={`flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all ${contractType === 'maintenance_contract'
+                                ? 'bg-amber-50 border-amber-400 text-amber-700 shadow-md shadow-amber-500/10'
+                                : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                        >
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${contractType === 'maintenance_contract' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                                <Wrench className="w-6 h-6" />
+                            </div>
+                            <div className="text-center">
+                                <p className="text-sm font-bold">عقد صيانة</p>
+                                <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">صيانة فقط — بدون التزامات مالية</p>
+                            </div>
+                        </button>
+                    </div>
+
+                    {/* Sale Subtype — فقط لعقد البيع */}
+                    {contractType === 'sale_contract' && (
+                        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                            <p className="text-xs font-bold text-slate-500">نوع عقد البيع</p>
+                            <div className="grid grid-cols-3 gap-2">
+                                <button type="button" onClick={() => handleSaleSubtypeChange('definitive')}
+                                    className={`py-3 px-2 rounded-xl border text-xs font-semibold transition-all text-center ${saleSubtype === 'definitive' ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                    بيع قطعي
+                                </button>
+                                <button type="button" onClick={() => handleSaleSubtypeChange('temporary')}
+                                    className={`py-3 px-2 rounded-xl border text-xs font-semibold transition-all text-center ${saleSubtype === 'temporary' ? 'bg-amber-500 border-amber-500 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                    عقد مؤقت
+                                </button>
+                                <button type="button" onClick={() => handleSaleSubtypeChange('free')}
+                                    className={`py-3 px-2 rounded-xl border text-xs font-semibold transition-all text-center ${saleSubtype === 'free' ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                    مجاني / هبة
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Continue Button */}
+                    <button
+                        type="button"
+                        onClick={() => setStep('details')}
+                        className="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold transition-colors shadow-sm flex items-center justify-center gap-2"
+                    >
+                        <span>متابعة لإدخال التفاصيل</span>
+                        <ArrowRightLeft className="w-4 h-4 rotate-180" />
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="h-full overflow-y-auto">
             <div className="space-y-5 max-w-3xl mx-auto py-6 px-4">
@@ -908,8 +1075,10 @@ export default function ContractForm() {
                             <FileText className="w-5 h-5 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-lg font-bold text-slate-800">عقد جديد</h1>
-                            <p className="text-xs text-slate-400">تسجيل عقد بيع وصيانة جديد</p>
+                            <h1 className="text-lg font-bold text-slate-800">{isEdit ? 'تعديل العقد' : 'عقد جديد'}</h1>
+                            <p className="text-xs text-slate-400">
+                                {contractType === 'maintenance_contract' ? 'عقد صيانة' : saleSubtype === 'definitive' ? 'بيع قطعي' : saleSubtype === 'temporary' ? 'عقد مؤقت' : 'مجاني / هبة'}
+                            </p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -930,94 +1099,6 @@ export default function ContractForm() {
                 )}
                 {paymentType === 'installment' && !installmentsConfirmed && installmentDrafts.length > 0 && (
                     <p className="text-[11px] text-red-500 text-center">يرجى تأكيد جدول الأقساط</p>
-                )}
-
-                {/* Contract Type Selector Cards */}
-                <div className="grid grid-cols-2 gap-4">
-                    <button
-                        type="button"
-                        onClick={() => setContractType('sale_contract')}
-                        className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-right ${contractType === 'sale_contract'
-                            ? 'bg-blue-50 border-blue-300 text-blue-600 shadow-md shadow-blue-500/5'
-                            : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                    >
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${contractType === 'sale_contract' ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                            <FileText className="w-5 h-5" />
-                        </div>
-                        <div>
-                            <p className="text-sm font-bold">عقد بيع (Sale Contract)</p>
-                            <p className="text-xs text-slate-400 mt-0.5">تسجيل عملية بيع جهاز مع التفاصيل المالية والاقساط</p>
-                        </div>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setContractType('maintenance_contract');
-                            // Clear any sales and financial details if switching to maintenance
-                            setSaleType('direct');
-                            setSaleSource('');
-                            setSourceTaskId('');
-                            setSelectedOffer(null);
-                            setSourceOpenTaskId(null);
-                            setSourceTaskOfferId(null);
-                            setSaleReferenceNumber(null);
-                            setSelectedOfferVisitId(null);
-                            setSelectedOfferTaskId(null);
-                        }}
-                        className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-right ${contractType === 'maintenance_contract'
-                            ? 'bg-amber-50 border-amber-300 text-amber-600 shadow-md shadow-amber-500/5'
-                            : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                    >
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${contractType === 'maintenance_contract' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                            <Wrench className="w-5 h-5" />
-                        </div>
-                        <div>
-                            <p className="text-sm font-bold">عقد صيانة (Maintenance Contract)</p>
-                            <p className="text-xs text-slate-400 mt-0.5">تسجيل عقد صيانة فقط بدون أي التزامات مالية أو ذمم</p>
-                        </div>
-                    </button>
-                </div>
-
-                {/* Sale Subtype Selector */}
-                {contractType === 'sale_contract' && (
-                    <div className="flex flex-col gap-2 p-4 bg-slate-50 border border-slate-200 rounded-xl mt-2">
-                        <label className="text-xs font-bold text-slate-500">نوع عقد البيع (Sale Subtype)</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            <button
-                                type="button"
-                                onClick={() => handleSaleSubtypeChange('definitive')}
-                                className={`py-2 px-3 rounded-lg border text-xs font-medium transition-all text-center ${
-                                    saleSubtype === 'definitive'
-                                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm font-bold'
-                                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                                }`}
-                            >
-                                بيع قطعي (Definitive)
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleSaleSubtypeChange('temporary')}
-                                className={`py-2 px-3 rounded-lg border text-xs font-medium transition-all text-center ${
-                                    saleSubtype === 'temporary'
-                                        ? 'bg-amber-500 border-amber-500 text-white shadow-sm font-bold'
-                                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                                }`}
-                            >
-                                عقد مؤقت لمدة شهر (Temporary)
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleSaleSubtypeChange('free')}
-                                className={`py-2 px-3 rounded-lg border text-xs font-medium transition-all text-center ${
-                                    saleSubtype === 'free'
-                                        ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm font-bold'
-                                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                                }`}
-                            >
-                                عقد مجاني (Free)
-                            </button>
-                        </div>
-                    </div>
                 )}
 
                 {/* ═══════════════════════════════════════════════════════ */}
@@ -1224,6 +1305,18 @@ export default function ContractForm() {
                                 <div className="relative">
                                     <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
                                     <input type="date" value={contractDate} onChange={e => setContractDate(e.target.value)} className={`${inputClass} pr-10`} />
+                                </div>
+                            </Field>
+                            <Field label="تاريخ التسليم المتوقع">
+                                <div className="relative">
+                                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                    <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className={`${inputClass} pr-10`} />
+                                </div>
+                            </Field>
+                            <Field label="تاريخ التركيب المتوقع">
+                                <div className="relative">
+                                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                    <input type="date" value={installationDate} onChange={e => setInstallationDate(e.target.value)} className={`${inputClass} pr-10`} />
                                 </div>
                             </Field>
                         </div>

@@ -41,7 +41,17 @@ const contractSelect = `
   c.contract_type AS "contractType",
   c.no_closing_reason_id AS "noClosingReasonId",
   c.sale_subtype AS "saleSubtype",
-  c.device_status AS "deviceStatus"
+  c.device_status AS "deviceStatus",
+  c.receipt_number AS "receiptNumber",
+  c.code AS "code",
+  c.is_golden_warranty AS "isGoldenWarranty",
+  c.golden_warranty_end_date AS "goldenWarrantyEndDate",
+  c.contract_warranty_end_date AS "contractWarrantyEndDate",
+  c.created_by AS "createdById",
+  (SELECT name FROM hr_users WHERE id = c.closing_employee_id LIMIT 1) AS "closingEmployeeName",
+  (SELECT value FROM system_lists WHERE id = c.no_closing_reason_id LIMIT 1) AS "noClosingReasonName",
+  (SELECT name FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchName",
+  (SELECT name FROM hr_users WHERE id = c.created_by LIMIT 1) AS "createdByName"
 `;
 
 function mapContract(c: any) {
@@ -300,8 +310,11 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
  *         description: Server error
  */
 router.get('/:id', requirePermission('contracts.view_list'), async (req, res) => {
+  const authContext = req.authContext!;
   const { rows } = await pool.query(`SELECT ${contractSelect} FROM contracts c WHERE c.id = $1`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ message: 'العقد غير موجود' });
+  const access = authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId });
+  if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const contract = mapContract(rows[0]);
   const { rows: dues } = await pool.query(
     `SELECT ${dueSelect} FROM dues WHERE contract_id = $1 ORDER BY scheduled_date`,
@@ -322,11 +335,68 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
   // Client snapshot
   const { rows: clientRows } = await pool.query(
     `SELECT id, name, mobile, contacts, neighborhood, district, governorate,
-            detailed_address AS "detailedAddress", rating, national_id AS "nationalId"
+            detailed_address AS "detailedAddress", rating, national_id AS "nationalId",
+            occupation, spouse_occupation AS "spouseOccupation",
+            data_quality AS "dataQuality", gender, father_name AS "fatherName",
+            birth_date AS "birthDate", mother_name AS "motherName",
+            national_id_registry AS "nationalIdRegistry",
+            national_id_issued_by AS "nationalIdIssuedBy",
+            national_id_issue_date AS "nationalIdIssueDate",
+            national_id_box AS "nationalIdBox",
+            nickname, first_name AS "firstName", last_name AS "lastName",
+            referrers
        FROM clients WHERE id = $1`,
     [contract.customerId],
   );
   const client = clientRows[0] ?? null;
+
+  // Client geo path (neighborhood → sub → district → governorate)
+  let clientGeoPath: string[] = [];
+  const clientGeoId = client?.neighborhood || client?.district;
+  if (clientGeoId) {
+    const { rows: cgRows } = await pool.query(
+      `WITH RECURSIVE geo_path AS (
+         SELECT id, name, parent_id, 1 AS depth FROM geo_units WHERE id = $1
+         UNION ALL
+         SELECT g.id, g.name, g.parent_id, gp.depth + 1
+         FROM geo_units g JOIN geo_path gp ON g.id = gp.parent_id
+       )
+       SELECT name FROM geo_path ORDER BY depth DESC`,
+      [clientGeoId],
+    );
+    clientGeoPath = cgRows.map((r: any) => r.name);
+  }
+
+  // Client ownership display
+  const { rows: ownerRows } = await pool.query(
+    `SELECT u.name, COUNT(*) OVER() AS total
+       FROM client_assignments ca
+       JOIN hr_users u ON u.id = ca.hr_user_id
+      WHERE ca.client_id = $1
+      ORDER BY ca.assigned_at ASC LIMIT 1`,
+    [contract.customerId],
+  );
+  let ownershipDisplay: string | null = null;
+  if (ownerRows[0]) {
+    const extra = Number(ownerRows[0].total) - 1;
+    ownershipDisplay = extra > 0 ? `${ownerRows[0].name} +${extra}` : ownerRows[0].name;
+  }
+  // Resolve installation geo path (governorate → region → sub-district → neighborhood)
+  let installationGeoPath: string[] = [];
+  if (contract.installationGeoUnitId) {
+    const { rows: geoRows } = await pool.query(
+      `WITH RECURSIVE geo_path AS (
+         SELECT id, name, parent_id, 1 AS depth FROM geo_units WHERE id = $1
+         UNION ALL
+         SELECT g.id, g.name, g.parent_id, gp.depth + 1
+         FROM geo_units g JOIN geo_path gp ON g.id = gp.parent_id
+       )
+       SELECT name FROM geo_path ORDER BY depth DESC`,
+      [contract.installationGeoUnitId],
+    );
+    installationGeoPath = geoRows.map((r: any) => r.name);
+  }
+
   const [lineItemResult, paymentEntriesResult, installmentsResult, discountResult] = await Promise.all([
     pool.query(
       `SELECT id, item_type AS "itemType", spare_part_id AS "sparePartId",
@@ -357,9 +427,15 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
 
   res.json({
     ...contract,
+    installationGeoPath,
+    ownershipDisplay,
     dues: dues.map(mapDue),
     tasks,
-    client,
+    client: client ? {
+      ...client,
+      geoPath: clientGeoPath,
+      referrersCount: Array.isArray(client.referrers) ? client.referrers.length : 0,
+    } : null,
     lineItems: lineItemResult.rows,
     paymentEntries: paymentEntriesResult.rows,
     installments: installmentsResult.rows,
@@ -457,8 +533,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         buyer_national_id_issue_date, buyer_national_id_box,
         buyer_birth_date, buyer_gender,
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number, no_closing_reason_id, sale_subtype,
-        device_status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
+        device_status, created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43)
       RETURNING ${contractSelect.replace(/c\./g, '')}`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName, c.serialNumber,
@@ -474,7 +550,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        c.buyerBirthDate || null, c.buyerGender || null,
        c.contractType || 'sale_contract', c.sourceOpenTaskId || null, c.sourceTaskOfferId || null, c.saleReferenceNumber || null,
        c.noClosingReasonId || null, c.saleSubtype || 'definitive',
-       c.deviceStatus || 'pending_delivery']
+       c.deviceStatus || 'pending_delivery', (req as any).user?.id || null]
     );
     const contract = rows[0];
 

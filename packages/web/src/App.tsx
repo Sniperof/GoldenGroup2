@@ -95,6 +95,7 @@ export default function App() {
                         <Route path="/field-visits/:id" element={<VisitDetailPage />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />
+                        <Route path="/contracts/:id/edit" element={<ContractForm />} />
                         <Route path="/contracts/:id" element={<ContractDetail />} />
 
                         <Route path="/telemarketer" element={<TelemarketerWorkspace />} />
