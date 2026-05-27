@@ -104,6 +104,14 @@
 
 ---
 
+## القرارات المعمارية (Architectural Decisions)
+
+| القرار | التاريخ | الموضوع | الحالة |
+|---|---|---|---|
+| DEC-001 | 2026-05-27 | [معضلة تعدد الفروع في خدمة الزباين](decisions/DEC-001-multi-branch-client-service.md) | ⏳ قيد المراجعة |
+
+---
+
 ## المهام المعلّقة (Pending Tasks)
 
 ### 🔴 توحيد Mini ClientSnapshot عبر المشروع
