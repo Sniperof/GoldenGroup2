@@ -392,9 +392,10 @@ erDiagram
 | 23 | `tasks` | `id` | — | المهام القديمة |
 | 24 | [`open_tasks`](domains/open-tasks.md) | `id` | `client_id`, `contract_id`, `branch_id`, `task_type` | المهام المفتوحة والتشغيل الميداني |
 | 25 | [`task_type_config`](domains/open-tasks.md) | `task_type` | — | إعدادات أنواع المهام والنافذة الزمنية |
-| 26 | `schedules` | `date` | — | جداول الفرق |
-| 27 | `route_assignments` | `key` | — | تخصيص المسارات |
-| 28 | `routes` | `id` | — | المسارات الجغرافية |
+|| 31 | `day_schedules` | `date` | — | الجداول اليومية |
+|| 32 | `route_assignments` | `key` | — | تخصيص المسارات |
+|| 33 | `work_scopes` | `id` | `branch_id` | نطاق العمل |
+|| 34 | `maintenance_requests` | `id` | `customer_id`, `contract_id` | طلبات الصيانة |
 | 29 | `route_points` | `id` | `route_id` | نقاط المسار |
 | 30 | `workScopes` | `id` | — | نطاقات العمل |
 | 31 | `day_schedules` | `date` | — | الجداول اليومية |

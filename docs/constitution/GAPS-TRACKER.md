@@ -978,6 +978,92 @@ if (neighborhood) {
 
 ---
 
+### GAP-DS-001: JSONB teams/solos lacks FK validation 🔴 عالية — **جديدة**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | day_schedules |
+| **الموقع** | `migrations/001_core_tables.sql` (الحقلان `teams` و `solos`) |
+| **الوصف** | لا يملك `teams` و `solos` (JSONB) أي FK validation للـ `employees.id`. يمكن حفظ IDs غير موجودة إذا تم تجاوز API أو إدخال مباشر. |
+| **التأثير** | نزاعة جدولة تالفة → أهداف تأشيرية تالفة → مهام مسندة لفريق غير موجود |
+| **الحل المقترح** | إضافة validation trigger على `day_schedules` أو استخدام جدول ربط منفصل لـ `team_members` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [day-schedules.md §9.1](domains/day-schedules.md#gap-ds-001) |
+
+### GAP-DS-002: Missing created_by / updated_at / created_at on day_schedules 🟡 متوسطة — **جديدة**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | day_schedules |
+| **الموقع** | `migrations/001_core_tables.sql` |
+| **الوصف** | لا يوجد `created_by` أو `updated_at` أو `created_at` على `day_schedules`. لا أرشيف للتغييرات. |
+| **التأثير** | صعوبة تدقيق الأخطاء — ما فينا نعرف مين حفظ أو حذف جدول |
+| **الحل المقترح** | إضافة `created_by`, `created_at`, `updated_at` على `day_schedules` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [day-schedules.md §9.2](domains/day-schedules.md#gap-ds-002) |
+
+### GAP-DS-003: solos JSONB lacks CHECK constraint 🟡 متوسطة — **جديدة**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | day_schedules |
+| **الموقع** | `migrations/001_core_tables.sql` |
+| **الوصف** | `solos` لا يملك `CHECK constraint` — يمكن حفظ أي JSON |
+| **التأثير** | تلف البيانات التشغيلية للفرق الميدانية |
+| **الحل المقترح** | إضافة JSON Schema validation على السيرفر أو trigger |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [day-schedules.md §9.3](domains/day-schedules.md#gap-ds-003) |
+
+### GAP-DS-004: schedules.ts missing requirePermission('planning.manage') 🔴 عالية — **جديدة**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | day_schedules |
+| **الموقع** | `packages/api/routes/schedules.ts` |
+| **الوصف** | `GET /schedules/:date` و `PUT /schedules/:date` لا يفرضان `requirePermission('planning.manage')` |
+| **التأثير** | أي مستخدم مسجّل بيقدر يجلب/يحفظ جداول الفرق |
+| **الحل المقترح** | إضافة `requirePermission('planning.manage')` على المسارات |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [day-schedules.md §9.4](domains/day-schedules.md#gap-ds-004) |
+
+### GAP-DS-005: day_schedules lacks branch_id 🟡 متوسطة — **جديدة**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | day_schedules |
+| **الموقع** | `migrations/001_core_tables.sql` |
+| **الوصف** | `date` هو المفتاح الأساسي الوحيد. لو فرعين بدون التاريخ ـ تضارب! |
+| **التأثير** | فرع أ و فرع ب مش يقدروا يحفظوا جدول اليوم لنفس التاريخ |
+| **الحل المقترح** | إضافة `branch_id` مع `UNIQUE (date, branch_id)` أو `date` = `{branch_id}_{YYYY-MM-DD}` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [day-schedules.md §9.5](domains/day-schedules.md#gap-ds-005) |
+
+### GAP-DS-006: GET /schedules/:date returns 200 instead of 404 🟡 متوسطة — **جديدة**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | day_schedules |
+| **الموقع** | `packages/api/routes/schedules.ts` (GET /:date) |
+| **الوصف** | بيرجع `200` مع جدول فارغ بدل `404` |
+| **التأثير** | تضارب بين السلوك المتوقع والحالي |
+| **الحل المقترح** | تعديل GET handler ليرجع `404` إذا ما في سجل |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [day-schedules.md §9.6](domains/day-schedules.md#gap-ds-006) |
+
+### GAP-DS-007: Missing created_at on save 🟡 متوسطة — **جديدة**
+
+| البند | التفصيل |
+|---|---|
+| **الكيان** | day_schedules |
+| **الموقع** | `packages/api/routes/schedules.ts` (PUT /:date) |
+| **الوصف** | الـ upsert ما بيسجّل `created_at`. لا يوجد جدول `schedules` legacy. |
+| **التأثير** | تلف تاريخ الإنشاء |
+| **الحل المقترح** | إضافة `created_at` على `day_schedules` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [day-schedules.md §9.7](domains/day-schedules.md#gap-ds-007) |
+
+---
+
 ## كيف نضيف ثغرة جديدة
 
 ```markdown
@@ -1000,10 +1086,10 @@ if (neighborhood) {
 
 | | |
 |---|---|
-| **عدد الثغرات المفتوحة** | 43 |
-| **عدد الثغرات المحلولة** | 32 (GAP-003, GAP-017, GAP-027, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049, GAP-050, GAP-051, GAP-052, GAP-054, GAP-055, GAP-057, GAP-059, GAP-060, GAP-061, GAP-063, GAP-064, GAP-065, GAP-066, GAP-074, GAP-075) |
-| **عالية الخطورة** | 6 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-022, GAP-056, GAP-062, GAP-067, GAP-068) |
-| **متوسطة** | 20 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-053, GAP-058, GAP-069, GAP-070, GAP-071, GAP-072) |
-| **منخفضة** | 16 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-048, GAP-073) |
-| **الكيان الأكثر ثغرات** | field_visits (7) / permissions (6) / contracts (6) / employees (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / devices-maintenance (3 مفتوحة) / branches (1) / geo_units (1) |
-| **قرارات معلقة** | 1 (multi-branch client) |
+|| **عدد الثغرات المفتوحة** | 48 |
+|| **عدد الثغرات المحلولة** | 32 (GAP-003, GAP-017, GAP-027, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049, GAP-050, GAP-051, GAP-052, GAP-054, GAP-055, GAP-057, GAP-059, GAP-060, GAP-061, GAP-063, GAP-064, GAP-065, GAP-066, GAP-074, GAP-075) |
+|| **عالية الخطورة** | 8 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-022, GAP-056, GAP-062, GAP-067, GAP-068, GAP-DS-001, GAP-DS-004) |
+|| **متوسطة** | 20 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-053, GAP-058, GAP-069, GAP-070, GAP-071, GAP-072, GAP-DS-002, GAP-DS-003, GAP-DS-005, GAP-DS-006, GAP-DS-007) |
+|| **منخفضة** | 16 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-048, GAP-073) |
+|| **الكيان الأكثر ثغرات** | field_visits (7) / permissions (6) / contracts (6) / employees (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / day_schedules (7 جديدة) / devices-maintenance (3 مفتوحة) / branches (1) / geo_units (1) |
+|| **قرارات معلقة** | 1 (multi-branch client) + 1 (contract ownership DEC-002) |
