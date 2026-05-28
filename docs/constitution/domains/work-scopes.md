@@ -1,5 +1,4 @@
 # دستور الكيان: نطاقات العمل (Work Scopes Domain Constitution)
-
 > **الحالة (Status):** Active Draft / Authoritative  
 > **المرجع الأعلى للكيان `work_scopes` في النظام.** تم إعداده بناءً على `078_work_scopes.sql` ومسارات التخطيط وخدمات حساب الحمل ومزامنة المهام.
 
@@ -157,10 +156,7 @@ draft -> generated
 
 ### 5.2 حدود آلة الحالات
 
-- لا توجد حالة `active`.
-- لا توجد حالة `archived`.
-- لا يوجد soft-delete.
-- الحذف، إن حدث، هو حذف فيزيائي.
+لا توجد حالة `active` أو `archived`، ولا يوجد soft-delete؛ الحذف، إن حدث، هو حذف فيزيائي.
 
 ---
 
@@ -199,44 +195,21 @@ draft -> generated
 | `mode` | Query | `string` | لا | `planning` أو `assigned`. غير `assigned` يعامل كـ `planning`. |
 | `X-Branch-Id` | Header / Auth Context | `integer` | نعم | سياق الفرع الفعّال. |
 
-### 7.3 Request Schema
+### 7.3 Request / Response Schema
 
-```http
-GET /planning/marketing-targets?date=2026-05-28&teamKey=team_0&mode=planning
-X-Branch-Id: 3
-Authorization: Bearer <token>
-```
+| النوع | الهيكل |
+|---|---|
+| Request | `GET /planning/marketing-targets?date=2026-05-28&teamKey=team_0&mode=planning` مع `X-Branch-Id` وسياق مصادقة. |
+| Response | يحتوي `teamKey`, `leads`, `candidates`, `countsByZone`, `counts`, `zoneIds`, `targetStationsCount`, `hasSupervisor`, `supervisorEmployeeId`, `supervisorHrUserId`, `technicianEmployeeId`, `technicianHrUserId`, `companyHrUserIds`, `actorHrUserIds`, و`reason`. |
 
-### 7.4 Response Schema
-
-```json
-{
-  "teamKey": "team_0",
-  "leads": [],
-  "candidates": [],
-  "countsByZone": [{ "zoneId": 101, "count": 4 }],
-  "counts": { "leads": 4, "candidates": 0, "total": 4 },
-  "zoneIds": [101],
-  "targetStationsCount": 1,
-  "hasSupervisor": true,
-  "supervisorEmployeeId": 12,
-  "supervisorHrUserId": 44,
-  "technicianEmployeeId": 15,
-  "technicianHrUserId": 48,
-  "companyHrUserIds": [44, 48],
-  "actorHrUserIds": [44, 48],
-  "reason": null
-}
-```
-
-### 7.5 الفرق بين `mode=planning` و`mode=assigned`
+### 7.4 الفرق بين `mode=planning` و`mode=assigned`
 
 | الوضع | السلوك |
 |---|---|
 | `planning` | يحسب حمل التخطيط، يبني `zoneIds`, يولد `work_scope` دستورياً، ويستدعي `syncAssignedTasks`. |
 | `assigned` | يقرأ المهام المسندة فقط ولا يشغل مزامنة الإسناد في مسار `marketing-targets`. |
 
-### 7.6 أخطاء التحقق
+### 7.5 أخطاء التحقق
 
 - `400`: `date must be YYYY-MM-DD`.
 - `400`: `teamKey must be team_X or solo_X`.
@@ -257,15 +230,6 @@ Authorization: Bearer <token>
 | **TC-03** | `zone_ids` تحتوي `geo_unit` غير موجود | توليد أو إدخال مباشر | `zone_ids={999999}` | قاعدة البيانات لا تمنع الحفظ بسبب غياب FK validation | gap معروف. |
 | **TC-04** | فرع مختلف عن الفرع المسجل في JWT | `GET /planning/marketing-targets` | سياق مصادقة لفرع ومحاولة العمل على فرع آخر | يجب الالتزام بـ `actingBranchId` ورفض غياب الفرع الفعّال | يغطي نطاق `BRANCH`. |
 | **TC-05** | تكرار `date, team_key, branch_id` | توليد متكرر أو إدخال مباشر | سجلان لنفس `2026-05-28`, `team_0`, `3` | يمنع التكرار عبر `UNIQUE(date, team_key, branch_id)` | المسار الصحيح يستخدم upsert أو تحديثاً مكافئاً. |
-
-### 8.2 اختبارات الصلاحيات والنطاقات (Permission Scopes Tests)
-
-| رتبة المستخدم | الصلاحية المفحوصة | نطاق الصلاحية (Scope) | السلوك المتوقع والاستجابة |
-|---|---|---|---|
-| **Branch Manager** | `planning.manage` | `BRANCH` | يستطيع التوليد داخل فرعه فقط. |
-| **Branch Manager لفرع آخر** | `planning.manage` | `BRANCH` | يمنع من العمل خارج الفرع الفعّال. |
-| **Technician / Employee** | `planning.manage` | `ASSIGNED` غير مدعوم | لا يملك إدارة نطاق العمل لمجرد إسناد مهمة له. |
-| **مستخدم بلا صلاحية** | `planning.manage` | `NONE` | يمنع من مسار التخطيط المحمي. |
 
 ---
 

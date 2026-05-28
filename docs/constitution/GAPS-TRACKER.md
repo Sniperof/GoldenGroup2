@@ -1062,6 +1062,102 @@ if (neighborhood) {
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [day-schedules.md §9.7](domains/day-schedules.md#gap-ds-007) |
 
+### GAP-RA-001: `routes[].routeId` لا يملك FK validation 🔴 عالية — **جديدة**
+
+|| البند | التفصيل |
+|---|---|---|
+| **الكيان** | route_assignments |
+| **الموقع** | `migrations/001_core_tables.sql` + `routeAssignments.ts` |
+| **الوصف** | `route_assignments.routes` JSONB يخزّن `routeId` بدون FK validation إلى `routes.id`. يمكن حفظ معرّف مسار غير موجود. |
+| **التأثير** | توزيع مسار يشير إلى مسار محذوف أو غير موجود → كسر منطق التخطيط |
+| **الحل المقترح** | validation trigger عند الحفظ أو استعلام JOIN للتحقق |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [route-assignments.md §9.1](domains/route-assignments.md#gap-ra-001) |
+
+### GAP-RA-002: `extra_zones` و `station_order` بدون FK إلى `geo_units` 🔴 عالية — **جديدة**
+
+|| البند | التفصيل |
+|---|---|---|
+| **الكيان** | route_assignments |
+| **الموقع** | `migrations/001_core_tables.sql` |
+| **الوصف** | مصفوفتا `extra_zones` و`station_order` JSONB تخزّنان `geo_unit_id` بدون FK validation. |
+| **التأثير** | مناطق جغرافية غير موجودة في التوزيع → فشل في عزل النطاق |
+| **الحل المقترح** | validation عند الحفظ أو جدول ربط منفصل |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [route-assignments.md §9.2](domains/route-assignments.md#gap-ra-002) |
+
+### GAP-RA-003: `GET /route-assignments` لا يُطبّق فلترة بالفرع 🟡 متوسطة — **جديدة**
+
+|| البند | التفصيل |
+|---|---|---|
+| **الكيان** | route_assignments |
+| **الموقع** | `packages/api/routes/routeAssignments.ts` (GET /) |
+| **الوصف** | المسار يُرجع كل التوزيعات من كل الفروع بدون فلترة بالفرع الفعّال. |
+| **التأثير** | تسريب بيانات توزيع مسارات فروع أخرى |
+| **الحل المقترح** | إضافة فلترة حسب `actingBranchId` أو استخلاص `branch_id` من `key` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [route-assignments.md §9.3](domains/route-assignments.md#gap-ra-003) |
+
+### GAP-RA-004: `syncAssignedTasks` في transaction منفصلة عن UPSERT 🟡 متوسطة — **جديدة**
+
+|| البند | التفصيل |
+|---|---|---|
+| **الكيان** | route_assignments |
+| **الموقع** | `packages/api/routes/routeAssignments.ts` (PUT /:key) |
+| **الوصف** | `route_assignments` يُحفظ في pool ثم `syncAssignedTasks` يُشغّل في pgClient transaction منفصلة. فشل المزامنة لا يُرجع الحفظ. |
+| **التأثير** | حالة عدم تطابق: توزيع محفوظ لكن المهام غير مُسنَدة |
+| **الحل المقترح** | دمج الحفظ والمزامنة في transaction واحدة أو تطبيق compensating transaction |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [route-assignments.md §9.4](domains/route-assignments.md#gap-ra-004) |
+
+### GAP-RO-001: `route_points.geo_unit_id` لا يملك FK 🔴 عالية — **جديدة**
+
+|| البند | التفصيل |
+|---|---|---|
+| **الكيان** | route_points |
+| **الموقع** | `migrations/001_core_tables.sql` |
+| **الوصف** | `geo_unit_id` في `route_points` لا يملك FK إلى `geo_units(id)`. |
+| **التأثير** | نقاط مسار تشير إلى وحدات جغرافية محذوفة → بيانات يتيمة |
+| **الحل المقترح** | `ALTER TABLE route_points ADD FOREIGN KEY (geo_unit_id) REFERENCES geo_units(id)` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [routes.md §9.1](domains/routes.md#gap-ro-001) |
+
+### GAP-RO-002: لا يوجد `UNIQUE(route_id, point_order)` 🟡 متوسطة — **جديدة**
+
+|| البند | التفصيل |
+|---|---|---|
+| **الكيان** | route_points |
+| **الموقع** | `migrations/001_core_tables.sql` |
+| **الوصف** | يمكن تكرار `point_order` لنفس `route_id` بدون قيد فريد. |
+| **التأثير** | ترتيب مكرر → ارتباك في الواجهة والتخطيط |
+| **الحل المقترح** | `CREATE UNIQUE INDEX idx_route_points_order ON route_points(route_id, point_order)` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [routes.md §9.2](domains/routes.md#gap-ro-002) |
+
+### GAP-RO-003: `routes.status` بدون CHECK constraint 🟡 متوسطة — **جديدة**
+
+|| البند | التفصيل |
+|---|---|---|
+| **الكيان** | routes |
+| **الموقع** | `migrations/001_core_tables.sql` |
+| **الوصف** | `status VARCHAR(50)` بدون CHECK — القيم المتوقعة `active`/`inactive` غير مقيّدة. |
+| **التأثير** | قيم عشوائية تُخزّن بدون رفض |
+| **الحل المقترح** | `ALTER TABLE routes ADD CHECK (status IN ('active', 'inactive'))` |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [routes.md §9.3](domains/routes.md#gap-ro-003) |
+
+### GAP-RO-004: `GET /routes` يقبل pagination params لكن لا يُطبّقها 🟢 منخفضة — **جديدة**
+
+|| البند | التفصيل |
+|---|---|---|
+| **الكيان** | routes |
+| **الموقع** | `packages/api/routes/routes.ts` (GET /) |
+| **الوصف** | الـ endpoint يقبل `page` و`limit` كـ query params لكن الـ SQL لا يستخدم `LIMIT`/`OFFSET`. |
+| **التأثير** | params زائدة — لا تأثير فعلي |
+| **الحل المقترح** | إضافة LIMIT/OFFSET أو إزالة params من Swagger |
+| **الحالة** | ⏳ مفتوحة |
+| **ملف الدستور** | [routes.md §9.4](domains/routes.md#gap-ro-004) |
+
 ---
 
 ## كيف نضيف ثغرة جديدة
@@ -1084,12 +1180,12 @@ if (neighborhood) {
 
 ## إحصائيات سريعة
 
-| | |
-|---|---|
-|| **عدد الثغرات المفتوحة** | 48 |
-|| **عدد الثغرات المحلولة** | 32 (GAP-003, GAP-017, GAP-027, GAP-034, GAP-035, GAP-036, GAP-037, GAP-038, GAP-039, GAP-045, GAP-046, GAP-047, GAP-049, GAP-050, GAP-051, GAP-052, GAP-054, GAP-055, GAP-057, GAP-059, GAP-060, GAP-061, GAP-063, GAP-064, GAP-065, GAP-066, GAP-074, GAP-075) |
-|| **عالية الخطورة** | 8 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-022, GAP-056, GAP-062, GAP-067, GAP-068, GAP-DS-001, GAP-DS-004) |
-|| **متوسطة** | 20 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-053, GAP-058, GAP-069, GAP-070, GAP-071, GAP-072, GAP-DS-002, GAP-DS-003, GAP-DS-005, GAP-DS-006, GAP-DS-007) |
-|| **منخفضة** | 16 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-048, GAP-073) |
-|| **الكيان الأكثر ثغرات** | field_visits (7) / permissions (6) / contracts (6) / employees (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / day_schedules (7 جديدة) / devices-maintenance (3 مفتوحة) / branches (1) / geo_units (1) |
+|| | |
+|---|---|---|
+|| **عدد الثغرات المفتوحة** | 56 |
+|| **عدد الثغرات المحلولة** | 32 |
+|| **عالية الخطورة** | 10 (GAP-001, GAP-002, GAP-006, GAP-012, GAP-022, GAP-056, GAP-062, GAP-067, GAP-068, GAP-DS-001, GAP-DS-004, GAP-RA-001, GAP-RA-002, GAP-RO-001) |
+|| **متوسطة** | 26 (GAP-005, GAP-007, GAP-008, GAP-009, GAP-013, GAP-014, GAP-015, GAP-018, GAP-019, GAP-020, GAP-021, GAP-023, GAP-026, GAP-028, GAP-029, GAP-032, GAP-042, GAP-044, GAP-053, GAP-058, GAP-069, GAP-070, GAP-071, GAP-072, GAP-DS-002, GAP-DS-003, GAP-DS-005, GAP-DS-006, GAP-DS-007, GAP-RA-004, GAP-RO-002, GAP-RO-003) |
+|| **منخفضة** | 18 (GAP-004, GAP-010, GAP-011, GAP-016, GAP-024, GAP-025, GAP-030, GAP-031, GAP-033, GAP-040, GAP-041, GAP-043, GAP-048, GAP-073, GAP-RO-004) |
+|| **الكيان الأكثر ثغرات** | field_visits (7) / permissions (6) / contracts (6) / employees (6) / open_tasks (5) / telemarketing (5) / clients (5) / candidates (5) / day_schedules (7) / devices-maintenance (3) / branches (1) / geo_units (1) / route_assignments (4) / routes (4) |
 || **قرارات معلقة** | 1 (multi-branch client) + 1 (contract ownership DEC-002) |

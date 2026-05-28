@@ -124,8 +124,9 @@
 | `clients` | `district` | `VARCHAR(255)` | — | ❌ لا (GAP-003) | منطقة سكن العميل (تخزن كـ string رقمي) |
 | `clients` | `neighborhood` | `VARCHAR(255)` | — | ❌ لا (GAP-003) | حي سكن العميل (تخزن كـ string رقمي) |
 | `candidates` | `geo_unit_id` | `INTEGER` (FK) | SET NULL | ✅ نعم | موقع سكن المرشح المعتمد |
-| `contracts` | `installation_geo_unit_id` | `INTEGER` (FK) | SET NULL | ✅ نعم | موقع وتمديد تركيب الأجهزة الفعلي |
-| `employees` | `residence` | `VARCHAR(255)` | — | ❌ لا (GAP-034) | موقع سكن ومقر الموظف أو الفني |
+|| `contracts` | `installation_geo_unit_id` | `INTEGER` (FK) | SET NULL | ✅ نعم | موقع وتمديد تركيب الأجهزة الفعلي |
+|| `route_points` | `geo_unit_id` | `INTEGER` | — | ❌ لا (GAP-RO-001) | الوحدة الجغرافية لنقطة المسار |
+|| `employees` | `residence` | `VARCHAR(255)` | — | ❌ لا (GAP-034) | موقع سكن ومقر الموظف أو الفني |
 
 **⚠️ تأثير نمط التناقض:** يفرض هذا التناقض الهيكلي على المطورين إجراء عمليات تحويل قسرية مكثفة بالخلفية للربط الجغرافي (مثل `NULLIF(c.governorate, '')::int`) ويخلق بيانات يتيمة لا تتأثر بالحذف المتتالي للتقسيمات الجغرافية.
 
@@ -260,8 +261,11 @@ erDiagram
 | `open_task_installation_results` | `installed_accessories` | الملحقات المركبة |
 | `visit_task_device_delivery_results` | `delivery_photos` | صور التسليم |
 | `open_task_delivery_results` | `delivery_photos` | صور التسليم (open tasks) |
-| `emergency_tickets` | `attachments` | مرفقات |
-| `maintenance_requests` | `technical_report` | تقرير فني |
+|| `emergency_tickets` | `attachments` | مرفقات |
+|| `route_assignments` | `routes` | تركيب المسارات (بدون FK validation — GAP-RA-001) |
+|| `route_assignments` | `extra_zones` | المناطق الإضافية (بدون FK validation — GAP-RA-002) |
+|| `route_assignments` | `station_order` | ترتيب المحطات (بدون FK validation — GAP-RA-002) |
+|| `maintenance_requests` | `technical_report` | تقرير فني |
 
 ### 3.3 CHECK Constraints (قيم محددة)
 
@@ -293,9 +297,10 @@ erDiagram
 | `tasks` | `type` | `emergency`, `dues`, `periodic`, `returns`, `followup` | ✅ نعم |
 | `tasks` | `status` | `pending`, `in-progress`, `completed` | ✅ نعم |
 | `tasks` | `priority` | `high`, `medium`, `low` | ✅ نعم |
-| `device_models` | `category` | `Residential`, `Industrial`, `Commercial` | ✅ نعم |
-| `device_models` | `device_status` (على contracts) | `pending_delivery`, `delivered`, `installed`, `active` | ✅ نعم |
-| `spare_parts` | `maintenance_type` | `Periodic`, `Emergency`, `Accessory` | ✅ نعم |
+|| `device_models` | `category` | `Residential`, `Industrial`, `Commercial` | ✅ نعم |
+|| `device_models` | `device_status` (على contracts) | `pending_delivery`, `delivered`, `installed`, `active` | ✅ نعم |
+|| `routes` | `status` | `active`, `inactive` | ❌ لا (GAP-RO-003) |
+|| `spare_parts` | `maintenance_type` | `Periodic`, `Emergency`, `Accessory` | ✅ نعم |
 | `contract_line_items` | `item_type` | `device`, `accessory`, `service_fee` | ✅ نعم |
 | `visit_task_device_delivery_results` | `delivery_condition` | `perfect`, `minor_damage`, `missing_accessories` | ✅ نعم |
 | `open_task_delivery_results` | `outcome` | `delivered_successfully`, `customer_not_available`, `wrong_address`, `refused_delivery` | ✅ نعم |
@@ -349,7 +354,7 @@ erDiagram
 
 ---
 
-## 5. الجداول التشغيلية الكاملة (72 Table Inventory)
+## 5. الجداول التشغيلية الكاملة (81 Table Inventory)
 
 > قائمة بكل الجداول بالنظام — للتأكد إن ما فيه جدول منسي.
 
@@ -395,78 +400,76 @@ erDiagram
 || 31 | `day_schedules` | `date` | — | الجداول اليومية |
 || 32 | `route_assignments` | `key` | — | تخصيص المسارات |
 || 33 | `work_scopes` | `id` | `branch_id` | نطاق العمل |
-|| 34 | `maintenance_requests` | `id` | `customer_id`, `contract_id` | طلبات الصيانة |
-| 29 | `route_points` | `id` | `route_id` | نقاط المسار |
-| 30 | `workScopes` | `id` | — | نطاقات العمل |
-| 31 | `day_schedules` | `date` | — | الجداول اليومية |
-| 32 | `maintenance_requests` | `id` | `customer_id`, `contract_id` | طلبات الصيانة |
-| 33 | `emergency_tickets` | `id` | `client_id`, `contract_id` | بلاغات الطوارئ |
-| 34 | `emergency_action_types` | `id` | — | أنواع إجراءات الطوارئ |
-| 35 | [`emergency_result_parts`](domains/open-tasks.md) | `id` | `open_task_id`, `spare_part_id` | قطع غيار الطوارئ المستهلكة |
-| 36 | [`emergency_result_costs`](domains/open-tasks.md) | `id` | `open_task_id`, `closing_employee_id` | التكاليف والقرارات النهائية للطوارئ |
-| 37 | [`emergency_maintenance_actions`](domains/open-tasks.md) | `id` | `open_task_id`, `action_type_id` | الإجراءات الميدانية الفنية للصيانة |
-| 38 | [`emergency_payment_entries`](domains/open-tasks.md) | `id` | `costs_id`, `transfer_company_id` | دفعات ومقبوضات الطوارئ المتعددة |
-| 39 | [`emergency_installments`](domains/open-tasks.md) | `id` | `costs_id`, `open_task_id`, `due_id` | جدولة أقساط صيانة الطوارئ |
-| 40 | [`visit_task_device_delivery_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `device_model_id` | نتائج وتفاصيل تسليم الأجهزة المادية |
-| 41 | [`visit_task_device_installation_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `installed_by_employee_id` | نتائج تركيب وتمديد الأجهزة تقنياً |
-| 42 | [`visit_task_device_demo_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `contract_id` | نتائج وخصومات عروض المبيعات الميدانية |
-| 43 | [`visit_task_device_activation_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `activated_by_employee_id` | فحص ومعايرة جودة المياه والتفعيل التشغيلي |
-| 44 | [`visit_task_emergency_technical_states`](domains/field-visits.md) | `id` | `visit_task_result_id` | الفحوصات والقياسات التقنية لتشخيص الطوارئ |
-| 45 | [`visit_task_emergency_parts_used`](domains/field-visits.md) | `id` | `visit_task_result_id`, `spare_part_id` | قطع غيار الصيانة الطارئة المستهلكة فنزلياً |
-| 46 | [`visit_task_emergency_financials`](domains/field-visits.md) | `id` | `visit_task_result_id` | التسويات والحسابات المالية لصيانات الطوارئ |
-| 47 | `open_task_delivery_results` | `id` | — | نتائج توصيل مفتوحة |
-| 48 | `open_task_installation_results` | `id` | — | نتائج تركيب مفتوحة |
-| 49 | [`open_task_pre_offers`](domains/open-tasks.md) | `id` | `open_task_id`, `closed_by_employee_id` | عروض أسعار ودراسات مالية مسبقة |
-| 50 | `marketing_visit_tasks` | `id` | — | مهام زيارة تسويق |
-| 51 | `marketing_visit_task_offers` | `id` | — | عروض زيارة تسويق |
-| 52 | `marketing_visits` | `id` | — | زيارات تسويق (legacy) |
-| 52a | [`task_activity_log`](domains/open-tasks.md) | `id` | `task_id`, `performed_by` | سجل أنشطة وتغير حالات المهمة |
-| 52b | [`open_task_devices`](domains/open-tasks.md) | `id` | `task_id`, `device_model_id` | الأجهزة المادية الملحقة بالمهمة |
-| 52c | [`call_task_links`](domains/open-tasks.md) | `call_id`, `task_id` | `call_id`, `task_id` | ربط الاتصالات بالتكليفات الجارية |
+|| 34 | `routes` | `id` | — | المسارات الجغرافية |
+|| 35 | `route_points` | `id` | `route_id` | نقاط المسار |
+|| 36 | `maintenance_requests` | `id` | `customer_id`, `contract_id` | طلبات الصيانة |
+|| 37 | `emergency_tickets` | `id` | `client_id`, `contract_id` | بلاغات الطوارئ |
+|| 38 | `emergency_action_types` | `id` | — | أنواع إجراءات الطوارئ |
+|| 39 | [`emergency_result_parts`](domains/open-tasks.md) | `id` | `open_task_id`, `spare_part_id` | قطع غيار الطوارئ المستهلكة |
+|| 40 | [`emergency_result_costs`](domains/open-tasks.md) | `id` | `open_task_id`, `closing_employee_id` | التكاليف والقرارات النهائية للطوارئ |
+|| 41 | [`emergency_maintenance_actions`](domains/open-tasks.md) | `id` | `open_task_id`, `action_type_id` | الإجراءات الميدانية الفنية للصيانة |
+|| 42 | [`emergency_payment_entries`](domains/open-tasks.md) | `id` | `costs_id`, `transfer_company_id` | دفعات ومقبوضات الطوارئ المتعددة |
+|| 43 | [`emergency_installments`](domains/open-tasks.md) | `id` | `costs_id`, `open_task_id`, `due_id` | جدولة أقساط صيانة الطوارئ |
+|| 44 | [`visit_task_device_delivery_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `device_model_id` | نتائج وتفاصيل تسليم الأجهزة المادية |
+|| 45 | [`visit_task_device_installation_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `installed_by_employee_id` | نتائج تركيب وتمديد الأجهزة تقنياً |
+|| 46 | [`visit_task_device_demo_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `contract_id` | نتائج وخصومات عروض المبيعات الميدانية |
+|| 47 | [`visit_task_device_activation_results`](domains/field-visits.md) | `id` | `visit_task_result_id`, `activated_by_employee_id` | فحص ومعايرة جودة المياه والتفعيل التشغيلي |
+|| 48 | [`visit_task_emergency_technical_states`](domains/field-visits.md) | `id` | `visit_task_result_id` | الفحوصات والقياسات التقنية لتشخيص الطوارئ |
+|| 49 | [`visit_task_emergency_parts_used`](domains/field-visits.md) | `id` | `visit_task_result_id`, `spare_part_id` | قطع غيار الصيانة الطارئة المستهلكة فنزلياً |
+|| 50 | [`visit_task_emergency_financials`](domains/field-visits.md) | `id` | `visit_task_result_id` | التسويات والحسابات المالية لصيانات الطوارئ |
+|| 51 | `open_task_delivery_results` | `id` | — | نتائج توصيل مفتوحة |
+|| 52 | `open_task_installation_results` | `id` | — | نتائج تركيب مفتوحة |
+|| 53 | [`open_task_pre_offers`](domains/open-tasks.md) | `id` | `open_task_id`, `closed_by_employee_id` | عروض أسعار ودراسات مالية مسبقة |
+|| 54 | `marketing_visit_tasks` | `id` | — | مهام زيارة تسويق |
+|| 55 | `marketing_visit_task_offers` | `id` | — | عروض زيارة تسويق |
+|| 56 | `marketing_visits` | `id` | — | زيارات تسويق (legacy) |
+|| 57a | [`task_activity_log`](domains/open-tasks.md) | `id` | `task_id`, `performed_by` | سجل أنشطة وتغير حالات المهمة |
+|| 57b | [`open_task_devices`](domains/open-tasks.md) | `id` | `task_id`, `device_model_id` | الأجهزة المادية الملحقة بالمهمة |
+|| 57c | [`call_task_links`](domains/open-tasks.md) | `call_id`, `task_id` | `call_id`, `task_id` | ربط الاتصالات بالتكليفات الجارية |
 
 ### 5.4 التسويق (Telemarketing)
 
-| # | الجدول | PK | FKs | وصف |
-|---|---|---|---|---|
-| 53 | [`telemarketing_task_lists`](domains/telemarketing.md) | `id` | — | كشوف التسويق اليومية الموزعة على الفرق |
-| 54 | [`telemarketing_task_list_items`](domains/telemarketing.md) | `id` | `task_list_id` | بنود الاتصال والعملاء/المرشحين الفرديين داخل الكشف |
-| 55 | [`telemarketing_call_logs`](domains/telemarketing.md) | `id` | `task_list_id`, `contact_target_id` | سجلات توثيق المكالمات الهاتفية الجارية ونتائجها |
-| 56 | [`telemarketing_appointments`](domains/telemarketing.md) | `id` | `contact_target_id` | مواعيد الزيارات الميدانية المحجوزة هاتفياً |
-| 57 | [`contact_targets`](domains/telemarketing.md) | `id` | `branch_id`, `supervisor_hr_user_id` | الأهداف والذمم اليومية المخصصة للمتابعة |
+|| # | الجدول | PK | FKs | وصف |
+|---|---|---|---|---|---|
+|| 58 | [`telemarketing_task_lists`](domains/telemarketing.md) | `id` | — | كشوف التسويق اليومية الموزعة على الفرق |
+|| 59 | [`telemarketing_task_list_items`](domains/telemarketing.md) | `id` | `task_list_id` | بنود الاتصال والعملاء/المرشحين الفرديين داخل الكشف |
+|| 60 | [`telemarketing_call_logs`](domains/telemarketing.md) | `id` | `task_list_id`, `contact_target_id` | سجلات توثيق المكالمات الهاتفية الجارية ونتائجها |
+|| 61 | [`telemarketing_appointments`](domains/telemarketing.md) | `id` | `contact_target_id` | مواعيد الزيارات الميدانية المحجوزة هاتفياً |
+|| 62 | [`contact_targets`](domains/telemarketing.md) | `id` | `branch_id`, `supervisor_hr_user_id` | الأهداف والذمم اليومية المخصصة للمتابعة |
 
 ### 5.5 التوظيف (HR)
 
-| # | الجدول | PK | FKs | وصف |
-|---|---|---|---|---|
-| 58 | `job_vacancies` | `id` | — | الشواغر |
-| 59 | `job_applications` | `id` | `vacancy_id` | طلبات التوظيف |
-| 60 | `applicants` | `id` | — | المتقدمون |
-| 61 | `interviews` | `id` | `application_id` | المقابلات |
-| 62 | `training_courses` | `id` | — | الدورات التدريبية |
-| 63 | `training_course_trainees` | `id` | `course_id` | المتدربون |
-| 64 | `training_attendance` | `id` | `course_id` | الحضور |
-| 65 | `departments` | `id` | — | الأقسام |
+|| # | الجدول | PK | FKs | وصف |
+|---|---|---|---|---|---|
+|| 63 | `job_vacancies` | `id` | — | الشواغر |
+|| 64 | `job_applications` | `id` | `vacancy_id` | طلبات التوظيف |
+|| 65 | `applicants` | `id` | — | المتقدمون |
+|| 66 | `interviews` | `id` | `application_id` | المقابلات |
+|| 67 | `training_courses` | `id` | — | الدورات التدريبية |
+|| 68 | `training_course_trainees` | `id` | `course_id` | المتدربون |
+|| 69 | `training_attendance` | `id` | `course_id` | الحضور |
+|| 70 | `departments` | `id` | — | الأقسام |
 
 ### 5.6 الصلاحيات والأمان (Auth & Permissions)
 
-| # | الجدول | PK | FKs | وصف |
-|---|---|---|---|---|
-| 66 | `roles` | `id` | — | الأدوار |
-| 67 | `permissions` | `id` | — | الصلاحيات |
-| 68 | `role_permissions` | `id` | `role_id`, `permission_id` | صلاحيات الدور |
-| 69 | [`role_permission_grants`](domains/employees.md) | `id` | `role_id`, `permission_id` | منح الصلاحيات |
-| 70 | `role_job_tasks` | `id` | `role_id` | مهام الدور |
-| 71 | [`user_branch_assignments`](domains/employees.md) | `id` | `user_id`, `branch_id` | فروع المستخدم |
+|| # | الجدول | PK | FKs | وصف |
+|---|---|---|---|---|---|
+|| 71 | `roles` | `id` | — | الأدوار |
+|| 72 | `permissions` | `id` | — | الصلاحيات |
+|| 73 | `role_permissions` | `id` | `role_id`, `permission_id` | صلاحيات الدور |
+|| 74 | [`role_permission_grants`](domains/employees.md) | `id` | `role_id`, `permission_id` | منح الصلاحيات |
+|| 75 | `role_job_tasks` | `id` | `role_id` | مهام الدور |
+|| 76 | [`user_branch_assignments`](domains/employees.md) | `id` | `user_id`, `branch_id` | فروع المستخدم |
 
 ### 5.7 النظام والمساعدة (System)
 
-| # | الجدول | PK | FKs | وصف |
-|---|---|---|---|---|
-| 72 | `system_lists` | `id` | — | قوائم النظام |
-| 73 | `audit_logs` | `id` | — | سجل التدقيق |
-| 74 | `client_audit_log` | `id` | `client_id` | تغييرات الزبون |
-| 75 | `referrers` | `id` | — | الوسطاء |
-| 76 | `customer_call_logs` | `id` | `client_id` | سجل اتصال الزبائن |
+|| # | الجدول | PK | FKs | وصف |
+|---|---|---|---|---|---|
+|| 77 | `system_lists` | `id` | — | قوائم النظام |
+|| 78 | `audit_logs` | `id` | — | سجل التدقيق |
+|| 79 | `client_audit_log` | `id` | `client_id` | تغييرات الزبون |
+|| 80 | `referrers` | `id` | — | الوسطاء |
+|| 81 | `customer_call_logs` | `id` | `client_id` | سجل اتصال الزبائن |
 
 ---
 

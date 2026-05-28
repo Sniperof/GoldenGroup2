@@ -17,8 +17,10 @@
 || الزيارات (Visits) | [domains/visits.md](domains/visits.md) | ⚠️ قديم | 202 سطر | — | — |
 || الزيارات الميدانية (Field Visits) | [domains/field-visits.md](domains/field-visits.md) | ✅ مكتمل | 513 سطر | 12+ | 8 (GAP-027✅ + 7 أخرى) |
 || المهام (Tasks) | [domains/tasks.md](domains/tasks.md) | ⚠️ قديم | 17,165 بايت | — | — |
-|| الجداول اليومية (Day Schedules) | [domains/day-schedules.md](domains/day-schedules.md) | ✅ مكتمل (جديد) | 399 سطر | 6+ | 7 (GAP-DS-001 ⏳ … GAP-DS-007 ⏳) |
-|| التخطيط (Planning) | [domains/planning.md](domains/planning.md) | ⚠️ قديم — مُقسّم → 4 كيانات | 14,126 بايت | — | — |
+||| الجداول اليومية (Day Schedules) | [domains/day-schedules.md](domains/day-schedules.md) | ✅ مكتمل (جديد) | 399 سطر | 6+ | 7 (GAP-DS-001 ⏳ … GAP-DS-007 ⏳) |
+||| توزيع المسارات (Route Assignments) | [domains/route-assignments.md](domains/route-assignments.md) | ✅ مكتمل (جديد) | 310 سطر | 8+ | 4 (GAP-RA-001 ⏳ … GAP-RA-004 ⏳) |
+||| المسارات الجغرافية (Routes) | [domains/routes.md](domains/routes.md) | ✅ مكتمل (جديد) | 286 سطر | 6+ | 4 (GAP-RO-001 ⏳ … GAP-RO-004 ⏳) |
+||| التخطيط (Planning) | [domains/planning.md](domains/planning.md) | ⚠️ قديم — مُقسّم → 4 كيانات كلها مكتملة | 14,126 بايت | — | — |
 || التوظيف (Jobs) | [domains/jobs-recruitment.md](domains/jobs-recruitment.md) | ⚠️ قديم | 26,418 بايت | — | — |
 | الأجهزة والصيانة (Devices & Maintenance) | [domains/devices-maintenance.md](domains/devices-maintenance.md) | ✅ مكتمل | 757 سطر | 15+ | 12 |
 | الموظفون (Employees) | [domains/employees.md](domains/employees.md) | ✅ مكتمل | 480 سطر | 12+ | 6 |
