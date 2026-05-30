@@ -89,6 +89,99 @@ function deriveContractStatus(
   return closingEmployeeId ? 'active' : 'draft';
 }
 
+function computeContractWarrantySnapshot(
+  activatedAt: unknown,
+  warrantyMonths: number | null,
+): {
+  activatedAt: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  status: 'pending' | 'active';
+} {
+  const months = Number(warrantyMonths) || 0;
+  if (!activatedAt || months <= 0) {
+    return { activatedAt: null, startDate: null, endDate: null, status: 'pending' };
+  }
+
+  const activationMoment = new Date(String(activatedAt));
+  if (Number.isNaN(activationMoment.getTime())) {
+    return { activatedAt: null, startDate: null, endDate: null, status: 'pending' };
+  }
+
+  const endDate = new Date(activationMoment);
+  endDate.setMonth(endDate.getMonth() + months);
+
+  return {
+    activatedAt: activationMoment.toISOString(),
+    startDate: activationMoment.toISOString().slice(0, 10),
+    endDate: endDate.toISOString().slice(0, 10),
+    status: 'active',
+  };
+}
+
+async function syncContractWarrantySnapshot(
+  dbClient: any,
+  contractId: number | string,
+  warrantyMonthsStored: number | null,
+  warrantyVisits: number | null,
+) {
+  const { rows } = await dbClient.query(
+    `SELECT id, activated_at AS "activatedAt"
+     FROM installed_devices
+     WHERE contract_id = $1
+     LIMIT 1`,
+    [contractId],
+  );
+
+  const device = rows[0];
+  if (!device) return;
+
+  const snapshot = computeContractWarrantySnapshot(device.activatedAt, warrantyMonthsStored);
+
+  await dbClient.query(
+    `UPDATE installed_devices
+        SET contract_warranty_end_date = $1
+      WHERE id = $2`,
+    [snapshot.endDate, device.id],
+  );
+
+  if (!warrantyMonthsStored) return;
+
+  await dbClient.query(
+    `INSERT INTO device_warranties
+      (device_id, warranty_type, start_date, end_date, months, visits, status, activated_at)
+     VALUES ($1, 'contract', $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (device_id, warranty_type) DO UPDATE SET
+       months = EXCLUDED.months,
+       visits = EXCLUDED.visits,
+       start_date = CASE
+         WHEN device_warranties.status IN ('cancelled', 'expired') THEN device_warranties.start_date
+         ELSE COALESCE(device_warranties.start_date, EXCLUDED.start_date)
+       END,
+       end_date = CASE
+         WHEN device_warranties.status IN ('cancelled', 'expired') THEN device_warranties.end_date
+         ELSE EXCLUDED.end_date
+       END,
+       status = CASE
+         WHEN device_warranties.status IN ('cancelled', 'expired') THEN device_warranties.status
+         ELSE EXCLUDED.status
+       END,
+       activated_at = CASE
+         WHEN device_warranties.status IN ('cancelled', 'expired') THEN device_warranties.activated_at
+         ELSE COALESCE(device_warranties.activated_at, EXCLUDED.activated_at)
+       END`,
+    [
+      device.id,
+      snapshot.startDate,
+      snapshot.endDate,
+      warrantyMonthsStored,
+      warrantyVisits,
+      snapshot.status,
+      snapshot.activatedAt,
+    ],
+  );
+}
+
 const dueSelect = `
   id, contract_id AS "contractId", type, scheduled_date AS "scheduledDate",
   adjusted_date AS "adjustedDate", original_amount AS "originalAmount",
@@ -547,14 +640,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     const installationLat = c.mapPosition?.[0] ?? null;
     const installationLng = c.mapPosition?.[1] ?? null;
 
-    // Calculate contract_warranty_end_date from warrantyMonths + contractDate
-    let contractWarrantyEndDate: string | null = null;
     const warrantyMonths = Number(c.warrantyMonths) || 0;
-    if (warrantyMonths > 0 && c.contractDate) {
-      const d = new Date(c.contractDate);
-      d.setMonth(d.getMonth() + warrantyMonths);
-      contractWarrantyEndDate = d.toISOString().slice(0, 10);
-    }
     const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
     const warrantyMonthsStored = warrantyMonths > 0 ? warrantyMonths : null;
 
@@ -614,24 +700,16 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         [c.serialNumber || null, c.deviceStatus || 'pending_delivery',
          c.deliveryDate || null, c.installationDate || null,
          installationGeoUnitId, installationAddressText, installationLat, installationLng,
-         warrantyMonthsStored, warrantyVisits, contractWarrantyEndDate,
+         warrantyMonthsStored, warrantyVisits, null,
          contractId]
       );
     }
 
-    // Phase 4: upsert contract warranty into device_warranties
-    if ((c.contractType || 'sale_contract') === 'sale_contract' && warrantyMonthsStored) {
-      await client.query(
-        `INSERT INTO device_warranties (device_id, warranty_type, start_date, end_date, months, visits)
-         SELECT d.id, 'contract', $1::date, $2::date, $3, $4
-         FROM installed_devices d WHERE d.contract_id = $5
-         ON CONFLICT (device_id, warranty_type) DO UPDATE SET
-           start_date = EXCLUDED.start_date,
-           end_date   = EXCLUDED.end_date,
-           months     = EXCLUDED.months,
-           visits     = EXCLUDED.visits`,
-        [c.contractDate || null, contractWarrantyEndDate, warrantyMonthsStored, warrantyVisits, contractId],
-      );
+    // Contract warranty becomes effective only after the device actually enters
+    // service. We keep the legal entitlement at contract time, but the snapshot
+    // dates/status are derived from installed_devices.activated_at.
+    if ((c.contractType || 'sale_contract') === 'sale_contract') {
+      await syncContractWarrantySnapshot(client, contractId, warrantyMonthsStored, warrantyVisits);
     }
 
     // Re-fetch with JOIN so installed_devices fields are included in the response
@@ -800,14 +878,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const installationLat = c.mapPosition?.[0] ?? c.installationLat ?? null;
   const installationLng = c.mapPosition?.[1] ?? c.installationLng ?? null;
 
-  // Warranty computation for installed_devices
-  let contractWarrantyEndDate: string | null = null;
+  // Warranty payload: dates are derived from device activation, not contract date.
   const warrantyMonths = Number(c.warrantyMonths) || 0;
-  if (warrantyMonths > 0 && c.contractDate) {
-    const d = new Date(c.contractDate);
-    d.setMonth(d.getMonth() + warrantyMonths);
-    contractWarrantyEndDate = d.toISOString().slice(0, 10);
-  }
   const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
   const warrantyMonthsStored = warrantyMonths > 0 ? warrantyMonths : null;
 
@@ -867,28 +939,19 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
         installation_lng          = $8,
         warranty_months           = COALESCE($9, warranty_months),
         warranty_visits           = COALESCE($10, warranty_visits),
-        contract_warranty_end_date = COALESCE($11, contract_warranty_end_date)
+        contract_warranty_end_date = $11
       WHERE contract_id = $12`,
       [c.serialNumber || null, c.deviceStatus || 'pending_delivery',
        c.deliveryDate || null, c.installationDate || null,
        installationGeoUnitId, installationAddressText, installationLat, installationLng,
-       warrantyMonthsStored, warrantyVisits, contractWarrantyEndDate,
+       warrantyMonthsStored, warrantyVisits, null,
        req.params.id]
     );
 
-    // Phase 4: upsert contract warranty into device_warranties
-    if (warrantyMonthsStored) {
-      await pgClient.query(
-        `INSERT INTO device_warranties (device_id, warranty_type, start_date, end_date, months, visits)
-         SELECT d.id, 'contract', $1::date, $2::date, $3, $4
-         FROM installed_devices d WHERE d.contract_id = $5
-         ON CONFLICT (device_id, warranty_type) DO UPDATE SET
-           start_date = EXCLUDED.start_date,
-           end_date   = EXCLUDED.end_date,
-           months     = EXCLUDED.months,
-           visits     = EXCLUDED.visits`,
-        [c.contractDate || null, contractWarrantyEndDate, warrantyMonthsStored, warrantyVisits, req.params.id],
-      );
+    // Respect DB-side activation/cancellation triggers and only synchronize the
+    // warranty snapshot from the device's effective activation state.
+    if ((c.contractType || 'sale_contract') === 'sale_contract') {
+      await syncContractWarrantySnapshot(pgClient, Number(req.params.id), warrantyMonthsStored, warrantyVisits);
     }
 
     // DEC-CT-15: auto-freeze the legal copy at the draft→active transition.
