@@ -186,7 +186,7 @@ export default function ContractForm() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [step, setStep] = useState<'type_selection' | 'details'>(isEdit ? 'details' : 'type_selection');
-    const [contractType, setContractType] = useState<'sale_contract'>('sale_contract');
+    const contractType = 'sale_contract' as const;
     const [saleSubtype, setSaleSubtype] = useState<'definitive' | 'temporary' | 'free'>('definitive');
     const [closers, setClosers] = useState<any[]>([]);
     const [noClosingReasons, setNoClosingReasons] = useState<any[]>([]);
@@ -249,7 +249,6 @@ export default function ContractForm() {
                     if (c.contractType === 'maintenance_contract') {
                         throw new Error('تم نقل عقود الصيانة إلى اتفاقيات الخدمة، ولم تعد تعدل من شاشة العقود.');
                     }
-                    setContractType('sale_contract');
                     setSaleSubtype(c.saleSubtype || 'definitive');
                     setSaleType(c.saleType || 'direct');
                     setContractDate(c.contractDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
@@ -422,7 +421,7 @@ export default function ContractForm() {
             const nonDevice = prev.filter((i: LineItem) => i.itemType !== 'device');
             return [{ itemType: 'device' as const, description: selectedDevice.nameAr || selectedDevice.name, quantity: 1, unitPrice: devicePrice }, ...nonDevice];
         });
-    }, [selectedDevice, selectedDiscountId, deviceDiscounts, isOfferLocked, contractType, saleSubtype, selectedOffer, deviceModelId]);
+    }, [selectedDevice, selectedDiscountId, deviceDiscounts, isOfferLocked, saleSubtype, selectedOffer, deviceModelId]);
 
     // ─── Effect: auto-populate legal fields from selected customer ───
     useEffect(() => {
@@ -805,7 +804,7 @@ export default function ContractForm() {
         selectedCustomer, legalMissing, legalResolved, deviceModelId, serialNumber,
         geoSelection, saleSource, sourceTaskId, paymentType, paymentEntries,
         confirmedEntries, totalPaidSyp, grandTotal, hasDownPayment, installmentsConfirmed,
-        contractType, saleSubtype, closingEmployeeId, noClosingReasonId, totalInstallmentSyp, installmentDrafts
+        saleSubtype, closingEmployeeId, noClosingReasonId, totalInstallmentSyp, installmentDrafts
     ]);
 
     const handleSubmit = useCallback(async () => {
@@ -926,7 +925,7 @@ export default function ContractForm() {
         contractDate, saleType, saleSource, sourceTaskId, selectedDiscountId,
         paymentType, grandTotal, basePrice, installmentDrafts, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
-        nationalIdOverride, contractType, saleSubtype, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber,
+        nationalIdOverride, saleSubtype, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber,
         selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, navigate
     ]);
 
@@ -959,7 +958,6 @@ export default function ContractForm() {
         setInstallmentDrafts([]); setInstallmentsConfirmed(false); setInstallmentCount('6');
         setClosingEmployeeId(''); setNoClosingReasonId(''); setInvoiceNotes('');
         setDeviceDiscounts([]); setSelectedDiscountId(''); setLineItems([]); setAddingAccessoryCategory('');
-        setContractType('sale_contract');
         setSaleSubtype('definitive');
         if (!isEdit) setStep('type_selection');
         setSelectedTask(null);
@@ -1000,51 +998,29 @@ export default function ContractForm() {
                             <FileText className="w-6 h-6 text-white" />
                         </div>
                         <h1 className="text-xl font-bold text-slate-800">عقد جديد</h1>
-                        <p className="text-sm text-slate-400">اختر نوع العقد للمتابعة</p>
+                        <p className="text-sm text-slate-400">اختر نوع عقد البيع للمتابعة</p>
                     </div>
 
-                    {/* Contract Type */}
-                    <div className="grid grid-cols-1 gap-3">
-                        <button
-                            type="button"
-                            onClick={() => setContractType('sale_contract')}
-                            className={`flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all ${contractType === 'sale_contract'
-                                ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-md shadow-blue-500/10'
-                                : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                        >
-                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${contractType === 'sale_contract' ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                                <FileText className="w-6 h-6" />
-                            </div>
-                            <div className="text-center">
-                                <p className="text-sm font-bold">عقد بيع</p>
-                                <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">بيع جهاز مع التفاصيل المالية والأقساط</p>
-                            </div>
-                        </button>
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                        <p className="text-xs font-bold text-slate-500">نوع عقد البيع</p>
+                        <div className="grid grid-cols-3 gap-2">
+                            <button type="button" onClick={() => handleSaleSubtypeChange('definitive')}
+                                className={`py-3 px-2 rounded-xl border text-xs font-semibold transition-all text-center ${saleSubtype === 'definitive' ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                بيع قطعي
+                            </button>
+                            <button type="button" onClick={() => handleSaleSubtypeChange('temporary')}
+                                className={`py-3 px-2 rounded-xl border text-xs font-semibold transition-all text-center ${saleSubtype === 'temporary' ? 'bg-amber-500 border-amber-500 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                عقد مؤقت
+                            </button>
+                            <button type="button" onClick={() => handleSaleSubtypeChange('free')}
+                                className={`py-3 px-2 rounded-xl border text-xs font-semibold transition-all text-center ${saleSubtype === 'free' ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                مجاني / هبة
+                            </button>
+                        </div>
                     </div>
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                         تم نقل عقود الصيانة إلى <span className="font-bold">اتفاقيات الخدمة</span>، ولم تعد تنشأ من شاشة العقود.
                     </div>
-
-                    {/* Sale Subtype — فقط لعقد البيع */}
-                    {contractType === 'sale_contract' && (
-                        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-                            <p className="text-xs font-bold text-slate-500">نوع عقد البيع</p>
-                            <div className="grid grid-cols-3 gap-2">
-                                <button type="button" onClick={() => handleSaleSubtypeChange('definitive')}
-                                    className={`py-3 px-2 rounded-xl border text-xs font-semibold transition-all text-center ${saleSubtype === 'definitive' ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                                    بيع قطعي
-                                </button>
-                                <button type="button" onClick={() => handleSaleSubtypeChange('temporary')}
-                                    className={`py-3 px-2 rounded-xl border text-xs font-semibold transition-all text-center ${saleSubtype === 'temporary' ? 'bg-amber-500 border-amber-500 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                                    عقد مؤقت
-                                </button>
-                                <button type="button" onClick={() => handleSaleSubtypeChange('free')}
-                                    className={`py-3 px-2 rounded-xl border text-xs font-semibold transition-all text-center ${saleSubtype === 'free' ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                                    مجاني / هبة
-                                </button>
-                            </div>
-                        </div>
-                    )}
 
                     {/* Continue Button */}
                     <button
