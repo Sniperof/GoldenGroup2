@@ -5,7 +5,7 @@ import type {
 } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
 
-const API_BASE = '/api';
+export const API_BASE = '/api';
 
 // Read token from localStorage at call time (not at import time)
 function getToken(): string | null {
@@ -133,6 +133,11 @@ export const api = {
   customers: {
     getPurchaseHistory: (customerId: number) =>
       request<any>(`/customers/${customerId}/purchase-history`),
+    getPartsStock: (customerId: number) =>
+      request<any>(`/customers/${customerId}/parts-stock`),
+    // DEC-CT-10: chronological merge of installments + payment entries.
+    getStatement: (customerId: number) =>
+      request<{ customerId: number; entries: any[] }>(`/customers/${customerId}/statement`),
   },
   customerCalls: {
     list: (customerId: number) => request<any[]>(`/customers/${customerId}/calls`),
@@ -187,6 +192,31 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ isInstalled }),
       }),
+    // DEC-CT-01 follow-up: approve / reject the draft → terminal transitions.
+    approve: (contractId: number, body?: { closingEmployeeId?: number }) =>
+      request<any>(`/contracts/${contractId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+      }),
+    reject: (contractId: number, body?: { reason?: string }) =>
+      request<any>(`/contracts/${contractId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+      }),
+    // DEC-CT-14/15: fetch the legal printable HTML with the auth header
+    // attached. Returns the raw HTML; callers turn it into a Blob URL so
+    // it can be opened in a new tab without exposing the JWT.
+    getPrintableHtml: async (contractId: number): Promise<string> => {
+      const token = getToken();
+      const res = await fetch(`${API_BASE}/contracts/${contractId}/printable`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`فشل تحميل النسخة القانونية (${res.status}): ${text}`);
+      }
+      return res.text();
+    },
   },
   dues: {
     list: () => request<any[]>('/dues'),
@@ -209,6 +239,14 @@ export const api = {
     },
     get: (id: number) => request<any>(`/installed-devices/${id}`),
     update: (id: number, data: any) => request<any>(`/installed-devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  },
+  // DEC-CT-09: device possession ledger.
+  // Backend route is mounted at /api/devices/:deviceId/possession.
+  devicePossession: {
+    list:     (deviceId: number) => request<any[]>(`/devices/${deviceId}/possession`),
+    current:  (deviceId: number) => request<any | null>(`/devices/${deviceId}/possession/current`),
+    transfer: (deviceId: number, data: { holderType: string; holderId?: number | null; reason: string; notes?: string; transferAt?: string }) =>
+      request<any>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
   },
   deviceModels: {
     list: () => request<any[]>('/device-models'),

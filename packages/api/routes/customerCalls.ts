@@ -898,6 +898,7 @@ router.get(
           LEFT JOIN installed_devices d ON d.contract_id = c.id
           WHERE c.customer_id = $1
             AND c.device_model_id IS NOT NULL
+            AND c.status NOT IN ('draft', 'discarded')
         )
         UNION ALL
         (
@@ -936,6 +937,7 @@ router.get(
           LEFT JOIN spare_parts sp ON sp.id = cli.spare_part_id
           WHERE c.customer_id = $1
             AND cli.item_type = 'accessory'
+            AND c.status NOT IN ('draft', 'discarded')
         )
         UNION ALL
         (
@@ -981,10 +983,10 @@ router.get(
             NULL::jsonb AS discount_info,
             NULL::text AS notes
           FROM visit_task_emergency_parts_used vtepu
-          JOIN visit_tasks vt ON vt.id = vtepu.visit_task_id
+          JOIN visit_task_results vtr ON vtr.id = vtepu.visit_task_result_id
+          JOIN visit_tasks vt ON vt.id = vtr.visit_task_id
           JOIN field_visits fv ON fv.id = vt.field_visit_id
-          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
-          LEFT JOIN visit_task_emergency_financials vtef ON vtef.visit_task_id = vt.id
+          LEFT JOIN visit_task_emergency_financials vtef ON vtef.visit_task_result_id = vtr.id
           LEFT JOIN spare_parts sp ON sp.id = vtepu.spare_part_id
           LEFT JOIN contracts c ON c.id = vt.contract_id
           LEFT JOIN installed_devices d ON d.contract_id = c.id
@@ -1033,6 +1035,125 @@ router.get(
     } catch (err: any) {
       console.error('[customers] GET /:id/purchase-history error:', err);
       return res.status(500).json({ error: 'خطأ في جلب سجل المشتريات' });
+    }
+  },
+);
+
+// ── GET /api/customers/:id/parts-stock ───────────────────────────────────────
+/**
+ * @swagger
+ * /api/customers/{id}/parts-stock:
+ *   get:
+ *     tags: [System → Customer Calls]
+ *     summary: Get current uninstalled parts stock for a customer
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Customer ID
+ *     responses:
+ *       200:
+ *         description: Current customer parts stock
+ *       404:
+ *         description: Customer not found
+ */
+router.get(
+  '/:id/parts-stock',
+  requirePermission('clients.view'),
+  async (req, res) => {
+    const customerId = parseInt(req.params['id'] as string, 10);
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
+    }
+
+    try {
+      const { rows: clientRows } = await pool.query(
+        'SELECT id FROM clients WHERE id = $1',
+        [customerId],
+      );
+      if (clientRows.length === 0) {
+        return res.status(404).json({ error: 'الزبون غير موجود' });
+      }
+
+      const { rows } = await pool.query(
+        `
+        SELECT
+          COALESCE('spare_part_' || cli.spare_part_id::text, 'line_item_' || cli.id::text) AS stock_id,
+          CASE
+            WHEN sp.maintenance_type = 'Periodic' THEN 'periodic_part'
+            WHEN sp.maintenance_type = 'Emergency' THEN 'emergency_part'
+            ELSE 'accessory'
+          END AS item_type,
+          cli.spare_part_id AS item_id,
+          COALESCE(sp.name, cli.description, 'قطعة غير معرّفة') AS item_name,
+          sp.code AS item_code,
+          SUM(cli.quantity)::integer AS quantity_available,
+          MIN(c.contract_date)::text AS first_received_at,
+          MAX(c.contract_date)::text AS last_received_at,
+          COUNT(DISTINCT c.id)::integer AS contracts_count,
+          json_agg(
+            DISTINCT jsonb_build_object(
+              'contractId', c.id,
+              'contractNumber', c.contract_number,
+              'contractDate', c.contract_date::text
+            )
+          ) AS sources
+        FROM contract_line_items cli
+        JOIN contracts c ON c.id = cli.contract_id
+        LEFT JOIN spare_parts sp ON sp.id = cli.spare_part_id
+        WHERE c.customer_id = $1
+          AND cli.item_type = 'accessory'
+          AND COALESCE(cli.is_installed, FALSE) = FALSE
+          AND c.status IN ('active', 'completed')
+        GROUP BY
+          COALESCE(cli.spare_part_id::text, 'line_item_' || cli.id::text),
+          CASE
+            WHEN sp.maintenance_type = 'Periodic' THEN 'periodic_part'
+            WHEN sp.maintenance_type = 'Emergency' THEN 'emergency_part'
+            ELSE 'accessory'
+          END,
+          cli.spare_part_id,
+          COALESCE(sp.name, cli.description, 'قطعة غير معرّفة'),
+          sp.code
+        ORDER BY MAX(c.contract_date) DESC NULLS LAST, COALESCE(sp.name, cli.description, 'قطعة غير معرّفة')
+        `,
+        [customerId],
+      );
+
+      return res.json({
+        customerId,
+        records: rows.map((r: any) => ({
+          stockId: r.stock_id,
+          itemType: r.item_type,
+          itemId: r.item_id,
+          itemName: r.item_name,
+          itemCode: r.item_code,
+          quantityAvailable: Number(r.quantity_available || 0),
+          firstReceivedAt: r.first_received_at,
+          lastReceivedAt: r.last_received_at,
+          contractsCount: Number(r.contracts_count || 0),
+          sources: Array.isArray(r.sources) ? r.sources : [],
+        })),
+        summary: {
+          totalUniqueItems: rows.length,
+          totalUnits: rows.reduce((sum: number, r: any) => sum + Number(r.quantity_available || 0), 0),
+          periodicItems: rows.filter((r: any) => r.item_type === 'periodic_part').length,
+          emergencyItems: rows.filter((r: any) => r.item_type === 'emergency_part').length,
+          accessoryItems: rows.filter((r: any) => r.item_type === 'accessory').length,
+        },
+      });
+    } catch (err: any) {
+      console.error('[customers] GET /:id/parts-stock error:', err);
+      return res.status(500).json({ error: 'خطأ في جلب مخزون الزبون' });
     }
   },
 );
