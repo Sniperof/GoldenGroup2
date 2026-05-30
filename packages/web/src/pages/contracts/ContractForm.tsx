@@ -260,6 +260,7 @@ export default function ContractForm() {
                     setSerialNumber(c.serialNumber || '');
                     setDetailedAddress(c.detailedAddress || '');
                     setMapPosition(c.mapPosition || null);
+                    setShowMapPicker(Boolean(c.mapPosition));
                     setClosingEmployeeId(c.closingEmployeeId || '');
                     setInvoiceNotes(c.invoiceNotes || '');
                     setNoClosingReasonId(c.noClosingReasonId || '');
@@ -351,6 +352,7 @@ export default function ContractForm() {
     const [geoSelection, setGeoSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
     const [detailedAddress, setDetailedAddress] = useState('');
     const [mapPosition, setMapPosition] = useState<[number, number] | null>(null);
+    const [showMapPicker, setShowMapPicker] = useState(false);
 
     // ─── 4. Financials ───
     const [paymentType, setPaymentType] = useState<'cash' | 'installment'>('cash');
@@ -738,10 +740,14 @@ export default function ContractForm() {
     // Geo — handled by GeoSmartSearch component
 
     // Customer search
-    const filteredCustomers = useMemo(
-        () => customers.filter(c => c.name.includes(customerSearch) || c.mobile.includes(customerSearch)),
-        [customerSearch, customers]
-    );
+    const filteredCustomers = useMemo(() => {
+        const query = customerSearch.trim();
+        if (!showCustomerDropdown) return [];
+        if (!query) return customers.slice(0, 25);
+        return customers
+            .filter(c => c.name.includes(query) || c.mobile.includes(query))
+            .slice(0, 25);
+    }, [customerSearch, customers, showCustomerDropdown]);
 
     // Legal info missing?
     const needsFatherName = selectedCustomer && !selectedCustomer.fatherName;
@@ -953,7 +959,7 @@ export default function ContractForm() {
         setSaleSource(''); setSourceTaskId('');
         setDeviceModelId(''); setSerialNumber('');
         setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
-        setDetailedAddress(''); setMapPosition(null);
+        setDetailedAddress(''); setMapPosition(null); setShowMapPicker(false);
         setPaymentType('cash'); setPaymentEntries([]); setConfirmedEntries(new Set()); setEntryErrors({}); setHasDownPayment(false);
         setInstallmentDrafts([]); setInstallmentsConfirmed(false); setInstallmentCount('6');
         setClosingEmployeeId(''); setNoClosingReasonId(''); setInvoiceNotes('');
@@ -1705,13 +1711,28 @@ export default function ContractForm() {
                             <label className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
                                 <MapPin className="w-3.5 h-3.5" /><span>تحديد الموقع GPS</span>
                             </label>
-                            {mapPosition && (
-                                <span className="text-[10px] font-mono text-slate-400" dir="ltr">
-                                    {mapPosition[0].toFixed(5)}, {mapPosition[1].toFixed(5)}
-                                </span>
-                            )}
+                            <div className="flex items-center gap-3">
+                                {mapPosition && (
+                                    <span className="text-[10px] font-mono text-slate-400" dir="ltr">
+                                        {mapPosition[0].toFixed(5)}, {mapPosition[1].toFixed(5)}
+                                    </span>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => setShowMapPicker(prev => !prev)}
+                                    className="text-[11px] font-semibold text-sky-600 hover:text-sky-500 transition-colors"
+                                >
+                                    {showMapPicker ? 'إخفاء الخريطة' : 'إظهار الخريطة'}
+                                </button>
+                            </div>
                         </div>
-                        <MapPicker position={mapPosition} onLocationSelect={handleLocationSelect} />
+                        {showMapPicker ? (
+                            <MapPicker position={mapPosition} onLocationSelect={handleLocationSelect} />
+                        ) : (
+                            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                                الخريطة اختيارية الآن ومؤجلة لتسريع فتح النموذج. يمكنك فتحها عند الحاجة لتثبيت الموقع بدقة.
+                            </div>
+                        )}
                     </div>
                 </Section>
 
