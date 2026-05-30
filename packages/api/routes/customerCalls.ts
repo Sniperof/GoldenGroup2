@@ -1086,45 +1086,62 @@ router.get(
 
       const { rows } = await pool.query(
         `
+        WITH stock_entries AS (
+          -- Source A: uninstalled parts/accessories that came from active/completed contracts.
+          -- This is the only source we can assert safely today.
+          SELECT
+            'contract'::text AS source_type,
+            c.id::text AS source_id,
+            'عقد #' || COALESCE(c.contract_number, c.id::text) AS source_label,
+            c.contract_date::text AS received_at,
+            COALESCE('spare_part_' || cli.spare_part_id::text, 'line_item_' || cli.id::text) AS stock_key,
+            CASE
+              WHEN sp.maintenance_type = 'Periodic' THEN 'periodic_part'
+              WHEN sp.maintenance_type = 'Emergency' THEN 'emergency_part'
+              ELSE 'accessory'
+            END AS item_type,
+            cli.spare_part_id AS item_id,
+            COALESCE(sp.name, cli.description, 'قطعة غير معرّفة') AS item_name,
+            sp.code AS item_code,
+            cli.quantity::integer AS quantity_available
+          FROM contract_line_items cli
+          JOIN contracts c ON c.id = cli.contract_id
+          LEFT JOIN spare_parts sp ON sp.id = cli.spare_part_id
+          WHERE c.customer_id = $1
+            AND cli.item_type = 'accessory'
+            AND COALESCE(cli.is_installed, FALSE) = FALSE
+            AND c.status IN ('active', 'completed')
+
+          -- Future sources go here as additional UNION ALL branches.
+          -- Example candidates:
+          --   * emergency maintenance tasks that explicitly mark a part as
+          --     delivered to the customer but not yet installed.
+          --   * installation/service tasks that reserve or return a part.
+          --
+          -- We are not adding those sources yet because the current task
+          -- payloads do not expose a trustworthy "customer stock" state.
+        )
         SELECT
-          COALESCE('spare_part_' || cli.spare_part_id::text, 'line_item_' || cli.id::text) AS stock_id,
-          CASE
-            WHEN sp.maintenance_type = 'Periodic' THEN 'periodic_part'
-            WHEN sp.maintenance_type = 'Emergency' THEN 'emergency_part'
-            ELSE 'accessory'
-          END AS item_type,
-          cli.spare_part_id AS item_id,
-          COALESCE(sp.name, cli.description, 'قطعة غير معرّفة') AS item_name,
-          sp.code AS item_code,
-          SUM(cli.quantity)::integer AS quantity_available,
-          MIN(c.contract_date)::text AS first_received_at,
-          MAX(c.contract_date)::text AS last_received_at,
-          COUNT(DISTINCT c.id)::integer AS contracts_count,
+          stock_key AS stock_id,
+          item_type,
+          item_id,
+          item_name,
+          item_code,
+          SUM(quantity_available)::integer AS quantity_available,
+          MIN(received_at)::text AS first_received_at,
+          MAX(received_at)::text AS last_received_at,
+          COUNT(DISTINCT source_id)::integer AS sources_count,
           json_agg(
             DISTINCT jsonb_build_object(
-              'contractId', c.id,
-              'contractNumber', c.contract_number,
-              'contractDate', c.contract_date::text
+              'sourceType', source_type,
+              'sourceId', source_id,
+              'sourceLabel', source_label,
+              'receivedAt', received_at
             )
           ) AS sources
-        FROM contract_line_items cli
-        JOIN contracts c ON c.id = cli.contract_id
-        LEFT JOIN spare_parts sp ON sp.id = cli.spare_part_id
-        WHERE c.customer_id = $1
-          AND cli.item_type = 'accessory'
-          AND COALESCE(cli.is_installed, FALSE) = FALSE
-          AND c.status IN ('active', 'completed')
-        GROUP BY
-          COALESCE(cli.spare_part_id::text, 'line_item_' || cli.id::text),
-          CASE
-            WHEN sp.maintenance_type = 'Periodic' THEN 'periodic_part'
-            WHEN sp.maintenance_type = 'Emergency' THEN 'emergency_part'
-            ELSE 'accessory'
-          END,
-          cli.spare_part_id,
-          COALESCE(sp.name, cli.description, 'قطعة غير معرّفة'),
-          sp.code
-        ORDER BY MAX(c.contract_date) DESC NULLS LAST, COALESCE(sp.name, cli.description, 'قطعة غير معرّفة')
+        FROM stock_entries
+        GROUP BY stock_key, item_type, item_id, item_name, item_code
+        ORDER BY MAX(received_at) DESC NULLS LAST, item_name
         `,
         [customerId],
       );
@@ -1140,7 +1157,7 @@ router.get(
           quantityAvailable: Number(r.quantity_available || 0),
           firstReceivedAt: r.first_received_at,
           lastReceivedAt: r.last_received_at,
-          contractsCount: Number(r.contracts_count || 0),
+          sourcesCount: Number(r.sources_count || 0),
           sources: Array.isArray(r.sources) ? r.sources : [],
         })),
         summary: {

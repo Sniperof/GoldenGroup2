@@ -8,9 +8,10 @@ interface Props {
 }
 
 interface StockSource {
-  contractId: number;
-  contractNumber: string | null;
-  contractDate: string | null;
+  sourceType: string;
+  sourceId: string;
+  sourceLabel: string;
+  receivedAt: string | null;
 }
 
 interface StockRecord {
@@ -22,7 +23,7 @@ interface StockRecord {
   quantityAvailable: number;
   firstReceivedAt: string | null;
   lastReceivedAt: string | null;
-  contractsCount: number;
+  sourcesCount: number;
   sources: StockSource[];
 }
 
@@ -56,6 +57,14 @@ function itemTypeLabel(type: string) {
     case 'periodic_part': return 'قطعة دورية';
     case 'emergency_part': return 'قطعة طارئة';
     case 'accessory': return 'اكسسوار';
+    default: return type || 'غير محدد';
+  }
+}
+
+function sourceTypeLabel(type: string) {
+  switch (type) {
+    case 'contract': return 'عقد';
+    case 'emergency_maintenance': return 'مهمة طارئة';
     default: return type || 'غير محدد';
   }
 }
@@ -188,7 +197,7 @@ export function PartsStockTab({ client }: Props) {
                         </div>
                         <div className="text-xs text-slate-500 flex items-center gap-3 flex-wrap">
                           <span>الكمية المتاحة: {record.quantityAvailable}</span>
-                          <span>عدد العقود المصدرية: {record.contractsCount}</span>
+                          <span>عدد مصادر الإدخال: {record.sourcesCount}</span>
                         </div>
                       </div>
                     </div>
@@ -205,17 +214,17 @@ export function PartsStockTab({ client }: Props) {
                     <MetaPill icon={Layers3} label="الكمية الحالية" value={String(record.quantityAvailable)} />
                     <MetaPill icon={CalendarClock} label="أول إدخال" value={fmtDate(record.firstReceivedAt)} />
                     <MetaPill icon={CalendarClock} label="آخر إدخال" value={fmtDate(record.lastReceivedAt)} />
-                    <MetaPill icon={FileStack} label="عقود المصدر" value={String(record.contractsCount)} />
+                    <MetaPill icon={FileStack} label="مصادر الإدخال" value={String(record.sourcesCount)} />
                   </div>
 
                   {record.sources.length > 0 ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {record.sources.slice(0, 6).map((source, index) => (
                         <span
-                          key={`${record.stockId}-${source.contractId ?? index}`}
+                          key={`${record.stockId}-${source.sourceType}-${source.sourceId ?? index}`}
                           className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 text-[11px] font-bold"
                         >
-                          عقد #{source.contractNumber || source.contractId} · {fmtDate(source.contractDate)}
+                          {sourceTypeLabel(source.sourceType)} · {source.sourceLabel} · {fmtDate(source.receivedAt)}
                         </span>
                       ))}
                     </div>
