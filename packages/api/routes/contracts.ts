@@ -182,12 +182,36 @@ async function syncContractWarrantySnapshot(
   );
 }
 
-const dueSelect = `
-  id, contract_id AS "contractId", type, scheduled_date AS "scheduledDate",
-  adjusted_date AS "adjustedDate", original_amount AS "originalAmount",
-  remaining_balance AS "remainingBalance", assigned_telemarketer_id AS "assignedTelemarketerId",
-  status, escalated
+const projectedDueSelect = `
+  i.id,
+  i.contract_id AS "contractId",
+  'Installment'::varchar AS type,
+  i.due_date AS "scheduledDate",
+  i.due_date AS "adjustedDate",
+  i.amount_syp AS "originalAmount",
+  i.remaining_balance AS "remainingBalance",
+  i.collection_owner_id AS "assignedTelemarketerId",
+  CASE
+    WHEN i.remaining_balance <= 0 THEN 'Paid'
+    WHEN COALESCE(i.paid_amount, 0) > 0 THEN 'Partial'
+    WHEN i.status = 'overdue' OR i.due_date < CURRENT_DATE THEN 'Overdue'
+    ELSE 'Pending'
+  END AS status,
+  FALSE AS escalated
 `;
+
+async function fetchProjectedDuesByContractIds(dbClient: any, contractIds: number[]) {
+  if (contractIds.length === 0) return [] as any[];
+  const { rows } = await dbClient.query(
+    `SELECT ${projectedDueSelect}
+       FROM contract_installments i
+      WHERE i.contract_id = ANY($1)
+        AND i.remaining_balance > 0
+      ORDER BY i.contract_id, i.installment_number`,
+    [contractIds],
+  );
+  return rows.map(mapDue);
+}
 
 /**
  * @swagger
@@ -382,10 +406,8 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows: contracts } = await pool.query(`SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id ${where} ORDER BY c.id DESC`, params);
   const ids = contracts.map((c: any) => c.id);
-  const { rows: dues } = ids.length
-    ? await pool.query(`SELECT ${dueSelect} FROM dues WHERE contract_id = ANY($1) ORDER BY contract_id, scheduled_date`, [ids])
-    : { rows: [] as any[] };
-  res.json(contracts.map((c: any) => ({ ...mapContract(c), dues: dues.filter((d: any) => d.contractId === c.id).map(mapDue) })));
+  const dues = await fetchProjectedDuesByContractIds(pool, ids);
+  res.json(contracts.map((c: any) => ({ ...mapContract(c), dues: dues.filter((d: any) => d.contractId === c.id) })));
 });
 
 /**
@@ -432,10 +454,6 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
   const access = authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const contract = mapContract(rows[0]);
-  const { rows: dues } = await pool.query(
-    `SELECT ${dueSelect} FROM dues WHERE contract_id = $1 ORDER BY scheduled_date`,
-    [contract.id],
-  );
   // Linked open tasks (emergency, maintenance, collection, service, etc.)
   const { rows: tasks } = await pool.query(
     `SELECT ot.id, ot.task_type AS "taskType", ot.task_family AS "taskFamily",
@@ -542,12 +560,30 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
       ? pool.query(`SELECT id, label, percentage FROM device_discounts WHERE id = $1`, [contract.discountId])
       : Promise.resolve({ rows: [] as any[] }),
   ]);
+  const dues = installmentsResult.rows
+    .filter((inst: any) => Number(inst.remainingBalance) > 0)
+    .map((inst: any) => mapDue({
+      id: inst.id,
+      contractId: contract.id,
+      type: 'Installment',
+      scheduledDate: inst.dueDate,
+      adjustedDate: inst.dueDate,
+      originalAmount: inst.amountSyp,
+      remainingBalance: inst.remainingBalance,
+      assignedTelemarketerId: inst.collectionOwnerId ?? null,
+      status:
+        inst.status === 'paid' ? 'Paid'
+          : inst.status === 'partial' ? 'Partial'
+            : inst.status === 'overdue' ? 'Overdue'
+              : (inst.dueDate && new Date(inst.dueDate) < new Date() ? 'Overdue' : 'Pending'),
+      escalated: false,
+    }));
 
   res.json({
     ...contract,
     installationGeoPath,
     ownershipDisplay,
-    dues: dues.map(mapDue),
+    dues,
     tasks,
     client: client ? {
       ...client,
@@ -777,20 +813,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       }
     }
 
-    const duesResult: any[] = [];
-    if (c.dues && c.dues.length > 0) {
-      for (const d of c.dues) {
-        const { rows: dRows } = await client.query(
-          `INSERT INTO dues (contract_id, type, scheduled_date, adjusted_date,
-            original_amount, remaining_balance, assigned_telemarketer_id, status, escalated)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${dueSelect}`,
-          [contract.id, d.type, d.scheduledDate, d.adjustedDate,
-           d.originalAmount, d.remainingBalance, d.assignedTelemarketerId || null,
-           d.status || 'Pending', d.escalated || false]
-        );
-        duesResult.push(dRows[0]);
-      }
-    }
+    // Financial constitution: `dues` are no longer stored independently.
+    // Any legacy payload field is ignored; open receivables are projected from
+    // contract_installments.remaining_balance instead.
+    const duesResult = await fetchProjectedDuesByContractIds(client, [contract.id]);
 
     // OP promotion: client now has a contract → company ownership, no personal assignments
     if (c.customerId) {
@@ -798,7 +824,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json({ ...mapContract(contract), dues: duesResult.map(mapDue) });
+    res.json({ ...mapContract(contract), dues: duesResult });
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

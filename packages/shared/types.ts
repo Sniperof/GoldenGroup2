@@ -795,6 +795,9 @@ export interface ContractDiscountSnapshot {
 export type DueType = 'Installment' | 'Maintenance Fee' | 'Down Payment';
 export type DueStatus = 'Pending' | 'Partial' | 'Paid' | 'Overdue';
 
+// DEC-CT-06: `Due` is now a UI/read-model projection of unsettled installments.
+// It is kept for backward-compatible contract screens, while the source of truth
+// for remaining receivables lives on ContractInstallment.remainingBalance.
 export interface Due {
     id: number;
     contractId: number;
@@ -862,6 +865,7 @@ export interface Contract {
     paymentType: PaymentType;
     downPayment: number;
     installmentsCount: number;
+    /** Backward-compatible read projection of open installment balances. */
     dues: Due[];
     deliveryDate: string;
     installationDate: string;
