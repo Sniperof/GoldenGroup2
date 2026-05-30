@@ -47,6 +47,7 @@ const contractSelect = `
   c.created_by AS "createdById",
   c.sale_owner_id AS "saleOwnerId",
   c.offer_team_snapshot AS "offerTeamSnapshot",
+  c.contract_referrers AS "contractReferrers",
   -- Physical device fields (source: installed_devices)
   d.serial_number              AS "serialNumber",
   d.status                     AS "deviceStatus",
@@ -693,8 +694,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         buyer_birth_date, buyer_gender,
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number,
         no_closing_reason_id, sale_subtype, created_by,
-        sale_owner_id, offer_team_snapshot)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
+        sale_owner_id, offer_team_snapshot, contract_referrers)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
       RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
@@ -712,7 +713,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        (req as any).user?.id || null,
        // DEC-CT-11 / DEC-CT-13 — frozen at creation; never updated later via this path.
        c.saleOwnerId || null,
-       c.offerTeamSnapshot ? JSON.stringify(c.offerTeamSnapshot) : null]
+       c.offerTeamSnapshot ? JSON.stringify(c.offerTeamSnapshot) : null,
+       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]']
     );
     const contractId = rows[0].id;
 
@@ -928,9 +930,9 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
         buyer_birth_date=$25, buyer_gender=$26,
         contract_type=$27, source_open_task_id=$28, source_task_offer_id=$29,
         sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32,
-        sale_owner_id=$33
+        sale_owner_id=$33, contract_referrers=$34
         -- offer_team_snapshot is deliberately NOT updated here: DEC-CT-13 freezes it at creation.
-      WHERE id=$34`,
+      WHERE id=$35`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
@@ -949,6 +951,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        c.noClosingReasonId || null,
        c.saleSubtype || 'definitive',
        c.saleOwnerId || null,
+       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]',
        req.params.id]
     );
 

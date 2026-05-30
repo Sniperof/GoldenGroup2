@@ -442,29 +442,28 @@ export default function ContractDetail() {
               </>
             )}
 
-            {/* الجزء هـ: الوسيط الأساسي */}
-            {data.client?.referrersCount > 0 && data.client.referrers?.[0] && (
+            {/* الجزء هـ: وسطاء العقد */}
+            {Array.isArray(data.contractReferrers) && data.contractReferrers.length > 0 && (
               <>
                 <Divider />
                 <div>
-                  <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">🤝 الوسيط</div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-slate-700 font-medium">{data.client.referrers[0].name}</span>
-                    {data.client.referrers[0].type && (
-                      <span className="text-xs text-slate-400">
-                        ({data.client.referrers[0].type === 'client' ? 'زبون'
-                          : data.client.referrers[0].type === 'employee' ? 'موظف'
-                          : data.client.referrers[0].type === 'personal' ? 'شخصي'
-                          : data.client.referrers[0].type === 'customer' ? 'عميل'
-                          : data.client.referrers[0].type})
-                      </span>
-                    )}
+                  <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">🤝 وسطاء العقد</div>
+                  <div className="flex flex-wrap gap-2">
+                    {data.contractReferrers.map((referrer: any) => (
+                      <div key={referrer.id || referrer.referrerName} className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sm">
+                        <span className="text-slate-700 font-medium">{referrer.referrerName}</span>
+                        {referrer.referrerType && (
+                          <span className="text-xs text-slate-400">
+                            ({referrer.referrerType === 'client' ? 'زبون'
+                              : referrer.referrerType === 'employee' ? 'موظف'
+                              : referrer.referrerType === 'personal' ? 'شخصي'
+                              : referrer.referrerType === 'customer' ? 'عميل'
+                              : referrer.referrerType})
+                          </span>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                  {data.client.referrersCount > 1 && (
-                    <div className="text-xs text-slate-500 mt-1">
-                      +{data.client.referrersCount - 1} وسيط آخر
-                    </div>
-                  )}
                 </div>
               </>
             )}

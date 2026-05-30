@@ -884,6 +884,8 @@ export interface Contract {
     saleOwnerId?: number | null;
     /** DEC-CT-13 — JSON snapshot of the offer team, frozen at contract creation. */
     offerTeamSnapshot?: ContractOfferTeamMember[] | null;
+    /** Selected customer referrers frozen on the contract at creation/update time. */
+    contractReferrers?: ClientReferrer[] | null;
     invoiceNotes?: string | null;
     receiptNumber?: string | null;
     createdAt: string;
