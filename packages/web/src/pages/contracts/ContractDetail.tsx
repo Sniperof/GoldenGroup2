@@ -750,11 +750,16 @@ export default function ContractDetail() {
           </Card>
         )}
 
-        {/* ══ Group 10: الذمم المالية ══════════════════════════════════════════ */}
+        {/* ══ Group 10: الأقساط المفتوحة (projection of installment balances) ══ */}
         {dues.length > 0 && (
           <Card className="!p-0 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
-              <span className="text-base font-bold text-slate-800">💰 الذمم المالية ({dues.length})</span>
+              <div className="flex flex-col gap-1">
+                <span className="text-base font-bold text-slate-800">💰 الأقساط المفتوحة ({dues.length})</span>
+                <span className="text-xs text-slate-500">
+                  هذا القسم مشتق تلقائياً من الأقساط التي لا يزال عليها رصيد متبقٍ.
+                </span>
+              </div>
             </div>
             <div className="grid gap-x-3 px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-400"
               style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 5rem' }}>
@@ -782,7 +787,7 @@ export default function ContractDetail() {
             })}
             <div className="grid gap-x-3 px-5 py-3 bg-slate-50 text-xs font-bold text-slate-500"
               style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 5rem' }}>
-              <span></span><span>إجمالي المتبقي</span><span></span>
+              <span></span><span>إجمالي الرصيد المفتوح</span><span></span>
               <span className="font-mono text-amber-700">
                 {fmtMoney(dues.reduce((s: number, d: any) => s + Number(d.remainingBalance), 0))}
               </span>
