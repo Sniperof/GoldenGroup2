@@ -43,7 +43,7 @@ SELECT
   vtr.id,
   r.outcome, r.serial_number, NULL,
   r.delivery_condition, r.delivery_address,
-  r.delivery_lat, r.delivery_lng,
+  NULL, NULL,
   r.actual_delivery_date, r.delivered_by_employee_id,
   r.customer_acknowledged, r.notes,
   r.created_at, r.updated_at

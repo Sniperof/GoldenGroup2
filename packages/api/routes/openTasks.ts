@@ -102,6 +102,7 @@ function mapOpenTaskRow(row: any) {
     branchId: row.branch_id,
     contractId: row.contract_id ?? null,
     deviceId: row.device_id ?? null,
+    installmentId: row.installment_id ?? null, // DEC-CT-07
     branchName: row.branchName ?? null,
     displayBranchName: row.branchName ?? row.clientBranchName ?? row.taskBranchName ?? null,
     displayCreatedByName: row.createdByName ?? row.createdBy?.name ?? row.createdBy?.username ?? null,
@@ -624,14 +625,27 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       deviceId = devRows[0]?.id ?? null;
     }
 
+    // DEC-CT-07: collection tasks must target a specific installment.
+    // The DB CHECK (migration 205) enforces this for new rows.
+    const installmentId = Number(req.body?.installmentId) || null;
+    if (['installment_collection', 'maintenance_collection'].includes(taskType) && !installmentId) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'installmentId مطلوب لمهام التحصيل (DEC-CT-07)',
+      });
+    }
+
     const { rows: taskRows } = await pgClient.query(
       `INSERT INTO open_tasks (
          client_id, branch_id, task_type, task_family, reason, status,
-         due_date, expected_date, priority, source, notes, created_by, origin, contract_id, device_id
+         due_date, expected_date, priority, source, notes, created_by, origin,
+         contract_id, device_id, installment_id
        ) VALUES ($1, $2, $3, $4, $5, 'open',
-         $6::date, $7::date, $8, 'manual', $9, $10, 'manual_entry', $11, $12)
+         $6::date, $7::date, $8, 'manual', $9, $10, 'manual_entry',
+         $11, $12, $13)
        RETURNING id`,
-      [clientId, branchId, taskType, taskFamily, reason, dueDate, expectedDate, priority, notes, authContext.userId ?? null, contractId, deviceId],
+      [clientId, branchId, taskType, taskFamily, reason, dueDate, expectedDate, priority, notes,
+       authContext.userId ?? null, contractId, deviceId, installmentId],
     );
     const openTaskId = taskRows[0].id;
 
@@ -1559,7 +1573,12 @@ async function updateContractDeviceStatusOnTaskCompletion(db: Queryable, taskId:
     newContractStatus = 'active';
   }
 
-  // Phase 6: device_status lives on installed_devices, not contracts
+  // Phase 6: device_status lives on installed_devices, not contracts.
+  //
+  // DEC-CT-04: the UPDATE of status='active' triggers DB-side cascade
+  // (installed_devices.activated_at stamping + device_warranties snapshot)
+  // installed by migration 203 — no app-side warranty bookkeeping is needed.
+  let resolvedDeviceId: number | null = deviceId ?? null;
   if (newDeviceStatus && deviceId) {
     await db.query(
       'UPDATE installed_devices SET status = $1 WHERE id = $2',
@@ -1567,10 +1586,38 @@ async function updateContractDeviceStatusOnTaskCompletion(db: Queryable, taskId:
     );
   } else if (newDeviceStatus && contractId) {
     // fallback via contract_id for tasks that predate Phase 3 backfill
-    await db.query(
-      'UPDATE installed_devices SET status = $1 WHERE contract_id = $2',
+    const r = await db.query(
+      'UPDATE installed_devices SET status = $1 WHERE contract_id = $2 RETURNING id',
       [newDeviceStatus, contractId]
     );
+    resolvedDeviceId = r.rows[0]?.id ?? null;
+  }
+
+  // DEC-CT-09: keep the possession ledger in sync with the task flow.
+  // Delivery hands the device to the customer; activation does not move it.
+  // We only open a new possession row when the holder genuinely changes.
+  if (resolvedDeviceId && taskType === 'device_delivery') {
+    const { rows: customerRow } = await db.query(
+      'SELECT customer_id FROM installed_devices WHERE id = $1',
+      [resolvedDeviceId]
+    );
+    const customerId = customerRow[0]?.customer_id ?? null;
+    if (customerId) {
+      // Close any open warehouse row and open a customer row atomically.
+      await db.query(
+        `UPDATE device_possession_log
+            SET end_at = NOW()
+          WHERE device_id = $1 AND end_at IS NULL`,
+        [resolvedDeviceId]
+      );
+      await db.query(
+        `INSERT INTO device_possession_log
+           (device_id, holder_type, holder_id, reason, notes)
+         VALUES ($1, 'customer', $2, 'sale_delivery',
+                 'Logged automatically on device_delivery task completion')`,
+        [resolvedDeviceId, customerId]
+      );
+    }
   }
 
   if (newContractStatus) {

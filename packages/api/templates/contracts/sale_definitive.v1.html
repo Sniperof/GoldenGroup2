@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>عقد بيع — {{contractNumber}}</title>
+  <style>
+    body { font-family: "Tajawal", "Segoe UI", Arial, sans-serif; color: #111; padding: 32px; max-width: 820px; margin: auto; line-height: 1.7; }
+    h1 { text-align: center; font-size: 1.4rem; margin-bottom: 8px; }
+    .subtitle { text-align: center; color: #555; margin-bottom: 28px; }
+    .parties, .device, .financial { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .row > div { flex: 1 1 240px; }
+    .label { color: #555; font-size: 0.85rem; }
+    .value { font-weight: 600; }
+    .terms { padding: 12px 16px; background: #fafafa; border-right: 4px solid #888; margin: 20px 0; font-size: 0.95rem; }
+    .signatures { display: flex; gap: 24px; margin-top: 60px; }
+    .signature { flex: 1; border-top: 1px solid #333; padding-top: 8px; text-align: center; }
+    .watermark-draft {
+      position: fixed; inset: 0; pointer-events: none;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 7rem; color: rgba(200, 30, 30, 0.12);
+      transform: rotate(-30deg); font-weight: 800;
+    }
+    .installments table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .installments th, .installments td { border: 1px solid #ddd; padding: 6px; text-align: center; font-size: 0.9rem; }
+    .installments th { background: #f5f5f5; }
+  </style>
+</head>
+<body>
+  {{#draftWatermark}}<div class="watermark-draft">مسودة غير معتمدة</div>{{/draftWatermark}}
+
+  <h1>عقد بيع جهاز قطعي</h1>
+  <div class="subtitle">رقم العقد: {{contractNumber}} — التاريخ: {{contractDate}}</div>
+
+  <div class="parties">
+    <div class="row">
+      <div>
+        <div class="label">الفريق الأول (البائع)</div>
+        <div class="value">شركة Golden Group</div>
+        <div class="label" style="margin-top:8px">ممثل الفريق الأول</div>
+        <div class="value">{{closingEmployeeName}}</div>
+      </div>
+      <div>
+        <div class="label">الفريق الثاني (المشتري)</div>
+        <div class="value">{{customerName}}</div>
+        <div class="label" style="margin-top:8px">والدة المشتري</div>
+        <div class="value">{{buyerMotherName}}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="device">
+    <div class="row">
+      <div>
+        <div class="label">طراز الجهاز</div>
+        <div class="value">{{deviceModelName}}</div>
+      </div>
+      <div>
+        <div class="label">الرقم التسلسلي</div>
+        <div class="value">{{serialNumber}}</div>
+      </div>
+      <div>
+        <div class="label">عنوان التركيب</div>
+        <div class="value">{{installationAddressText}}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="financial">
+    <div class="row">
+      <div>
+        <div class="label">السعر الأساسي</div>
+        <div class="value">{{basePrice}} ل.س</div>
+      </div>
+      <div>
+        <div class="label">السعر النهائي</div>
+        <div class="value">{{finalPrice}} ل.س</div>
+      </div>
+      <div>
+        <div class="label">طريقة الدفع</div>
+        <div class="value">{{paymentType}}</div>
+      </div>
+    </div>
+    {{#installmentsSection}}
+    <div class="installments">
+      <div class="label" style="margin-top:12px">جدول الأقساط</div>
+      <table>
+        <thead><tr><th>#</th><th>تاريخ الاستحقاق</th><th>المبلغ</th></tr></thead>
+        <tbody>
+          {{installmentsRows}}
+        </tbody>
+      </table>
+    </div>
+    {{/installmentsSection}}
+  </div>
+
+  <div class="terms">
+    اتفق الطرفان على بيع الجهاز المذكور أعلاه بالشروط التالية:
+    البيع قطعي ولا يحق للمشتري إعادة الجهاز بعد التسليم إلا وفق سياسة الكفالة المعتمدة.
+    تتولى الشركة تركيب الجهاز وتشغيله، وتبدأ كفالة العقد فعلياً عند تسجيل نتيجة مهمة تشغيل الجهاز.
+    {{#periodicVisitsSection}}كما تتعهد الشركة بإجراء {{warrantyVisits}} زيارات دورية ضمن مدة الكفالة.{{/periodicVisitsSection}}
+  </div>
+
+  <div class="signatures">
+    <div class="signature">توقيع ممثل الفريق الأول<br/>{{closingEmployeeName}}</div>
+    <div class="signature">توقيع الفريق الثاني<br/>{{customerName}}</div>
+  </div>
+</body>
+</html>

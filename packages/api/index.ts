@@ -22,6 +22,8 @@ import referralSheetsRouter from './routes/referralSheets.js';
 import routesRouter from './routes/routes.js';
 import tasksRouter from './routes/tasks.js';
 import contractsRouter from './routes/contracts.js';
+import contractDocumentsRouter from './routes/contractDocuments.js';
+import serviceAgreementsRouter from './routes/serviceAgreements.js';
 import duesRouter from './routes/dues.js';
 import deviceModelsRouter from './routes/deviceModels.js';
 import installedDevicesRouter from './routes/installedDevices.js';
@@ -51,10 +53,12 @@ import openTasksRouter from './routes/openTasks.js';
 import workScopesRouter from './routes/workScopes.js';
 import fieldVisitsRouter from './routes/fieldVisits.js';
 import customerCallsRouter from './routes/customerCalls.js';
+import customerStatementRouter from './routes/customerStatement.js';
 import taskTypeConfigRouter from './routes/taskTypeConfig.js';
 import emergencyActionTypesRouter from './routes/emergencyActionTypes.js';
 import emergencyResultRouter from './routes/emergencyResult.js';
 import deviceWarrantiesRouter from './routes/deviceWarranties.js';
+import devicePossessionRouter from './routes/devicePossession.js';
 import devicePartsRouter from './routes/deviceParts.js';
 
 const app = express();
@@ -118,12 +122,16 @@ app.use('/api/field-visits', ...branchOnly, fieldVisitsRouter);
 
 // ── Customer call logs (accessible from both HQ and branch contexts) ─────────
 app.use('/api/customers', requireAuth, customerCallsRouter);
+app.use('/api/customers', requireAuth, customerStatementRouter); // DEC-CT-10
 
 // ── Shared routes (HQ + branch) ───────────────────────────────────────────────
 app.use('/api/contracts', contractsRouter);
+app.use('/api/contracts', contractDocumentsRouter); // DEC-CT-14, DEC-CT-15
+app.use('/api/service-agreements', serviceAgreementsRouter); // DEC-CT-02
 app.use('/api/device-models', deviceModelsRouter);
 app.use('/api/installed-devices', installedDevicesRouter);
 app.use('/api/device-warranties', deviceWarrantiesRouter);
+app.use('/api/devices', devicePossessionRouter); // DEC-CT-09
 app.use('/api/device-parts', devicePartsRouter);
 app.use('/api/spare-parts', sparePartsRouter);
 app.use('/api/dashboard', dashboardRouter);

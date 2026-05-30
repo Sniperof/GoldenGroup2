@@ -120,15 +120,18 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function DeviceStatusBadge({ status }: { status: string }) {
+  // DEC-CT-03: unified device status dictionary.
   const map: Record<string, { cls: string; label: string }> = {
-    pending_delivery:  { cls: 'bg-amber-100 text-amber-700',    label: 'بانتظار التوصيل' },
-    delivered:         { cls: 'bg-sky-100 text-sky-700',        label: 'تم التوصيل' },
-    installed:         { cls: 'bg-emerald-100 text-emerald-700', label: 'مركّب' },
-    active:            { cls: 'bg-green-100 text-green-700',    label: 'نشط' },
-    under_maintenance: { cls: 'bg-orange-100 text-orange-700',  label: 'تحت الصيانة' },
-    faulty:            { cls: 'bg-red-100 text-red-700',        label: 'معطل' },
-    retrieved:         { cls: 'bg-slate-100 text-slate-600',    label: 'مستردة' },
-    disconnected:      { cls: 'bg-gray-100 text-gray-500',      label: 'مفصولة' },
+    registered:       { cls: 'bg-indigo-100 text-indigo-700',  label: 'مسجّل' },
+    pending_delivery: { cls: 'bg-amber-100 text-amber-700',    label: 'بانتظار التوصيل' },
+    delivered:        { cls: 'bg-sky-100 text-sky-700',        label: 'تم التوصيل' },
+    installed:        { cls: 'bg-emerald-100 text-emerald-700', label: 'مركّب' },
+    active:           { cls: 'bg-green-100 text-green-700',    label: 'نشط' },
+    faulty:           { cls: 'bg-red-100 text-red-700',        label: 'معطل' },
+    in_workshop:      { cls: 'bg-orange-100 text-orange-700',  label: 'في الورشة' },
+    ready:            { cls: 'bg-cyan-100 text-cyan-700',      label: 'جاهز' },
+    out_of_service:   { cls: 'bg-gray-100 text-gray-500',      label: 'خارج الخدمة' },
+    retrieved:        { cls: 'bg-slate-100 text-slate-600',    label: 'مستردة' },
   };
   const m = map[status] ?? { cls: 'bg-slate-100 text-slate-600', label: status };
   return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${m.cls}`}>{m.label}</span>;
@@ -299,7 +302,8 @@ export default function ContractDetail() {
       </div>
 
       {/* ── Temporary Contract Banner ─────────────────────────────────────── */}
-      {data.status === 'temporary' && (
+      {/* DEC-CT-01: `temporary` moved from status → saleSubtype */}
+      {data.saleSubtype === 'temporary' && data.status !== 'cancelled' && data.status !== 'discarded' && (
         <div className="max-w-5xl mx-auto px-4 pt-4">
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>

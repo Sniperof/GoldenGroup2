@@ -22,8 +22,15 @@
 - `docs/constitution/templates/README.md`
 - `docs/constitution/templates/*.md`
 - `docs/constitution/vault-migration-map.md`
+- `docs/constitution/contracts/README.md`
+- `docs/constitution/contracts/*.md`
 
 ## مبدأ العمل
 - أي تعديل يبدأ بتحليل واضح لجزئية محددة.
 - إذا التعديل يغيّر المعنى أو العقد، نحدّث الدستور أولًا.
 - الكود الحالي هو الحقيقة التشغيلية، والدساتير تنظّم التغيير والفهم.
+
+## مسارات متخصصة
+
+- `docs/constitution/contracts/README.md`
+  مسار عمل مخصص لتفكيك العقود إلى: تعريف الجهاز، تعريف العقد، الالتزامات المالية، ودورة ما بعد البيع.

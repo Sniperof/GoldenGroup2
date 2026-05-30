@@ -812,6 +812,14 @@ export default function ContractForm() {
 
     const handleSubmit = useCallback(async () => {
         if (!isValid || saving) return;
+        // DEC-CT-02: maintenance contracts are now ServiceAgreements.
+        // The /api/contracts endpoint rejects contract_type='maintenance_contract'.
+        // Block submission with a helpful message until the new UI ships.
+        if (contractType === 'maintenance_contract') {
+            alert('عقود الصيانة انتقلت إلى "اتفاقيات الخدمة" (service_agreements). يرجى استخدام الواجهة الجديدة عند توفرها (DEC-CT-02).');
+            return;
+        }
+
         setSaving(true);
         try {
             const isMaintenance = contractType === 'maintenance_contract';
@@ -863,7 +871,10 @@ export default function ContractForm() {
                 invoiceNotes: invoiceNotes.trim() || null,
                 contractType,
                 saleSubtype: isMaintenance ? null : saleSubtype,
-                status: isMaintenance ? 'active' : (saleSubtype === 'temporary' ? 'temporary' : 'active'),
+                // DEC-CT-01: `temporary` is no longer a status; it's a saleSubtype.
+                // Status follows draft→active rule: active iff a closing_employee_id
+                // is assigned at creation, otherwise draft.
+                status: isMaintenance ? 'active' : (closingEmployeeId ? 'active' : 'draft'),
                 sourceOpenTaskId: isMaintenance ? null : (sourceOpenTaskId || null),
                 sourceTaskOfferId: isMaintenance ? null : (sourceTaskOfferId || null),
                 saleReferenceNumber: isMaintenance ? null : (saleReferenceNumber || null),

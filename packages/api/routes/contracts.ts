@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
+import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
 
 const router = Router();
 router.use(requireAuth);
@@ -44,6 +45,8 @@ const contractSelect = `
   c.code AS "code",
   c.installed_device_id AS "installedDeviceId",
   c.created_by AS "createdById",
+  c.sale_owner_id AS "saleOwnerId",
+  c.offer_team_snapshot AS "offerTeamSnapshot",
   -- Physical device fields (source: installed_devices)
   d.serial_number              AS "serialNumber",
   d.status                     AS "deviceStatus",
@@ -419,14 +422,16 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
       `SELECT id, method, currency, amount_value AS "amountValue", exchange_rate AS "exchangeRate",
               amount_syp AS "amountSyp", reference_number AS "referenceNumber",
               barter_name AS "barterName", barter_value_syp AS "barterValueSyp",
-              received_by_employee_id AS "receivedByEmployeeId", received_at AS "receivedAt", notes
+              received_by_employee_id AS "receivedByEmployeeId", received_at AS "receivedAt", notes,
+              entry_type AS "entryType", installment_id AS "installmentId"
        FROM contract_payment_entries WHERE contract_id = $1 ORDER BY id`,
       [contract.id],
     ),
     pool.query(
       `SELECT id, installment_number AS "installmentNumber", due_date AS "dueDate",
               amount_syp AS "amountSyp", status, paid_amount AS "paidAmount",
-              remaining_balance AS "remainingBalance", confirmed
+              remaining_balance AS "remainingBalance", confirmed,
+              collection_owner_id AS "collectionOwnerId"
        FROM contract_installments WHERE contract_id = $1 ORDER BY installment_number`,
       [contract.id],
     ),
@@ -554,8 +559,9 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         buyer_national_id_issue_date, buyer_national_id_box,
         buyer_birth_date, buyer_gender,
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number,
-        no_closing_reason_id, sale_subtype, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+        no_closing_reason_id, sale_subtype, created_by,
+        sale_owner_id, offer_team_snapshot)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
       RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
@@ -570,7 +576,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        c.buyerBirthDate || null, c.buyerGender || null,
        c.contractType || 'sale_contract', c.sourceOpenTaskId || null, c.sourceTaskOfferId || null, c.saleReferenceNumber || null,
        c.noClosingReasonId || null, c.saleSubtype || 'definitive',
-       (req as any).user?.id || null]
+       (req as any).user?.id || null,
+       // DEC-CT-11 / DEC-CT-13 — frozen at creation; never updated later via this path.
+       c.saleOwnerId || null,
+       c.offerTeamSnapshot ? JSON.stringify(c.offerTeamSnapshot) : null]
     );
     const contractId = rows[0].id;
 
@@ -654,13 +663,16 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         await client.query(
           `INSERT INTO contract_payment_entries
             (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
-             reference_number, barter_name, barter_value_syp, received_by_employee_id, notes)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+             reference_number, barter_name, barter_value_syp, received_by_employee_id, notes,
+             entry_type, installment_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           [contract.id, entry.method, entry.currency || 'SYP', entry.amountValue || 0,
            entry.exchangeRate || null, entry.amountSyp || 0,
            entry.referenceNumber || null, entry.barterName || null,
            entry.barterValueSyp || null, entry.receivedByEmployeeId || null,
-           entry.notes || null],
+           entry.notes || null,
+           entry.entryType || 'collection',
+           entry.installmentId || null],
         );
       }
     }
@@ -758,10 +770,16 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
  */
 router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const authContext = req.authContext!;
-  const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [req.params.id]);
+  // DEC-CT-15: we need the previous status to detect the draft→active transition
+  // and trigger the auto-freeze of the legal copy.
+  const { rows: existing } = await pool.query(
+    'SELECT branch_id, status AS "prevStatus" FROM contracts WHERE id = $1',
+    [req.params.id],
+  );
   if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
   const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branch_id });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
+  const prevStatus: string = existing[0].prevStatus;
   const c = req.body;
 
   // Physical device location (for installed_devices)
@@ -799,8 +817,10 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
         buyer_national_id_issue_date=$23, buyer_national_id_box=$24,
         buyer_birth_date=$25, buyer_gender=$26,
         contract_type=$27, source_open_task_id=$28, source_task_offer_id=$29,
-        sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32
-      WHERE id=$33`,
+        sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32,
+        sale_owner_id=$33
+        -- offer_team_snapshot is deliberately NOT updated here: DEC-CT-13 freezes it at creation.
+      WHERE id=$34`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
@@ -818,6 +838,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        c.saleReferenceNumber || null,
        c.noClosingReasonId || null,
        c.saleSubtype || 'definitive',
+       c.saleOwnerId || null,
        req.params.id]
     );
 
@@ -856,6 +877,20 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
            visits     = EXCLUDED.visits`,
         [c.contractDate || null, contractWarrantyEndDate, warrantyMonthsStored, warrantyVisits, req.params.id],
       );
+    }
+
+    // DEC-CT-15: auto-freeze the legal copy at the draft→active transition.
+    // freezeContractDocument() is idempotent — if a copy already exists,
+    // nothing is written, so a redundant transition is safe.
+    const newStatus: string = c.status || 'active';
+    if (prevStatus === 'draft' && newStatus === 'active') {
+      try {
+        await freezeContractDocument(pgClient, Number(req.params.id), (req as any).user?.id ?? null);
+      } catch (freezeErr: any) {
+        // Don't abort the contract update if freezing fails (e.g. missing template
+        // for a sale_subtype we haven't implemented yet). Log and continue.
+        console.warn('[contracts] auto-freeze skipped for contract', req.params.id, ':', freezeErr?.message);
+      }
     }
 
     await pgClient.query('COMMIT');
@@ -944,13 +979,16 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
       await pgClient.query(
         `INSERT INTO contract_payment_entries
           (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
-           reference_number, barter_name, barter_value_syp, received_by_employee_id, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+           reference_number, barter_name, barter_value_syp, received_by_employee_id, notes,
+           entry_type, installment_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [contractId, entry.method, entry.currency || 'SYP', entry.amountValue || 0,
          entry.exchangeRate || null, entry.amountSyp || 0,
          entry.referenceNumber || null, entry.barterName || null,
          entry.barterValueSyp || null, entry.receivedByEmployeeId || null,
-         entry.notes || null],
+         entry.notes || null,
+         entry.entryType || 'collection',
+         entry.installmentId || null],
       );
     }
     await pgClient.query('COMMIT');

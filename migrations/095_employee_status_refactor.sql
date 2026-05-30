@@ -13,7 +13,10 @@ BEGIN
   FROM pg_constraint
   WHERE conrelid = 'employees'::regclass
     AND contype = 'c'
-    AND pg_get_constraintdef(oid) ILIKE '%status IN (%';
+    AND (
+      conname = 'employees_status_check'
+      OR pg_get_constraintdef(oid) ILIKE '%status IN (%'
+    );
 
   IF constraint_name IS NOT NULL THEN
     EXECUTE format('ALTER TABLE employees DROP CONSTRAINT %I', constraint_name);
