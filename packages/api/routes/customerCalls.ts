@@ -958,7 +958,7 @@ router.get(
             (vtepu.quantity * COALESCE(vtepu.unit_price, 0)) AS total_price,
             'SYP' AS currency,
             COALESCE(vtef.payment_method, 'maintenance_paid') AS payment_type,
-            TRUE AS is_installed,
+            CASE WHEN erp.placement_state = 'customer_stock' THEN FALSE ELSE TRUE END AS is_installed,
             vtepu.old_part_removed,
             CASE
               WHEN d.is_golden_warranty = TRUE
@@ -985,6 +985,10 @@ router.get(
           FROM visit_task_emergency_parts_used vtepu
           JOIN visit_task_results vtr ON vtr.id = vtepu.visit_task_result_id
           JOIN visit_tasks vt ON vt.id = vtr.visit_task_id
+          LEFT JOIN emergency_result_parts erp
+            ON erp.open_task_id = vt.source_open_task_id
+           AND COALESCE(erp.spare_part_id, -1) = COALESCE(vtepu.spare_part_id, -1)
+           AND erp.part_name_snapshot = vtepu.part_name_snapshot
           JOIN field_visits fv ON fv.id = vt.field_visit_id
           LEFT JOIN visit_task_emergency_financials vtef ON vtef.visit_task_result_id = vtr.id
           LEFT JOIN spare_parts sp ON sp.id = vtepu.spare_part_id
@@ -1111,6 +1115,35 @@ router.get(
             AND cli.item_type = 'accessory'
             AND COALESCE(cli.is_installed, FALSE) = FALSE
             AND c.status IN ('active', 'completed')
+
+          UNION ALL
+
+          -- Source B: emergency parts explicitly delivered to the customer
+          -- without being installed yet.
+          SELECT
+            'emergency_maintenance'::text AS source_type,
+            ot.id::text AS source_id,
+            'مهمة طارئة #' || ot.id::text AS source_label,
+            COALESCE(vtr.closed_at::date::text, fv.scheduled_date::text) AS received_at,
+            COALESCE('spare_part_' || erp.spare_part_id::text, 'emergency_part_' || erp.id::text) AS stock_key,
+            CASE
+              WHEN erp.maintenance_type = 'Periodic' THEN 'periodic_part'
+              WHEN erp.maintenance_type = 'Emergency' THEN 'emergency_part'
+              ELSE 'accessory'
+            END AS item_type,
+            erp.spare_part_id AS item_id,
+            erp.part_name_snapshot AS item_name,
+            erp.part_code_snapshot AS item_code,
+            erp.quantity::integer AS quantity_available
+          FROM emergency_result_parts erp
+          JOIN open_tasks ot ON ot.id = erp.open_task_id
+          JOIN visit_tasks vt ON vt.open_task_id = ot.id
+          JOIN field_visits fv ON fv.id = vt.field_visit_id
+          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+          LEFT JOIN contracts c ON c.id = ot.contract_id
+          WHERE fv.client_id = $1
+            AND erp.placement_state = 'customer_stock'
+            AND (c.id IS NULL OR c.status IN ('active', 'completed'))
 
           -- Future sources go here as additional UNION ALL branches.
           -- Example candidates:

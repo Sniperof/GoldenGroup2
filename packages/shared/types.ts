@@ -913,6 +913,7 @@ export interface Contract {
 }
 
 export type MaintenancePartType = 'Periodic' | 'Emergency' | 'Accessory';
+export type EmergencyPartPlacementState = 'installed' | 'customer_stock';
 
 export interface SparePart {
     id: number;
