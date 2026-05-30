@@ -827,6 +827,7 @@ export default function ContractForm() {
             const isTemporarySale = !isMaintenance && saleSubtype === 'temporary';
             const isNoFinancialObligations = isMaintenance || isFreeSale;
             const isNoInitialPayments = isMaintenance || isFreeSale || isTemporarySale;
+            const nextContractStatus = closingEmployeeId ? 'active' : 'draft';
 
             const finalBasePrice = isNoFinancialObligations ? 0 : (selectedDevice?.basePrice || 0);
             const finalPriceVal = isNoFinancialObligations ? 0 : grandTotal;
@@ -874,7 +875,7 @@ export default function ContractForm() {
                 // DEC-CT-01: `temporary` is no longer a status; it's a saleSubtype.
                 // Status follows draft→active rule: active iff a closing_employee_id
                 // is assigned at creation, otherwise draft.
-                status: isMaintenance ? 'active' : (closingEmployeeId ? 'active' : 'draft'),
+                status: nextContractStatus,
                 sourceOpenTaskId: isMaintenance ? null : (sourceOpenTaskId || null),
                 sourceTaskOfferId: isMaintenance ? null : (sourceTaskOfferId || null),
                 saleReferenceNumber: isMaintenance ? null : (saleReferenceNumber || null),

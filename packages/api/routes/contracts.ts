@@ -79,6 +79,16 @@ function mapDue(d: any) {
   return { ...d, originalAmount: Number(d.originalAmount), remainingBalance: Number(d.remainingBalance) };
 }
 
+function deriveContractStatus(
+  status: unknown,
+  closingEmployeeId: unknown,
+): 'draft' | 'active' | 'cancelled' | 'completed' | 'discarded' {
+  if (status === 'cancelled' || status === 'completed' || status === 'discarded') {
+    return status;
+  }
+  return closingEmployeeId ? 'active' : 'draft';
+}
+
 const dueSelect = `
   id, contract_id AS "contractId", type, scheduled_date AS "scheduledDate",
   adjusted_date AS "adjustedDate", original_amount AS "originalAmount",
@@ -517,6 +527,7 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  */
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const c = req.body;
+  const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
   if (targetBranchId == null) return;
 
@@ -567,7 +578,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        null, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0,
-       c.status || 'active', targetBranchId, c.saleType || 'direct',
+       derivedStatus, targetBranchId, c.saleType || 'direct',
        c.discountId || null, c.saleSource || null,
        c.closingEmployeeId || null, c.invoiceNotes || null,
        c.appliedDeviceDiscountId || null,
@@ -781,6 +792,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const prevStatus: string = existing[0].prevStatus;
   const c = req.body;
+  const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
 
   // Physical device location (for installed_devices)
   const installationGeoUnitId = c.geoSelection?.neighborhoodId || c.installationGeoUnitId || null;
@@ -825,7 +837,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0,
-       c.status || 'active',
+       derivedStatus,
        c.discountId || null, c.saleSource || null,
        c.closingEmployeeId || null, c.invoiceNotes || null,
        c.appliedDeviceDiscountId || null,
@@ -882,7 +894,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     // DEC-CT-15: auto-freeze the legal copy at the draft→active transition.
     // freezeContractDocument() is idempotent — if a copy already exists,
     // nothing is written, so a redundant transition is safe.
-    const newStatus: string = c.status || 'active';
+    const newStatus = derivedStatus;
     if (prevStatus === 'draft' && newStatus === 'active') {
       try {
         await freezeContractDocument(pgClient, Number(req.params.id), (req as any).user?.id ?? null);
