@@ -56,9 +56,11 @@ function fmtMoney(n?: number | null) {
   return Number(n).toLocaleString('en-US') + ' ل.س';
 }
 
-function contractTitle(type: string, _subtype?: string | null) {
-  if (type === 'maintenance_contract') return 'عقد صيانة وتركيب';
-  return 'عقد بيع';
+function contractTitle(type: string, subtype?: string | null) {
+  if (type === 'maintenance_contract') return 'اتفاقية خدمة قديمة';
+  if (subtype === 'temporary') return 'عقد مؤقت';
+  if (subtype === 'free') return 'عقد هدية / تمليك بلا مقابل';
+  return 'عقد بيع قطعي';
 }
 
 function saleSubtypeLabel(subtype: string) {
@@ -113,7 +115,7 @@ function StatusBadge({ status }: { status: string }) {
     active:    { cls: 'bg-emerald-100 text-emerald-700', label: 'نشط' },
     completed: { cls: 'bg-blue-100 text-blue-700',      label: 'مكتمل' },
     cancelled: { cls: 'bg-red-100 text-red-700',        label: 'ملغى' },
-    temporary: { cls: 'bg-amber-100 text-amber-700',    label: 'مؤقت' },
+    discarded: { cls: 'bg-slate-200 text-slate-700',    label: 'مؤرشف / مرفوض' },
   };
   const m = map[status] ?? { cls: 'bg-slate-100 text-slate-600', label: status };
   return <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${m.cls}`}>{m.label}</span>;
@@ -322,6 +324,17 @@ export default function ContractDetail() {
                 {actionLoading ? 'جاري...' : 'إلغاء العقد'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isMaintenance && (
+        <div className="max-w-5xl mx-auto px-4 pt-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+            <p className="text-sm font-bold text-amber-900">هذا السجل من مسار عقود الصيانة القديم</p>
+            <p className="text-xs text-amber-700 mt-1">
+              المسار الحالي للأجهزة الخارجية أصبح عبر اتفاقيات الخدمة، وليس من شاشة العقود.
+            </p>
           </div>
         </div>
       )}

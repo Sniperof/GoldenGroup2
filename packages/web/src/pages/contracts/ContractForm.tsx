@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    FileText, ChevronDown, Search, Calendar, Monitor, Hash, Wrench,
+    FileText, ChevronDown, Search, Calendar, Monitor, Hash,
     DollarSign, CreditCard, Banknote, Truck, Trash2, Save,
     RotateCcw, CheckCircle2, User, Calculator, MapPin,
     AlertTriangle, ShieldCheck, ArrowRightLeft, Globe, Landmark,
@@ -186,7 +186,7 @@ export default function ContractForm() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [step, setStep] = useState<'type_selection' | 'details'>(isEdit ? 'details' : 'type_selection');
-    const [contractType, setContractType] = useState<'sale_contract' | 'maintenance_contract'>('sale_contract');
+    const [contractType, setContractType] = useState<'sale_contract'>('sale_contract');
     const [saleSubtype, setSaleSubtype] = useState<'definitive' | 'temporary' | 'free'>('definitive');
     const [closers, setClosers] = useState<any[]>([]);
     const [noClosingReasons, setNoClosingReasons] = useState<any[]>([]);
@@ -246,7 +246,10 @@ export default function ContractForm() {
 
                 if (existingContract) {
                     const c = existingContract;
-                    setContractType(c.contractType || 'sale_contract');
+                    if (c.contractType === 'maintenance_contract') {
+                        throw new Error('تم نقل عقود الصيانة إلى اتفاقيات الخدمة، ولم تعد تعدل من شاشة العقود.');
+                    }
+                    setContractType('sale_contract');
                     setSaleSubtype(c.saleSubtype || 'definitive');
                     setSaleType(c.saleType || 'direct');
                     setContractDate(c.contractDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
@@ -394,9 +397,9 @@ export default function ContractForm() {
     // ─── Effect: auto-update device line item ───
     useEffect(() => {
         if (isOfferLocked) return;
-        if (contractType === 'maintenance_contract' || saleSubtype === 'free') {
-            // Under maintenance contract or free sale contract, selecting a device is purely informational / non-financial.
-            // Do not add it to lineItems. Keep only non-device items (if any, but for free, we keep them empty).
+        if (saleSubtype === 'free') {
+            // Free-sale / gift contracts keep the selected device informational only.
+            // Do not add it to financial line items.
             setLineItems(prev => prev.filter((i: LineItem) => i.itemType !== 'device'));
             return;
         }
@@ -778,12 +781,7 @@ export default function ContractForm() {
         if (!serialNumber.trim()) return false;
         if (!geoSelection.govId || !geoSelection.neighborhoodId) return false;
 
-        if (contractType === 'maintenance_contract') {
-            const hasCloserOrReason = Boolean(closingEmployeeId) || Boolean(noClosingReasonId);
-            if (!hasCloserOrReason) return false;
-        }
-
-        if (contractType === 'maintenance_contract' || saleSubtype === 'temporary' || saleSubtype === 'free') {
+        if (saleSubtype === 'temporary' || saleSubtype === 'free') {
             return true;
         }
 
@@ -812,21 +810,12 @@ export default function ContractForm() {
 
     const handleSubmit = useCallback(async () => {
         if (!isValid || saving) return;
-        // DEC-CT-02: maintenance contracts are now ServiceAgreements.
-        // The /api/contracts endpoint rejects contract_type='maintenance_contract'.
-        // Block submission with a helpful message until the new UI ships.
-        if (contractType === 'maintenance_contract') {
-            alert('عقود الصيانة انتقلت إلى "اتفاقيات الخدمة" (service_agreements). يرجى استخدام الواجهة الجديدة عند توفرها (DEC-CT-02).');
-            return;
-        }
-
         setSaving(true);
         try {
-            const isMaintenance = contractType === 'maintenance_contract';
-            const isFreeSale = !isMaintenance && saleSubtype === 'free';
-            const isTemporarySale = !isMaintenance && saleSubtype === 'temporary';
-            const isNoFinancialObligations = isMaintenance || isFreeSale;
-            const isNoInitialPayments = isMaintenance || isFreeSale || isTemporarySale;
+            const isFreeSale = saleSubtype === 'free';
+            const isTemporarySale = saleSubtype === 'temporary';
+            const isNoFinancialObligations = isFreeSale;
+            const isNoInitialPayments = isFreeSale || isTemporarySale;
             const nextContractStatus = closingEmployeeId ? 'active' : 'draft';
 
             const finalBasePrice = isNoFinancialObligations ? 0 : (selectedDevice?.basePrice || 0);
@@ -841,13 +830,13 @@ export default function ContractForm() {
                 deviceModelName: selectedDevice?.nameAr || selectedDevice?.name,
                 serialNumber,
                 contractDate,
-                deliveryDate: (!isMaintenance && deliveryDate) ? deliveryDate : null,
-                installationDate: (!isMaintenance && installationDate) ? installationDate : null,
-                warrantyMonths: (!isMaintenance && warrantyMonths > 0) ? warrantyMonths : 0,
-                warrantyVisits: (!isMaintenance && warrantyMonths > 0 && warrantyVisits > 0) ? warrantyVisits : null,
-                saleType: isMaintenance ? null : saleType,
-                saleSource: isMaintenance ? null : (saleSource || null),
-                sourceVisit: (!isMaintenance && saleSource === 'device_demo_task') ? (sourceTaskId.trim() || null) : null,
+                deliveryDate: deliveryDate || null,
+                installationDate: installationDate || null,
+                warrantyMonths: warrantyMonths > 0 ? warrantyMonths : 0,
+                warrantyVisits: (warrantyMonths > 0 && warrantyVisits > 0) ? warrantyVisits : null,
+                saleType,
+                saleSource: saleSource || null,
+                sourceVisit: saleSource === 'device_demo_task' ? (sourceTaskId.trim() || null) : null,
                 discountId: (isNoFinancialObligations || !selectedDiscountId) ? null : Number(selectedDiscountId),
                 appliedDeviceDiscountId: (isNoFinancialObligations || !selectedDiscountId) ? null : Number(selectedDiscountId),
                 paymentType: finalPaymentType,
@@ -871,14 +860,14 @@ export default function ContractForm() {
                 noClosingReasonId: noClosingReasonId ? Number(noClosingReasonId) : null,
                 invoiceNotes: invoiceNotes.trim() || null,
                 contractType,
-                saleSubtype: isMaintenance ? null : saleSubtype,
+                saleSubtype,
                 // DEC-CT-01: `temporary` is no longer a status; it's a saleSubtype.
                 // Status follows draft→active rule: active iff a closing_employee_id
                 // is assigned at creation, otherwise draft.
                 status: nextContractStatus,
-                sourceOpenTaskId: isMaintenance ? null : (sourceOpenTaskId || null),
-                sourceTaskOfferId: isMaintenance ? null : (sourceTaskOfferId || null),
-                saleReferenceNumber: isMaintenance ? null : (saleReferenceNumber || null),
+                sourceOpenTaskId: sourceOpenTaskId || null,
+                sourceTaskOfferId: sourceTaskOfferId || null,
+                saleReferenceNumber: saleReferenceNumber || null,
                 lineItems: isFreeSale ? [] : lineItems.map(item => ({
                     itemType: item.itemType,
                     sparePartId: item.sparePartId || null,
@@ -914,7 +903,7 @@ export default function ContractForm() {
                 : await api.contracts.create(payload);
 
             // Post-insertion offer linkage (create only)
-            if (!isEdit && !isMaintenance && selectedOfferVisitId && selectedOfferTaskId && sourceTaskOfferId) {
+            if (!isEdit && selectedOfferVisitId && selectedOfferTaskId && sourceTaskOfferId) {
                 try {
                     await api.marketingVisits.linkOfferContract(
                         selectedOfferVisitId,
@@ -1015,7 +1004,7 @@ export default function ContractForm() {
                     </div>
 
                     {/* Contract Type */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3">
                         <button
                             type="button"
                             onClick={() => setContractType('sale_contract')}
@@ -1031,21 +1020,9 @@ export default function ContractForm() {
                                 <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">بيع جهاز مع التفاصيل المالية والأقساط</p>
                             </div>
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setContractType('maintenance_contract')}
-                            className={`flex flex-col items-center gap-3 p-5 rounded-2xl border-2 transition-all ${contractType === 'maintenance_contract'
-                                ? 'bg-amber-50 border-amber-400 text-amber-700 shadow-md shadow-amber-500/10'
-                                : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                        >
-                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${contractType === 'maintenance_contract' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                                <Wrench className="w-6 h-6" />
-                            </div>
-                            <div className="text-center">
-                                <p className="text-sm font-bold">عقد صيانة</p>
-                                <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">صيانة فقط — بدون التزامات مالية</p>
-                            </div>
-                        </button>
+                    </div>
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        تم نقل عقود الصيانة إلى <span className="font-bold">اتفاقيات الخدمة</span>، ولم تعد تنشأ من شاشة العقود.
                     </div>
 
                     {/* Sale Subtype — فقط لعقد البيع */}
@@ -1095,7 +1072,7 @@ export default function ContractForm() {
                         <div>
                             <h1 className="text-lg font-bold text-slate-800">{isEdit ? 'تعديل العقد' : 'عقد جديد'}</h1>
                             <p className="text-xs text-slate-400">
-                                {contractType === 'maintenance_contract' ? 'عقد صيانة' : saleSubtype === 'definitive' ? 'بيع قطعي' : saleSubtype === 'temporary' ? 'عقد مؤقت' : 'مجاني / هبة'}
+                                {saleSubtype === 'definitive' ? 'بيع قطعي' : saleSubtype === 'temporary' ? 'عقد مؤقت' : 'مجاني / هبة'}
                             </p>
                         </div>
                     </div>
@@ -1286,19 +1263,7 @@ export default function ContractForm() {
                 {/* ═══════════════════════════════════════════════════════ */}
                 {/* 2. SALE DETAILS / MAINTENANCE DATE                      */}
                 {/* ═══════════════════════════════════════════════════════ */}
-                {contractType === 'maintenance_contract' ? (
-                    <Section title="تاريخ عقد الصيانة" icon={Calendar}>
-                        <div className="max-w-md">
-                            <Field label="تاريخ العقد" required>
-                                <div className="relative">
-                                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
-                                    <input type="date" value={contractDate} onChange={e => setContractDate(e.target.value)} className={`${inputClass} pr-10`} />
-                                </div>
-                            </Field>
-                        </div>
-                    </Section>
-                ) : (
-                    <Section title="تفاصيل البيع" icon={Landmark}>
+                <Section title="تفاصيل البيع" icon={Landmark}>
                         <div className="grid grid-cols-2 gap-4">
                             <Field label="نوع البيع" required>
                                 <div className="grid grid-cols-3 gap-2">
@@ -1548,7 +1513,6 @@ export default function ContractForm() {
                             )}
                         </AnimatePresence>
                     </Section>
-                )}
 
                 {/* ═══════════════════════════════════════════════════════ */}
                 {/* 3. DEVICE & LOCATION                                    */}
@@ -1598,7 +1562,7 @@ export default function ContractForm() {
 
                     {/* Discount selection */}
                     <AnimatePresence>
-                        {selectedDevice && contractType !== 'maintenance_contract' && saleSubtype !== 'free' && (
+                        {selectedDevice && saleSubtype !== 'free' && (
                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
                                 <Field label="حسم الجهاز">
                                     <select value={selectedDiscountId} onChange={e => setSelectedDiscountId(Number(e.target.value) || '')} className={selectClass} disabled={isOfferLocked}>
@@ -1623,7 +1587,7 @@ export default function ContractForm() {
                     </AnimatePresence>
 
                     {/* Line items table */}
-                    {((lineItems.length > 0 && saleSubtype !== 'free') || contractType === 'maintenance_contract') && (
+                    {lineItems.length > 0 && saleSubtype !== 'free' && (
                         <div className="rounded-xl border border-slate-200 overflow-hidden">
                             <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between border-b border-slate-100">
                                 <span className="text-xs font-bold text-slate-700">بنود العقد</span>
@@ -1778,7 +1742,7 @@ export default function ContractForm() {
                 {/* ═══════════════════════════════════════════════════════ */}
                 {/* 4. FINANCIALS                                           */}
                 {/* ═══════════════════════════════════════════════════════ */}
-                {contractType !== 'maintenance_contract' && saleSubtype === 'definitive' && (
+                {saleSubtype === 'definitive' && (
                     <Section title="المالية" icon={BadgeDollarSign} badge={
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${paymentType === 'cash'
                             ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
@@ -2151,7 +2115,7 @@ export default function ContractForm() {
                 {/* Standalone Closing Section */}
                 <Section title="تسكير العقد" icon={CheckCircle2}>
                     <div className="grid grid-cols-2 gap-4">
-                        <Field label="موظف التسكير" required={contractType === 'maintenance_contract'}>
+                        <Field label="موظف التسكير">
                             <select
                                 value={closingEmployeeId}
                                 onChange={e => {
@@ -2172,7 +2136,7 @@ export default function ContractForm() {
                             </select>
                         </Field>
 
-                        <Field label="سبب عدم التسكير" required={contractType === 'maintenance_contract'}>
+                        <Field label="سبب عدم التسكير">
                             <select
                                 value={noClosingReasonId}
                                 onChange={e => {
