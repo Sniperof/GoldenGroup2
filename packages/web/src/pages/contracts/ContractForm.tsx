@@ -13,6 +13,7 @@ import { api } from '../../lib/api';
 import MapPicker from '../../components/MapPicker';
 import GeoSmartSearch from '../../components/GeoSmartSearch';
 import type { GeoSelection } from '../../components/GeoSmartSearch';
+import type { ClientReferrer } from '@golden-crm/shared';
 
 /* ------------------------------------------------------------------ */
 /*  Customer type                                                       */
@@ -31,6 +32,7 @@ interface MockCustomer {
     nationalIdIssuedBy?: string | null;
     nationalIdIssueDate?: string | null;
     nationalIdBox?: string | null;
+    referrers?: ClientReferrer[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -235,6 +237,7 @@ export default function ContractForm() {
                     nationalIdIssuedBy: c.nationalIdIssuedBy,
                     nationalIdIssueDate: c.nationalIdIssueDate,
                     nationalIdBox: c.nationalIdBox,
+                    referrers: Array.isArray(c.referrers) ? c.referrers : [],
                 }));
                 setCustomers(mappedCustomers);
                 setDeviceModels(modelsData);
@@ -321,6 +324,7 @@ export default function ContractForm() {
     const [customerSearch, setCustomerSearch] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<MockCustomer | null>(null);
     const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+    const [selectedReferrerIds, setSelectedReferrerIds] = useState<string[]>([]);
     const [fatherNameOverride, setFatherNameOverride] = useState('');
     const [nationalIdOverride, setNationalIdOverride] = useState('');
     const [buyerBirthDate, setBuyerBirthDate] = useState('');
@@ -437,6 +441,7 @@ export default function ContractForm() {
         setBuyerNationalIdBox(selectedCustomer.nationalIdBox || '');
         setFatherNameOverride(selectedCustomer.fatherName || '');
         setNationalIdOverride(selectedCustomer.nationalId || '');
+        setSelectedReferrerIds([]);
     }, [selectedCustomer]);
 
     const getOffersForVisit = (v: any, taskIdentifier?: string | number) => {
@@ -831,6 +836,7 @@ export default function ContractForm() {
             const payload = {
                 customerId: selectedCustomer?.id,
                 customerName: selectedCustomer?.name,
+                selectedReferrers: (selectedCustomer?.referrers || []).filter(referrer => selectedReferrerIds.includes(referrer.id)),
                 deviceModelId,
                 deviceModelName: selectedDevice?.nameAr || selectedDevice?.name,
                 serialNumber,
@@ -931,7 +937,7 @@ export default function ContractForm() {
         contractDate, saleType, saleSource, sourceTaskId, selectedDiscountId,
         paymentType, grandTotal, basePrice, installmentDrafts, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
-        nationalIdOverride, saleSubtype, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber,
+        nationalIdOverride, saleSubtype, selectedReferrerIds, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber,
         selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, navigate
     ]);
 
@@ -951,7 +957,7 @@ export default function ContractForm() {
     };
 
     const handleReset = () => {
-        setSelectedCustomer(null); setCustomerSearch(''); setFatherNameOverride(''); setNationalIdOverride('');
+        setSelectedCustomer(null); setCustomerSearch(''); setSelectedReferrerIds([]); setFatherNameOverride(''); setNationalIdOverride('');
         setBuyerBirthDate(''); setBuyerGender('');
         setBuyerMotherName(''); setBuyerNationalIdRegistry(''); setBuyerNationalIdIssuedBy(''); setBuyerNationalIdIssueDate(''); setBuyerNationalIdBox('');
         setSaleType('direct'); setContractDate(new Date().toISOString().slice(0, 10));
@@ -977,6 +983,14 @@ export default function ContractForm() {
 
     const handleLocationSelect = useCallback((lat: number, lng: number) => {
         if (lat === 0 && lng === 0) { setMapPosition(null); } else { setMapPosition([lat, lng]); }
+    }, []);
+
+    const toggleReferrer = useCallback((referrerId: string) => {
+        setSelectedReferrerIds(prev => (
+            prev.includes(referrerId)
+                ? prev.filter(id => id !== referrerId)
+                : [...prev, referrerId]
+        ));
     }, []);
 
     if (loading) {
@@ -1099,7 +1113,7 @@ export default function ContractForm() {
                                 <input
                                     type="text"
                                     value={selectedCustomer ? selectedCustomer.name : customerSearch}
-                                    onChange={e => { setCustomerSearch(e.target.value); setSelectedCustomer(null); setShowCustomerDropdown(true); setFatherNameOverride(''); setNationalIdOverride(''); }}
+                                    onChange={e => { setCustomerSearch(e.target.value); setSelectedCustomer(null); setSelectedReferrerIds([]); setShowCustomerDropdown(true); setFatherNameOverride(''); setNationalIdOverride(''); }}
                                     onFocus={() => setShowCustomerDropdown(true)}
                                     placeholder="بحث بالاسم أو رقم الموبايل..."
                                     className={`${inputClass} pr-10`}
@@ -1240,6 +1254,32 @@ export default function ContractForm() {
                             </div>
                         </div>
                     )}
+
+                    {selectedCustomer && (selectedCustomer.referrers?.length || 0) > 0 && (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold text-slate-600">الوسطاء المرتبطون بالزبون</span>
+                                <span className="text-[11px] text-slate-400">يمكن اختيار وسيط واحد أو عدة وسطاء</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {selectedCustomer.referrers!.map(referrer => {
+                                    const isActive = selectedReferrerIds.includes(referrer.id);
+                                    return (
+                                        <button
+                                            key={referrer.id}
+                                            type="button"
+                                            onClick={() => toggleReferrer(referrer.id)}
+                                            className={`px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${isActive
+                                                ? 'bg-sky-600 border-sky-600 text-white shadow-sm'
+                                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                                        >
+                                            {referrer.referrerName}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </Section>
 
                 {/* ═══════════════════════════════════════════════════════ */}
@@ -1269,54 +1309,9 @@ export default function ContractForm() {
                             <Field label="تاريخ العقد" required>
                                 <div className="relative">
                                     <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
-                                    <input type="date" value={contractDate} onChange={e => setContractDate(e.target.value)} className={`${inputClass} pr-10`} />
+                                    <input type="date" value={contractDate} readOnly disabled className={`${inputClass} pr-10 bg-slate-50 text-slate-500 cursor-not-allowed`} />
                                 </div>
-                            </Field>
-                            <Field label="تاريخ التسليم المتوقع">
-                                <div className="relative">
-                                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
-                                    <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className={`${inputClass} pr-10`} />
-                                </div>
-                            </Field>
-                            <Field label="تاريخ التركيب المتوقع">
-                                <div className="relative">
-                                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
-                                    <input type="date" value={installationDate} onChange={e => setInstallationDate(e.target.value)} className={`${inputClass} pr-10`} />
-                                </div>
-                            </Field>
-                            <Field label="فترة كفالة العقد">
-                                <div className="relative">
-                                    <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
-                                    <select
-                                        value={warrantyMonths}
-                                        onChange={e => {
-                                            const months = Number(e.target.value);
-                                            setWarrantyMonths(months);
-                                            const period = (selectedDevice?.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).find((p: { months: number }) => p.months === months);
-                                            setWarrantyVisits((period as any)?.visits ?? 0);
-                                        }}
-                                        className={`${inputClass} pr-10`}
-                                    >
-                                        <option value={0}>بدون كفالة</option>
-                                        {(selectedDevice?.warrantyPeriods || []).length > 0
-                                            ? (selectedDevice!.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).map((p: { months: number; label: string; visits: number }) => (
-                                                <option key={p.months} value={p.months}>{p.label}</option>
-                                            ))
-                                            : <>
-                                                <option value={6}>6 أشهر</option>
-                                                <option value={12}>12 شهرًا</option>
-                                                <option value={24}>24 شهرًا</option>
-                                                <option value={36}>36 شهرًا</option>
-                                            </>
-                                        }
-                                    </select>
-                                </div>
-                                {warrantyMonths > 0 && contractDate && (
-                                    <p className="text-xs text-slate-400 mt-1 pr-1">
-                                        تنتهي: {new Date(new Date(contractDate).setMonth(new Date(contractDate).getMonth() + warrantyMonths)).toISOString().slice(0, 10)}
-                                        {warrantyVisits > 0 && ` · ${warrantyVisits} زيارة (كل ${Math.round((warrantyMonths * 30) / warrantyVisits)} يوم)`}
-                                    </p>
-                                )}
+                                <p className="text-[10px] text-slate-400 mt-1 pr-1">يؤخذ تلقائياً من تاريخ اليوم ولا يعدل من هذه الشاشة.</p>
                             </Field>
                         </div>
 
@@ -1687,6 +1682,57 @@ export default function ContractForm() {
                                 </button>
                             </div>
                         </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <Field label="تاريخ التسليم المتوقع">
+                            <div className="relative">
+                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className={`${inputClass} pr-10`} />
+                            </div>
+                        </Field>
+                        <Field label="تاريخ التركيب المتوقع">
+                            <div className="relative">
+                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                <input type="date" value={installationDate} onChange={e => setInstallationDate(e.target.value)} className={`${inputClass} pr-10`} />
+                            </div>
+                        </Field>
+                    </div>
+
+                    {selectedDevice && (
+                        <Field label="فترة كفالة العقد">
+                            <div className="relative">
+                                <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                <select
+                                    value={warrantyMonths}
+                                    onChange={e => {
+                                        const months = Number(e.target.value);
+                                        setWarrantyMonths(months);
+                                        const period = (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).find((p: { months: number }) => p.months === months);
+                                        setWarrantyVisits((period as any)?.visits ?? 0);
+                                    }}
+                                    className={`${inputClass} pr-10`}
+                                >
+                                    <option value={0}>بدون كفالة</option>
+                                    {(selectedDevice.warrantyPeriods || []).length > 0
+                                        ? (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).map((p: { months: number; label: string; visits: number }) => (
+                                            <option key={p.months} value={p.months}>{p.label}</option>
+                                        ))
+                                        : <>
+                                            <option value={6}>6 أشهر</option>
+                                            <option value={12}>12 شهرًا</option>
+                                            <option value={24}>24 شهرًا</option>
+                                            <option value={36}>36 شهرًا</option>
+                                        </>
+                                    }
+                                </select>
+                            </div>
+                            {warrantyMonths > 0 && (
+                                <p className="text-xs text-slate-400 mt-1 pr-1">
+                                    {warrantyVisits > 0 ? `${warrantyVisits} زيارة ضمن مدة الكفالة` : 'تطبق الكفالة عند تشغيل الجهاز ودخوله الخدمة الفعلية.'}
+                                </p>
+                            )}
+                        </Field>
                     )}
 
                     {/* Smart Geo Search */}
@@ -2111,6 +2157,13 @@ export default function ContractForm() {
 
                 {/* Standalone Closing Section */}
                 <Section title="تسكير العقد" icon={CheckCircle2}>
+                    <div className={`rounded-xl border px-4 py-3 text-xs ${closingEmployeeId
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+                        {closingEmployeeId
+                            ? 'تم اختيار موظف التسكير، وسيحفظ العقد كعقد معتمد.'
+                            : 'يمكن ترك موظف التسكير فارغاً، وعندها سيحفظ العقد كمسودة لحين الاعتماد لاحقاً.'}
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                         <Field label="موظف التسكير">
                             <select
@@ -2155,14 +2208,6 @@ export default function ContractForm() {
                             </select>
                         </Field>
                     </div>
-
-                    {/* Validation warning */}
-                    {!(Boolean(closingEmployeeId) || Boolean(noClosingReasonId)) && (
-                        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 mt-2 animate-pulse">
-                            <AlertTriangle className="w-4 h-4 shrink-0" />
-                            <span>يرجى اختيار موظف التسكير أو تحديد سبب عدم التسكير لإتمام حفظ العقد.</span>
-                        </div>
-                    )}
 
                     <Field label="ملاحظات الفاتورة">
                         <textarea
