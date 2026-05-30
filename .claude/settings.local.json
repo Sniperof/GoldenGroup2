@@ -48,7 +48,11 @@
       "Bash(pm2 status *)",
       "Bash(awk -F: '{print $1}')",
       "Bash(python3 -c ' *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(cmd /c \"where psql 2>&1\")",
+      "Bash(cmd /c \"sc query postgresql* 2>&1 | head -20\")",
+      "Bash(cmd /c \"sc query type= all state= all 2>&1\")",
+      "Bash(cmd /c \"netstat -an 2>&1\")"
     ],
     "deny": [
       "Bash(rm -rf /*)",

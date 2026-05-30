@@ -95,7 +95,8 @@ SELECT
   c.customer_id,
   c.customer_name,
   c.branch_id,
-  c.contract_date,
+  -- contracts.contract_date is VARCHAR in legacy schema; cast defensively.
+  NULLIF(c.contract_date, '')::date,
   c.device_model_name,
   -- The legacy serial used to live on contracts before Phase 6 — fetch from
   -- installed_devices when present, else NULL.

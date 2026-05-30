@@ -18,29 +18,31 @@
 BEGIN;
 
 -- ============================================================
--- contracts.device_status
+-- contracts.device_status was DROPPED in migration 195 (Phase 6).
+-- The authoritative store is installed_devices.status. We only touch
+-- the contracts column if it still exists (older databases that didn't
+-- run 195 yet).
 -- ============================================================
 
-ALTER TABLE contracts
-  DROP CONSTRAINT IF EXISTS contracts_device_status_check;
-
-UPDATE contracts SET device_status = 'in_workshop'    WHERE device_status = 'under_maintenance';
-UPDATE contracts SET device_status = 'out_of_service' WHERE device_status = 'disconnected';
-
-ALTER TABLE contracts
-  ADD CONSTRAINT contracts_device_status_check
-  CHECK (device_status IN (
-    'registered',
-    'pending_delivery',
-    'delivered',
-    'installed',
-    'active',
-    'faulty',
-    'in_workshop',
-    'ready',
-    'out_of_service',
-    'retrieved'
-  ));
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'contracts' AND column_name = 'device_status'
+  ) THEN
+    EXECUTE 'ALTER TABLE contracts DROP CONSTRAINT IF EXISTS contracts_device_status_check';
+    EXECUTE $u1$UPDATE contracts SET device_status = 'in_workshop'    WHERE device_status = 'under_maintenance'$u1$;
+    EXECUTE $u2$UPDATE contracts SET device_status = 'out_of_service' WHERE device_status = 'disconnected'$u2$;
+    EXECUTE $chk$
+      ALTER TABLE contracts
+        ADD CONSTRAINT contracts_device_status_check
+        CHECK (device_status IN (
+          'registered','pending_delivery','delivered','installed','active',
+          'faulty','in_workshop','ready','out_of_service','retrieved'
+        ))
+    $chk$;
+  END IF;
+END$$;
 
 -- ============================================================
 -- installed_devices.status

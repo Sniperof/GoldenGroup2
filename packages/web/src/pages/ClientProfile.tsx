@@ -6,11 +6,12 @@ import {
     History, ArrowLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
     X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle,
-    Cpu, Package
+    Cpu, Package, Sparkles
 } from 'lucide-react';
 import { DevicesTab } from './clientProfile/DevicesTab'; // plan §1 — replaces legacy ContractsTab
 import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
 import { PartsStockTab } from './clientProfile/PartsStockTab';
+import { PreOffersTab } from './clientProfile/PreOffersTab'; // plan B — device-demo pre-offers audit
 import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import type { Client, GeoUnit } from '../lib/types';
@@ -33,7 +34,7 @@ const referrerTypesAr: Record<string, string> = {
 export default function ClientProfile() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network' | 'devices' | 'purchase_history' | 'parts_stock'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network' | 'devices' | 'purchase_history' | 'parts_stock' | 'pre_offers'>('overview');
     const [callLogRefreshKey, setCallLogRefreshKey] = useState(0);
     const [client, setClient] = useState<Client | null>(null);
     const [clients, setClients] = useState<Client[]>([]);
@@ -304,6 +305,7 @@ export default function ClientProfile() {
                                 { id: 'devices', label: 'الأجهزة', icon: Cpu },
                                 { id: 'purchase_history', label: 'سجل المشتريات', icon: History },
                                 { id: 'parts_stock', label: 'المخزون', icon: Package },
+                                { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
                                 { id: 'network', label: 'الشبكة', icon: Share2 },
                             ].map((tab) => (
                                 <button
@@ -350,6 +352,7 @@ export default function ClientProfile() {
                                 {activeTab === 'devices' && <DevicesTab client={client} />}
                                 {activeTab === 'purchase_history' && <PurchaseHistoryTab client={client} />}
                                 {activeTab === 'parts_stock' && <PartsStockTab client={client} />}
+                                {activeTab === 'pre_offers' && <PreOffersTab client={client} />}
                                 {activeTab === 'network' && <NetworkTab client={client} clients={clients} candidates={candidates} />}
                             </motion.div>
                         </AnimatePresence>

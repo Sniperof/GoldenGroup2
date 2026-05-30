@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { DeviceStatusBadge as SharedDeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
+import { usePermissions } from '../../hooks/usePermissions';
 
 // ── Lookup maps ───────────────────────────────────────────────────────────────
 
@@ -121,22 +123,11 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${m.cls}`}>{m.label}</span>;
 }
 
+// DEC-CT-03: the device status badge is now sourced from the shared
+// components/devices/DeviceStatusBadge so the DevicesTab, DeviceProfilePage,
+// and this legacy view stay in lockstep.
 function DeviceStatusBadge({ status }: { status: string }) {
-  // DEC-CT-03: unified device status dictionary.
-  const map: Record<string, { cls: string; label: string }> = {
-    registered:       { cls: 'bg-indigo-100 text-indigo-700',  label: 'مسجّل' },
-    pending_delivery: { cls: 'bg-amber-100 text-amber-700',    label: 'بانتظار التوصيل' },
-    delivered:        { cls: 'bg-sky-100 text-sky-700',        label: 'تم التوصيل' },
-    installed:        { cls: 'bg-emerald-100 text-emerald-700', label: 'مركّب' },
-    active:           { cls: 'bg-green-100 text-green-700',    label: 'نشط' },
-    faulty:           { cls: 'bg-red-100 text-red-700',        label: 'معطل' },
-    in_workshop:      { cls: 'bg-orange-100 text-orange-700',  label: 'في الورشة' },
-    ready:            { cls: 'bg-cyan-100 text-cyan-700',      label: 'جاهز' },
-    out_of_service:   { cls: 'bg-gray-100 text-gray-500',      label: 'خارج الخدمة' },
-    retrieved:        { cls: 'bg-slate-100 text-slate-600',    label: 'مستردة' },
-  };
-  const m = map[status] ?? { cls: 'bg-slate-100 text-slate-600', label: status };
-  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${m.cls}`}>{m.label}</span>;
+  return <SharedDeviceStatusBadge status={status} />;
 }
 
 function ClientAvatar({ dataQuality }: { dataQuality?: string | null }) {
@@ -167,6 +158,9 @@ export default function ContractDetail() {
   const [activateInstallmentsCount, setActivateInstallmentsCount] = useState<number>(6);
   const [actionLoading, setActionLoading] = useState(false);
   const [activationLoading, setActivationLoading] = useState(false);
+  // DEC-CT-01 follow-up: draft approve / reject workflow.
+  const { hasPermission } = usePermissions();
+  const [approvalLoading, setApprovalLoading] = useState<'approve' | 'reject' | null>(null);
 
   useEffect(() => {
     if (data && activateFinalPrice === 0) setActivateFinalPrice(Number(data.finalPrice) || 0);
@@ -190,6 +184,47 @@ export default function ContractDetail() {
       alert('فشل إلغاء العقد: ' + (err.message || err));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // DEC-CT-01 follow-up:
+  // Approving a draft fires the materialization triggers DB-side (211)
+  // and then refreshes the contract so the UI reflects the new active state.
+  const handleApprove = async () => {
+    if (!data) return;
+    if (!data.closingEmployeeId) {
+      const ok = window.confirm(
+        'لا يوجد موظف تسكير محدد على العقد. سيتم تسجيل المستخدم الحالي كموظف تسكير. متابعة؟',
+      );
+      if (!ok) return;
+    } else if (!window.confirm('تأكيد الموافقة على العقد؟ سيتم إنشاء الجهاز ومهمة التوصيل.')) {
+      return;
+    }
+    setApprovalLoading('approve');
+    try {
+      await api.contracts.approve(Number(id));
+      const fresh = await api.contracts.get(Number(id));
+      setData(fresh);
+    } catch (err: any) {
+      alert('فشل اعتماد العقد: ' + (err.message || err));
+    } finally {
+      setApprovalLoading(null);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!data) return;
+    const reason = window.prompt('سبب الرفض (اختياري):', '') ?? '';
+    if (!window.confirm('تأكيد رفض العقد؟ لن يُحتسب بعد ذلك.')) return;
+    setApprovalLoading('reject');
+    try {
+      await api.contracts.reject(Number(id), { reason: reason.trim() || undefined });
+      const fresh = await api.contracts.get(Number(id));
+      setData(fresh);
+    } catch (err: any) {
+      alert('فشل رفض العقد: ' + (err.message || err));
+    } finally {
+      setApprovalLoading(null);
     }
   };
 
@@ -302,6 +337,45 @@ export default function ContractDetail() {
           </button>
         </div>
       </div>
+
+      {/* ── Draft approval banner (DEC-CT-01 follow-up) ──────────────────── */}
+      {data.status === 'draft' && (
+        <div className="max-w-5xl mx-auto px-4 pt-4">
+          <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-bold text-indigo-900">📝 العقد بحالة مسودة</p>
+              <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                لا يوجد جهاز مُسجّل، ولا مهمة توصيل، ولا أثر مالي حتى اعتماد العقد من موظف التسكير.
+                {data.closingEmployeeName
+                  ? <> موظف التسكير المقترح: <span className="font-bold">{data.closingEmployeeName}</span>.</>
+                  : <> لا يوجد موظف تسكير محدد بعد.</>}
+              </p>
+            </div>
+            {hasPermission('contracts.approve') ? (
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  disabled={approvalLoading !== null}
+                  onClick={handleApprove}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-4 py-2 text-xs font-bold transition-colors disabled:opacity-60"
+                >
+                  {approvalLoading === 'approve' ? 'جاري الاعتماد...' : '✓ موافقة واعتماد'}
+                </button>
+                <button
+                  disabled={approvalLoading !== null}
+                  onClick={handleReject}
+                  className="bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl px-4 py-2 text-xs font-bold transition-colors disabled:opacity-60"
+                >
+                  {approvalLoading === 'reject' ? 'جاري الرفض...' : '✕ رفض'}
+                </button>
+              </div>
+            ) : (
+              <span className="text-[11px] text-indigo-500 italic shrink-0">
+                لا تملك صلاحية الاعتماد (contracts.approve).
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Temporary Contract Banner ─────────────────────────────────────── */}
       {/* DEC-CT-01: `temporary` moved from status → saleSubtype */}

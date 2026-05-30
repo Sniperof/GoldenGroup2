@@ -24,19 +24,20 @@
 7. [01e-device-possession-ledger.md](./01e-device-possession-ledger.md)
 8. [01f-device-parts-and-components.md](./01f-device-parts-and-components.md)
 9. [01g-installation-location-glossary.md](./01g-installation-location-glossary.md)
-10. [02-what-is-a-contract.md](./02-what-is-a-contract.md)
-11. [02a-contract-parties-and-participants.md](./02a-contract-parties-and-participants.md)
-12. [02b-contract-warranties.md](./02b-contract-warranties.md)
-13. [02c-printable-electronic-contract.md](./02c-printable-electronic-contract.md)
-14. [03-financial-obligations.md](./03-financial-obligations.md)
-15. [03a-financial-ledger-and-customer-statement.md](./03a-financial-ledger-and-customer-statement.md) - إحالة سريعة
-16. [04-operational-lifecycle.md](./04-operational-lifecycle.md) - إحالة سريعة
-17. [04a-contract-cancellation-matrix.md](./04a-contract-cancellation-matrix.md)
-18. [05-contract-data-map.md](./05-contract-data-map.md)
-19. [06-gaps-and-questions.md](./06-gaps-and-questions.md)
-20. [06a-current-implementation-audit.md](./06a-current-implementation-audit.md)
-21. [07-task-backlog.md](./07-task-backlog.md)
-22. [08-resolved-decisions.md](./08-resolved-decisions.md)
+10. [01h-customer-purchase-history-and-parts-stock.md](./01h-customer-purchase-history-and-parts-stock.md)
+11. [02-what-is-a-contract.md](./02-what-is-a-contract.md)
+12. [02a-contract-parties-and-participants.md](./02a-contract-parties-and-participants.md)
+13. [02b-contract-warranties.md](./02b-contract-warranties.md)
+14. [02c-printable-electronic-contract.md](./02c-printable-electronic-contract.md)
+15. [03-financial-obligations.md](./03-financial-obligations.md)
+16. [03a-financial-ledger-and-customer-statement.md](./03a-financial-ledger-and-customer-statement.md) - إحالة سريعة
+17. [04-operational-lifecycle.md](./04-operational-lifecycle.md) - إحالة سريعة
+18. [04a-contract-cancellation-matrix.md](./04a-contract-cancellation-matrix.md)
+19. [05-contract-data-map.md](./05-contract-data-map.md)
+20. [06-gaps-and-questions.md](./06-gaps-and-questions.md)
+21. [06a-current-implementation-audit.md](./06a-current-implementation-audit.md)
+22. [07-task-backlog.md](./07-task-backlog.md)
+23. [08-resolved-decisions.md](./08-resolved-decisions.md)
 
 ## التصنيف البنيوي الحالي
 
@@ -50,6 +51,7 @@
 - [01e-device-possession-ledger.md](./01e-device-possession-ledger.md)
 - [01f-device-parts-and-components.md](./01f-device-parts-and-components.md)
 - [01g-installation-location-glossary.md](./01g-installation-location-glossary.md)
+- [01h-customer-purchase-history-and-parts-stock.md](./01h-customer-purchase-history-and-parts-stock.md)
 - [02-what-is-a-contract.md](./02-what-is-a-contract.md)
 - [02a-contract-parties-and-participants.md](./02a-contract-parties-and-participants.md)
 - [02b-contract-warranties.md](./02b-contract-warranties.md)

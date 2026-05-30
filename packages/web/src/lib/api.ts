@@ -138,6 +138,9 @@ export const api = {
     // DEC-CT-10: chronological merge of installments + payment entries.
     getStatement: (customerId: number) =>
       request<{ customerId: number; entries: any[] }>(`/customers/${customerId}/statement`),
+    // Pre-offers tab — every device-demo pre-offer with its outcome.
+    getPreOffers: (customerId: number) =>
+      request<{ customerId: number; entries: any[]; summary: any }>(`/customers/${customerId}/pre-offers`),
   },
   customerCalls: {
     list: (customerId: number) => request<any[]>(`/customers/${customerId}/calls`),

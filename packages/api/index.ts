@@ -54,6 +54,7 @@ import workScopesRouter from './routes/workScopes.js';
 import fieldVisitsRouter from './routes/fieldVisits.js';
 import customerCallsRouter from './routes/customerCalls.js';
 import customerStatementRouter from './routes/customerStatement.js';
+import customerPreOffersRouter from './routes/customerPreOffers.js';
 import taskTypeConfigRouter from './routes/taskTypeConfig.js';
 import emergencyActionTypesRouter from './routes/emergencyActionTypes.js';
 import emergencyResultRouter from './routes/emergencyResult.js';
@@ -123,6 +124,7 @@ app.use('/api/field-visits', ...branchOnly, fieldVisitsRouter);
 // ── Customer call logs (accessible from both HQ and branch contexts) ─────────
 app.use('/api/customers', requireAuth, customerCallsRouter);
 app.use('/api/customers', requireAuth, customerStatementRouter); // DEC-CT-10
+app.use('/api/customers', requireAuth, customerPreOffersRouter); // pre-offers tab
 
 // ── Shared routes (HQ + branch) ───────────────────────────────────────────────
 app.use('/api/contracts', contractsRouter);

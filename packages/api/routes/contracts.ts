@@ -757,20 +757,14 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     );
     const contract = fetchRows[0];
 
-    // Automatically create a device delivery task for sale contracts (Phase 3: include device_id)
-    if (contract.contractType === 'sale_contract') {
-      const dueDate = c.deliveryDate || new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
-      const { rows: devIdRows } = await client.query(
-        'SELECT id FROM installed_devices WHERE contract_id = $1 LIMIT 1',
-        [contractId],
-      );
-      const deliveryDeviceId = devIdRows[0]?.id ?? null;
-      await client.query(
-        `INSERT INTO open_tasks (
-           client_id, branch_id, task_type, task_family, reason, status, due_date, source, origin, contract_id, device_id
-         ) VALUES ($1, $2, 'device_delivery', 'delivery', 'service_request', 'open', $3, 'system', 'manual_entry', $4, $5)`,
-        [contract.customerId, contract.branchId, dueDate, contract.id, deliveryDeviceId]
-      );
+    // Automatically create a device delivery task for sale contracts (Phase 3: include device_id).
+    //
+    // Constitution rule (DEC-CT-01 follow-up — see migration 211): a draft
+    // contract has NO side effects. The delivery task is deferred until the
+    // contract is approved via POST /api/contracts/:id/approve, which calls
+    // createDeliveryTaskForContract() below.
+    if (contract.contractType === 'sale_contract' && contract.status === 'active') {
+      await createDeliveryTaskForContract(client, contract);
     }
 
     if (Array.isArray(c.lineItems) && c.lineItems.length > 0) {
@@ -1371,6 +1365,199 @@ router.put('/:id/line-items/:itemId/installation', requirePermission('contracts.
   );
 
   res.json({ success: true, isInstalled });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Draft → active / discarded workflow (DEC-CT-01 follow-up).
+//
+// A contract created with status='draft' has zero side effects (see
+// migration 211). Two terminal moves are possible from draft:
+//
+//   POST /api/contracts/:id/approve   draft → active
+//   POST /api/contracts/:id/reject    draft → discarded
+//
+// Both are gated by the dedicated `contracts.approve` permission (seeded by
+// migration 212) so not every editor can flip the legal state of a contract.
+//
+// On approve the route:
+//   • sets closing_employee_id (from body, falling back to current user)
+//   • flips status='active'  → DB triggers materialize installed_devices,
+//                              the warranty cascade, and replay installment
+//                              recompute (so payments saved during draft
+//                              now take effect).
+//   • creates the device_delivery open_task (app-side, mirroring the POST
+//     path so behavior is identical to "born active" contracts).
+//   • freezes the legal contract document (DEC-CT-15).
+// ──────────────────────────────────────────────────────────────────────────
+
+async function createDeliveryTaskForContract(db: any, contract: any) {
+  const dueDate = contract.deliveryDate
+    || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const { rows: devIdRows } = await db.query(
+    'SELECT id FROM installed_devices WHERE contract_id = $1 LIMIT 1',
+    [contract.id],
+  );
+  const deliveryDeviceId = devIdRows[0]?.id ?? null;
+  await db.query(
+    `INSERT INTO open_tasks (
+       client_id, branch_id, task_type, task_family, reason, status, due_date,
+       source, origin, contract_id, device_id
+     ) VALUES ($1, $2, 'device_delivery', 'delivery', 'service_request', 'open', $3,
+               'system', 'manual_entry', $4, $5)`,
+    [contract.customerId, contract.branchId, dueDate, contract.id, deliveryDeviceId],
+  );
+}
+
+router.post('/:id/approve', requirePermission('contracts.approve'), async (req, res) => {
+  const authContext = req.authContext!;
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId <= 0) {
+    return res.status(400).json({ error: 'id غير صالح' });
+  }
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    // Pessimistic lock so two approvers can't race.
+    const { rows: cur } = await pgClient.query(
+      `SELECT id, status, contract_type, customer_id, branch_id, closing_employee_id,
+              delivery_date
+         FROM contracts WHERE id = $1 FOR UPDATE`,
+      [contractId],
+    );
+    if (!cur[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const c = cur[0];
+
+    const access = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
+    if (!access.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+
+    if (c.status !== 'draft') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: `لا يمكن الموافقة على عقد بحالة "${c.status}". الموافقة متاحة فقط للعقود بحالة "draft".`,
+      });
+    }
+
+    const incomingCloser = req.body?.closingEmployeeId
+      ? Number(req.body.closingEmployeeId)
+      : null;
+    const closerId =
+      incomingCloser
+      ?? c.closing_employee_id
+      ?? (authContext as any).userId
+      ?? null;
+
+    if (!closerId) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'closingEmployeeId مطلوب للموافقة على العقد' });
+    }
+
+    // Flip status — this fires the DB triggers (211/204/etc.) that
+    // materialize the installed_devices row, cascade warranties, and replay
+    // installment balance recompute.
+    await pgClient.query(
+      `UPDATE contracts
+         SET status = 'active',
+             closing_employee_id = $1,
+             closing_date = NOW()
+       WHERE id = $2`,
+      [closerId, contractId],
+    );
+
+    // Refresh after triggers settle.
+    const { rows: after } = await pgClient.query(
+      `SELECT c.id, c.contract_type AS "contractType", c.customer_id AS "customerId",
+              c.branch_id AS "branchId", c.delivery_date AS "deliveryDate",
+              c.status
+         FROM contracts c WHERE c.id = $1`,
+      [contractId],
+    );
+    const refreshed = after[0];
+
+    // App-side side effects: delivery task (mirrors the POST path).
+    if (refreshed.contractType === 'sale_contract') {
+      await createDeliveryTaskForContract(pgClient, refreshed);
+    }
+
+    // Freeze the legal copy (DEC-CT-15).
+    try {
+      await freezeContractDocument(pgClient, contractId, (req as any).user?.id ?? null);
+    } catch (freezeErr: any) {
+      console.warn('[contracts] auto-freeze on approve skipped for', contractId, ':', freezeErr?.message);
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({ success: true, contractId, status: 'active', closingEmployeeId: closerId });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[contracts] approve failed:', err);
+    res.status(500).json({ error: 'فشل اعتماد العقد', detail: err?.message });
+  } finally {
+    pgClient.release();
+  }
+});
+
+router.post('/:id/reject', requirePermission('contracts.approve'), async (req, res) => {
+  const authContext = req.authContext!;
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId <= 0) {
+    return res.status(400).json({ error: 'id غير صالح' });
+  }
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    const { rows: cur } = await pgClient.query(
+      `SELECT id, status, branch_id FROM contracts WHERE id = $1 FOR UPDATE`,
+      [contractId],
+    );
+    if (!cur[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const c = cur[0];
+
+    const access = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
+    if (!access.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+
+    if (c.status !== 'draft') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: `لا يمكن رفض عقد بحالة "${c.status}". الرفض متاح فقط للعقود بحالة "draft".`,
+      });
+    }
+
+    const reason = (req.body?.reason ?? '').toString().trim() || null;
+
+    await pgClient.query(
+      `UPDATE contracts
+         SET status = 'discarded',
+             invoice_notes = COALESCE(invoice_notes, '') ||
+               CASE WHEN $1::text IS NULL THEN '' ELSE E'\n[rejected] ' || $1::text END
+       WHERE id = $2`,
+      [reason, contractId],
+    );
+
+    await pgClient.query('COMMIT');
+    res.json({ success: true, contractId, status: 'discarded' });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[contracts] reject failed:', err);
+    res.status(500).json({ error: 'فشل رفض العقد', detail: err?.message });
+  } finally {
+    pgClient.release();
+  }
 });
 
 export default router;
