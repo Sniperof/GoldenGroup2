@@ -101,8 +101,7 @@ const FREE_CALL_GROUPS: {
         isReached: true,
         outcomes: [
             'currently_busy',
-            'other_company_callback',
-            'seen_offer_callback',
+            'customer_requested_followup', // DEC-006 D39: replaces other_company_callback + seen_offer_callback
         ],
     },
     {
@@ -155,10 +154,12 @@ const OUTCOME_ICON_COLORS: Record<string, { color: string; bg: string; border: s
     currently_busy: { color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
     interrupted: { color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' },
     not_interested: { color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
+    // Legacy (DEC-006 D39): kept so existing call_log rows render with consistent colors
     other_company_not_interested: { color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
     seen_offer_not_interested: { color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
     address_updated: { color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' },
     new_number: { color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' },
+    customer_requested_followup: { color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-200' },
     other_company_callback: { color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-200' },
     seen_offer_callback: { color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-200' },
     service_request: { color: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200' },
@@ -348,7 +349,7 @@ export default function OutcomeRecorderModal({
         (method === 'whatsapp' && whatsappSubtype === 'whatsapp_text');
 
     const requiresPhoneStatus = !isTextMessage && (outcomeMeta?.requiresPhoneStatusUpdate ?? false);
-    const isFollowUpOutcome = !!outcome && ['currently_busy', 'other_company_callback', 'seen_offer_callback'].includes(outcome);
+    const isFollowUpOutcome = !!outcome && ['currently_busy', 'customer_requested_followup', 'other_company_callback', 'seen_offer_callback'].includes(outcome);
     const isNotReachedOutcome = outcomeMeta?.group === 'not_reached';
     const showRejectScheduling = !isFreeCall && isNotReachedOutcome && !!outcome && !isTextMessage;
     const showFollowUpDate = isFollowUpOutcome && !isTextMessage;

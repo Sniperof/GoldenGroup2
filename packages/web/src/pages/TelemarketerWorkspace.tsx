@@ -498,7 +498,9 @@ export default function TelemarketerWorkspace() {
         }
 
         // Follow-up outcomes: set expected date, priority, and structured waiting reason
-        const isFollowUpOc = ['currently_busy', 'other_company_callback', 'seen_offer_callback'].includes(outcome);
+        // DEC-006 D39: customer_requested_followup replaces other_company_callback + seen_offer_callback.
+        // The two legacy codes are retained in the list so historical records still update correctly.
+        const isFollowUpOc = ['currently_busy', 'customer_requested_followup', 'other_company_callback', 'seen_offer_callback'].includes(outcome);
         if (isFollowUpOc && selectedCustomer.entityType === 'client') {
             const taskUpdate: Record<string, any> = { status: 'needs_follow_up' };
             if (extras?.followUpDueDate) taskUpdate.expectedDate = extras.followUpDueDate;

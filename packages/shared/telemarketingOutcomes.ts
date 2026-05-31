@@ -20,12 +20,9 @@ export type TelemarketingOutcomeCode =
   | 'currently_busy'
   | 'interrupted'
   | 'not_interested'
-  | 'other_company_not_interested'
-  | 'seen_offer_not_interested'
   | 'address_updated'
-  // Group 3: Reached — follow-up
-  | 'other_company_callback'
-  | 'seen_offer_callback'
+  // Group 3: Reached — follow-up (DEC-006 D39)
+  | 'customer_requested_followup'
   // Group 4: Reached — service / transfer
   | 'service_request'
   | 'company_customer_missing_phone'
@@ -35,7 +32,11 @@ export type TelemarketingOutcomeCode =
   | 'new_number'
   // Text message (no call outcome yet)
   | 'message_sent'
-  // Legacy codes (kept for backward compatibility)
+  // Legacy codes (retained for backward compatibility; filtered from UI; will be dropped in Phase 9)
+  | 'other_company_not_interested'
+  | 'seen_offer_not_interested'
+  | 'other_company_callback'
+  | 'seen_offer_callback'
   | 'rejected'
   | 'booked';
 
@@ -112,9 +113,20 @@ export interface OutcomeMeta {
   requiresPhoneStatusUpdate: boolean;
   requiresNotes: boolean;
   itemStatusAfterSave: 'pending' | 'called' | 'booked';
+  /**
+   * DEC-005 D26: ALL outcomes are `false`. Closing now happens via:
+   *   - booked_marketing_appointment: handled by visit-creation logic itself
+   *   - everything else: manual close by telemarketer / supervisor, or end-of-day CRON
+   * Field retained for backward compatibility with consumer code; will be removed in Phase 9.
+   */
   closesContactTarget: boolean;
   opensAppointment: boolean;
   defaultPhoneStatus?: Exclude<PhoneStatusUpdate, 'none'>;
+  /**
+   * DEC-006 D39: system_lists category that fills the dynamic reason dropdown
+   * shown when this outcome is selected. When unset, no reason dropdown is shown.
+   */
+  reasonsCategory?: string;
 }
 
 export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
@@ -229,9 +241,11 @@ export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
     requiresPhoneStatusUpdate: false,
     requiresNotes: false,
     itemStatusAfterSave: 'called',
-    closesContactTarget: true,
+    closesContactTarget: false, // DEC-005 D26: manual close + auto-cooldown (D29) handled separately
     opensAppointment: false,
+    reasonsCategory: 'not_interested_reasons', // DEC-006 D39: optional reporting category
   },
+  // ── Legacy outcomes (DEC-006 D39): kept in map for historical reads, filtered from UI ──
   other_company_not_interested: {
     code: 'other_company_not_interested',
     label: 'لديه جهاز من شركة أخرى وغير مهتم',
@@ -241,7 +255,7 @@ export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
     requiresPhoneStatusUpdate: false,
     requiresNotes: false,
     itemStatusAfterSave: 'called',
-    closesContactTarget: true,
+    closesContactTarget: false,
     opensAppointment: false,
   },
   seen_offer_not_interested: {
@@ -253,7 +267,7 @@ export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
     requiresPhoneStatusUpdate: false,
     requiresNotes: false,
     itemStatusAfterSave: 'called',
-    closesContactTarget: true,
+    closesContactTarget: false,
     opensAppointment: false,
   },
   address_updated: {
@@ -269,7 +283,21 @@ export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
     opensAppointment: false,
   },
 
-  // ── Group 3: Reached — follow-up ───────────────────────────
+  // ── Group 3: Reached — follow-up (DEC-006 D39) ─────────────
+  customer_requested_followup: {
+    code: 'customer_requested_followup',
+    label: 'الزبون طلب متابعة بموعد محدد',
+    group: 'follow_up',
+    nextAction: 'needs_follow_up',
+    phoneStatusUpdate: 'none',
+    requiresPhoneStatusUpdate: false,
+    requiresNotes: false,
+    itemStatusAfterSave: 'pending',
+    closesContactTarget: false, // DEC-005 D26
+    opensAppointment: false,
+    reasonsCategory: 'customer_followup_reasons', // DEC-006 D39 (إلزامية)
+  },
+  // ── Legacy follow-up outcomes (DEC-006 D39): kept for historical reads only ──
   other_company_callback: {
     code: 'other_company_callback',
     label: 'لديه جهاز من شركة أخرى وطلب المتابعة لاحقاً',
@@ -317,7 +345,7 @@ export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
     requiresPhoneStatusUpdate: false,
     requiresNotes: false,
     itemStatusAfterSave: 'called',
-    closesContactTarget: true,
+    closesContactTarget: false, // DEC-005 D26
     opensAppointment: false,
   },
 
@@ -373,7 +401,7 @@ export const OUTCOME_MAP: Record<TelemarketingOutcomeCode, OutcomeMeta> = {
     requiresPhoneStatusUpdate: false,
     requiresNotes: false,
     itemStatusAfterSave: 'called',
-    closesContactTarget: true,
+    closesContactTarget: false, // DEC-005 D26: aligned with not_interested
     opensAppointment: false,
   },
   booked: {
@@ -410,11 +438,26 @@ export function getOutcomeMeta(code: string): OutcomeMeta {
 }
 
 // ── Outcome codes grouped by category (for UI rendering) ──────
+//
+// Filtered-out codes are retained in OUTCOME_MAP for backward-compatible reads
+// (historical telemarketing_call_logs rows) but never shown as a selectable
+// option in new UI. DEC-006 D39 deprecated 4 outcomes; DEC-003 deprecated 2
+// legacy codes (rejected, booked).
+
+const HIDDEN_FROM_UI_CODES: ReadonlySet<TelemarketingOutcomeCode> = new Set([
+  'rejected',
+  'booked',
+  // DEC-006 D39: replaced by `not_interested` (unified) + `customer_requested_followup`
+  'other_company_not_interested',
+  'seen_offer_not_interested',
+  'other_company_callback',
+  'seen_offer_callback',
+]);
 
 export const OUTCOMES_BY_GROUP = OUTCOME_GROUPS.map(group => ({
   ...group,
   outcomes: (Object.values(OUTCOME_MAP) as OutcomeMeta[])
-    .filter(m => m.group === group.key && m.code !== 'rejected' && m.code !== 'booked'),
+    .filter(m => m.group === group.key && !HIDDEN_FROM_UI_CODES.has(m.code)),
 }));
 
 // ── Outcomes that close the contact target ─────────────────────
@@ -424,9 +467,20 @@ export const CLOSES_TARGET_OUTCOMES: TelemarketingOutcomeCode[] = (
 ).filter(m => m.closesContactTarget).map(m => m.code);
 
 // ── Normalise legacy codes to canonical equivalents ────────────
+//
+// Used for lifecycle decisions (e.g. which outcome triggers cooldown).
+// Historical rows keep their original code in the DB; only the normalised
+// value is used for in-flight logic. DEC-006 D39 added 4 new mappings.
 
 export function normaliseOutcomeCode(code: string): TelemarketingOutcomeCode {
+  // Legacy DEC-003 codes
   if (code === 'rejected') return 'not_interested';
   if (code === 'booked') return 'booked_marketing_appointment';
+  // DEC-006 D39: unified into not_interested
+  if (code === 'other_company_not_interested') return 'not_interested';
+  if (code === 'seen_offer_not_interested') return 'not_interested';
+  // DEC-006 D39: replaced by customer_requested_followup
+  if (code === 'other_company_callback') return 'customer_requested_followup';
+  if (code === 'seen_offer_callback') return 'customer_requested_followup';
   return code as TelemarketingOutcomeCode;
 }
