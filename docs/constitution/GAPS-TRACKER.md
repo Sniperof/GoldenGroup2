@@ -368,17 +368,17 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [field-visits.md §9.4](domains/field-visits.md#94-الثغرة-الرابعة) |
 
-### GAP-031: Lack of Automatic Candidate Generation from Name Collection 🟢 منخفضة — **جديد**
+### GAP-031: Lack of Automatic Candidate Generation from Name Collection 🟢 منخفضة — **محلولة جزئياً بـ DEC-007**
 
 | البند | التفصيل |
 |---|---|
-| **الكيان** | visit_name_collections / candidates |
+| **الكيان** | ~~visit_name_collections~~ / referral_sheets / candidates |
 | **الموقع** | `packages/api/routes/fieldVisits.ts` |
-| **الوصف** | عند نجاح مهمة جمع الأسماء وتوثيق actual_count بجدول `visit_name_collections` وتحديث سجل `referral_sheets` بالعدد، لا يقوم النظام بالإنشاء والتحويل التلقائي لتلك التوصيات كـ `candidates` بقاعدة البيانات، بل يتطلب ذلك إدخالاً يدوياً مكرراً لاحقاً. |
-| **التأثير** | ضياع التوصيات التسويقية الهامة وإهدار أداء مركز الاتصال. |
-| **الحل المقترح** | بناء خوارزمية ذكية تقوم فوراً بتوليد سجلات مرشحين بصفة `Suggested` مع ربطهم بصحيفة الترشيح كإجراء تلقائي. |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [field-visits.md §9.5](domains/field-visits.md#95-الثغرة-الخامسة) |
+| **الوصف القديم** | عند نجاح مهمة جمع الأسماء وتوثيق `actual_count` بجدول `visit_name_collections` وتحديث سجل `referral_sheets` بالعدد، لا يقوم النظام بالإنشاء والتحويل التلقائي لتلك التوصيات كـ `candidates` بقاعدة البيانات. |
+| **التحديث (DEC-007 D40/D45)** | الأسماء **لا تُدخَل ضمن الزيارة أصلاً**. الزيارة تحمل فقط `target_candidates` كوعد على `referral_sheets` (لائحة على مستوى الزيارة بـ `UNIQUE(field_visit_id)`). جدول `visit_name_collections` يُحذف. مفهوم "actual_count المحسوب ضمن الزيارة" يختفي. |
+| **المتبقي** | تصميم **شاشة "سجلات الأسماء المقترحة" المنفصلة** التي يُفتح فيها إدخال candidates لاحقاً (خارج سياق الزيارة) — هذا هو P-DEC007-03 في DEC-007. |
+| **الحالة** | 🔄 محلولة جزئياً (إعادة تصميم بنيوية) — انتظار شاشة سجلات الأسماء |
+| **ملف الدستور** | [field-visits.md](domains/field-visits.md) — قسم GAP-031 محدّث |
 
 ### GAP-032: No Soft-Delete for Field Visits and Tasks 🟡 متوسطة — **جديد**
 

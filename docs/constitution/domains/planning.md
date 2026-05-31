@@ -244,6 +244,37 @@
 - تنطبق على: `planning/marketing-targets` في وضع الحساب، ثم ما يتفرع عنه من استخراج جهات الاتصال.
 - التحقق: ظهور المهام نفسها في `assigned` قبل فتح صفحة جهات الاتصال.
 
+### `PL-R009` — أول من حُسبت له المهمة يكسبها (DEC-005)
+عند تنازع فريقين في نفس المنطقة، الفريق الذي يحفظ نطاق عمله أولاً يحصل على المهام تلقائياً. الآلية: `syncAssignedTasks` يفلتر `status IN ('open', 'needs_follow_up')` عند الإسناد، فالمهام المسندة بالفعل لفريق سابق لا تُلمس. لا حاجة لحل تنازع منطقي إضافي.
+
+### `PL-R010` — توسيع syncAssignedTasks لكل أنواع المهام (DEC-005 D24)
+آلية syncAssignedTasks لا تقتصر على marketing بعد DEC-005. تشمل service و collection وكل visit_types الموسّعة. الفلتر يستفيد من `task_type_config.contact_target_visit_type` لتحديد فئة كل مهمة عند الإسناد.
+
+### `PL-R011` — قاعدة capability للفرق (DEC-005 D25 + DEC-006 D31 — محسومة)
+- فريق قياسي (`TeamSlot`) يدعم كل أنواع المهام.
+- **فريق طوارئ (`EmergencySlot`) محصور بـ `emergency_maintenance` فقط** (DEC-006 D31 — حسم نهائي). **لا يستلم `periodic_maintenance` ولا أي نوع آخر.**
+- لا تخصيص لكل route_assignment. capability ثابتة بنوع الفريق.
+
+**السبب (DEC-006 D31):** الصيانة الدورية مهمة مخططة لها نافذة زمنية واسعة عبر `planning_window_days` ولا تستفيد من سرعة استجابة فريق الطوارئ. توسيع نطاق فريق الطوارئ يُضعف تركيزه على الحالات العاجلة ويخلق تنافساً غير ضروري مع الفريق القياسي. الصيانة الدورية يتولاها الفريق القياسي حصراً يُبقي وضوح الأدوار.
+
+**تأثير على الكود:** `workScope` لفريق الطوارئ يفلتر `open_tasks` حيث `task_type = 'emergency_maintenance'` فقط. لا توسيع للنوع.
+
+### `PL-R012` — استبعاد الزبون عبر فلاتر محدودة (DEC-005)
+فلاتر الزبون في syncAssignedTasks تقتصر على:
+- `clients.do_not_contact = TRUE` — حظر دائم
+- `clients.is_archived = TRUE` (إن وُجد) — مؤرشف
+- `clients.is_candidate = TRUE` — مرشح غير مفعّل
+- `clients.cooldown_until > CURRENT_DATE` — فترة تهدئة فعّالة
+
+لا فلتر بناءً على وجود عقود من عدمها. لا فلتر `NOT EXISTS visits` legacy.
+
+### `PL-R013` — مكان العمل من task_type_config.location_basis (DEC-005)
+موقع العمل لكل مهمة يُحسب من `task_type_config.location_basis`:
+- `location_basis = 'client'` لمهام مثل `device_demo` → عنوان الزبون
+- `location_basis = 'device'` لمهام مثل تسليم وتركيب وتشغيل وصيانة وتحصيل → عنوان الجهاز من `installed_devices.installation_geo_unit_id`
+
+العقد كيان مالي تجاري، الجهاز كيان مادي بموقع. لا اعتماد على عنوان العقد لأي مهمة ميدانية.
+
 ---
 
 ## 9) الواجهة المرتبطة بالدومين

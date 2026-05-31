@@ -75,7 +75,7 @@
 | `timestamp` | `TIMESTAMPTZ` | ✅ | `NOW()` | — | تاريخ ووقت إجراء وتوثيق المكالمة | `"2026-05-24T20:46:00Z"` |
 | `called_by` | `INTEGER` | ✅ | — | — | معرف الموظف الذي أجرى المكالمة | `12` |
 | `communication_method`| `VARCHAR(30)`| ✅ | — | — | وسيلة الاتصال المعتمدة (هاتف، واتساب) | `"phone"` |
-| `contact_target_id`| `BIGINT`| ✅ | — | `FK → contact_targets(id) ON DELETE SET NULL` | معرف مستهدف الاتصال المربوط بالمكالمة | `3042` |
+| `contact_target_id`| `BIGINT`| ❌ 🆕 | — | `FK → contact_targets(id) ON DELETE RESTRICT` | معرف `contact_target` واحد محدد (DEC-006 D34 — كل مكالمة تربط بهدف واحد). الواجهة تُلزم اختياره قبل تسجيل النتيجة | `3042` |
 
 ---
 
@@ -106,27 +106,42 @@
 
 ### 2.5 جدول أهداف الاتصال `contact_targets`
 
-يوثق الأهداف اليومية الجاري تحضيرها والعمل عليها من الفرق لتصفية الديون أو المتابعة مبيعاتياً.
+> الحالة بعد DEC-005. توسعة كاملة لقواعد الفلتر ودورة الحياة ومستوى grain. راجع decisions/DEC-005-contact-targets-filter.md للقرارات الكاملة.
 
-| الحقل (Field) | النوع (SQL Type) | NULL? | DEFAULT | Constraints | الوصف والشرح بالعربية | مثال واقعي (Example) |
-|---|---|---|---|---|---|---|
-| `id` | `BIGSERIAL` | ❌ | — | `PRIMARY KEY` | المعرف الفريد التلقائي للمستهدف | `3042` |
-| `branch_id` | `INTEGER` | ❌ | — | `FK → branches(id) ON DELETE RESTRICT` | معرف الفرع التشغيلي للأهداف المستهدفة | `1` |
-| `target_type` | `VARCHAR(50)` | ❌ | — | `CHECK (target_type IN ('client'))`| نوع الهدف المستهدف حالياً | `"client"` |
-| `target_id` | `INTEGER` | ❌ | — | — | معرف العميل المستهدف بالمتابعة والاتصال | `1024` |
-| `target_stage` | `VARCHAR(50)` | ❌ | — | `CHECK (target_stage IN ('lead'))`| تصنيف مرحلة المستهدف اليومي | `"lead"` |
-| `visit_type` | `VARCHAR(50)` | ❌ | — | `CHECK (visit_type IN ('marketing'))`| نوع الزيارة التشغيلية التابعة | `"marketing"` |
-| `source_type` | `VARCHAR(50)` | ❌ | — | `CHECK (source_type IN ('lead'))`| تصنيف مصدر البيانات الرئيسي | `"lead"` |
-| `source_id` | `INTEGER` | ❌ | — | — | معرف المصدر المرتبط بالهدف | `8012` |
-| `supervisor_hr_user_id`| `INTEGER`| ✅ | — | `FK → hr_users(id) ON DELETE SET NULL` | معرف المشرف المسؤول عن تحضير الخطط | `15` |
-| `zone_id` | `INTEGER` | ✅ | — | — | معرف المنطقة الجغرافية التابعة للتحضير | `123` |
-| `status` | `VARCHAR(50)` | ❌ | `'new'` | `CHECK (status IN ...)` | حالة المستهدف المالي للاتصال | `"closed"` |
-| `latest_call_outcome`| `VARCHAR(50)`| ✅ | — | — | النتيجة الأخيرة لأبرز مكالمة للمستهدف | `"booked_marketing_appointment"` |
-| `latest_task_list_item_id`| `VARCHAR(100)`| ✅ | — | — | معرف آخر بند كشف تواصل معه | `"item-8012"` |
-| `latest_appointment_id`| `VARCHAR(100)`| ✅ | — | — | معرف الموعد الأحدث الذي تم حجزه | `"appt-7741"` |
-| `created_at` | `TIMESTAMPTZ` | ❌ | `NOW()` | — | تاريخ إنشاء السجل | `"2026-05-24T20:45:00Z"` |
-| `updated_at` | `TIMESTAMPTZ` | ❌ | `NOW()` | — | تاريخ تعديل البيانات الجارية | `"2026-05-24T20:46:00Z"` |
-| `date` | `DATE` | ✅ | — | `UNIQUE (branch, type, id... date, zone)`| التاريخ التشغيلي المحدد للمستهدف اليومي | `"2026-05-24"` |
+يوثق الأهداف اليومية للتواصل الهاتفي. كل سجل يمثل (زبون + موقع عمل + يوم تشغيلي) واحد. السجل الواحد قد يحوي مهام من أنواع متعددة عند نفس الموقع.
+
+| الحقل (Field) | النوع (SQL Type) | NULL? | الوصف |
+|---|---|---|---|
+| `id` | `BIGSERIAL` | ❌ | المعرف الفريد |
+| `branch_id` | `INTEGER` | ❌ | الفرع التشغيلي |
+| `target_type` | `VARCHAR(50)` | ❌ | نوع الهدف، حالياً `'client'` فقط |
+| `target_id` | `INTEGER` | ❌ | معرف الزبون |
+| `work_location_geo_unit_id` 🆕 (DEC-005 D27) | `INTEGER` | ❌ | عنوان العمل من task_type_config.location_basis. عنوان الزبون لمهام marketing، عنوان الجهاز لمهام service و collection |
+| `visit_type` | `VARCHAR(50)` | ❌ | `marketing` \| `service` \| `collection` \| `mixed` (موسّع بـ D24) |
+| `source_id` | `INTEGER` | ❌ | معرف المصدر |
+| `supervisor_hr_user_id` | `INTEGER` | ✅ | المشرف المسؤول |
+| `zone_id` | `INTEGER` | ✅ | المنطقة الجغرافية المرتبطة بـ route_assignment |
+| `team_key` | `VARCHAR(100)` | ✅ | الفريق المسؤول (محسوب من route_assignments) |
+| `status` | `VARCHAR(50)` | ❌ | `new` \| `queued` \| `in_call_list` \| `contacted` \| `closed` \| `cancelled` |
+| `latest_call_outcome` | `VARCHAR(50)` | ✅ | آخر نتيجة مكالمة |
+| `latest_task_list_item_id` | `VARCHAR(100)` | ✅ | معرف آخر بند كشف تواصل |
+| `latest_visit_id` (DEC-004 D23) | `BIGINT` | ✅ | معرف الزيارة الأحدث (محل `latest_appointment_id`) |
+| `closing_reason` 🆕 (DEC-005 D26) | `VARCHAR(50)` | ✅ | `booked` \| `manual_telemarketer` \| `manual_supervisor` \| `auto_closed_by_cron` \| `cooldown_set` |
+| `closed_by` 🆕 | `INTEGER` FK | ✅ | من أغلق |
+| `closed_at` 🆕 | `TIMESTAMPTZ` | ✅ | متى أُغلق |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | ❌ | timestamps |
+| `date` | `DATE` | ✅ | اليوم التشغيلي |
+
+**حقول محذوفة (DEC-005 D30):**
+- ❌ `target_stage` — كان CHECK يقبل `'lead'` فقط، لم يُستخدم لاتخاذ قرار.
+- ❌ `source_type` — نفس الوضع، CHECK يقبل `'lead'` فقط.
+
+**UNIQUE constraint جديد (DEC-005 D27):**
+```
+UNIQUE (branch_id, target_id, work_location_geo_unit_id, date)
+```
+
+محذوف من المفتاح: `visit_type` (السجل يجمع كل الأنواع في الموقع نفسه)، `source_type` (الحقل محذوف).
 
 ---
 
@@ -140,19 +155,73 @@
 
 ### 3.2 قواعد العمل البرمجية والتشغيلية (Business Rules)
 
-#### BR-1: هيكل محصلة المكالمات الهاتفية (Telemarketing Outcome System)
-يوفر التطبيق 21 نتيجة معيارية مقسمة لـ 5 مجموعات كبرى بالاتساق المطلق مع السيرفر و `telemarketingOutcomes.ts`:
-1. **لم يتم التواصل (`not_reached`):** تشمل `no_answer` (لم يتم الرد)، `busy` (مشغول)، `out_of_coverage` (خارج التغطية)، `not_in_service` (خارج الخدمة)، `wrong_number` (رقم خاطئ)، `auto_disconnected` (انقطع تلقائياً)، `message_sent` (مرسل رسالة).
-2. **تم التواصل - بدون موعد (`reached`):** تشمل `currently_busy` (العميل مشغول حالياً)، `interrupted` (انقطع الاتصال)، `not_interested` (غير مهتم)، `other_company_not_interested` (لديه جهاز آخر وغير مهتم)، `seen_offer_not_interested` (اطلع سابقاً وغير مهتم)، `address_updated` (تم تحديث العنوان)، `new_number` (رقم إضافي).
-3. **تم التواصل - يحتاج متابعة (`follow_up`):** تشمل `other_company_callback` (لديه جهاز آخر وطلب المتابعة)، `seen_offer_callback` (اطلع وطلب المتابعة).
-4. **تم التواصل - طلب خدمة (`service_request`):** تشمل `service_request` (طلب صيانة)، `company_customer_missing_phone` (رقم مفقود).
-5. **حجز موعد (`booked`):** تشمل القيمة المعيارية المعتمدة للحجز `booked_marketing_appointment`.
+#### BR-1: هيكل محصلة المكالمات الهاتفية (Telemarketing Outcome System) — محدّث بـ DEC-006 D39
 
-#### BR-2: سلسلة الزناد والتسلسل الآلي للحجز (Trigger Chain)
-عند قيام موظف مركز الاتصال بنجاح بترحيل مكالمة وحجز موعد زيارة (`POST /api/telemarketing/appointments`):
-1. **تحديث المستهدف:** يتحول وضع الهدف الجاري في `contact_targets.status` تلقائياً إلى `closed` وتوثيق مسبب الإغلاق `latest_call_outcome = 'booked_marketing_appointment'`.
-2. **الزناد الأول للمهمة المفتوحة:** يقوم النظام أوتوماتيكياً بإنشاء مهمة مفتوحة جديدة (`open_tasks` من نوع `device_demo` وعائلة `marketing` وتخصيص تاريخ موعد `expected_date`) لصالح العقد أو العميل.
-3. **الزناد الثاني للزيارة الميدانية:** يقوم السيرفر تلقائياً بإنشاء زيارة ميدانية مخططة ومؤكدة (`field_visits` وربطها بالتاريخ والوقت المحجوزين) وتكليف الفنيين بالخطة التابعة.
+> **التحوّل (DEC-006 D39):** عدد النتائج انخفض إلى **16** عبر دمج المتشابهات. الأسباب الفرعية تُفصل في قوائم `system_lists`.
+>
+> **outcomes المحذوفة:** `other_company_not_interested`، `seen_offer_not_interested`، `other_company_callback`، `seen_offer_callback`.
+> **outcomes المُضافة:** `customer_requested_followup` (يحل محل callback المحذوفتين).
+> **outcomes المعدّلة دلالياً:** `not_interested` تستوعب الآن "غير مهتم نهائياً" بكل أسبابه؛ الأسباب اختيارية من `not_interested_reasons` لأغراض التقارير لا للمنطق.
+
+التطبيق يوفر 16 نتيجة معيارية مقسمة لـ 5 مجموعات كبرى بالاتساق المطلق مع السيرفر و `telemarketingOutcomes.ts`:
+1. **لم يتم التواصل (`not_reached`):** `no_answer`, `busy`, `out_of_coverage`, `not_in_service`, `wrong_number`, `auto_disconnected`, `message_sent`.
+2. **تم التواصل - بدون موعد (`reached`):** `currently_busy`, `interrupted`, `not_interested` (موحّدة)، `address_updated`, `new_number`.
+3. **تم التواصل - طلب خدمة (`service_request`):** `service_request`, `company_customer_missing_phone`.
+4. **حجز موعد (`booked`):** `booked_marketing_appointment` فقط.
+5. **وعد بمتابعة (`followup_promise`) 🆕 — D22:** `customer_requested_followup` — الزبون طلب اتصال/زيارة بموعد محدد. تتطلب `expected_date` + `expected_time` + سبب من `customer_followup_reasons`. تنقل `open_task` لـ `needs_follow_up`. `closesContactTarget = false`.
+
+#### BR-1.5: فئات `system_lists` المرتبطة بـ outcomes (DEC-006 D39)
+
+**فئات جديدة معتمدة:**
+- `customer_followup_reasons` — تُستخدم عند `customer_requested_followup`. **إلزامية**.
+- `visit_cancellation_reasons` — تُستخدم عند إلغاء زيارة `scheduled` قبل بدئها. إلزامية.
+- `location_missing_reasons` — تُستخدم عند استثناء GPS أثناء الزيارة. إلزامية.
+- `cooldown_manual_reasons` — تُستخدم عند تفعيل cooldown يدوياً. إلزامية.
+- `visit_not_completed_reasons` — تُستخدم عند توثيق زيارة بنتيجة `not_completed`. إلزامية.
+- `not_interested_reasons` — تُستخدم اختياراً عند `not_interested` لأغراض التقارير. **اختيارية**.
+
+**فئات محذوفة من الكود الحالي:**
+- ⛔ `telemarketing_rejection_reason` — مغطاة بـ outcomes الجديدة المتمايزة. القيم الست تُهجَّر للحذف.
+- ⛔ `telemarketing_reschedule_reason` — تُستبدل بـ `customer_followup_reasons`. القيم الخمس تُهجَّر للفئة الجديدة.
+
+**فئات محتفظ بها بلا تغيير:** `emergency_unresolved_reason` (نتيجة زيارة الطوارئ)، `no_closing_reasons` (إغلاق العقد).
+
+> القيم الفعلية (seed) لكل فئة لم تُحسم بعد (P-DEC006-01 — جلسة seed values).
+
+#### BR-2: سلسلة الزناد والتسلسل الآلي للحجز (محدّث — DEC-003 + DEC-004)
+
+> **ملاحظة هامة:** سلسلة الزناد القديمة (`telemarketing_appointments` → trigger → `field_visits`) **أُلغيت كلياً**. الـ endpoint `POST /api/telemarketing/appointments` تم استبداله بـ `POST /telemarketing/book-visit` ينشئ `field_visit` مباشرة (D2).
+
+**السلسلة الجديدة (D14 سيناريو 2):**
+
+عند نجاح حجز موعد عبر `POST /telemarketing/book-visit`:
+
+1. **فحص D18 الإلزامي:** النظام يرفض إذا أحد الشروط فشل:
+   - `day_schedule` غير محفوظ لـ `scheduled_date`.
+   - `route_assignments` لا تشمل منطقة الزبون لذلك اليوم.
+   - التاريخ في الماضي.
+
+2. **إنشاء `field_visit`** مباشرة بحالة `scheduled`:
+   - `origin_type = 'telemarketing'`, `origin_id = call_log_id`.
+   - `customer_snapshot` يتعبأ كاملاً (Level 2 — D12).
+   - `team_snapshot` يتعبأ من route_assignments + day_schedule لذلك اليوم.
+
+3. **إنشاء `visit_tasks`** من قائمة `open_task_ids` المختارة من التيليماركتر:
+   - كل `visit_task` يربط بـ `source_open_task_id`.
+   - `open_task.status` تتحوّل لـ `scheduled`.
+
+4. **تحديث `contact_target`:**
+   - `status = 'closed'` (D23).
+   - `latest_call_outcome = 'booked_marketing_appointment'`.
+   - `latest_visit_id` يربط بالزيارة الجديدة (محل `latest_appointment_id`).
+
+5. **إلغاء الزيارة لاحقاً (D23):**
+   - `contact_target.status` يبقى `closed` — هدف اليوم تحقق بالتواصل.
+   - `open_tasks` ترجع لـ `last_waiting_status` (D10).
+
+**سلاسل بديلة:**
+- **طلب خدمة بدون حجز (D14 سيناريو 1):** `service_request` outcome → `open_task` جديدة بحالة `open` + `creation_origin = 'service_request_call'`. لا زيارة.
+- **وعد متابعة لاحقة (D22):** `customer_requested_followup` outcome 🆕 → `open_task.status = 'needs_follow_up'` + `expected_date/time`. لا زيارة. زر Schedule-from-Expected ينشئها لاحقاً.
 
 #### BR-3: التعددية وتنوع الكيانات المستهدفة (Entity Polymorphism)
 - يعتمد النظام بالكامل بنية التعددية لنوع الكيانات (`entity_type IN ('candidate', 'client')`).
@@ -190,13 +259,133 @@ erDiagram
 - **`called` (تم التواصل):** بعد تسجيل مكالمة هاتفية صحيحة بـ 20 نتيجة متاحة عدا الحجز.
 - **`booked` (تم الحجز):** عند نجاح المكالمة وحجز شريحة مواعد مؤكدة للزيارة.
 
-### 5.2 دورة حياة أهداف الاتصال اليومية (Contact Target Lifecycle)
-- **`new` (جديد):** الهدف المستقطب الأولي في الفرع.
-- **`queued` / `in_call_list` (مدرج بكشف الاتصال):** عند إلحاق الهدف بكشف تواصل جاري لفريق التسويق.
-- **`contacted` (تم التواصل):** عند تدوين تواصل ناجح أو جزئي بالهواتف.
-- **`closed` (مغلق):** الحالة النهائية للهدف، وتتم أوتوماتيكياً بمجرد حجز موعد (`booked_marketing_appointment`) أو يدوياً عبر المشرف بسبب انتهاء محاولات الاتصال.
+### 5.2 دورة حياة أهداف الاتصال اليومية (محدّثة بـ DEC-005 D26)
+
+`new` (جديد). الهدف المستقطب الأولي عند إنشاؤه بحفظ خطة اليوم.
+
+`queued` / `in_call_list` (مدرج بكشف الاتصال). عند إلحاق الهدف بكشف تواصل جاري.
+
+`contacted` (تم التواصل). عند تدوين أي مكالمة بأي نتيجة عدا الحجز.
+
+`closed` (مغلق). الحالة النهائية، تصل عبر أربعة مسارات.
+
+#### مسارات الإغلاق
+
+**المسار الأول: تلقائي على الحجز فقط (D26).** عند نتيجة `booked_marketing_appointment` وإنشاء `field_visit`، الـ contact_target ينتقل تلقائياً إلى `closed`. `closing_reason = 'booked'`.
+
+**المسار الثاني: يدوي بواسطة التيليماركتر (D26).** التيليماركتر تقرر إنهاء "هدف اليوم" بعد تواصل أو محاولات فاشلة. متاح عبر مسارين في الواجهة: خيار داخل نافذة تسجيل نتيجة المكالمة، وزر مستقل على بطاقة الـ contact_target. `closing_reason = 'manual_telemarketer'`.
+
+**المسار الثالث: يدوي بواسطة المشرف (D26).** المشرف يُغلق لأسباب تشغيلية (تجنب تكرار، الزبون غير متاح للمتابعة). `closing_reason = 'manual_supervisor'`.
+
+**المسار الرابع: CRON أمان (D26).** يومياً في وقت قابل للضبط (افتراضي 22:00 من `system_settings.contact_target_cleanup_time`). يُغلق كل `contact_targets` حيث `status != 'closed' AND date < CURRENT_DATE`. يُرجع الـ `open_tasks` المرتبطة لـ `last_waiting_status` (D10). `closing_reason = 'auto_closed_by_cron'`.
+
+#### قاعدة جوهرية (DEC-005 D26)
+
+**لا إغلاق تلقائي على نتائج الرفض.** عند نتيجة `not_interested` أو `other_company_not_interested` أو `seen_offer_not_interested` أو أي نتيجة رفض أخرى، الـ contact_target يبقى مفتوحاً. السبب أن التيليماركتر قد تجرب رقم آخر للزبون. القرار النهائي بالإغلاق يدوي.
+
+ملاحظة على الكود: حقل `closesContactTarget` في `packages/shared/telemarketingOutcomes.ts` يصير `false` لكل النتائج باستثناء `booked_marketing_appointment` (الذي يُعالج بمنطق إنشاء الزيارة).
 
 ---
+
+## 5.3 قواعد الفلتر والـ grain (DEC-005)
+
+### المبادئ التأسيسية
+
+**Bottom-up.** الفلتر يبدأ من المهام المفتوحة، ليس من الزبون. الزبون يظهر إذا له على الأقل `open_task` واحدة جاهزة في موقع داخل نطاق العمل المحفوظ.
+
+**عنوان الجهاز لا العقد.** location_basis في `task_type_config` يأخذ القيم `client` (عنوان الزبون لمهام marketing) أو `device` (عنوان الجهاز من `installed_devices.installation_geo_unit_id` لمهام service و collection). العقد كيان مالي تجاري، الجهاز كيان مادي.
+
+**required_date بدل due_date.** المهام التي ليست مالية تستخدم required_date كاسم دلالي. `due_date` يبقى للأقساط والذمم المالية فقط.
+
+**نافذة N واحدة.** قيمة N (تُحفظ في `task_type_config.lead_window_days`) تدل فقط على عدد الأيام قبل required_date أو expected_date التي تُظهر المهمة في contact_targets.
+
+**المهام الفائتة تبقى تظهر.** لا اختفاء صامت. علامة "متأخرة" بأولوية عرض عالية.
+
+### grain (DEC-005 D27)
+
+contact_target = (زبون + موقع عمل + يوم).
+
+السجل الواحد يجمع كل المهام في الموقع نفسه بغض النظر عن نوعها. زبون عنده عنوانه + جهاز 1 + جهاز 2 قد يكون له حتى 3 سجلات في اليوم، واحد لكل موقع. لو الجهاز 1 ضمن نطاق فريق A والجهاز 2 ضمن فريق B، السجلات تذهب لفرق مختلفة.
+
+### قاعدة التوسع لكل visit_types (DEC-005 D24)
+
+`syncAssignedTasks` يعمل على كل أنواع المهام، ليس marketing فقط. الفلتر يحدد visit_type على مستوى السجل (marketing عند مهام عرض الجهاز، service عند post-sale وغيرها، collection عند تحصيل، mixed عند تنوع الأنواع في الموقع نفسه).
+
+### استبعادات الزبون (DEC-005)
+
+الفلاتر على مستوى الزبون تقتصر على ما يعكس "غير قابل للتواصل":
+
+- `clients.do_not_contact = TRUE` — حظر دائم.
+- `clients.is_archived = TRUE` (إن وُجد).
+- `clients.is_candidate = TRUE` — المرشحون مسار منفصل.
+- `clients.cooldown_until > CURRENT_DATE` — حظر مؤقت.
+
+لا فلتر `NOT EXISTS contracts` (يُحذف من الكود). لا فلتر `NOT EXISTS visits` legacy (يُحذف).
+
+## 5.4 cooldown على مستوى الزبون (DEC-005 D29)
+
+### المفهوم
+
+cooldown يحجب الزبون من كل contact_targets بغض النظر عن نوع المهمة. مدته محددة وتنتهي تلقائياً بفوات التاريخ.
+
+### حقول جديدة على clients
+
+- `cooldown_until` (DATE). تاريخ انتهاء الحجب.
+- `cooldown_reason` (TEXT). سبب التفعيل.
+- `cooldown_set_by` (FK → hr_users). من فعّل.
+- `cooldown_set_at` (TIMESTAMPTZ). وقت التفعيل.
+
+### المدة الافتراضية
+
+من `system_settings.default_cooldown_days`. القيمة الافتراضية المبدئية 7 أيام، قابلة للضبط بواسطة الأدمن.
+
+### حالات التفعيل التلقائي
+
+عند تسجيل نتيجة `not_interested` (الموحّدة بعد DEC-006 D39 — تستوعب كل أسباب عدم الاهتمام)، النظام يضع `cooldown_until = CURRENT_DATE + default_cooldown_days` تلقائياً. السبب اختياري من `not_interested_reasons` لأغراض التقارير.
+
+**فك cooldown اليدوي قبل المدة (DEC-006 D32):** صلاحية حصرية لـ **مدير الفرع** عبر `permissions.cooldown_unlock`. التيلماركتر والمشرف لا يملكان هذه الصلاحية. السبب: cooldown غالباً يُفعَّل بعد رفض صريح من الزبون أو قرار تشغيلي مدروس؛ فكّه قبل المدة يعني تجاوز قرار سابق. المشرف قد يُضغط لفك cooldown تحت تحقيق أهداف يومية.
+
+### حالات التفعيل اليدوي
+
+عند الإغلاق اليدوي لـ contact_target، خيار اختياري لتفعيل cooldown. يستخدمه التيليماركتر بعد محاولات متعددة فاشلة، أو المشرف لمنع تكرار تشغيلي.
+
+### فك Cooldown اليدوي
+
+من شاشة تفاصيل الزبون، زر "إلغاء فترة التهدئة". يحتاج صلاحية مشرف أو أعلى.
+
+### انتهاء آلي
+
+الفلتر في `syncAssignedTasks` يفحص `cooldown_until IS NULL OR cooldown_until < CURRENT_DATE`. بعد فوات التاريخ الزبون مؤهل تلقائياً، الحقل يبقى محفوظاً للتاريخ.
+
+### الدمج مع do_not_contact
+
+`clients.do_not_contact` (BOOLEAN) حظر دائم. الفلتر يفحص الاثنين معاً، أي منهما يحجب يحجب. شاشة تفاصيل الزبون تجمعهما في قسم "حالة التواصل" مع زرين منفصلين لإدارة كل واحد.
+
+### التفاعل مع expected_date
+
+لا تأثير متبادل. expected_date task-level. cooldown customer-level. عند `customer_requested_followup` يُحفظ expected_date على المهمة فقط، لا يفعّل cooldown.
+
+## 5.5 الوعي عبر الفرق (DEC-005 D28)
+
+### نافذة مصغرة في TelemarketerWorkspace
+
+عند عرض contact_target، نافذة جانبية تعرض كل contact_targets الأخرى لنفس الزبون داخل الفرع لليوم. تشمل حالتها ونتائج مكالماتها وزيارات المحجوزة. قراءة فقط.
+
+### علامة على بطاقة الزبون
+
+في القائمة الرئيسية للتيليماركتر، badge "+N فرق" يظهر لو الزبون له contact_targets في فرق أخرى داخل الفرع.
+
+### التحديث live
+
+عند حجز أو إغلاق contact_target في فريق آخر، النافذة المصغرة تتحدث.
+
+### النطاق
+
+كل contact_targets للزبون نفسه ضمن الفرع نفسه + التاريخ نفسه. لا يشمل فروع أخرى.
+
+### Endpoint
+
+`GET /telemarketing/customer/:customerId/all-targets-today` يجلب كل contact_targets المرتبطة بالزبون لليوم.
 
 ## 6. صلاحيات الوصول (Permission Matrix)
 

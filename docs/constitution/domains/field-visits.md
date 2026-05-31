@@ -3,6 +3,11 @@
 > **الحالة (Status):** Active / Authoritative  
 > **المرجع الأعلى للعمليات والأنشطة الميدانية، وسجلات تتبع الفرق الجغرافية، والتحقق التقني من التركيب والتشغيل، ونتائج التسليم وخدمات الطوارئ.**
 
+> **🔄 تعديل دستوري (2026-05-31):** هذا الملف خضع لتعديلات بنيوية بناءً على **DEC-006** و **DEC-007**.
+> - الملخص التشغيلي الموحّد للنموذج الجديد في `domains/visits.md` (هو المرجع الأعلى للمفاهيم الموحّدة).
+> - أبرز التغييرات: حذف `visit_name_collections` (DEC-007 D40)، استبدالها بـ `referral_sheets` على مستوى الزيارة، إنشاء `visit_surveys` (DEC-007 D42)، إعادة تعريف completion guards (DEC-007 D44/D45)، تصعيد ثلاثي 24/48/72h لعدم التوثيق (DEC-006 D38)، انتقال `completed` آلي عبر `checkAndCompleteVisit()`.
+> - الحقول والجداول المُعلَّمة بـ `⛔ DEPRECATED` أدناه تبقى مذكورة للتوثيق التاريخي حتى تنفيذ migrations الإسقاط الفعلي.
+
 ---
 
 ## 1. هوية الكيان (Entity Identity)
@@ -21,10 +26,12 @@
   5. `visit_task_emergency_technical_states` (التقرير الفني لتشخيص الصيانة الطارئة).
   6. `visit_task_emergency_parts_used` (قطع الغيار المستهلكة في الصيانة).
   7. `visit_task_emergency_financials` (التسوية المالية لصيانات الطوارئ).
-  8. `visit_name_collections` (سجلات جمع الأسماء والتوصيات الورقية).
+  8. ⛔ `visit_name_collections` **DEPRECATED** (سيُحذف — DEC-007 D40). انتقلت اللائحة لمستوى الزيارة عبر `referral_sheets`.
   9. `direct_suggestions` (الترشيحات المباشرة الفردية أثناء الزيارة).
   10. `visit_sources` (توثيق وتتبع مسبب استدعاء الزيارة الميدانية).
   11. `visit_geo_logs` (سجلات التتبع الجغرافي والزمني لحركة الفرق ميدانياً).
+  12. 🆕 `referral_sheets` (لائحة الأسماء المقترحة — **اختيارية**، 1:1 مع `field_visits` عبر `UNIQUE(field_visit_id)`، تُنشأ يدوياً بزر بعد بدء الزيارة — DEC-007 D40/D41).
+  13. 🆕 `visit_surveys` (استبيان الزيارة — **إلزامي**، 1:1 مع `field_visits`، 11 حقلاً ثابتاً + خيار `is_skipped` بسبب من `survey_skip_reasons` — DEC-007 D42).
 - **الوصف:** يمثل كيان "الزيارة الميدانية" عصب الحركة والتنفيذ والربط المحوري في Golden CRM. إنه الجسر الذي يربط بين عمليات التخطيط الخلفي والمكالمات الهاتفية (التسويق الهاتفي) وعمليات المتابعة (المهام المفتوحة) مع النتائج الفعلية على أرض الواقع (العقود والديون والتحصيل). تم تصميم الكيان ليسمح بالمرونة التشغيلية المطلقة حيث يمكن للزيارة الواحدة احتواء عدة مهام مستقلة (`visit_tasks`) بأنواع مختلفة، ليقوم الفنيون والفرق الميدانية بتوثيق وبناء تقاريرهم التقنية والمالية والترشيحية مباشرة من الميدان.
 - **الأهمية والأمان:** يمثل النواة التنفيذية للشركة. أي تلاعب في بيانات الزيارات أو التفاف على تسجيل المواقع الجغرافية يُعطل جودة الخدمة ويسرب الأجهزة، مما يستوجب ضبط الصلاحيات الجغرافية على مستوى الفرع بصرامة مطلقة وتأمين إحداثيات GPS.
 
@@ -68,6 +75,7 @@
 | `customer_snapshot` | `JSONB` | ✅ | — | — | لقطة لبيانات العميل الشاملة وقت الحجز | `{"mobile": "0991234567", "waterSource": "بئر"}` |
 | `cancellation_reason_id` | `INTEGER` | ✅ | — | `FK → system_lists(id) ON DELETE SET NULL` | المعرف المرجعي لسبب إلغاء الزيارة | `1` (رفض الزبون الزيارة) |
 | `cancellation_notes` | `TEXT` | ✅ | — | — | الملاحظات الإضافية حول سبب إلغاء الزيارة | `"غير مهتم بعد مشاورة العائلة"` |
+| 🆕 `team_responsible_user_id` | `INTEGER` | ✅ | — | `FK → hr_users(id) ON DELETE SET NULL` | مالك اللائحة والاستبيان لحظة الإنشاء. للقياسي = مشرف الفريق، للطوارئ = الفني (DEC-007 D47) | `12` |
 
 ---
 
@@ -254,9 +262,15 @@
 1. **التسجيل الأولي (`scheduled`):** تُنشأ الزيارة تلقائياً بناءً على حجز موعد بالتسويق الهاتفي أو ترحيل مهمة صيانة طارئة.
 2. **بدء الزيارة (`POST /api/field-visits/:id/start`):** يتحول وضع الزيارة إلى `in_progress` ويقوم الخادم أوتوماتيكياً بتوثيق إحداثيات وتوقيت البداية بجدول `visit_geo_logs` وتوليد سجل المسبب في `visit_sources`.
 3. **إنهاء الزيارة ميدانياً (`POST /api/field-visits/:id/end`):** يتحول وضع الزيارة بالخلفية إلى `ended` (العمل التشغيلي منجز)، ويتم توثيق إحداثيات وتوقيت النهاية بالـ GPS، وحساب المدة والمسافة.
-4. **تأكيد الإغلاق والاعتماد النهائي (`POST /api/field-visits/:id/complete`):** لا يمكن إغلاق الزيارة كـ `completed` إلا بشرطين حاسمين (Completion Guards):
-   - تسجيل نتيجة موحدة في `visit_task_results` لكافة المهام الملحقة بالزيارة `visit_tasks`.
-   - اكتمال تجميع الأسماء وتوثيق القوائم لمهام تجميع الأسماء `visit_name_collections` (بحيث لا تكون حالتها `pending` أو `partial`).
+4. **تأكيد الإغلاق والاعتماد النهائي (انتقال آلي — DEC-007 P-DEC007-04):** الانتقال إلى `completed` **محسوب لا يدوي**، يحدث تلقائياً عبر helper `checkAndCompleteVisit(visitId)` يُستدعى بعد كل save لـ task_result أو survey أو survey skip. الشروط الحاسمة (Completion Guards — DEC-007 D44/D45):
+   - الشرط 1: كل `visit_tasks` لها `visit_task_results.final_decision` غير NULL.
+   - الشرط 2: `visit_survey` موجود لـ `field_visit_id` (مُعبَّأ كلياً أو في حالة `is_skipped = TRUE` مع `skip_reason` من `system_lists` فئة `survey_skip_reasons`).
+   - **لا شرط ثالث للائحة** — `referral_sheets` اختيارية بالكامل (DEC-007 D45). الشرط القديم على `visit_name_collections` ⛔ ملغى.
+
+5. **تصعيد عدم التوثيق (DEC-006 D38):** زيارة `in_progress` أو `ended` بلا توثيق لا تُغلق قسرياً مهما طال الوقت. آلية ثلاثية المراحل قابلة للضبط من `system_settings`:
+   - بعد 24h (`visit_undocumented_alert_hours_l1`): تنبيه للفني المسؤول وفنيي الفريق.
+   - بعد 48h (`visit_undocumented_alert_hours_l2`): تنبيه للمشرف + منع الفني من بدء أي زيارة جديدة حتى يوثّق السابقة.
+   - بعد 72h (`visit_undocumented_alert_hours_l3`): تصعيد لمدير الفرع.
 
 ### BR-2: سلسلة الزناد والمهام التشغيلية (Visit Tasks Execution Flow)
 - لكل زيارة ميدانية مهمة واحدة أو أكثر (`visit_tasks`) تتبع تسلسل أولوية محدد بـ `sequence_no`.
@@ -382,15 +396,29 @@ erDiagram
 - يحسب `distance_meters` بمعادلة Haversine بين نقطتي البدء والانصراف.
 - يحدّث حالة الزيارة إلى `ended` (إلا إذا كانت `completed`/`cancelled`).
 
-#### `POST /api/field-visits/:id/complete` — قيود الإغلاق (Guards)
-1. جميع `visit_tasks` يجب أن يكون لها سجل في `visit_task_results`.
-2. لا يوجد `visit_name_collections` بحالة `pending` وعدد مقترح > 0.
-3. لا يوجد `visit_name_collections` بحالة `partial`.
+#### `POST /api/field-visits/:id/complete` — قيود الإغلاق (Guards) — محدّث بـ DEC-007 D44/D45
+1. جميع `visit_tasks` يجب أن يكون لها سجل في `visit_task_results.final_decision` غير NULL.
+2. يوجد `visit_surveys` بـ `field_visit_id` (مُعبَّأ كلياً أو `is_skipped = TRUE` مع `skip_reason` من فئة `survey_skip_reasons`).
+3. ⛔ ملغاة: الشروط القديمة على `visit_name_collections` (pending/partial). اللائحة اختيارية الآن.
 
-#### `POST /visit-tasks/:taskId/name-collection`
-- إذا `proposed_count > 0`: ينشئ `referral_sheet` من نوع `client_visit` مرتبطاً بالعميل.
-- إذا `proposed_count = 0`: يُنشئ السجل دون صحيفة ترشيح.
-- عند التعارض (conflict): يحدّث العدد المقترح ويعيد الحالة إلى `pending`.
+> **ملاحظة:** الانتقال إلى `completed` يحدث آلياً عبر `checkAndCompleteVisit()` بعد كل save ذي صلة (task_result/survey/skip). الـ endpoint اليدوي يبقى احتياطياً.
+
+#### 🆕 `POST /api/field-visits/:id/referral-sheet` — DEC-007 D41
+- ينشئ `referral_sheets` يدوياً بزر بعد بدء الزيارة (status = `in_progress`).
+- الحقول المملوءة آلياً: `referral_type='client'`، `referral_entity_id=client_id`، snapshots، `field_visit_id`، `owner_user_id=team_responsible_user_id`، `target_candidates=0`، `status='New'`، `referral_date=scheduled_date`.
+
+#### 🆕 `POST /api/field-visits/:id/referral-sheet/target` — DEC-007 D41
+- يُحدّث `target_candidates` على اللائحة الموجودة. لا إنشاء جديد.
+
+#### 🆕 `POST /api/field-visits/:id/survey` — DEC-007 D42
+- ينشئ/يُحدّث `visit_surveys` بكل الـ 11 حقلاً + `filled_by_user_id` + `filled_at`. يستدعي `checkAndCompleteVisit()` بعد الحفظ.
+
+#### 🆕 `POST /api/field-visits/:id/survey/skip` — DEC-007 D42
+- يُسجّل `is_skipped=TRUE` + `skip_reason` من `survey_skip_reasons`. يستدعي `checkAndCompleteVisit()` بعد الحفظ.
+
+#### ⛔ DEPRECATED — تُحذف بعد التنفيذ
+- `POST /visit-tasks/:taskId/name-collection` — اللائحة انتقلت لمستوى الزيارة (DEC-007 D40).
+- `PUT /name-collections/:id/record-names` — `actual_count` لم يعد محسوباً ضمن الزيارة (DEC-007 D45).
 
 ### 7.3 رموز الاستجابة
 
@@ -451,11 +479,11 @@ erDiagram
 * **التأثير:** إدخال قيم عشوائية مختلفة وتلف جودة التقارير التقنية لأعطال الفلاتر.
 * **الحل المقترح:** إضافة قيد تحقق `CHECK` لقصر الحقول على القيم المعتمدة بالواجهة الرسومية (مثل 'Good', 'Damaged', 'Disconnected').
 
-### GAP-031: غياب الأتمتة المباشرة للمرشحين (Lack of Automatic Candidate Generation)
+### GAP-031: غياب الأتمتة المباشرة للمرشحين (Lack of Automatic Candidate Generation) — **محلولة جزئياً بـ DEC-007**
 * **الموقع:** `packages/api/routes/fieldVisits.ts`
-* **الوصف:** عند نجاح مهمة جمع الأسماء وتوثيق actual_count بجدول `visit_name_collections` وتحديث سجل `referral_sheets` بالعدد، لا يقوم النظام بالإنشاء والتحويل التلقائي لتلك التوصيات كـ `candidates` بقاعدة البيانات، بل يتطلب ذلك إدخالاً يدوياً مكرراً لاحقاً.
-* **التأثير:** ضياع التوصيات التسويقية الهامة وإهدار أداء مركز الاتصال.
-* **الحل المقترح:** بناء خوارزمية ذكية تقوم فوراً بتوليد سجلات مرشحين بصفة `Suggested` مع ربطهم بصحيفة الترشيح كإجراء تلقائي.
+* **الوصف القديم:** عند نجاح مهمة جمع الأسماء وتوثيق actual_count بجدول `visit_name_collections` وتحديث سجل `referral_sheets` بالعدد، لا يقوم النظام بالإنشاء والتحويل التلقائي لتلك التوصيات كـ `candidates` بقاعدة البيانات.
+* **التحديث (DEC-007 D40/D45):** الأسماء لا تُدخَل ضمن الزيارة أصلاً. الزيارة تحمل فقط `target_candidates` كوعد على `referral_sheets`. إدخال الأسماء الفعلية (candidates) ينتقل إلى **شاشة "سجلات الأسماء المقترحة" المنفصلة** التي يُفتح فيها الإدخال لاحقاً. بذلك يختفي مفهوم "actual_count المحسوب ضمن الزيارة" تماماً.
+* **المتبقي:** تصميم شاشة سجلات الأسماء المنفصلة وآلية فتحها (P-DEC007-03 — خارج نطاق DEC-007).
 
 ### GAP-032: انعدام الحذف الناعم والتدمير الجنائي للبيانات (No Soft-Delete for Field Visits)
 * **الموقع:** `routes/fieldVisits.ts`
