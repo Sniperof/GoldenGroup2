@@ -34,9 +34,19 @@ BEGIN
   END IF;
 END $$;
 
--- Ensure the column exists (defensive — in case migration runs on a fresh DB)
+-- Ensure the column exists (defensive — in case migration runs on a fresh DB).
+-- Created as BIGINT to match field_visits.id (BIGSERIAL) so the FK below can
+-- be added. If the column was renamed from latest_appointment_id (INTEGER),
+-- the type-widening ALTER below handles that case.
 ALTER TABLE contact_targets
-  ADD COLUMN IF NOT EXISTS latest_visit_id INTEGER;
+  ADD COLUMN IF NOT EXISTS latest_visit_id BIGINT;
+
+-- ── 1b. Widen latest_visit_id to BIGINT to match field_visits.id ──────────
+-- Legacy latest_appointment_id was INTEGER; field_visits.id is BIGSERIAL.
+-- Without the widening, the FK below fails with
+--   "foreign key constraint cannot be implemented" (type mismatch).
+ALTER TABLE contact_targets
+  ALTER COLUMN latest_visit_id TYPE BIGINT USING latest_visit_id::BIGINT;
 
 -- ── 2. Attach FK to field_visits (was unconstrained INTEGER) ──────────────
 DO $$
