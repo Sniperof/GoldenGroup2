@@ -499,6 +499,26 @@ export const api = {
         `/field-visits/${id}/survey/skip`,
         { method: 'POST', body: JSON.stringify({ skipReason }) },
       ),
+    /** DEC-004 D11: reopen a closed visit. Requires field_visits.reopen_closed. */
+    reopen: (id: number, reason: string) =>
+      request<{ success: boolean }>(
+        `/field-visits/${id}/reopen`,
+        { method: 'POST', body: JSON.stringify({ reason }) },
+      ),
+    /** DEC-006 D38: visits with active escalation alerts (scoped to caller's branch). */
+    escalationAlerts: () => request<{
+      count: number;
+      items: Array<{
+        visitId: number;
+        status: string;
+        branchId: number;
+        clientId: number;
+        clientName: string | null;
+        teamResponsibleUserId: number | null;
+        hoursSinceUpdate: number;
+        tiersAlerted: number[];
+      }>;
+    }>('/field-visits/escalation-alerts'),
   },
   marketingVisits: {
     list: (date: string, clientId?: number) => {

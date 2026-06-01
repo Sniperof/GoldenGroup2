@@ -184,6 +184,10 @@ export async function start() {
       void import('./services/contactTargetsCleanupJob.js').then((mod) =>
         mod.startContactTargetsCleanupJob(),
       );
+      // DEC-006 D38: three-tier escalation for undocumented visits.
+      void import('./services/visitEscalationJob.js').then((mod) =>
+        mod.startVisitEscalationJob(),
+      );
       resolve();
     });
   });

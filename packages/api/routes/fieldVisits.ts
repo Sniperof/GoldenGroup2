@@ -3,6 +3,7 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
+import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -296,31 +297,61 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
 
+    // DEC-006 D38 L2: a technician with an undocumented visit older than L2 hours
+    // is barred from starting new visits. They must close out the previous one first.
+    if (authContext.userId != null) {
+      const block = await hasBlockingUndocumentedVisit(authContext.userId);
+      if (block.blocked) {
+        return res.status(409).json({
+          error: `لا يمكن بدء زيارة جديدة — لديك زيارة #${block.visitId} منذ ${block.hoursSinceUpdate} ساعة بدون توثيق (DEC-006 D38 L2). أغلقها أولاً.`,
+          blockingVisitId: block.visitId,
+        });
+      }
+    }
+
     const lat = req.body?.lat != null ? Number(req.body.lat) : null;
     const lng = req.body?.lng != null ? Number(req.body.lng) : null;
     const accuracy = req.body?.accuracy != null ? Number(req.body.accuracy) : null;
+    const locationMissingReasonId = Number(req.body?.locationMissingReasonId) || null;
     const locationMissing = lat === null || lng === null || !Number.isFinite(lat) || !Number.isFinite(lng);
+
+    // DEC-004 D17: when location_missing, a reason from system_lists is required.
+    if (locationMissing && (!locationMissingReasonId || locationMissingReasonId <= 0)) {
+      return res.status(400).json({
+        error: 'GPS غير متاح — يجب اختيار سبب من القائمة (locationMissingReasonId).',
+      });
+    }
 
     const now = new Date();
 
     await pool.query(
       `INSERT INTO visit_geo_logs (visit_id, actual_start_time, actual_start_lat, actual_start_lng,
-         actual_start_accuracy, location_missing, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+         actual_start_accuracy, location_missing, location_missing_reason, started_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
        ON CONFLICT (visit_id) DO UPDATE SET
-         actual_start_time = EXCLUDED.actual_start_time,
-         actual_start_lat  = EXCLUDED.actual_start_lat,
-         actual_start_lng  = EXCLUDED.actual_start_lng,
-         actual_start_accuracy = EXCLUDED.actual_start_accuracy,
-         location_missing  = EXCLUDED.location_missing,
-         updated_at        = NOW()`,
-      [visitId, now, locationMissing ? null : lat, locationMissing ? null : lng,
-       accuracy && Number.isFinite(accuracy) ? Math.round(accuracy) : null, locationMissing],
+         actual_start_time       = EXCLUDED.actual_start_time,
+         actual_start_lat        = EXCLUDED.actual_start_lat,
+         actual_start_lng        = EXCLUDED.actual_start_lng,
+         actual_start_accuracy   = EXCLUDED.actual_start_accuracy,
+         location_missing        = EXCLUDED.location_missing,
+         location_missing_reason = COALESCE(EXCLUDED.location_missing_reason, visit_geo_logs.location_missing_reason),
+         started_by              = COALESCE(EXCLUDED.started_by, visit_geo_logs.started_by),
+         updated_at              = NOW()`,
+      [
+        visitId,
+        now,
+        locationMissing ? null : lat,
+        locationMissing ? null : lng,
+        accuracy && Number.isFinite(accuracy) ? Math.round(accuracy) : null,
+        locationMissing,
+        locationMissing ? locationMissingReasonId : null,
+        authContext.userId ?? null,
+      ],
     );
 
     await pool.query(
       `UPDATE field_visits SET status = 'in_progress', updated_at = NOW()
-       WHERE id = $1 AND status NOT IN ('ended','completed','cancelled')`,
+       WHERE id = $1 AND status NOT IN ('ended','completed','cancelled','closed')`,
       [visitId],
     );
 
@@ -422,7 +453,14 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
     const lat = req.body?.lat != null ? Number(req.body.lat) : null;
     const lng = req.body?.lng != null ? Number(req.body.lng) : null;
     const accuracy = req.body?.accuracy != null ? Number(req.body.accuracy) : null;
+    const locationMissingReasonId = Number(req.body?.locationMissingReasonId) || null;
     const locationMissing = lat === null || lng === null || !Number.isFinite(lat) || !Number.isFinite(lng);
+
+    if (locationMissing && (!locationMissingReasonId || locationMissingReasonId <= 0)) {
+      return res.status(400).json({
+        error: 'GPS غير متاح — يجب اختيار سبب من القائمة (locationMissingReasonId).',
+      });
+    }
 
     const now = new Date();
 
@@ -450,25 +488,36 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
 
     await pool.query(
       `INSERT INTO visit_geo_logs (visit_id, actual_end_time, actual_end_lat, actual_end_lng,
-         actual_end_accuracy, duration_minutes, distance_meters, location_missing, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+         actual_end_accuracy, duration_minutes, distance_meters, location_missing, location_missing_reason, ended_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
        ON CONFLICT (visit_id) DO UPDATE SET
-         actual_end_time     = EXCLUDED.actual_end_time,
-         actual_end_lat      = EXCLUDED.actual_end_lat,
-         actual_end_lng      = EXCLUDED.actual_end_lng,
-         actual_end_accuracy = EXCLUDED.actual_end_accuracy,
-         duration_minutes    = EXCLUDED.duration_minutes,
-         distance_meters     = EXCLUDED.distance_meters,
-         location_missing    = visit_geo_logs.location_missing OR EXCLUDED.location_missing,
-         updated_at          = NOW()`,
-      [visitId, now, locationMissing ? null : lat, locationMissing ? null : lng,
-       accuracy && Number.isFinite(accuracy) ? Math.round(accuracy) : null,
-       durationMinutes, distanceMeters, locationMissing],
+         actual_end_time         = EXCLUDED.actual_end_time,
+         actual_end_lat          = EXCLUDED.actual_end_lat,
+         actual_end_lng          = EXCLUDED.actual_end_lng,
+         actual_end_accuracy     = EXCLUDED.actual_end_accuracy,
+         duration_minutes        = EXCLUDED.duration_minutes,
+         distance_meters         = EXCLUDED.distance_meters,
+         location_missing        = visit_geo_logs.location_missing OR EXCLUDED.location_missing,
+         location_missing_reason = COALESCE(EXCLUDED.location_missing_reason, visit_geo_logs.location_missing_reason),
+         ended_by                = COALESCE(EXCLUDED.ended_by, visit_geo_logs.ended_by),
+         updated_at              = NOW()`,
+      [
+        visitId,
+        now,
+        locationMissing ? null : lat,
+        locationMissing ? null : lng,
+        accuracy && Number.isFinite(accuracy) ? Math.round(accuracy) : null,
+        durationMinutes,
+        distanceMeters,
+        locationMissing,
+        locationMissing ? locationMissingReasonId : null,
+        authContext.userId ?? null,
+      ],
     );
 
     await pool.query(
       `UPDATE field_visits SET status = 'ended', updated_at = NOW()
-       WHERE id = $1 AND status NOT IN ('completed','cancelled')`,
+       WHERE id = $1 AND status NOT IN ('completed','cancelled','closed')`,
       [visitId],
     );
 
@@ -1893,6 +1942,96 @@ router.post('/:id/survey/skip', requirePermission('field_visits.edit'), async (r
   } catch (err: any) {
     console.error('[field-visits] POST /:id/survey/skip error:', err);
     res.status(500).json({ error: err?.message ?? 'فشل تسجيل التخطي' });
+  }
+});
+
+// ============================================================================
+// POST /field-visits/:id/reopen — DEC-004 D11
+// ============================================================================
+// Reopens a `closed` visit. Gated by the new field_visits.reopen_closed
+// permission (migration 219). A reason is mandatory and stored as a closing
+// note for audit. The visit returns to `ended` (the last pre-close state),
+// since post-close edits go through the standard "update_result" flow.
+router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const reason = String(req.body?.reason ?? '').trim();
+    if (!reason) return res.status(400).json({ error: 'سبب الفتح مطلوب' });
+
+    const { rows: fvRows } = await pool.query(
+      'SELECT id, branch_id, status FROM field_visits WHERE id = $1',
+      [visitId],
+    );
+    if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+    }
+    if (fvRows[0].status !== 'closed') {
+      return res.status(409).json({ error: `الزيارة ليست مُقفلة (الحالة: ${fvRows[0].status})` });
+    }
+
+    await pool.query(
+      `UPDATE field_visits
+          SET status     = 'ended',
+              closed_by  = NULL,
+              closed_at  = NULL,
+              field_notes = COALESCE(field_notes || E'\n\n', '') || $2,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [visitId, `[reopen by user #${authContext.userId} at ${new Date().toISOString()}] ${reason}`],
+    );
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[field-visits] POST /:id/reopen error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل فتح الزيارة' });
+  }
+});
+
+// ============================================================================
+// GET /field-visits/escalation-alerts — DEC-006 D38
+// ============================================================================
+// Returns visits with active escalation alerts. Used by the supervisor/manager
+// dashboard to surface undocumented visits waiting on action.
+router.get('/escalation-alerts', requirePermission('field_visits.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const branchId = authContext.actingBranchId;
+    const params: any[] = [];
+    let branchClause = '';
+    if (branchId != null && !authContext.isSuperAdmin) {
+      params.push(branchId);
+      branchClause = `AND fv.branch_id = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT fv.id            AS "visitId",
+              fv.status,
+              fv.branch_id     AS "branchId",
+              fv.client_id     AS "clientId",
+              c.name           AS "clientName",
+              fv.team_responsible_user_id AS "teamResponsibleUserId",
+              EXTRACT(EPOCH FROM (NOW() - fv.updated_at)) / 3600 AS "hoursSinceUpdate",
+              ARRAY(
+                SELECT tier FROM visit_escalation_alerts
+                 WHERE visit_id = fv.id
+                 ORDER BY tier
+              ) AS "tiersAlerted"
+         FROM field_visits fv
+         LEFT JOIN clients c ON c.id = fv.client_id
+        WHERE fv.status IN ('in_progress', 'ended')
+          AND EXISTS (SELECT 1 FROM visit_escalation_alerts vea WHERE vea.visit_id = fv.id)
+          ${branchClause}
+        ORDER BY fv.updated_at ASC
+        LIMIT 200`,
+      params,
+    );
+    return res.json({ count: rows.length, items: rows });
+  } catch (err: any) {
+    console.error('[field-visits] GET /escalation-alerts error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل تحميل التنبيهات' });
   }
 });
 
