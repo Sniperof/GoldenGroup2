@@ -37,6 +37,11 @@ ts_out.txt
 build_utf8.txt
 server_run_err.txt
 
+# local agent/tool state
+.claude/
+.antigravitycli/
+.hermes-evidence/
+
 # local-only backups and pre-launch archives
 local-backups/
 migrations-archive-pre-squash/
