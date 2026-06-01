@@ -69,6 +69,12 @@ const CLIENT_SELECT = `
     c.is_candidate AS "isCandidate",
     c.target_client AS "targetClient",
     c.candidate_status AS "candidateStatus",
+    -- DEC-005 D29 contact-control fields
+    c.do_not_contact AS "doNotContact",
+    c.cooldown_until AS "cooldownUntil",
+    c.cooldown_reason AS "cooldownReason",
+    c.cooldown_set_by AS "cooldownSetBy",
+    c.cooldown_set_at AS "cooldownSetAt",
     c.branch_id AS "branchId",
     b.name AS "branchName",
     c.created_by AS "createdByUserId",
@@ -377,6 +383,53 @@ function resolveClientListBranchFilter(req: any): number | null {
   return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
 }
 
+function clientVisibleInBranchesCondition(paramRef: string): string {
+  return `(
+    c.branch_id = ANY(${paramRef}::int[])
+    OR EXISTS (
+      SELECT 1
+        FROM installed_devices d
+       WHERE d.customer_id = c.id
+         AND d.branch_id = ANY(${paramRef}::int[])
+    )
+    OR EXISTS (
+      SELECT 1
+        FROM contracts ct
+       WHERE ct.customer_id = c.id
+         AND ct.branch_id = ANY(${paramRef}::int[])
+    )
+  )`;
+}
+
+function hasBranchScopedClientGrant(authContext: any, permission: string): boolean {
+  if (authContext.isSuperAdmin) return true;
+  const grant = authContext.grants?.find((item: any) => item.permission === permission);
+  return grant?.scope === 'GLOBAL' || grant?.scope === 'BRANCH';
+}
+
+async function hasClientDeviceOrContractInBranches(
+  clientId: string | number,
+  branchIds: number[],
+): Promise<boolean> {
+  if (branchIds.length === 0) return false;
+
+  const { rows } = await pool.query(
+    `SELECT 1
+       FROM installed_devices d
+      WHERE d.customer_id = $1
+        AND d.branch_id = ANY($2::int[])
+     UNION
+     SELECT 1
+       FROM contracts ct
+      WHERE ct.customer_id = $1
+        AND ct.branch_id = ANY($2::int[])
+     LIMIT 1`,
+    [clientId, branchIds],
+  );
+
+  return rows.length > 0;
+}
+
 async function loadClientSubject(clientId: string | number): Promise<ClientSubject | null> {
   const { rows } = await pool.query(
     `SELECT
@@ -607,20 +660,18 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
     const params: any[] = [];
 
     if (requestedBranchId != null) {
-      params.push(requestedBranchId);
-      conditions.push(`c.branch_id = $${params.length}`);
-    }
-
-    if (listAccess.scope === 'BRANCH') {
+      params.push([requestedBranchId]);
+      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+    } else if (listAccess.scope === 'BRANCH') {
       params.push(authContext.allowedBranchIds);
-      conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
+      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
     }
 
     if (listAccess.scope === 'ASSIGNED') {
       params.push(authContext.userId);
       conditions.push(`EXISTS (SELECT 1 FROM client_assignments WHERE client_id = c.id AND hr_user_id = $${params.length})`);
-      params.push(authContext.allowedBranchIds);
-      conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
+      params.push(requestedBranchId != null ? [requestedBranchId] : authContext.allowedBranchIds);
+      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
     }
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
@@ -760,7 +811,16 @@ router.get('/:id', requirePermission('clients.view'), async (req, res) => {
 
     const access = canViewClient(authContext, subject);
     if (!access.allowed) {
-      return forbidClientAccess(res, access.reason);
+      const branchIdsForRelatedAccess = authContext.actingBranchId != null
+        ? [authContext.actingBranchId]
+        : authContext.allowedBranchIds;
+      const canReadViaRelatedBranch =
+        hasBranchScopedClientGrant(authContext, 'clients.view') &&
+        await hasClientDeviceOrContractInBranches(clientId!, branchIdsForRelatedAccess);
+
+      if (!canReadViaRelatedBranch) {
+        return forbidClientAccess(res, access.reason);
+      }
     }
 
     const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
@@ -1303,6 +1363,139 @@ router.post('/bulk-delete', requirePermission('clients.delete'), async (req, res
 
     await pool.query('DELETE FROM clients WHERE id = ANY($1)', [ids]);
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================================
+// Cooldown + do_not_contact endpoints (DEC-005 D29, DEC-006 D32)
+// ============================================================================
+
+/**
+ * @swagger
+ * /api/clients/{id}/cooldown:
+ *   post:
+ *     tags: [Clients]
+ *     summary: Activate or extend cooldown on a client (manual)
+ *     description: |
+ *       DEC-005 D29: cooldown blocks the client from contact_targets across all
+ *       task types for `days` days. Reason is required. Automatic activation on
+ *       `not_interested` outcome is handled separately in telemarketing.ts.
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/:id/cooldown', requirePermission('clients.edit'), async (req, res) => {
+  try {
+    const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId غير صالح' });
+    }
+    const authContext = getRequiredAuthContext(req);
+    const { days, reason } = req.body as { days?: number; reason?: string };
+
+    if (!Number.isFinite(days) || !days || days <= 0) {
+      return res.status(400).json({ error: 'يجب تحديد عدد أيام التهدئة (days)' });
+    }
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
+      return res.status(400).json({ error: 'سبب التهدئة مطلوب (reason)' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE clients
+          SET cooldown_until  = CURRENT_DATE + ($1 || ' days')::INTERVAL,
+              cooldown_reason = $2,
+              cooldown_set_by = $3,
+              cooldown_set_at = NOW()
+        WHERE id = $4
+        RETURNING id,
+                  cooldown_until  AS "cooldownUntil",
+                  cooldown_reason AS "cooldownReason",
+                  cooldown_set_by AS "cooldownSetBy",
+                  cooldown_set_at AS "cooldownSetAt"`,
+      [Math.floor(days), reason.trim(), authContext.userId ?? null, clientId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'الزبون غير موجود' });
+    }
+    return res.json(rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/{id}/cooldown:
+ *   delete:
+ *     tags: [Clients]
+ *     summary: Lift cooldown immediately
+ *     description: |
+ *       DEC-006 D32: requires the `clients.cooldown_unlock` permission, which
+ *       is granted to branch_manager only (not to telemarketers or supervisors).
+ *     security:
+ *       - bearerAuth: []
+ */
+router.delete('/:id/cooldown', requirePermission('clients.cooldown_unlock'), async (req, res) => {
+  try {
+    const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId غير صالح' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE clients
+          SET cooldown_until  = NULL,
+              cooldown_reason = NULL,
+              cooldown_set_by = NULL,
+              cooldown_set_at = NULL
+        WHERE id = $1
+        RETURNING id`,
+      [clientId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'الزبون غير موجود' });
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/{id}/do-not-contact:
+ *   patch:
+ *     tags: [Clients]
+ *     summary: Toggle do_not_contact flag (permanent block)
+ *     description: |
+ *       DEC-005 D29: do_not_contact is the permanent counterpart to cooldown.
+ *       Treated as an always-on block in syncAssignedTasks filters.
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch('/:id/do-not-contact', requirePermission('clients.edit'), async (req, res) => {
+  try {
+    const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId غير صالح' });
+    }
+    const { doNotContact } = req.body as { doNotContact?: boolean };
+    if (typeof doNotContact !== 'boolean') {
+      return res.status(400).json({ error: 'doNotContact (boolean) مطلوب' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE clients
+          SET do_not_contact = $1
+        WHERE id = $2
+        RETURNING id, do_not_contact AS "doNotContact"`,
+      [doNotContact, clientId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'الزبون غير موجود' });
+    }
+    return res.json(rows[0]);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

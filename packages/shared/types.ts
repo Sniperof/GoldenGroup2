@@ -321,6 +321,12 @@ export interface Client {
     isCandidate?: boolean;
     targetClient?: string;
     candidateStatus?: string;
+    // DEC-005 D29: contact-control state surfaced to the client profile UI
+    doNotContact?: boolean;
+    cooldownUntil?: string | null;
+    cooldownReason?: string | null;
+    cooldownSetBy?: number | null;
+    cooldownSetAt?: string | null;
 }
 
 export interface SmartMatchVisibleClient {

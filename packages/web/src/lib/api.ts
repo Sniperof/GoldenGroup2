@@ -129,6 +129,13 @@ export const api = {
     update: (id: number, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/clients/${id}`, { method: 'DELETE' }),
     bulkDelete: (ids: number[]) => request<any>('/clients/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+    // DEC-005 D29 + DEC-006 D32: contact-control surface
+    setCooldown: (id: number, data: { days: number; reason: string }) =>
+      request<any>(`/clients/${id}/cooldown`, { method: 'POST', body: JSON.stringify(data) }),
+    clearCooldown: (id: number) =>
+      request<any>(`/clients/${id}/cooldown`, { method: 'DELETE' }),
+    setDoNotContact: (id: number, doNotContact: boolean) =>
+      request<any>(`/clients/${id}/do-not-contact`, { method: 'PATCH', body: JSON.stringify({ doNotContact }) }),
   },
   customers: {
     getPurchaseHistory: (customerId: number) =>
@@ -335,6 +342,16 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    // DEC-005 D26: manual close of a contact_target with optional cooldown activation
+    close: (contactTargetId: number, data: {
+      closingReason?: string;
+      activateCooldown?: boolean;
+      cooldownReason?: string;
+      cooldownDays?: number;
+    }) => request<{ contactTarget: any; cooldown: any | null }>(`/contact-targets/${contactTargetId}/close`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   },
   visits: {
     list: () => request<any[]>('/visits'),

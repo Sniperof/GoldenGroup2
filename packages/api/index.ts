@@ -179,6 +179,11 @@ export async function start() {
       } else {
         console.log(`  mode: production (serving built frontend from packages/web/dist)`);
       }
+      // DEC-005 D26: launch daily contact_targets cleanup job after the
+      // listener is up so a failing job never blocks the server from booting.
+      void import('./services/contactTargetsCleanupJob.js').then((mod) =>
+        mod.startContactTargetsCleanupJob(),
+      );
       resolve();
     });
   });

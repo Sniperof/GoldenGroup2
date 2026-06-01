@@ -24,6 +24,13 @@ import {
   buildCustomerOwnershipSql,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
+import { getSystemSettingNumber } from '../services/systemSettings.js';
+
+// DEC-005 D29: outcomes that auto-activate cooldown on the client. After
+// DEC-006 D39 the 4 "not interested" variants are unified into not_interested.
+const AUTO_COOLDOWN_OUTCOMES = new Set<TelemarketingOutcomeCode>([
+  'not_interested',
+]);
 
 const router = Router();
 
@@ -1608,8 +1615,11 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
     // Normalise legacy codes for lifecycle decisions
     const normalised = normaliseOutcomeCode(outcome);
 
-    // Close outcomes: set status = closed + return tasks to waiting (§6.4 Q11)
+    // ── DEC-005 D26: auto-close branch is now dead by design.
+    // CLOSES_TARGET_OUTCOMES is empty after Phase 2; contact_targets are closed
+    // manually via POST /contact-targets/:id/close or by the end-of-day CRON.
     if (CLOSES_TARGET_OUTCOMES.includes(normalised)) {
+      // Defensive branch retained in case a future outcome flips closesContactTarget back to true.
       await updateContactTargetLifecycle(pool, contactTargetId, {
         latestCallOutcome: outcome,
         status: 'closed',
@@ -1635,6 +1645,25 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
           WHERE id = $2
         `,
         [outcome, contactTargetId],
+      );
+    }
+
+    // ── DEC-005 D29: auto-activate cooldown on not_interested ─────────────
+    // Sits OUTSIDE the close branches so the cooldown fires even when the
+    // close branch is dead. The contact_target itself stays open until manual
+    // close — this matches DEC-005 D26 (no auto-close on rejection outcomes).
+    if (AUTO_COOLDOWN_OUTCOMES.has(normalised) && taskListItem.entity_type === 'client') {
+      const days = await getSystemSettingNumber('default_cooldown_days', 7);
+      await pool.query(
+        `UPDATE clients
+            SET cooldown_until  = CURRENT_DATE + ($1 || ' days')::INTERVAL,
+                cooldown_reason = $2,
+                cooldown_set_by = $3,
+                cooldown_set_at = NOW()
+          WHERE id = $4
+            -- preserve a longer existing cooldown if one is already in effect
+            AND (cooldown_until IS NULL OR cooldown_until < CURRENT_DATE + ($1 || ' days')::INTERVAL)`,
+        [days, `تفعيل تلقائي بنتيجة: ${outcome}`, calledBy ?? null, taskListItem.entity_id],
       );
     }
   }

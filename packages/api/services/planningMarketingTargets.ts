@@ -481,12 +481,17 @@ export async function getPlanningMarketingTargets(params: {
           LIMIT 1
         ) unfinished_visit ON TRUE
         WHERE c.is_candidate = FALSE
+          -- DEC-005 D-customer-filters: cooldown + do_not_contact (D29)
+          AND c.do_not_contact = FALSE
+          AND (c.cooldown_until IS NULL OR c.cooldown_until < CURRENT_DATE)
           AND c.branch_id = $1
           AND ${buildTeamOwnedClientScopePredicate('c')}
           AND ttc_eff.id IS NOT NULL
           AND unfinished_visit.has_unfinished_visit IS NULL
           AND (
-            NOT EXISTS (SELECT 1 FROM visits v WHERE v.customer_id = c.id)
+            -- DEC-005 §4: NOT EXISTS visits (legacy) removed; OR-branch kept so the
+            -- assigned-task scope still resolves the customer in the planning sub-query.
+            TRUE
             OR EXISTS (
               SELECT 1
               FROM open_tasks ot_scope
@@ -677,6 +682,9 @@ export async function getPlanningMarketingTargets(params: {
         LIMIT 1
       ) unfinished_visit ON TRUE
       WHERE c.is_candidate = FALSE
+        -- DEC-005 D-customer-filters: cooldown + do_not_contact (D29)
+        AND c.do_not_contact = FALSE
+        AND (c.cooldown_until IS NULL OR c.cooldown_until < CURRENT_DATE)
         AND c.branch_id = $1
         AND ${buildTeamOwnedClientScopePredicate('c')}
         AND ot.id IS NOT NULL
@@ -690,7 +698,8 @@ export async function getPlanningMarketingTargets(params: {
             AND c.neighborhood::int = ANY($2::int[]))
         )
         AND (
-          NOT EXISTS (SELECT 1 FROM visits v WHERE v.customer_id = c.id)
+          -- DEC-005 §4: legacy NOT EXISTS visits filter removed
+          TRUE
           OR EXISTS (
             SELECT 1
             FROM open_tasks ot_scope
