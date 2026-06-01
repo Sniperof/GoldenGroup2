@@ -14,7 +14,8 @@ import {
     ClipboardList, UsersRound, MapPinned, ChevronDown, Gem, Eye,
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
-    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2
+    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
+    Bell,
 } from 'lucide-react';
 
 const navItems = [
@@ -41,6 +42,8 @@ const operationsChildren = [
     { path: '/tasks/periodic', label: 'صيانة دورية', icon: RefreshCw },
     { path: '/tasks/returns', label: 'إرجاع', icon: RotateCcw },
     { path: '/tasks/followup', label: 'متابعة', icon: PhoneCall },
+    // DEC-006 D37/D38: hub for supervisor alerts (attempt threshold + visit escalation)
+    { path: '/supervisor/alerts', label: 'تنبيهات المشرف', icon: Bell },
 ];
 
 const planningChildren = [
