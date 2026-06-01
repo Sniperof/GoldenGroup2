@@ -25,6 +25,7 @@ import {
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
 import { getSystemSettingNumber } from '../services/systemSettings.js';
+import { bookVisit, BookingError } from '../services/visitBooking.js';
 
 // DEC-005 D29: outcomes that auto-activate cooldown on the client. After
 // DEC-006 D39 the 4 "not interested" variants are unified into not_interested.
@@ -1729,6 +1730,109 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
  *       500:
  *         description: Internal Server Error
  */
+// ============================================================================
+// POST /telemarketing/book-visit — DEC-003 D2 canonical booking endpoint
+// ============================================================================
+// Replaces /telemarketing/appointments. Writes directly to field_visits +
+// visit_tasks via the shared visitBooking service. The legacy /appointments
+// endpoint below stays operational until Phase 8 to avoid breaking clients
+// that haven't migrated yet (PR4: dual-state during transition).
+router.post('/book-visit', requirePermission('telemarketing.appointments.book'), async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const branchId = getBranchId(req);
+    const performedByUserId = getCallerId(req);
+
+    if (branchId == null) {
+      return res.status(400).json({ error: 'Branch context required' });
+    }
+
+    // Resolve clientId from the task list item (so callers can supply taskListItemId
+    // instead of restating the client).
+    let clientId = Number(body.clientId);
+    let contactTargetId: number | null = null;
+    let taskListItem: any = null;
+    if (body.taskListId && body.taskListItemId) {
+      taskListItem = await loadTaskListItem(pool, body.taskListId, body.taskListItemId);
+      if (!taskListItem) {
+        return res.status(404).json({ error: 'عنصر القائمة غير موجود' });
+      }
+      contactTargetId = taskListItem.contact_target_id ?? null;
+      if (!Number.isInteger(clientId) || clientId <= 0) {
+        clientId = Number(taskListItem.entity_id);
+      }
+    }
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId مطلوب أو taskListItemId يحلّ مكانه' });
+    }
+
+    const selectedTasks: Array<{ openTaskId: number; taskType: string }> = Array.isArray(body.selectedOpenTasks)
+      ? body.selectedOpenTasks.map((t: any) => ({
+          openTaskId: Number(t.openTaskId),
+          taskType: String(t.taskType ?? 'device_demo'),
+        }))
+      : [];
+
+    const result = await bookVisit({
+      branchId,
+      clientId,
+      scheduledDate: String(body.date ?? ''),
+      scheduledTime: String(body.timeSlot ?? ''),
+      teamKey: String(body.teamKey ?? ''),
+      // DEC-003 D3: origin_type = 'telemarketing'; origin_id = call_log id if known,
+      // else the task list item id (still traceable to the campaign).
+      originType: 'telemarketing',
+      originId: body.callLogId ?? body.taskListItemId ?? null,
+      selectedTasks,
+      performedByUserId,
+      customerSnapshot: body.customerSnapshot ?? null,
+      telemarketerNotes: body.notes ?? null,
+    });
+
+    // Close the contact_target if one was attached (DEC-005 D26 + D23)
+    if (contactTargetId != null) {
+      await pool.query(
+        `UPDATE contact_targets
+            SET status         = 'closed',
+                closing_reason = 'booked',
+                latest_visit_id = $1,
+                latest_call_outcome = COALESCE(latest_call_outcome, 'booked_marketing_appointment'),
+                closed_at      = NOW(),
+                updated_at     = NOW()
+          WHERE id = $2`,
+        [result.fieldVisitId, contactTargetId],
+      );
+    }
+
+    // Mark task list items as booked (legacy compatibility for the workspace)
+    if (taskListItem && body.taskListId && body.taskListItemId) {
+      await pool.query(
+        `UPDATE telemarketing_task_list_items
+            SET status = 'booked',
+                call_outcome = 'booked_marketing_appointment'
+          WHERE task_list_id = $1
+            AND id = $2`,
+        [body.taskListId, body.taskListItemId],
+      );
+    }
+
+    return res.json({
+      fieldVisitId: result.fieldVisitId,
+      visitTaskIds: result.visitTaskIds,
+      contactTargetId,
+    });
+  } catch (err: any) {
+    if (err instanceof BookingError) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error('[book-visit] failed', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل حجز الزيارة' });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// Legacy POST /telemarketing/appointments — kept until Phase 8
+// ----------------------------------------------------------------------------
 router.post('/appointments', requirePermission('telemarketing.appointments.book'), async (req, res) => {
   const appointment = req.body;
 

@@ -310,6 +310,16 @@ export const api = {
     update: (id: number, data: any) => request<any>(`/open-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     assignTeam: (id: number, data: { supervisorId?: number; technicianId?: number; traineeId?: number }) =>
       request<any>(`/open-tasks/${id}/assign-team`, { method: 'POST', body: JSON.stringify(data) }),
+    /** DEC-004 D22: book a field_visit from a needs_follow_up task using its expected_date. */
+    scheduleFromExpected: (id: number, data: {
+      date?: string;
+      timeSlot?: string;
+      teamKey: string;
+      notes?: string | null;
+    }) => request<{ fieldVisitId: number; visitTaskIds: number[] }>(
+      `/open-tasks/${id}/schedule-from-expected`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
     getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
     submitEmergencyResult: (id: number, data: any) =>
       request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),
@@ -414,6 +424,15 @@ export const api = {
       request<any>(`/field-visits/visit-tasks/${taskId}/direct-suggestions`, { method: 'POST', body: JSON.stringify(data) }),
     listDirectSuggestions: (taskId: number) =>
       request<any[]>(`/field-visits/visit-tasks/${taskId}/direct-suggestions`),
+    /** DEC-003 D7 expanded: add an in-flight visit_task to an in_progress field_visit. */
+    addTask: (id: number, data: {
+      taskType: string;
+      openTaskId?: number;
+      reason?: string;
+    }) => request<{ visitTaskId: number; sequenceNo: number; openTaskId: number }>(
+      `/field-visits/${id}/tasks`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
   },
   marketingVisits: {
     list: (date: string, clientId?: number) => {
@@ -460,7 +479,24 @@ telemarketing: {
     generateTaskListFromPlan: (data: { date: string; teamKey: string }) => request<any>('/telemarketing/task-lists/generate-from-plan', { method: 'POST', body: JSON.stringify(data) }),
     updateTaskListItem: (taskListId: string, itemId: string, data: any) => request<any>(`/telemarketing/task-lists/${taskListId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     createCallLog: (data: any) => request<any>('/telemarketing/call-logs', { method: 'POST', body: JSON.stringify(data) }),
+    /** @deprecated since DEC-003 D2 — use bookVisit. Kept for callers not yet migrated. */
     createAppointment: (data: any) => request<any>('/telemarketing/appointments', { method: 'POST', body: JSON.stringify(data) }),
+    /** DEC-003 D2 canonical booking endpoint — creates field_visit directly. */
+    bookVisit: (data: {
+      clientId?: number;
+      date: string;
+      timeSlot: string;
+      teamKey: string;
+      taskListId?: string;
+      taskListItemId?: string;
+      callLogId?: string | number;
+      selectedOpenTasks?: Array<{ openTaskId: number; taskType: string }>;
+      customerSnapshot?: Record<string, unknown> | null;
+      notes?: string | null;
+    }) => request<{ fieldVisitId: number; visitTaskIds: number[]; contactTargetId: number | null }>(
+      '/telemarketing/book-visit',
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
     taskTypeOptions: () => request<{ taskType: string; arabicLabel: string; taskFamily: string }[]>('/telemarketing/task-type-options'),
     createServiceTask: (data: { clientId: number; taskType: string; notes?: string; priority?: string }) =>
       request<any>('/telemarketing/service-tasks', { method: 'POST', body: JSON.stringify(data) }),

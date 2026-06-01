@@ -3,6 +3,8 @@ import pool from '../db.js';
 import { getTaskPhase, type OpenTaskStatus } from '@golden-crm/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
+import { bookVisit, BookingError } from '../services/visitBooking.js';
 import {
   buildCustomerOwnershipSelectColumns,
   buildCustomerOwnershipSql,
@@ -26,6 +28,13 @@ const PLANNING_WINDOW_DAYS: Record<string, number> = {
   emergency_maintenance: 0, // always urgent — no future-tasks expected
 };
 const DEFAULT_PLANNING_WINDOW = 7;
+
+function shouldUseDeviceBranch(taskFamily: string, taskType: string): boolean {
+  if (['installment_collection', 'maintenance_collection', 'dues_collection'].includes(taskType)) {
+    return false;
+  }
+  return ['delivery', 'service', 'maintenance', 'emergency', 'warranty'].includes(taskFamily);
+}
 
 const OPEN_TASK_SELECT = `
   SELECT
@@ -553,9 +562,9 @@ router.get('/', requirePermission('open_tasks.view'), async (req, res) => {
  *         description: Internal Server Error
  */
 router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
-  const authContext = getAuthContext(req);
+  const authContext = req.authContext!;
   const clientId = Number(req.body?.clientId);
-  const branchId = Number(req.body?.branchId ?? authContext.actingBranchId);
+  let branchId = Number(req.body?.branchId ?? authContext.actingBranchId);
   const dueDate = req.body?.dueDate ?? null;
   const expectedDate = req.body?.expectedDate ?? null;
   const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
@@ -572,7 +581,8 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   if (!clientId || !Number.isInteger(clientId)) {
     return res.status(400).json({ error: 'معرف الزبون مطلوب' });
   }
-  if (!branchId || !Number.isInteger(branchId)) {
+  const canDeriveBranchFromDevice = Boolean(contractId && shouldUseDeviceBranch(taskFamily, taskType));
+  if ((!branchId || !Number.isInteger(branchId)) && !canDeriveBranchFromDevice) {
     return res.status(400).json({ error: 'معرف الفرع مطلوب' });
   }
   if (!VALID_TASK_FAMILIES.has(taskFamily)) {
@@ -585,6 +595,29 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   );
   if (taskTypeRows.length === 0) {
     return res.status(400).json({ error: `نوع المهمة "${taskType}" غير مدعوم — يجب أن يكون من أنواع المهام المعتمدة في النظام` });
+  }
+
+  let deviceIdFromContract: number | null = null;
+  let deviceBranchIdFromContract: number | null = null;
+  if (contractId) {
+    const { rows: devRows } = await pool.query(
+      'SELECT id, branch_id AS "branchId" FROM installed_devices WHERE contract_id = $1 LIMIT 1',
+      [contractId],
+    );
+    deviceIdFromContract = devRows[0]?.id ?? null;
+    deviceBranchIdFromContract = devRows[0]?.branchId ?? null;
+  }
+
+  if (deviceBranchIdFromContract && shouldUseDeviceBranch(taskFamily, taskType)) {
+    branchId = deviceBranchIdFromContract;
+  }
+  if (!branchId || !Number.isInteger(branchId)) {
+    return res.status(400).json({ error: 'تعذر تحديد فرع تنفيذ المهمة' });
+  }
+
+  const branchAccess = authorize(authContext, { permission: 'open_tasks.edit', branchId });
+  if (!branchAccess.allowed) {
+    return res.status(403).json({ error: 'ليس لديك صلاحية إنشاء مهمة ضمن هذا الفرع' });
   }
 
   const { rows: branchStatus } = await pool.query(
@@ -616,14 +649,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     await pgClient.query('BEGIN');
 
     // Phase 3: resolve device_id from installed_devices when contract_id is known
-    let deviceId: number | null = null;
-    if (contractId) {
-      const { rows: devRows } = await pgClient.query(
-        'SELECT id FROM installed_devices WHERE contract_id = $1 LIMIT 1',
-        [contractId],
-      );
-      deviceId = devRows[0]?.id ?? null;
-    }
+    const deviceId: number | null = deviceIdFromContract;
 
     // DEC-CT-07: collection tasks must target a specific installment.
     // The DB CHECK (migration 205) enforces this for new rows.
@@ -3087,6 +3113,79 @@ router.get('/:id/calls', requirePermission('open_tasks.view'), async (req, res) 
   } catch (err: any) {
     console.error('[open-tasks] GET /:id/calls error:', err);
     res.status(500).json({ error: 'فشل في تحميل المكالمات' });
+  }
+});
+
+// ============================================================================
+// POST /open-tasks/:id/schedule-from-expected — DEC-004 D22
+// ============================================================================
+// Books a field_visit from a needs_follow_up task whose expected_date is in
+// hand, without going through a fresh call. The customer's commitment was
+// captured in a previous call (customer_requested_followup outcome).
+router.post('/:id/schedule-from-expected', requirePermission('telemarketing.appointments.book'), async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    if (!Number.isInteger(taskId) || taskId <= 0) {
+      return res.status(400).json({ error: 'taskId غير صالح' });
+    }
+    const performedByUserId = (req as any).authContext?.userId ?? null;
+    const body = req.body ?? {};
+
+    // 1. Load the open_task and confirm it's eligible
+    const { rows: taskRows } = await pool.query(
+      `SELECT id, client_id, branch_id, task_type, status, expected_date, expected_time
+         FROM open_tasks
+        WHERE id = $1
+        LIMIT 1`,
+      [taskId],
+    );
+    if (taskRows.length === 0) {
+      return res.status(404).json({ error: 'المهمة غير موجودة' });
+    }
+    const task = taskRows[0];
+    if (task.status !== 'needs_follow_up') {
+      return res.status(409).json({
+        error: `Schedule-from-Expected متاح فقط للمهام بحالة needs_follow_up (الحالة الحالية: ${task.status})`,
+      });
+    }
+    if (!task.expected_date) {
+      return res.status(400).json({
+        error: 'expected_date غير محدد على هذه المهمة — لا يمكن الجدولة من موعد متوقع.',
+      });
+    }
+
+    const scheduledDate = String(body.date ?? task.expected_date).slice(0, 10);
+    const scheduledTime = String(body.timeSlot ?? task.expected_time ?? '');
+    const teamKey = String(body.teamKey ?? '');
+    if (!teamKey) {
+      return res.status(400).json({ error: 'teamKey مطلوب' });
+    }
+
+    const result = await bookVisit({
+      branchId: Number(task.branch_id),
+      clientId: Number(task.client_id),
+      scheduledDate,
+      scheduledTime,
+      teamKey,
+      // DEC-004 D22: origin_type = 'expected_followup'; origin_id = source open_task id
+      originType: 'expected_followup',
+      originId: taskId,
+      selectedTasks: [{ openTaskId: taskId, taskType: task.task_type }],
+      performedByUserId,
+      customerSnapshot: body.customerSnapshot ?? null,
+      telemarketerNotes: body.notes ?? null,
+    });
+
+    return res.json({
+      fieldVisitId: result.fieldVisitId,
+      visitTaskIds: result.visitTaskIds,
+    });
+  } catch (err: any) {
+    if (err instanceof BookingError) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error('[schedule-from-expected] failed', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل الجدولة من الموعد المتوقع' });
   }
 });
 

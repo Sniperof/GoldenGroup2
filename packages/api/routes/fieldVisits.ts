@@ -1397,4 +1397,148 @@ router.post('/:id/complete', requirePermission('field_visits.edit'), async (req,
   }
 });
 
+// ============================================================================
+// POST /field-visits/:id/tasks — DEC-003 D7 expanded (cascading)
+// ============================================================================
+// Adds a visit_task to a field_visit currently in_progress, optionally creating
+// the underlying open_task in the same call (creation_origin = 'cascading_during_visit').
+//
+// Constraint (D7 expanded): the open_task must belong to the same client_id.
+// No task-type whitelist, no N-window check.
+router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, res) => {
+  const fieldVisitId = Number(req.params.id);
+  if (!Number.isInteger(fieldVisitId) || fieldVisitId <= 0) {
+    return res.status(400).json({ error: 'fieldVisitId غير صالح' });
+  }
+  const performedByUserId = (req as any).authContext?.userId ?? null;
+  const body = req.body ?? {};
+  const taskType = typeof body.taskType === 'string' ? body.taskType : null;
+  if (!taskType) {
+    return res.status(400).json({ error: 'taskType مطلوب' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Load and verify the field_visit is in_progress
+    const { rows: visitRows } = await client.query(
+      `SELECT id, client_id, branch_id, status
+         FROM field_visits
+        WHERE id = $1
+        LIMIT 1`,
+      [fieldVisitId],
+    );
+    if (visitRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    }
+    const visit = visitRows[0];
+    if (visit.status !== 'in_progress') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `إضافة مهمة cascading متاحة فقط لزيارة in_progress (الحالة الحالية: ${visit.status})`,
+      });
+    }
+
+    // 2. Verify task_type is active and resolve task_family
+    const { rows: configRows } = await client.query(
+      `SELECT task_type, task_family
+         FROM task_type_config
+        WHERE task_type = $1 AND is_active = TRUE
+        LIMIT 1`,
+      [taskType],
+    );
+    if (configRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `نوع المهمة "${taskType}" غير معروف أو معطّل.` });
+    }
+    const taskFamily = configRows[0].task_family;
+
+    // 3. Resolve or create the source open_task
+    let openTaskId: number | null = Number(body.openTaskId) || null;
+    if (openTaskId != null && openTaskId > 0) {
+      const { rows: existingRows } = await client.query(
+        `SELECT id, client_id, task_type FROM open_tasks WHERE id = $1 LIMIT 1`,
+        [openTaskId],
+      );
+      if (existingRows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: `open_task #${openTaskId} غير موجودة` });
+      }
+      if (Number(existingRows[0].client_id) !== Number(visit.client_id)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'لا يجوز إضافة مهمة لزبون مختلف عن زبون الزيارة (DEC-003 D7).',
+        });
+      }
+      if (existingRows[0].task_type !== taskType) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `نوع المهمة المطلوب (${taskType}) لا يطابق نوع open_task #${openTaskId} (${existingRows[0].task_type}).`,
+        });
+      }
+    } else {
+      // Create new open_task with creation_origin = cascading_during_visit
+      const { rows: newRows } = await client.query(
+        `INSERT INTO open_tasks (
+           client_id, branch_id, task_type, task_family, reason, status,
+           source, origin, creation_origin,
+           assigned_at, assigned_by, assigned_via,
+           created_by
+         ) VALUES (
+           $1, $2, $3, $4, $5, 'scheduled',
+           'manual', 'manual_entry', 'cascading_during_visit',
+           NOW(), $6, 'cascading',
+           $6
+         )
+         RETURNING id`,
+        [
+          visit.client_id,
+          visit.branch_id,
+          taskType,
+          taskFamily,
+          body.reason ?? 'إضافة أثناء الزيارة',
+          performedByUserId,
+        ],
+      );
+      openTaskId = Number(newRows[0].id);
+    }
+
+    // 4. Insert the visit_task
+    const { rows: vtRows } = await client.query(
+      `INSERT INTO visit_tasks (
+         field_visit_id, source_open_task_id,
+         task_type, task_family,
+         sequence_no, status
+       )
+       SELECT $1, $2, $3, $4,
+              COALESCE(MAX(sequence_no), 0) + 1,
+              'pending'
+         FROM visit_tasks WHERE field_visit_id = $1
+       RETURNING id, sequence_no`,
+      [fieldVisitId, openTaskId, taskType, taskFamily],
+    );
+
+    // 5. Ensure the linked open_task is in scheduled state
+    await client.query(
+      `UPDATE open_tasks SET status = 'scheduled', updated_at = NOW() WHERE id = $1 AND status IN ('open', 'needs_follow_up', 'assigned', 'in_scheduling')`,
+      [openTaskId],
+    );
+
+    await client.query('COMMIT');
+    return res.json({
+      visitTaskId: vtRows[0].id,
+      sequenceNo: vtRows[0].sequence_no,
+      openTaskId,
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('[field-visits] POST /:id/tasks error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل إضافة المهمة' });
+  } finally {
+    client.release();
+  }
+});
+
 export default router;

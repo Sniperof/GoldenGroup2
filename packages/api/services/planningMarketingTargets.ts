@@ -472,12 +472,16 @@ export async function getPlanningMarketingTargets(params: {
           LIMIT 1
         ) ct_loc ON ttc_eff.location_basis = 'contract'
         LEFT JOIN LATERAL (
+          -- Phase 4 refactor (Q-C): read from field_visits + visit_tasks instead of
+          -- the legacy marketing_visits + marketing_visit_tasks pair. The bridge
+          -- migration 148 backfilled visit_tasks.source_open_task_id from the
+          -- legacy rows so historical unfinished detection is preserved.
           SELECT 1 AS has_unfinished_visit
-          FROM marketing_visit_tasks mvt
-          JOIN marketing_visits mv ON mv.id = mvt.visit_id
-          WHERE mvt.source_open_task_id = ttc_eff.id
-            AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
-            AND NULLIF(mv.scheduled_date, '')::date < $4::date
+          FROM visit_tasks vt
+          JOIN field_visits fv ON fv.id = vt.field_visit_id
+          WHERE vt.source_open_task_id = ttc_eff.id
+            AND fv.status IN ('scheduled', 'in_progress', 'ended', 'not_completed')
+            AND fv.scheduled_date < $4::date
           LIMIT 1
         ) unfinished_visit ON TRUE
         WHERE c.is_candidate = FALSE
@@ -673,12 +677,13 @@ export async function getPlanningMarketingTargets(params: {
         LIMIT 1
       ) ct_zone ON ot.location_basis = 'contract'
       LEFT JOIN LATERAL (
+        -- Phase 4 refactor (Q-C): read from field_visits + visit_tasks
         SELECT 1 AS has_unfinished_visit
-        FROM marketing_visit_tasks mvt
-        JOIN marketing_visits mv ON mv.id = mvt.visit_id
+        FROM visit_tasks mvt
+        JOIN field_visits mv ON mv.id = mvt.field_visit_id
         WHERE mvt.source_open_task_id = ot.id
-          AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
-          AND NULLIF(mv.scheduled_date, '')::date < $4::date
+          AND mv.status IN ('scheduled', 'in_progress', 'ended', 'not_completed')
+          AND mv.scheduled_date < $4::date
         LIMIT 1
       ) unfinished_visit ON TRUE
       WHERE c.is_candidate = FALSE
