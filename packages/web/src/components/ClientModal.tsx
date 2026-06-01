@@ -133,6 +133,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [referralNotes, setReferralNotes] = useState('');
     const [occupation, setOccupation] = useState('');
     const [spouseOccupation, setSpouseOccupation] = useState('');
+    const [waterSource, setWaterSource] = useState('');
     const [dataQuality, setDataQuality] = useState<string>('');
     const [notes, setNotes] = useState('');
     const [rating, setRating] = useState<ClientRating>('Undefined');
@@ -325,6 +326,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setReferralNotes(initialData.referralNotes || '');
                 setOccupation(initialData.occupation || '');
                 setSpouseOccupation(initialData.spouseOccupation || '');
+                setWaterSource(initialData.waterSource || '');
                 setDataQuality(initialData.dataQuality || '');
                 setNotes(initialData.notes || '');
                 setRating(initialData.rating || 'Undefined');
@@ -351,6 +353,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setReferralNotes('');
                 setOccupation('');
                 setSpouseOccupation('');
+                setWaterSource('');
                 setDataQuality('');
                 setNotes('');
                 setRating('Undefined');
@@ -614,6 +617,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             referralNotes: referralNotes.trim() || undefined,
             occupation: occupation.trim() || undefined,
             spouseOccupation: spouseOccupation.trim() || undefined,
+            waterSource: waterSource.trim() || undefined,
             dataQuality: (dataQuality as any) || undefined,
             notes: notes.trim() || undefined,
             branchId: selectedBranchId === '' ? undefined : Number(selectedBranchId),
@@ -1481,6 +1485,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     ))}
                                                 </select>
                                             </div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-500">مصدر المياه</label>
+                                            <input
+                                                type="text"
+                                                value={waterSource}
+                                                onChange={e => setWaterSource(e.target.value)}
+                                                placeholder="مثال: شبكة عامة، بئر، صهريج..."
+                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
+                                            />
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-semibold text-slate-500">ملاحظات إضافية (محرر نصي)</label>

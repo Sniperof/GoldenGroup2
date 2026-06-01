@@ -24,7 +24,7 @@ export default function TaskScheduleCard({
     <Card title="الجدولة" icon={Calendar}>
       <div className="space-y-1.5">
         <div className="flex items-start justify-between py-1.5 gap-4">
-          <span className="text-xs text-slate-400 font-bold shrink-0">تاريخ الاستحقاق</span>
+          <span className="text-xs text-slate-400 font-bold shrink-0">التاريخ المطلوب</span>
           <div className="flex flex-col items-end gap-1">
             {task.dueDate ? (
               (() => {
@@ -47,7 +47,7 @@ export default function TaskScheduleCard({
         </div>
 
         <div className="flex items-start justify-between py-1.5 gap-4">
-          <span className="text-xs text-slate-400 font-bold shrink-0 pt-1.5">الموعد المتوقع</span>
+          <span className="text-xs text-slate-400 font-bold shrink-0 pt-1.5">التاريخ المتوقع</span>
           <div className="flex flex-col items-end gap-1">
             <input
               type="date"

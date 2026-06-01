@@ -4,18 +4,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Sparkles, ExternalLink, BadgeDollarSign, Calendar, User, Tag } from 'lucide-react';
+import { Loader2, Sparkles, ExternalLink, BadgeDollarSign, Calendar, User, Tag, Plus } from 'lucide-react';
 
 import { api } from '../../lib/api';
 import { OutcomeChip, type PreOfferOutcomeState } from '../../components/preOffers/OutcomeChip';
+import DeviceOfferModal from '../../components/clients/DeviceOfferModal';
+import StandaloneDeviceOffersModal from '../../components/clients/StandaloneDeviceOffersModal';
+import type { Client } from '../../lib/types';
 
 interface Props {
-  client: { id: number };
+  client: Client;
 }
 
 interface Entry {
-  preOfferId: number;
-  openTaskId: number;
+  sourceKind?: 'task' | 'standalone';
+  preOfferId: number | null;
+  customerPreOfferId?: number | null;
+  openTaskId: number | null;
   taskStatus: string;
   taskCreatedAt: string | null;
   taskDueDate: string | null;
@@ -90,15 +95,24 @@ export function PreOffersTab({ client }: Props) {
   const [data, setData] = useState<Response | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [standaloneOpen, setStandaloneOpen] = useState(false);
+  const [hasActiveTask, setHasActiveTask] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.customers.getPreOffers(client.id);
       setData(res as Response);
+      const tasks = await api.openTasks.listByClient(client.id).catch(() => []);
+      setHasActiveTask(tasks.some((task: any) => {
+        const taskType = task.taskType ?? task.task_type ?? task.openTaskType;
+        return taskType === 'device_demo' && !['completed', 'cancelled', 'closed'].includes(task.status);
+      }));
     } catch (err) {
       console.error('[PreOffersTab] fetch failed:', err);
       setData(null);
+      setHasActiveTask(false);
     } finally {
       setLoading(false);
     }
@@ -112,6 +126,58 @@ export function PreOffersTab({ client }: Props) {
     return data.entries.filter(e => e.outcome.state === filter);
   }, [data, filter]);
 
+  const hasActiveDeviceDemo = useMemo(() => {
+    if (hasActiveTask) return true;
+    if (!data) return false;
+    return data.entries.some(e => e.openTaskId && !['completed', 'cancelled', 'closed'].includes(e.taskStatus));
+  }, [data, hasActiveTask]);
+
+  const createButton = (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        onClick={() => setStandaloneOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 shadow-sm transition-all hover:bg-sky-100"
+      >
+        <Plus className="h-4 w-4" />
+        إنشاء عروض أجهزة
+      </button>
+      <button
+      onClick={() => setCreateOpen(true)}
+      disabled={hasActiveDeviceDemo}
+      className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition-all hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+      title={hasActiveDeviceDemo ? 'توجد مهمة عرض جهاز نشطة لهذا الزبون' : undefined}
+    >
+      <Plus className="h-4 w-4" />
+      إنشاء عرض جهاز
+      </button>
+    </div>
+  );
+
+  const createModal = createOpen ? (
+    <DeviceOfferModal
+      isOpen={createOpen}
+      onClose={() => setCreateOpen(false)}
+      client={client}
+      onCreated={(created) => {
+        setCreateOpen(false);
+        fetchData();
+        if (created?.id) navigate(`/tasks/device-demo/${created.id}`);
+      }}
+    />
+  ) : null;
+
+  const standaloneModal = standaloneOpen ? (
+    <StandaloneDeviceOffersModal
+      isOpen={standaloneOpen}
+      onClose={() => setStandaloneOpen(false)}
+      client={client}
+      onCreated={() => {
+        setStandaloneOpen(false);
+        fetchData();
+      }}
+    />
+  ) : null;
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-slate-500">
@@ -124,11 +190,14 @@ export function PreOffersTab({ client }: Props) {
   if (!data || data.entries.length === 0) {
     return (
       <div className="space-y-4 max-w-7xl">
-        <header>
-          <h3 className="text-lg font-black text-slate-800">العروض المسبقة</h3>
-          <p className="text-xs text-slate-400 font-bold mt-1">
-            العروض المُحضَّرة قبل الزيارة ضمن مهام عرض جهاز، ونتيجة رد الزبون على كل عرض.
-          </p>
+        <header className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black text-slate-800">العروض المسبقة</h3>
+            <p className="text-xs text-slate-400 font-bold mt-1">
+              العروض المُحضَّرة قبل الزيارة ضمن مهام عرض جهاز، ونتيجة رد الزبون على كل عرض.
+            </p>
+          </div>
+          {createButton}
         </header>
         <div className="bg-white rounded-3xl border border-slate-100 p-16 text-center flex flex-col items-center justify-center shadow-sm">
           <Sparkles className="w-12 h-12 text-slate-300 mb-4" />
@@ -137,6 +206,8 @@ export function PreOffersTab({ client }: Props) {
             لم يُحضَّر أي عرض جهاز لهذا الزبون بعد. ستظهر العروض هنا فور إنشاء مهمة عرض جهاز عبر "عرض جهاز" في الإجراءات السريعة.
           </p>
         </div>
+        {createModal}
+        {standaloneModal}
       </div>
     );
   }
@@ -145,11 +216,14 @@ export function PreOffersTab({ client }: Props) {
 
   return (
     <div className="space-y-4 max-w-7xl">
-      <header>
-        <h3 className="text-lg font-black text-slate-800">العروض المسبقة</h3>
-        <p className="text-xs text-slate-400 font-bold mt-1">
-          العروض المُحضَّرة قبل الزيارة ضمن مهام عرض جهاز، ونتيجة رد الزبون على كل عرض.
-        </p>
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-black text-slate-800">العروض المسبقة</h3>
+          <p className="text-xs text-slate-400 font-bold mt-1">
+            العروض المُحضَّرة قبل الزيارة ضمن مهام عرض جهاز، ونتيجة رد الزبون على كل عرض.
+          </p>
+        </div>
+        {createButton}
       </header>
 
       {/* Summary KPI cards — same visual language as PurchaseHistoryTab. */}
@@ -160,6 +234,8 @@ export function PreOffersTab({ client }: Props) {
         <SummaryCard icon={<BadgeDollarSign className="w-4 h-4" />} label="مقبولة → عقد" value={s.accepted}    color="emerald" />
         <SummaryCard icon={<Tag className="w-4 h-4" />}     label="لم يُختر / مرفوض" value={s.notChosen + s.rejected} color="rose" />
       </div>
+      {createModal}
+      {standaloneModal}
 
       {/* Filter chips */}
       <div className="flex items-center gap-1 flex-wrap">
@@ -205,9 +281,9 @@ export function PreOffersTab({ client }: Props) {
               )}
               {filtered.map(e => (
                 <tr
-                  key={e.preOfferId}
-                  onClick={() => navigate(`/tasks/device-demo/${e.openTaskId}`)}
-                  className="border-t border-slate-50 hover:bg-sky-50/40 cursor-pointer transition-colors"
+                  key={e.preOfferId ?? `standalone-${e.customerPreOfferId}`}
+                  onClick={() => e.openTaskId && navigate(`/tasks/device-demo/${e.openTaskId}`)}
+                  className={`border-t border-slate-50 transition-colors ${e.openTaskId ? 'cursor-pointer hover:bg-sky-50/40' : 'bg-slate-50/40'}`}
                 >
                   <td className="py-3 px-4">
                     <div className="font-bold text-slate-800">{e.deviceModelName ?? '—'}</div>

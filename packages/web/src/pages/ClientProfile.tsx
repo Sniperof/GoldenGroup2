@@ -740,7 +740,10 @@ function VisitsTab({ client }: { client: Client }) {
     const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
-    const hasIncompleteTask = tasks.some((task) => task.status !== 'completed' && task.status !== 'cancelled');
+    const hasActiveDeviceDemo = tasks.some((task) => {
+        const taskType = task.taskType ?? task.task_type ?? task.openTaskType;
+        return taskType === 'device_demo' && !['completed', 'cancelled', 'closed'].includes(task.status);
+    });
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -785,14 +788,14 @@ function VisitsTab({ client }: { client: Client }) {
                     </button>
                     <button
                         onClick={() => setModalOpen(true)}
-                        disabled={hasIncompleteTask}
+                        disabled={hasActiveDeviceDemo}
                         className="px-4 py-2 bg-sky-600 text-white font-bold rounded-xl shadow-sm hover:bg-sky-500 transition-all flex items-center gap-1.5 text-sm disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                     >
                         <Plus className="w-4 h-4" /> عرض جهاز
                     </button>
                 </div>
             </div>
-            {hasIncompleteTask && (
+            {hasActiveDeviceDemo && (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
                     لا يمكن إنشاء عرض جديد ما دامت هناك مهمة غير مكتملة لهذا الزبون.
                 </div>

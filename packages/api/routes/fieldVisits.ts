@@ -4,6 +4,10 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
+import {
+  buildCustomerOwnershipSql,
+  mapCustomerOwnership,
+} from '../services/customerOwnership.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -727,6 +731,10 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
     const authContext = getAuthContext(req);
     const clientId = req.query.clientId ? Number(req.query.clientId) : null;
     const date = typeof req.query.date === 'string' ? req.query.date : null;
+    const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+    const status = typeof req.query.status === 'string' ? req.query.status : null;
+    const visitType = typeof req.query.visitType === 'string' ? req.query.visitType : null;
+    const taskType = typeof req.query.taskType === 'string' ? req.query.taskType : null;
 
     if (clientId === null && date === null) {
       return res.status(400).json({ error: 'يجب تحديد clientId أو date' });
@@ -743,6 +751,26 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
     if (date !== null) {
       conditions.push(`fv.scheduled_date = $${idx++}`);
       params.push(date);
+    }
+    if (status !== null) {
+      conditions.push(`fv.status = $${idx++}`);
+      params.push(status);
+    }
+    if (visitType !== null) {
+      conditions.push(`fv.visit_type = $${idx++}`);
+      params.push(visitType);
+    }
+    if (taskType !== null) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM visit_tasks vt_filter
+        WHERE vt_filter.field_visit_id = fv.id
+          AND vt_filter.task_type = $${idx++}
+      )`);
+      params.push(taskType);
+    }
+    if (branchId !== null && authContext.isSuperAdmin) {
+      conditions.push(`fv.branch_id = $${idx++}`);
+      params.push(branchId);
     }
     if (!authContext.isSuperAdmin && authContext.actingBranchId != null) {
       conditions.push(`fv.branch_id = $${idx++}`);
@@ -763,14 +791,77 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
          fv.team_snapshot AS "teamSnapshot",
          fv.customer_snapshot AS "customerSnapshot",
          fv.field_notes AS "fieldNotes",
+         fv.origin_type AS "originType",
+         fv.origin_id AS "originId",
          fv.created_at AS "createdAt",
-         fv.updated_at AS "updatedAt"
+         fv.updated_at AS "updatedAt",
+         c.name AS "clientName",
+         c.mobile AS "clientMobile",
+         c.gender AS "clientGender",
+         c.data_quality AS "clientDataQuality",
+         c.candidate_status AS "clientClassification",
+         b.name AS "branchName",
+         CASE
+           WHEN neigh.id IS NOT NULL AND neigh.level = 4 AND neigh_parent.id IS NOT NULL
+             THEN neigh_parent.name || ' — ' || neigh.name
+           WHEN neigh.id IS NOT NULL AND neigh.level = 3 AND district.id IS NOT NULL
+             THEN district.name || ' — ' || neigh.name
+           WHEN neigh.id IS NOT NULL
+             THEN neigh.name
+           WHEN district.id IS NOT NULL
+             THEN district.name
+           ELSE NULL
+         END AS "addressShort",
+         ownership."ownerType" AS "ownershipOwnerType",
+         ownership."ownerLabel" AS "ownershipOwnerLabel",
+         '[]'::json AS "ownershipPersonalAssignments",
+         ownership."companyOwnershipScope" AS "ownershipCompanyOwnershipScope",
+         ownership."effectiveOwnershipReason" AS "ownershipEffectiveOwnershipReason",
+         COUNT(DISTINCT vt.id)::int AS "taskCount",
+         COUNT(DISTINCT vtr.id) FILTER (WHERE vtr.final_decision IS NOT NULL)::int AS "documentedTaskCount",
+         COALESCE(
+           json_agg(DISTINCT jsonb_build_object('taskType', vt.task_type, 'taskFamily', vt.task_family, 'status', vt.status))
+             FILTER (WHERE vt.id IS NOT NULL),
+           '[]'::json
+         ) AS "tasksSummary",
+         (vs.id IS NOT NULL) AS "hasSurvey",
+         COALESCE(vs.is_skipped, FALSE) AS "surveySkipped",
+         (rs.id IS NOT NULL) AS "hasReferralSheet",
+         vgl.actual_start_time AS "actualStartTime",
+         vgl.actual_end_time AS "actualEndTime",
+         vgl.location_missing AS "locationMissing",
+         COALESCE(
+           ARRAY_AGG(DISTINCT vea.tier) FILTER (WHERE vea.tier IS NOT NULL),
+           ARRAY[]::int[]
+         ) AS "escalationTiers"
        FROM field_visits fv
+       JOIN clients c ON c.id = fv.client_id
+       LEFT JOIN branches b ON b.id = fv.branch_id
+       LEFT JOIN geo_units neigh ON neigh.id = CASE
+         WHEN NULLIF(c.neighborhood::text, '') ~ '^[0-9]+$' THEN c.neighborhood::int
+         ELSE NULL
+       END
+       LEFT JOIN geo_units neigh_parent ON neigh_parent.id = neigh.parent_id
+       LEFT JOIN geo_units district ON district.id = CASE
+         WHEN NULLIF(c.district::text, '') ~ '^[0-9]+$' THEN c.district::int
+         ELSE NULL
+       END
+       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'b.name' })}
+       LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
+       LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+       LEFT JOIN visit_surveys vs ON vs.field_visit_id = fv.id
+       LEFT JOIN referral_sheets rs ON rs.field_visit_id = fv.id
+       LEFT JOIN visit_geo_logs vgl ON vgl.visit_id = fv.id
+       LEFT JOIN visit_escalation_alerts vea ON vea.visit_id = fv.id
        ${where}
+       GROUP BY fv.id, c.id, b.name, neigh.id, neigh.name, neigh.level, neigh_parent.id, neigh_parent.name,
+                district.id, district.name, ownership."ownerType", ownership."ownerLabel",
+                ownership."companyOwnershipScope", ownership."effectiveOwnershipReason", vs.id, vs.is_skipped, rs.id,
+                vgl.actual_start_time, vgl.actual_end_time, vgl.location_missing
        ORDER BY fv.scheduled_date DESC, fv.scheduled_time ASC, fv.created_at DESC`,
       params,
     );
-    return res.json(rows);
+    return res.json(rows.map((row: any) => ({ ...row, ownership: mapCustomerOwnership(row) })));
   } catch (err: any) {
     console.error('[field-visits] GET / error:', err);
     res.status(500).json({ error: 'فشل في تحميل الزيارات' });

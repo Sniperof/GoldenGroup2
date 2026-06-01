@@ -148,6 +148,11 @@ export const api = {
     // Pre-offers tab — every device-demo pre-offer with its outcome.
     getPreOffers: (customerId: number) =>
       request<{ customerId: number; entries: any[]; summary: any }>(`/customers/${customerId}/pre-offers`),
+    createPreOffers: (customerId: number, data: { branchId?: number | null; offers: any[] }) =>
+      request<{ success: boolean; created: Array<{ id: number }> }>(`/customers/${customerId}/pre-offers`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
   customerCalls: {
     list: (customerId: number) => request<any[]>(`/customers/${customerId}/calls`),
@@ -419,10 +424,21 @@ export const api = {
       request<any>(`/work-scopes/${id}/generate-tasks`, { method: 'POST' }),
   },
   fieldVisits: {
-    list: (params: { clientId?: number; date?: string }) => {
+    list: (params: {
+      clientId?: number;
+      date?: string;
+      branchId?: number;
+      status?: string;
+      visitType?: string;
+      taskType?: string;
+    }) => {
       const qs = new URLSearchParams();
       if (params.clientId) qs.append('clientId', String(params.clientId));
       if (params.date) qs.append('date', params.date);
+      if (params.branchId) qs.append('branchId', String(params.branchId));
+      if (params.status) qs.append('status', params.status);
+      if (params.visitType) qs.append('visitType', params.visitType);
+      if (params.taskType) qs.append('taskType', params.taskType);
       return request<any[]>(`/field-visits/?${qs.toString()}`);
     },
     get: (id: number) => request<any>(`/field-visits/${id}`),

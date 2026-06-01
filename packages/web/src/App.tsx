@@ -52,6 +52,7 @@ import RolePermissions from './pages/admin/RolePermissions';
 import PermissionSettings from './pages/admin/PermissionSettings';
 import TaskTypes from './pages/admin/TaskTypes';
 import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
+import VisitsListPage from './pages/visits/VisitsListPage';
 import VisitDetailPage from './pages/visits/VisitDetailPage';
 
 
@@ -96,6 +97,7 @@ export default function App() {
                         <Route path="/tasks/device-demo" element={<DeviceDemo />} />
                         <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
                         <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
+                        <Route path="/field-visits" element={<VisitsListPage />} />
                         <Route path="/field-visits/:id" element={<VisitDetailPage />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />

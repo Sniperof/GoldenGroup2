@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>{{contract_title}} — {{contract_number}}</title>
+  <style>
+    body {
+      font-family: "Tajawal", "Segoe UI", Arial, sans-serif;
+      color: #111;
+      padding: 32px;
+      max-width: 900px;
+      margin: auto;
+      line-height: 1.9;
+      font-size: 14px;
+    }
+    h1 { text-align: center; font-size: 1.6rem; margin: 0 0 8px; }
+    .subtitle { text-align: center; color: #555; margin-bottom: 24px; }
+    .section { margin-bottom: 20px; }
+    .section-title { font-weight: 700; margin-bottom: 8px; }
+    .box {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 24px;
+    }
+    .label { color: #555; font-size: 0.9rem; margin-bottom: 2px; }
+    .value { font-weight: 600; }
+    .preline { white-space: pre-line; }
+    .article { margin-bottom: 18px; }
+    .article-title { font-weight: 800; margin-bottom: 6px; }
+    .watermark-draft {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 7rem;
+      color: rgba(200, 30, 30, 0.12);
+      transform: rotate(-30deg);
+      font-weight: 800;
+    }
+    .draft-notice { margin-top: 8px; color: #9a3412; font-weight: 700; }
+    .signatures {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px;
+      margin-top: 48px;
+    }
+    .signature {
+      border-top: 1px solid #333;
+      padding-top: 8px;
+      text-align: center;
+      min-height: 70px;
+    }
+  </style>
+</head>
+<body>
+  {{#draftWatermark}}<div class="watermark-draft">مسودة غير معتمدة</div>{{/draftWatermark}}
+
+  <h1>{{contract_title}}</h1>
+  <div class="subtitle">رقم العقد: {{contract_number}} — تاريخ العقد: {{contract_date}}</div>
+
+  <div class="section">
+    <div class="section-title">موقع فيما بين:</div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">الفريق الأول</div>
+    <div class="grid">
+      <div>
+        <div class="label">الاسم</div>
+        <div class="value">{{company_name}}</div>
+      </div>
+      <div>
+        <div class="label">يمثله في هذا العقد</div>
+        <div class="value">{{company_representative_name}}</div>
+      </div>
+      <div>
+        <div class="label">الصفة</div>
+        <div class="value">{{company_representative_title}}</div>
+      </div>
+      <div>
+        <div class="label">الفرع</div>
+        <div class="value">{{branch_name}}</div>
+      </div>
+    </div>
+    {{#draftWatermark}}<div class="draft-notice">{{draft_notice_text}}</div>{{/draftWatermark}}
+  </div>
+
+  <div class="box">
+    <div class="section-title">الفريق الثاني</div>
+    <div class="grid">
+      <div>
+        <div class="label">الاسم الكامل</div>
+        <div class="value">{{customer_full_name}}</div>
+      </div>
+      <div>
+        <div class="label">اسم الأم</div>
+        <div class="value">{{customer_mother_name}}</div>
+      </div>
+      <div>
+        <div class="label">تاريخ الولادة</div>
+        <div class="value">{{customer_birth_date}}</div>
+      </div>
+      <div>
+        <div class="label">رقم الهوية</div>
+        <div class="value">{{customer_national_id_number}}</div>
+      </div>
+      <div>
+        <div class="label">القيد</div>
+        <div class="value">{{customer_registry_record}}</div>
+      </div>
+      <div>
+        <div class="label">صادرة عن</div>
+        <div class="value">{{customer_id_issued_by}}</div>
+      </div>
+      <div>
+        <div class="label">تاريخ المنح</div>
+        <div class="value">{{customer_id_issue_date}}</div>
+      </div>
+      <div>
+        <div class="label">الخانة</div>
+        <div class="value">{{customer_id_box}}</div>
+      </div>
+      <div>
+        <div class="label">المحافظة</div>
+        <div class="value">{{customer_governorate}}</div>
+      </div>
+      <div>
+        <div class="label">المنطقة</div>
+        <div class="value">{{customer_area}}</div>
+      </div>
+      <div>
+        <div class="label">الناحية</div>
+        <div class="value">{{customer_sub_area}}</div>
+      </div>
+      <div>
+        <div class="label">الحي</div>
+        <div class="value">{{customer_neighborhood}}</div>
+      </div>
+    </div>
+    <div class="section" style="margin-top:12px">
+      <div class="label">العنوان التفصيلي</div>
+      <div class="value">{{customer_detailed_address}}</div>
+    </div>
+    <div class="section" style="margin-top:12px">
+      <div class="label">وسائل التواصل</div>
+      <div class="value preline">{{customer_contact_rows}}</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">المقدمة</div>
+    <div>
+      لما كان الفريق الأول يقوم بتسليم أجهزة فلترة المياه ضمن علاقات حيازة مؤقتة منظمة، وقد رغب الفريق الثاني باستلام الجهاز المبين في هذا العقد على سبيل الحيازة المؤقتة، فقد انعقدت إرادة الفريقين وهما بكامل الأهلية القانونية والشرعية على ما يلي:
+    </div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /1/</div>
+    <div>تعتبر مقدمة هذا العقد جزءاً لا يتجزأ منه، وتعد متممة ومفسرة لجميع أحكامه وبنوده.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /2/ - موضوع التسليم المؤقت</div>
+    <div class="preline">سلم الفريق الأول إلى الفريق الثاني الجهاز التالي على سبيل الحيازة المؤقتة:
+نوع الجهاز / الاسم التجاري: {{device_name}}
+العدد: {{device_quantity}}
+
+ويشمل ذلك البنود/الملحقات التالية:
+{{contract_items_summary}}
+
+ويعد هذا التسليم تسليماً مؤقتاً لا يرتب بيعاً نهائياً إلا عند تثبيت العلاقة وفق الأصول المعتمدة، كما يحق للفريق الأول استرداد الجهاز وفق أحكام هذا العقد إذا لم يتم تثبيت البيعة.
+    </div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /3/ - القبول</div>
+    <div>أقر الفريق الثاني بأنه اطلع على الجهاز موضوع هذا العقد وعلى شروط الحيازة المؤقتة الواردة فيه، وقبل باستلامه على هذا الأساس، والتزم بتنفيذ ما يترتب عليه من التزامات وفق أحكام هذا العقد.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /4/ - ما يشمله التسليم</div>
+    <div class="preline">يشمل هذا التسليم ما يلي:
+{{included_components_text}}
+
+كما يشمل:
+- التوصيل: {{includes_delivery_once}}
+- التركيب لمرة واحدة: {{includes_installation_once}}
+    </div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /5/ - الكفالة والخدمة</div>
+    <div class="preline">إذا كانت هذه الحيازة المؤقتة مرتبطة بكفالة أو بخدمة تشغيلية معتمدة، فيكون ذلك وفق السياسة المقررة لدى الشركة، ويبدأ أي أثر تشغيلي متعلق بالكفالة من تاريخ تشغيل الجهاز ووضعه في الخدمة الفعلية.
+    </div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /6/ - قطع الغيار والخدمة</div>
+    <div>يلتزم الفريق الأول بتأمين ما يلزم من الخدمة أو المتابعة المتعلقة بالجهاز ضمن حدود ما تقرره العلاقة المؤقتة المثبتة بهذا العقد.</div>
+  </div>
+
+  {{#periodicVisitsSection}}
+  <div class="article">
+    <div class="article-title">المادة /7/ - الزيارات الدورية</div>
+    <div class="preline">إذا كانت الزيارات الدورية جزءاً من هذه العلاقة المؤقتة أو من برنامج الخدمة المرافق لها، فتكون على النحو التالي:
+- عدد الزيارات: {{periodic_visits_count}}
+- الفاصل التقريبي بين الزيارات: {{periodic_visits_interval_text}}
+- مدة الاستفادة: {{periodic_visits_duration_text}}
+    </div>
+  </div>
+  {{/periodicVisitsSection}}
+
+  <div class="article">
+    <div class="article-title">المادة /8/ - الأثر المالي عند التثبيت أو التسوية</div>
+    <div class="preline">لا يعد هذا العقد عقد بيع نهائي، ولا يرتب بذاته أثراً نهائياً مماثلاً للبيع القطعي إلا عند تثبيت العلاقة وفق الأصول المعتمدة.
+
+وعند وجود أي مبالغ مدفوعة أو تسويات مرتبطة بهذا التسليم المؤقت، فتكون وفق السجلات المعتمدة في النظام والسياسة المالية للشركة.
+    </div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /9/ - الاختصاص القضائي</div>
+    <div>{{jurisdiction_text}}</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /10/ - النسخ والأثر الكتابي</div>
+    <div class="preline">{{copies_count_text}}
+
+كما لا يجوز إجراء أي شطب أو تعديل يدوي على هذه النسخة بعد اعتمادها إلا وفق الأصول المعتمدة:
+{{no_manual_edit_text}}
+    </div>
+  </div>
+
+  <div class="signatures">
+    <div class="signature">
+      الفريق الأول<br />
+      {{company_signature_name}}<br />
+      الصفة: {{company_signature_title}}<br />
+      التوقيع: ..................
+    </div>
+    <div class="signature">
+      الفريق الثاني<br />
+      {{customer_signature_name}}<br />
+      التوقيع: ..................
+    </div>
+  </div>
+
+  <div class="section" style="margin-top:28px">
+    <div>اعتماد العقد: {{contract_approval_name}}</div>
+    <div>تاريخ الطباعة / التوليد: {{print_date}}</div>
+  </div>
+</body>
+</html>

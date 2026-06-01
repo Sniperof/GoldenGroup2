@@ -562,6 +562,7 @@ export interface MarketingVisitTaskOfferInput {
     extensionReasonId?: number | null;
     extensionDueDate?: string | null;
     saleReferenceNumber?: string | null;
+    sourceCustomerPreOfferId?: number | null;
     contractId?: number | null;
 }
 
@@ -593,6 +594,7 @@ export interface MarketingVisitLifecycleTaskUpdate {
     openTaskId: number;
     priority: 'high' | 'medium' | 'low';
     dueDate?: string | null;
+    expectedDate?: string | null;
 }
 
 export interface MarketingVisitRescheduleRequest {
@@ -1394,15 +1396,15 @@ export const TASK_SCHEDULING_PATTERN_LABELS: Record<TaskSchedulingPattern, strin
 
 export const TASK_SCHEDULING_PATTERN_DESCRIPTIONS: Record<TaskSchedulingPattern, string> = {
   immediate:       'لا تاريخ مستقبلي — تظهر فور إنشائها، N لا تنطبق',
-  short_window:    'لها due_date — تدخل النطاق قبل موعدها بأيام قليلة (3–7)',
-  long_window:     'لها due_date بعيد (شهور) — تدخل النطاق قبل موعدها بنافذة أطول (15–30)',
+  short_window:    'لها تاريخ مطلوب — تدخل النطاق قبل موعدها بأيام قليلة (3–7)',
+  long_window:     'لها تاريخ مطلوب بعيد (شهور) — تدخل النطاق قبل موعدها بنافذة أطول (15–30)',
   expected_window: 'لا due_date صارم — تستخدم expected_date من محادثة الزبون',
 };
 
 export const TASK_WINDOW_BASIS_LABELS: Record<TaskWindowBasis, string> = {
   none:          'لا ينطبق',
-  due_date:      'تاريخ الاستحقاق',
-  expected_date: 'الموعد المتوقع',
+  due_date:      'التاريخ المطلوب',
+  expected_date: 'التاريخ المتوقع',
 };
 
 export const TASK_LOCATION_BASIS_LABELS: Record<TaskLocationBasis, string> = {

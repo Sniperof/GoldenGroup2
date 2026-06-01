@@ -186,7 +186,7 @@ export default function MarketingVisitResultModal({
     }
 
     if (requiresFollowUpDueDate && !followUpDueDate) {
-      setValidationError('يرجى تحديد تاريخ الاستحقاق');
+      setValidationError('يرجى تحديد التاريخ المتوقع');
       return;
     }
 
@@ -454,7 +454,7 @@ export default function MarketingVisitResultModal({
           {requiresFollowUpDueDate && (
             <div className="space-y-2">
               <label className="text-sm font-bold text-slate-700">
-                تاريخ الاستحقاق <span className="text-red-500">*</span>
+                التاريخ المتوقع <span className="text-red-500">*</span>
               </label>
               <input
                 type="date"

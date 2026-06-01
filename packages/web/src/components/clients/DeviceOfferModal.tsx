@@ -14,6 +14,7 @@ type PreOfferDraft = {
   appliedDeviceDiscountId: string;
   closedByEmployeeId: string;
   noClosingReason: string;
+  sourceCustomerPreOfferId?: number | null;
 };
 
 type SelectedDevice = {
@@ -25,6 +26,24 @@ type SelectedDevice = {
 type Closer = { id: number; name: string; roleDisplayName?: string };
 
 type CreationReasonOption = { value: string; label: string };
+
+type CustomerPreOfferEntry = {
+  sourceKind?: 'task' | 'standalone';
+  customerPreOfferId?: number | null;
+  deviceModelId: number | null;
+  offerType: 'cash' | 'installment' | string;
+  quantity: number;
+  totalAmount: number | null;
+  firstPaymentAmount: number | null;
+  installmentMonths: number | null;
+  discountPercentage: number | null;
+  appliedDeviceDiscountId: number | null;
+  closedByEmployeeId: number | null;
+  noClosingReason: string | null;
+  outcome: {
+    state: 'not_presented_yet' | 'needs_follow_up' | 'accepted' | 'not_chosen' | 'rejected';
+  };
+};
 
 const FALLBACK_CREATION_REASONS: CreationReasonOption[] = [
   { value: 'new_lead', label: 'عميل جديد' },
@@ -46,6 +65,7 @@ function createPreOfferDraft(): PreOfferDraft {
     appliedDeviceDiscountId: '',
     closedByEmployeeId: '',
     noClosingReason: '',
+    sourceCustomerPreOfferId: null,
   };
 }
 
@@ -189,7 +209,7 @@ function buildReceiptHtml(args: {
         <div><div class="muted">الزبون</div><strong>${client.name}</strong></div>
         <div><div class="muted">الفرع</div><strong>${client.branchId ?? '—'}</strong></div>
         <div><div class="muted">سبب إنشاء المهمة</div><strong>${reasonLabel}</strong></div>
-        <div><div class="muted">تاريخ الاستحقاق</div><strong>${dueDate}</strong></div>
+        <div><div class="muted">التاريخ المطلوب</div><strong>${dueDate}</strong></div>
         <div><div class="muted">الأولوية</div><strong>${priority || 'غير محددة'}</strong></div>
         <div><div class="muted">النوع</div><strong>${offer.offerType === 'installment' ? 'تقسيط' : 'كاش'}</strong></div>
       </div>
@@ -261,7 +281,7 @@ function ReceiptModal(props: {
       `الإجمالي: ${grandTotal}`,
       `الحسم: ${discount > 0 ? `${discount}%` : 'بدون حسم'}`,
       `سبب إنشاء المهمة: ${reasonLabel}`,
-      `تاريخ الاستحقاق: ${dueDate}`,
+      `التاريخ المطلوب: ${dueDate}`,
       `الأولوية: ${priority || 'غير محددة'}`,
     ].join('\n');
 
@@ -308,7 +328,7 @@ function ReceiptModal(props: {
           <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
             <div><p className="text-xs font-bold text-slate-500">الزبون</p><p className="mt-1 text-sm font-semibold text-slate-800">{client.name}</p></div>
             <div><p className="text-xs font-bold text-slate-500">سبب إنشاء المهمة</p><p className="mt-1 text-sm font-semibold text-slate-800">{reasonLabel}</p></div>
-            <div><p className="text-xs font-bold text-slate-500">تاريخ الاستحقاق</p><p className="mt-1 text-sm font-semibold text-slate-800">{dueDate}</p></div>
+            <div><p className="text-xs font-bold text-slate-500">التاريخ المطلوب</p><p className="mt-1 text-sm font-semibold text-slate-800">{dueDate}</p></div>
             <div><p className="text-xs font-bold text-slate-500">الأولوية</p><p className="mt-1 text-sm font-semibold text-slate-800">{priority || 'غير محددة'}</p></div>
           </div>
 
@@ -353,7 +373,7 @@ interface DeviceOfferModalProps {
   isOpen: boolean;
   onClose: () => void;
   client: Client;
-  onCreated: () => void;
+  onCreated: (created?: any) => void;
 }
 
 export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }: DeviceOfferModalProps) {
@@ -369,6 +389,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
 
   // Pre-offers section
   const [preOffers, setPreOffers] = useState<PreOfferDraft[]>([]);
+  const [customerPreOffers, setCustomerPreOffers] = useState<CustomerPreOfferEntry[]>([]);
   const [draftOffer, setDraftOffer] = useState<PreOfferDraft>(createPreOfferDraft());
   const [deviceDiscounts, setDeviceDiscounts] = useState<DeviceDiscount[]>([]);
 
@@ -393,11 +414,18 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
       api.employees.closers(),
       api.systemLists.getItemsByCode('open_task_reasons'),
       api.systemLists.getItemsByCode('no_closing_reasons'),
+      api.customers.getPreOffers(client.id),
     ])
-      .then(([models, closerRows, reasonRows, noClosingRows]) => {
+      .then(([models, closerRows, reasonRows, noClosingRows, customerPreOffersResponse]) => {
         setDeviceModels(models);
         setClosers(closerRows);
         setCreationReasons(buildReasonOptions(reasonRows as SystemList[]));
+        setCustomerPreOffers(
+          (((customerPreOffersResponse as { entries?: CustomerPreOfferEntry[] })?.entries) ?? []).filter((entry) => (
+            entry.sourceKind === 'standalone'
+            && ['not_presented_yet', 'needs_follow_up'].includes(entry.outcome?.state)
+          )),
+        );
         const ncr = (noClosingRows as SystemList[])
           .filter(r => r.value?.trim())
           .map(r => ({ value: r.value, label: r.value }));
@@ -420,6 +448,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     setDevicePickerId('');
     setDevicePickerQty('1');
     setPreOffers([]);
+    setCustomerPreOffers([]);
     setDraftOffer(createPreOfferDraft());
     setDeviceDiscounts([]);
     setDueDate('');
@@ -451,11 +480,27 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
 
   const reasonLabel = creationReasons.find((item) => item.value === reason)?.label || '—';
 
-  // Devices already in pre-offers (for unique constraint)
-  const usedOfferDeviceIds = new Set(preOffers.map((o) => o.deviceModelId));
-
   const updateDraftOffer = (field: keyof PreOfferDraft, value: string) => {
     setDraftOffer((current) => ({ ...current, [field]: value }));
+  };
+
+  const buildDraftFromCustomerPreOffer = (entry: CustomerPreOfferEntry): PreOfferDraft | null => {
+    if (!entry.customerPreOfferId || !entry.deviceModelId || entry.totalAmount == null) {
+      return null;
+    }
+    return {
+      deviceModelId: String(entry.deviceModelId),
+      offerType: entry.offerType === 'installment' ? 'installment' : 'cash',
+      quantity: String(entry.quantity ?? 1),
+      unitPrice: String(entry.totalAmount),
+      firstPaymentAmount: entry.firstPaymentAmount == null ? '' : String(entry.firstPaymentAmount),
+      installmentMonths: entry.installmentMonths == null ? '' : String(entry.installmentMonths),
+      discountPercentage: entry.discountPercentage == null ? '' : String(entry.discountPercentage),
+      appliedDeviceDiscountId: entry.appliedDeviceDiscountId == null ? '' : String(entry.appliedDeviceDiscountId),
+      closedByEmployeeId: entry.closedByEmployeeId == null ? '' : String(entry.closedByEmployeeId),
+      noClosingReason: entry.noClosingReason ?? '',
+      sourceCustomerPreOfferId: entry.customerPreOfferId,
+    };
   };
 
   // ── Add device to top list ──
@@ -467,7 +512,18 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     if (selectedDevices.some(d => d.deviceModelId === Number(devicePickerId))) {
       setError('هذا الجهاز مضاف بالفعل'); return;
     }
+    const importedOffers = customerPreOffers
+      .filter((entry) => entry.deviceModelId === device.id)
+      .map(buildDraftFromCustomerPreOffer)
+      .filter((entry): entry is PreOfferDraft => entry !== null)
+      .filter((entry) => !preOffers.some((existing) => (
+        existing.sourceCustomerPreOfferId != null
+        && existing.sourceCustomerPreOfferId === entry.sourceCustomerPreOfferId
+      )));
     setSelectedDevices(prev => [...prev, { deviceModelId: device.id, quantity: qty, deviceName: device.nameAr || device.name }]);
+    if (importedOffers.length > 0) {
+      setPreOffers((current) => [...current, ...importedOffers]);
+    }
     setDevicePickerId('');
     setDevicePickerQty('1');
     setError('');
@@ -478,6 +534,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     if (!offer.deviceModelId) return `يرجى اختيار الجهاز في ${label}`;
     if (!offer.offerType) return `يرجى اختيار نوع العرض في ${label}`;
     if (!parsePositiveNumber(offer.unitPrice)) return `يرجى إدخال السعر الإفرادي في ${label}`;
+    if (offer.discountPercentage && !offer.appliedDeviceDiscountId) return `يجب اختيار الحسم من قائمة حسومات الجهاز في ${label}`;
     if (offer.offerType === 'installment') {
       if (!parsePositiveNumber(offer.firstPaymentAmount) || !parsePositiveInteger(offer.installmentMonths)) {
         return `يرجى استكمال بيانات التقسيط في ${label}`;
@@ -493,9 +550,6 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     if (selectedDevices.length === 0) { setError('يجب اختيار جهاز واحد على الأقل من قائمة الأجهزة'); return; }
     const validationError = validateOfferDraft(draftOffer, 'العرض الجديد');
     if (validationError) { setError(validationError); return; }
-    if (preOffers.some((item) => item.deviceModelId === draftOffer.deviceModelId)) {
-      setError('هذا الجهاز مستخدم في عرض آخر'); return;
-    }
     setPreOffers((current) => [...current, { ...draftOffer }]);
     setDraftOffer(createPreOfferDraft());
     setError('');
@@ -513,7 +567,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
   const handleSubmit = async () => {
     setError('');
     if (selectedDevices.length === 0) { setError('يجب اختيار جهاز واحد على الأقل'); return; }
-    if (!dueDate) { setError('تاريخ مستحق مطلوب'); return; }
+    if (!dueDate) { setError('التاريخ المطلوب إلزامي'); return; }
     if (!reason) { setError('سبب إنشاء المهمة مطلوب'); return; }
 
     for (const [index, offer] of preOffers.entries()) {
@@ -533,11 +587,12 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
       appliedDeviceDiscountId: offer.appliedDeviceDiscountId ? Number(offer.appliedDeviceDiscountId) : null,
       closedByEmployeeId: offer.closedByEmployeeId ? Number(offer.closedByEmployeeId) : null,
       noClosingReason: offer.noClosingReason.trim() || null,
+      sourceCustomerPreOfferId: offer.sourceCustomerPreOfferId ?? null,
     }));
 
     setSaving(true);
     try {
-      await api.openTasks.create({
+      const created = await api.openTasks.create({
         clientId: client.id,
         branchId: client.branchId,
         dueDate,
@@ -547,7 +602,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
         devices: selectedDevices.map(d => ({ deviceModelId: d.deviceModelId, quantity: d.quantity })),
         preOffers: normalizedOffers,
       });
-      onCreated();
+      onCreated(created);
     } catch (err: any) {
       setError(err.message || 'فشل في إنشاء المهمة');
     } finally {
@@ -556,7 +611,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
   };
 
   // Devices available for pre-offer dropdown: only from selectedDevices, not yet used
-  const availableOfferDevices = selectedDevices.filter(d => !usedOfferDeviceIds.has(String(d.deviceModelId)));
+  const availableOfferDevices = selectedDevices;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
@@ -717,7 +772,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                     </div>
 
                     {/* Discount — dropdown if discounts exist, else manual */}
-                    {deviceDiscounts.length > 0 ? (
+                    {draftOffer.deviceModelId ? (
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-slate-700">حسم الجهاز</label>
                         <select value={draftOffer.appliedDeviceDiscountId}
@@ -733,20 +788,16 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                             <option key={d.id} value={String(d.id)}>{d.label} ({d.percentage}%)</option>
                           ))}
                         </select>
+                        {deviceDiscounts.length === 0 && (
+                          <p className="text-xs text-slate-400">لا توجد حسومات فعالة لهذا الجهاز.</p>
+                        )}
                         {draftOffer.appliedDeviceDiscountId && deviceDiscounts.find(d => String(d.id) === draftOffer.appliedDeviceDiscountId) && (
                           <p className="text-xs text-slate-400">
                             صالح حتى {new Date(deviceDiscounts.find(d => String(d.id) === draftOffer.appliedDeviceDiscountId)!.endDate).toLocaleDateString('ar-SY')}
                           </p>
                         )}
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-slate-700">الحسم %</label>
-                        <input type="number" min="0" max="100" step="0.01" value={draftOffer.discountPercentage}
-                          onChange={e => { updateDraftOffer('discountPercentage', e.target.value); updateDraftOffer('appliedDeviceDiscountId', ''); }}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" placeholder="0" />
-                      </div>
-                    )}
+                    ) : null}
 
                     {/* Closing employee */}
                     <div className="space-y-2">

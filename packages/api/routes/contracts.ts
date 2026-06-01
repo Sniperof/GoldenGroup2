@@ -1394,17 +1394,18 @@ async function createDeliveryTaskForContract(db: any, contract: any) {
   const dueDate = contract.deliveryDate
     || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const { rows: devIdRows } = await db.query(
-    'SELECT id FROM installed_devices WHERE contract_id = $1 LIMIT 1',
+    'SELECT id, branch_id AS "branchId" FROM installed_devices WHERE contract_id = $1 LIMIT 1',
     [contract.id],
   );
   const deliveryDeviceId = devIdRows[0]?.id ?? null;
+  const deliveryBranchId = devIdRows[0]?.branchId ?? contract.branchId;
   await db.query(
     `INSERT INTO open_tasks (
        client_id, branch_id, task_type, task_family, reason, status, due_date,
        source, origin, contract_id, device_id
      ) VALUES ($1, $2, 'device_delivery', 'delivery', 'service_request', 'open', $3,
                'system', 'manual_entry', $4, $5)`,
-    [contract.customerId, contract.branchId, dueDate, contract.id, deliveryDeviceId],
+    [contract.customerId, deliveryBranchId, dueDate, contract.id, deliveryDeviceId],
   );
 }
 

@@ -327,7 +327,7 @@ export default function Clients() {
         clientColumns[2],
         {
             key: 'branchName',
-            label: 'الفرع',
+            label: 'فرع التسجيل',
             sortable: true,
             render: (c) => (
                 <span className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700">

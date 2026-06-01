@@ -57,6 +57,7 @@ interface DeviceOffer {
   extensionReasonId: number | null;
   extensionDueDate: string | null;
   saleReferenceNumber: string | null;
+  sourceCustomerPreOfferId?: number | null;
 }
 
 interface DeviceOfferGroup {
@@ -113,6 +114,7 @@ interface PreOfferLike {
   discountPercentage?: number | null;
   closedByEmployeeId?: number | null;
   noClosingReason?: string | null;
+  sourceCustomerPreOfferId?: number | null;
 }
 
 const OUTCOME_OPTIONS: Array<{
@@ -374,6 +376,7 @@ export default function MarketingVisitOutcomeModal({
           extensionReasonId: offer.extensionReasonId ?? null,
           extensionDueDate: offer.extensionDueDate ?? null,
           saleReferenceNumber: offer.saleReferenceNumber ?? null,
+          sourceCustomerPreOfferId: offer.sourceCustomerPreOfferId ?? null,
         });
 
         if (!existingGroup) {
@@ -444,6 +447,7 @@ export default function MarketingVisitOutcomeModal({
           extensionReasonId: null,
           extensionDueDate: null,
           saleReferenceNumber: null,
+          sourceCustomerPreOfferId: offer.sourceCustomerPreOfferId ?? null,
         });
 
         if (!existingGroup) {
@@ -834,7 +838,7 @@ export default function MarketingVisitOutcomeModal({
     }
 
     if (wizardState.overallOutcome === 'needs_reschedule' && !followUpDueDate) {
-      setValidationError('يرجى تحديد تاريخ الاستحقاق');
+      setValidationError('يرجى تحديد التاريخ المتوقع');
       return;
     }
 
@@ -898,6 +902,7 @@ export default function MarketingVisitOutcomeModal({
           extensionReasonId: offer.extensionReasonId,
           extensionDueDate: offer.extensionDueDate,
           saleReferenceNumber: offer.saleReferenceNumber,
+          sourceCustomerPreOfferId: offer.sourceCustomerPreOfferId ?? null,
         })),
       ),
       offerType: null,
@@ -943,6 +948,7 @@ export default function MarketingVisitOutcomeModal({
           extensionReasonId: null,
           extensionDueDate: null,
           saleReferenceNumber: offer.saleReferenceNumber,
+          sourceCustomerPreOfferId: offer.sourceCustomerPreOfferId ?? null,
         })),
       ),
       offerType: null, cashOfferAmount: null, installmentAmount: null,
@@ -1102,7 +1108,7 @@ export default function MarketingVisitOutcomeModal({
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">
-                    تاريخ الاستحقاق <span className="text-red-500">*</span>
+                    التاريخ المتوقع <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -1413,7 +1419,7 @@ export default function MarketingVisitOutcomeModal({
                           </div>
                           <div className="space-y-2">
                             <label className="text-sm font-bold text-slate-700">
-                              تاريخ الاستحقاق <span className="text-red-500">*</span>
+                              التاريخ المتوقع <span className="text-red-500">*</span>
                             </label>
                             <input
                               type="date"

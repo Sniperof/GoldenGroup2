@@ -590,11 +590,41 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   }
 
   const { rows: taskTypeRows } = await pool.query(
-    'SELECT task_type FROM task_type_config WHERE task_type = $1 LIMIT 1',
+    `SELECT
+       task_type,
+       allow_multiple AS "allowMultiple",
+       is_active AS "isActive"
+     FROM task_type_config
+     WHERE task_type = $1
+     LIMIT 1`,
     [taskType],
   );
   if (taskTypeRows.length === 0) {
     return res.status(400).json({ error: `نوع المهمة "${taskType}" غير مدعوم — يجب أن يكون من أنواع المهام المعتمدة في النظام` });
+  }
+
+  const taskTypeConfig = taskTypeRows[0];
+  if (!taskTypeConfig.isActive) {
+    return res.status(400).json({ error: `نوع المهمة "${taskType}" غير مفعل حاليا` });
+  }
+  if (!taskTypeConfig.allowMultiple) {
+    const { rows: activeDuplicateRows } = await pool.query(
+      `SELECT id, status
+       FROM open_tasks
+       WHERE client_id = $1
+         AND task_type = $2
+         AND status NOT IN ('completed', 'closed', 'cancelled')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [clientId, taskType],
+    );
+    if (activeDuplicateRows.length > 0) {
+      return res.status(409).json({
+        error: 'لا يمكن إنشاء مهمة ثانية من نفس النوع لهذا الزبون قبل إغلاق المهمة النشطة',
+        existingTaskId: activeDuplicateRows[0].id,
+        existingTaskStatus: activeDuplicateRows[0].status,
+      });
+    }
   }
 
   let deviceIdFromContract: number | null = null;
@@ -699,8 +729,9 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
           `INSERT INTO open_task_pre_offers (
              open_task_id, device_model_id, offer_type, quantity, total_amount,
              first_payment_amount, installment_months, currency,
-             discount_percentage, applied_device_discount_id, closed_by_employee_id, no_closing_reason
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+             discount_percentage, applied_device_discount_id, closed_by_employee_id, no_closing_reason,
+             source_customer_pre_offer_id
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
           [
             openTaskId,
             offer.deviceModelId,
@@ -714,6 +745,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
             offer.appliedDeviceDiscountId ?? null,
             offer.closedByEmployeeId ?? null,
             offer.noClosingReason ?? null,
+            offer.sourceCustomerPreOfferId ?? null,
           ],
         );
       }
@@ -724,6 +756,9 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     return res.json({ id: openTaskId, success: true });
   } catch (err: any) {
     await pgClient.query('ROLLBACK');
+    if (err?.code === '23505' && String(err?.constraint ?? '').includes('idx_open_tasks_unique_active')) {
+      return res.status(409).json({ error: 'لا يمكن إنشاء مهمة ثانية من نفس النوع لهذا الزبون قبل إغلاق المهمة النشطة' });
+    }
     return res.status(500).json({ error: err.message });
   } finally {
     pgClient.release();
@@ -1399,7 +1434,8 @@ router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
         otpo.discount_percentage::float AS "discountPercentage",
         otpo.applied_device_discount_id AS "appliedDeviceDiscountId",
         otpo.closed_by_employee_id AS "closedByEmployeeId",
-        otpo.no_closing_reason AS "noClosingReason"
+        otpo.no_closing_reason AS "noClosingReason",
+        otpo.source_customer_pre_offer_id AS "sourceCustomerPreOfferId"
       FROM open_task_pre_offers otpo
       LEFT JOIN device_models dm ON dm.id = otpo.device_model_id
       WHERE otpo.open_task_id = $1
@@ -1485,7 +1521,7 @@ router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
 
     if (req.body.dueDate !== undefined && req.body.dueDate !== null) {
       if (!/^\d{4}-\d{2}-\d{2}/.test(String(req.body.dueDate)) || isNaN(Date.parse(req.body.dueDate))) {
-        return res.status(400).json({ error: 'تاريخ الاستحقاق غير صالح' });
+        return res.status(400).json({ error: 'التاريخ المطلوب غير صالح' });
       }
     }
 

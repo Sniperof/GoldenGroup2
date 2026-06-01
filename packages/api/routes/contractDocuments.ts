@@ -23,18 +23,76 @@ import type { PoolClient } from 'pg';
 const router = Router();
 router.use(requireAuth);
 
+function parseJsonArray<T = any>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed as T[] : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+async function loadGeoPath(db: PoolClient | typeof pool, geoUnitId: number | null | undefined) {
+  if (!geoUnitId) return [] as string[];
+  const { rows } = await db.query(
+    `WITH RECURSIVE geo_path AS (
+       SELECT id, name, parent_id, 1 AS depth FROM geo_units WHERE id = $1
+       UNION ALL
+       SELECT g.id, g.name, g.parent_id, gp.depth + 1
+       FROM geo_units g
+       JOIN geo_path gp ON g.id = gp.parent_id
+     )
+     SELECT name FROM geo_path ORDER BY depth DESC`,
+    [geoUnitId],
+  );
+  return rows.map((r: any) => String(r.name));
+}
+
 // Fetch the contract bundle needed by the renderer (header + installments).
 async function loadContractForRender(db: PoolClient | typeof pool, contractId: number) {
   const c = await db.query(
     `SELECT c.id, c.contract_number AS "contractNumber", c.contract_date AS "contractDate",
+            c.customer_id AS "customerId",
             c.customer_name AS "customerName", c.buyer_mother_name AS "buyerMotherName",
+            c.buyer_national_id_registry AS "buyerNationalIdRegistry",
+            c.buyer_national_id_issued_by AS "buyerNationalIdIssuedBy",
+            c.buyer_national_id_issue_date AS "buyerNationalIdIssueDate",
+            c.buyer_national_id_box AS "buyerNationalIdBox",
+            c.buyer_birth_date AS "buyerBirthDate",
+            c.buyer_gender AS "buyerGender",
             c.sale_subtype AS "saleSubtype", c.contract_type AS "contractType",
             c.base_price AS "basePrice", c.final_price AS "finalPrice",
+            c.down_payment AS "downPayment", c.installments_count AS "installmentsCount",
             c.payment_type AS "paymentType", c.status,
+            c.sale_type AS "saleType", c.sale_source AS "saleSource",
+            c.invoice_notes AS "invoiceNotes",
+            c.discount_id AS "discountId",
+            c.applied_device_discount_id AS "appliedDeviceDiscountId",
+            c.branch_id AS "branchId",
+            c.sale_owner_id AS "saleOwnerId",
+            c.offer_team_snapshot AS "offerTeamSnapshot",
+            c.contract_referrers AS "contractReferrers",
+            c.no_closing_reason_id AS "noClosingReasonId",
             d.device_model_name AS "deviceModelName", d.serial_number AS "serialNumber",
+            d.status AS "deviceStatus", d.delivery_date AS "deliveryDate",
+            d.installation_date AS "installationDate",
+            d.installation_geo_unit_id AS "installationGeoUnitId",
             d.installation_address_text AS "installationAddressText",
+            d.contract_warranty_end_date AS "contractWarrantyEndDate",
+            d.warranty_months AS "warrantyMonths",
             d.warranty_visits AS "warrantyVisits",
-            (SELECT name FROM hr_users WHERE id = c.closing_employee_id LIMIT 1) AS "closingEmployeeName"
+            (SELECT name FROM hr_users WHERE id = c.closing_employee_id LIMIT 1) AS "closingEmployeeName",
+            (SELECT COALESCE(r.display_name, e.job_title, hu.role)
+               FROM hr_users hu
+               LEFT JOIN roles r ON r.id = hu.role_id
+               LEFT JOIN employees e ON e.id = hu.employee_id
+              WHERE hu.id = c.closing_employee_id
+              LIMIT 1) AS "closingEmployeeTitle",
+            (SELECT name FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchName"
        FROM contracts c
        LEFT JOIN installed_devices d ON d.contract_id = c.id
       WHERE c.id = $1`,
@@ -42,13 +100,88 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
   );
   if (!c.rows[0]) return null;
 
-  const insts = await db.query(
-    `SELECT installment_number AS "installmentNumber", due_date AS "dueDate", amount_syp AS "amountSyp"
-       FROM contract_installments WHERE contract_id = $1 ORDER BY installment_number`,
-    [contractId],
-  );
+  const contract = c.rows[0];
+  const clientResult = contract.customerId
+    ? await db.query(
+      `SELECT id, name, mobile, contacts,
+              governorate, district, neighborhood,
+              detailed_address AS "detailedAddress",
+              national_id AS "nationalId",
+              birth_date AS "birthDate",
+              mother_name AS "motherName",
+              national_id_registry AS "nationalIdRegistry",
+              national_id_issued_by AS "nationalIdIssuedBy",
+              national_id_issue_date AS "nationalIdIssueDate",
+              national_id_box AS "nationalIdBox"
+         FROM clients
+        WHERE id = $1`,
+      [contract.customerId],
+    )
+    : { rows: [] as any[] };
 
-  return { contract: c.rows[0], installments: insts.rows };
+  const [installationGeoPath, clientGeoPath, lineItemsResult, paymentEntriesResult, installmentsResult, discountResult] = await Promise.all([
+    loadGeoPath(db, contract.installationGeoUnitId),
+    loadGeoPath(db, clientResult.rows[0]?.neighborhood),
+    db.query(
+      `SELECT id, item_type AS "itemType", spare_part_id AS "sparePartId",
+              description, quantity, unit_price AS "unitPrice", total_price AS "totalPrice",
+              is_installed AS "isInstalled"
+         FROM contract_line_items
+        WHERE contract_id = $1
+        ORDER BY id`,
+      [contractId],
+    ),
+    db.query(
+      `SELECT id, method, currency, amount_value AS "amountValue", exchange_rate AS "exchangeRate",
+              amount_syp AS "amountSyp", reference_number AS "referenceNumber",
+              barter_name AS "barterName", barter_value_syp AS "barterValueSyp",
+              received_by_employee_id AS "receivedByEmployeeId", received_at AS "receivedAt",
+              notes, entry_type AS "entryType", installment_id AS "installmentId"
+         FROM contract_payment_entries
+        WHERE contract_id = $1
+        ORDER BY id`,
+      [contractId],
+    ),
+    db.query(
+      `SELECT id, installment_number AS "installmentNumber", due_date AS "dueDate",
+              amount_syp AS "amountSyp", status, paid_amount AS "paidAmount",
+              remaining_balance AS "remainingBalance", confirmed,
+              collection_owner_id AS "collectionOwnerId"
+         FROM contract_installments
+        WHERE contract_id = $1
+        ORDER BY installment_number`,
+      [contractId],
+    ),
+    contract.discountId
+      ? db.query(`SELECT id, label, percentage FROM device_discounts WHERE id = $1`, [contract.discountId])
+      : Promise.resolve({ rows: [] as any[] }),
+  ]);
+
+  const client = clientResult.rows[0]
+    ? {
+      ...clientResult.rows[0],
+      contacts: parseJsonArray(clientResult.rows[0].contacts),
+      geoPath: clientGeoPath,
+    }
+    : null;
+
+  const installments = installmentsResult.rows;
+  const remainingBalance = installments.reduce((sum: number, inst: any) => sum + Number(inst.remainingBalance || 0), 0);
+
+  return {
+    contract: {
+      ...contract,
+      offerTeamSnapshot: contract.offerTeamSnapshot ?? null,
+      contractReferrers: parseJsonArray(contract.contractReferrers),
+      installationGeoPath,
+      remainingBalance,
+    },
+    client,
+    lineItems: lineItemsResult.rows,
+    paymentEntries: paymentEntriesResult.rows,
+    installments,
+    discount: discountResult.rows[0] ?? null,
+  };
 }
 
 /**
@@ -85,6 +218,10 @@ export async function freezeContractDocument(
 
   const { templateVersion, html, contentHash } = renderContract({
     contract:     bundle.contract,
+    client:       bundle.client,
+    lineItems:    bundle.lineItems,
+    paymentEntries: bundle.paymentEntries,
+    discount:     bundle.discount,
     installments: bundle.installments,
     draftWatermark: false, // by definition we only freeze active/completed/cancelled
   });
@@ -118,6 +255,10 @@ router.get(
       try {
         const { html } = renderContract({
           contract:     bundle.contract,
+          client:       bundle.client,
+          lineItems:    bundle.lineItems,
+          paymentEntries: bundle.paymentEntries,
+          discount:     bundle.discount,
           installments: bundle.installments,
           draftWatermark: true,
         });

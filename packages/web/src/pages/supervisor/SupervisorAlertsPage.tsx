@@ -100,7 +100,7 @@ export default function SupervisorAlertsPage() {
               {escalations.map((item) => (
                 <Link
                   key={item.visitId}
-                  to={`/visits/${item.visitId}`}
+                  to={`/field-visits/${item.visitId}`}
                   className="block rounded-md bg-white border border-orange-200 p-2 hover:bg-orange-50/60"
                 >
                   <div className="flex items-center justify-between gap-2">

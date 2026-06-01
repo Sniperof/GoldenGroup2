@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -35,12 +36,28 @@ const selectFields = `
 
 // GET /api/installed-devices?customerId=X&branchId=Y
 router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
+  const authContext = req.authContext!;
   const { customerId, branchId, status } = req.query;
   const conditions: string[] = [];
   const params: any[] = [];
 
   if (customerId) { params.push(Number(customerId)); conditions.push(`d.customer_id = $${params.length}`); }
-  if (branchId)   { params.push(Number(branchId));   conditions.push(`d.branch_id = $${params.length}`); }
+  if (branchId) {
+    const requestedBranchId = Number(branchId);
+    if (!Number.isInteger(requestedBranchId) || requestedBranchId <= 0) {
+      return res.status(400).json({ error: 'معرف الفرع غير صالح' });
+    }
+    const access = authorize(authContext, { permission: 'contracts.view_list', branchId: requestedBranchId });
+    if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
+    params.push(requestedBranchId);
+    conditions.push(`d.branch_id = $${params.length}`);
+  } else if (!authContext.isSuperAdmin) {
+    if (authContext.allowedBranchIds.length === 0) {
+      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
+    }
+    params.push(authContext.allowedBranchIds);
+    conditions.push(`d.branch_id = ANY($${params.length}::int[])`);
+  }
   if (status)     { params.push(String(status));      conditions.push(`d.status = $${params.length}`); }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -59,6 +76,7 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
 
 // GET /api/installed-devices/:id
 router.get('/:id', requirePermission('contracts.view_list'), async (req, res) => {
+  const authContext = req.authContext!;
   const { rows } = await pool.query(
     `SELECT ${selectFields}
      FROM installed_devices d
@@ -68,13 +86,37 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
     [req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
+  const access = authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId });
+  if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
   res.json(rows[0]);
 });
 
 // PATCH /api/installed-devices/:id  — update physical device fields only
 router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
+  const authContext = req.authContext!;
+  const { rows: existingRows } = await pool.query(
+    'SELECT branch_id AS "branchId" FROM installed_devices WHERE id = $1',
+    [req.params.id],
+  );
+  if (!existingRows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
+  const currentAccess = authorize(authContext, { permission: 'contracts.edit', branchId: existingRows[0].branchId });
+  if (!currentAccess.allowed) return res.status(403).json({ error: 'غير مسموح' });
+
+  const requestedTargetBranchId = req.body.branchId ?? req.body.branch_id;
+  if (requestedTargetBranchId !== undefined && requestedTargetBranchId !== null && requestedTargetBranchId !== '') {
+    const targetBranchId = Number(requestedTargetBranchId);
+    if (!Number.isInteger(targetBranchId) || targetBranchId <= 0) {
+      return res.status(400).json({ error: 'معرف الفرع المستهدف غير صالح' });
+    }
+    const targetAccess = authorize(authContext, { permission: 'contracts.edit', branchId: targetBranchId });
+    if (!targetAccess.allowed) return res.status(403).json({ error: 'لا يمكنك نقل الجهاز إلى فرع غير مسموح به' });
+    const { rows: branchRows } = await pool.query('SELECT status FROM branches WHERE id = $1', [targetBranchId]);
+    if (!branchRows[0]) return res.status(400).json({ error: 'الفرع المستهدف غير موجود' });
+    if (branchRows[0].status === 'inactive') return res.status(400).json({ error: 'لا يمكن نقل الجهاز إلى فرع موقوف' });
+  }
+
   const allowed = [
-    'serial_number', 'status',
+    'branch_id', 'serial_number', 'status',
     'installation_geo_unit_id', 'installation_address_text', 'installation_lat', 'installation_lng',
     'delivery_date', 'installation_date',
     'is_golden_warranty', 'golden_warranty_end_date',
@@ -84,6 +126,8 @@ router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const params: any[] = [];
 
   const fieldMap: Record<string, string> = {
+    branchId: 'branch_id',
+    branch_id: 'branch_id',
     serialNumber: 'serial_number',
     status: 'status',
     installationGeoUnitId: 'installation_geo_unit_id',

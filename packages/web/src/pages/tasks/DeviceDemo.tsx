@@ -298,7 +298,7 @@ export default function DeviceDemo() {
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">المرحلة</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">الحالة</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">الأولوية</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">تاريخ الاستحقاق</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600">التاريخ المطلوب</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">التاريخ المتوقع</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">تاريخ الزيارة</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">حالة الزيارة</th>
