@@ -1,3 +1,0 @@
-ALTER TABLE contracts
-  ADD COLUMN IF NOT EXISTS buyer_birth_date DATE,
-  ADD COLUMN IF NOT EXISTS buyer_gender VARCHAR(10);

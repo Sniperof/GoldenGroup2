@@ -1,2 +1,0 @@
-ALTER TABLE device_models
-  ADD COLUMN IF NOT EXISTS code VARCHAR(255);
