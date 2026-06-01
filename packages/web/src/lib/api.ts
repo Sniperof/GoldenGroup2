@@ -320,6 +320,25 @@ export const api = {
       `/open-tasks/${id}/schedule-from-expected`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+    /** DEC-006 D37: open tasks whose attempt_count crossed system_settings.attempt_alert_threshold. */
+    attemptAlerts: () => request<{
+      threshold: number;
+      count: number;
+      items: Array<{
+        openTaskId: number;
+        clientId: number;
+        clientName: string;
+        clientMobile: string | null;
+        taskType: string;
+        taskFamily: string;
+        status: string;
+        attemptCount: number;
+        lastAttemptAt: string | null;
+        creationOrigin: string | null;
+        assignedTeamKey: string | null;
+        assignedForDate: string | null;
+      }>;
+    }>('/open-tasks/attempt-alerts'),
     getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
     submitEmergencyResult: (id: number, data: any) =>
       request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),

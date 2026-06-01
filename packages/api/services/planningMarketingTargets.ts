@@ -242,6 +242,13 @@ function buildOpenTaskEligibilityPredicate(
     ? `${otAlias}.status = 'assigned'`
     : `${otAlias}.status IN ('open', 'needs_follow_up')`;
 
+  // DEC-006 D36: needs_follow_up tasks use a FIXED 1-day pre-window (the customer
+  // committed to expected_date and we schedule the visit one day before). The
+  // task_type_config.planning_window_days applies only to status='open' tasks,
+  // where the window is exploratory for the telemarketer.
+  // Implementation: clamp the window-days to '1 day' when status='needs_follow_up'.
+  // This produces the constitutional "1 day before expected_date" behavior without
+  // adding a new column.
   return `
     ${statusClause}
     AND ${ttcAlias}.is_active = TRUE
@@ -251,14 +258,24 @@ function buildOpenTaskEligibilityPredicate(
         ${ttcAlias}.window_basis = 'due_date'
         AND (
           ${otAlias}.due_date IS NULL
-          OR ${otAlias}.due_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days || ' days')::INTERVAL
+          OR ${otAlias}.due_date <= CURRENT_DATE + (
+            CASE
+              WHEN ${otAlias}.status = 'needs_follow_up' THEN '1'
+              ELSE ${ttcAlias}.planning_window_days::text
+            END || ' days'
+          )::INTERVAL
         )
       )
       OR (
         ${ttcAlias}.window_basis = 'expected_date'
         AND (
           ${otAlias}.expected_date IS NULL
-          OR ${otAlias}.expected_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days || ' days')::INTERVAL
+          OR ${otAlias}.expected_date <= CURRENT_DATE + (
+            CASE
+              WHEN ${otAlias}.status = 'needs_follow_up' THEN '1'
+              ELSE ${ttcAlias}.planning_window_days::text
+            END || ' days'
+          )::INTERVAL
         )
       )
     )
@@ -855,7 +872,9 @@ export async function getPlanningWorkScope(params: {
   // Build a set of client IDs reachable by this team:
   //   1) client is company-owned in zone
   //   2) client is personally assigned to a team actor
-  const queryParams: any[] = [branchId, companyOwnedIds, actorHrUserIds, date];
+  // DEC-006 D31: solo teams (EmergencySlot) only carry emergency_maintenance.
+  const isSoloTeam = keyMatch[1] === 'solo';
+  const queryParams: any[] = [branchId, companyOwnedIds, actorHrUserIds, date, isSoloTeam];
 
   const { rows: taskRows } = await pool.query(
     `SELECT
@@ -907,6 +926,8 @@ export async function getPlanningWorkScope(params: {
       AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
       AND (c.is_active IS NULL OR c.is_active = TRUE)
        AND c.deleted_at IS NULL
+       -- DEC-006 D31: EmergencySlot capability is exclusively emergency_maintenance
+       AND ($5::boolean = FALSE OR ot.task_type = 'emergency_maintenance')
        AND (
          (cardinality($2::int[]) > 0 AND ot.client_id = ANY($2::int[]))
          OR (cardinality($3::int[]) > 0 AND EXISTS (
