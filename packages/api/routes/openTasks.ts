@@ -43,16 +43,42 @@ const OPEN_TASK_SELECT = `
     ot.contract_snapshot AS "contractSnapshot",
     ot.team_snapshot AS "teamSnapshot",
     c.name AS "clientName",
+    c.first_name AS "clientFirstName",
+    c.father_name AS "clientFatherName",
+    c.last_name AS "clientLastName",
+    c.nickname AS "clientNickname",
     c.mobile AS "clientMobile",
+    c.contacts AS "clientContacts",
     c.neighborhood AS "clientNeighborhood",
     c.governorate AS "clientGovernorate",
     c.district AS "clientDistrict",
+    c.detailed_address AS "clientDetailedAddress",
+    c.gps_coordinates AS "clientGps",
+    c.occupation AS "clientOccupation",
+    c.spouse_occupation AS "clientSpouseOccupation",
+    c.water_source AS "clientWaterSource",
+    c.rating AS "clientRating",
+    c.referrers AS "clientReferrers",
+    c.referrer_type AS "clientReferrerType",
+    c.referrer_id AS "clientReferrerId",
+    c.referrer_name AS "clientReferrerName",
+    c.referral_notes AS "clientReferralNotes",
+    c.notes AS "clientNotes",
+    c.source_channel AS "clientSourceChannel",
+    -- Level 2 §أ — lifecycle classification: LEAD / FOP / OP (computed live).
+    CASE
+      WHEN EXISTS (SELECT 1 FROM contracts ct WHERE ct.customer_id = c.id) THEN 'OP'
+      WHEN EXISTS (SELECT 1 FROM field_visits fv WHERE fv.client_id = c.id) THEN 'FOP'
+      ELSE 'LEAD'
+    END AS "clientClassification",
     b.name AS "branchName",
     creator.name AS "createdByName",
     latest_visit.id AS "marketingVisitId",
     latest_visit.status AS "visitStatus",
     latest_visit.scheduled_date AS "scheduledDate",
     latest_visit.scheduled_time AS "scheduledTime",
+    latest_visit.visit_task_id AS "latestVisitTaskId",
+    latest_visit.latest_final_decision AS "latestFinalDecision",
     COALESCE(
       (SELECT json_agg(json_build_object(
          'userId', u2.id,
@@ -76,9 +102,12 @@ const OPEN_TASK_SELECT = `
       fv.id,
       fv.status,
       fv.scheduled_date,
-      fv.scheduled_time
+      fv.scheduled_time,
+      vt.id AS visit_task_id,
+      vtr.final_decision AS latest_final_decision
     FROM visit_tasks vt
     JOIN field_visits fv ON fv.id = vt.field_visit_id
+    LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
     WHERE vt.source_open_task_id = ot.id
       AND vt.task_type = 'device_demo'
     ORDER BY vt.updated_at DESC
@@ -129,6 +158,10 @@ function mapOpenTaskRow(row: any) {
     lastAttemptAt: row.last_attempt_at ?? null,
     priority: row.priority,
     source: row.source,
+    creationOrigin: row.creation_origin ?? null,
+    assignedBy: row.assigned_by ?? null,
+    assignedVia: row.assigned_via ?? null,
+    expectedTime: row.expected_time ?? null,
     marketingVisitTaskId: row.marketing_visit_task_id,
     contactTargetId: row.contact_target_id,
     notes: row.notes,
@@ -140,10 +173,29 @@ function mapOpenTaskRow(row: any) {
     contractSnapshot: row.contractSnapshot ?? null,
     teamSnapshot: row.teamSnapshot ?? null,
     clientName: row.clientName ?? null,
+    clientFirstName: row.clientFirstName ?? null,
+    clientFatherName: row.clientFatherName ?? null,
+    clientLastName: row.clientLastName ?? null,
+    clientNickname: row.clientNickname ?? null,
     clientMobile: row.clientMobile ?? null,
+    clientContacts: row.clientContacts ?? [],
     clientNeighborhood: row.clientNeighborhood ?? null,
     clientGovernorate: row.clientGovernorate ?? null,
     clientDistrict: row.clientDistrict ?? null,
+    clientDetailedAddress: row.clientDetailedAddress ?? null,
+    clientGps: row.clientGps ?? null,
+    clientOccupation: row.clientOccupation ?? null,
+    clientSpouseOccupation: row.clientSpouseOccupation ?? null,
+    clientWaterSource: row.clientWaterSource ?? null,
+    clientRating: row.clientRating ?? null,
+    clientReferrers: row.clientReferrers ?? [],
+    clientReferrerType: row.clientReferrerType ?? null,
+    clientReferrerId: row.clientReferrerId ?? null,
+    clientReferrerName: row.clientReferrerName ?? null,
+    clientReferralNotes: row.clientReferralNotes ?? null,
+    clientNotes: row.clientNotes ?? null,
+    clientSourceChannel: row.clientSourceChannel ?? null,
+    clientClassification: row.clientClassification ?? null,
     taskBranchName: row.taskBranchName ?? null,
     clientBranchName: row.clientBranchName ?? null,
     createdByName: row.createdByName ?? null,
@@ -151,6 +203,8 @@ function mapOpenTaskRow(row: any) {
     visitStatus: row.visitStatus ?? null,
     scheduledDate: row.scheduledDate ?? null,
     scheduledTime: row.scheduledTime ?? null,
+    latestVisitTaskId: row.latestVisitTaskId ?? null,
+    latestFinalDecision: row.latestFinalDecision ?? null,
     assignments: row.assignments ?? [],
     ownership: mapCustomerOwnership(row),
   };
@@ -1080,6 +1134,12 @@ router.get('/device-demo', requirePermission('open_tasks.view'), async (req, res
         c.last_name AS "clientLastName",
         c.mobile AS "clientMobile",
         c.neighborhood AS "clientNeighborhood",
+        -- Lifecycle classification: LEAD (candidate or no activity) / FOP (has visits, no contract) / OP (has a contract).
+        CASE
+          WHEN EXISTS (SELECT 1 FROM contracts ct WHERE ct.customer_id = c.id) THEN 'OP'
+          WHEN EXISTS (SELECT 1 FROM field_visits fv WHERE fv.client_id = c.id) THEN 'FOP'
+          ELSE 'LEAD'
+        END AS "clientClassification",
         c.governorate AS "clientGovernorate",
         c.district AS "clientDistrict",
         c.detailed_address AS "clientDetailedAddress",
@@ -1099,6 +1159,7 @@ router.get('/device-demo', requirePermission('open_tasks.view'), async (req, res
         (mv.customer_snapshot->>'mobile') AS "customerMobile",
         (mv.customer_snapshot->>'address') AS "customerAddress",
         mvt.result AS "latestResult",
+        mvt.final_decision AS "latestFinalDecision",
         mvt.status AS "visitTaskStatus"
       FROM open_tasks ot
       JOIN clients c ON c.id = ot.client_id
@@ -1107,8 +1168,12 @@ router.get('/device-demo', requirePermission('open_tasks.view'), async (req, res
       LEFT JOIN hr_users creator ON creator.id = ot.created_by
       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
       LEFT JOIN LATERAL (
-        SELECT vt2.legacy_result AS result, vt2.status, vt2.field_visit_id
+        SELECT vt2.legacy_result AS result,
+               vtr2.final_decision,
+               vt2.status,
+               vt2.field_visit_id
         FROM visit_tasks vt2
+        LEFT JOIN visit_task_results vtr2 ON vtr2.visit_task_id = vt2.id
         WHERE vt2.source_open_task_id = ot.id
           AND vt2.task_type = 'device_demo'
         ORDER BY vt2.updated_at DESC

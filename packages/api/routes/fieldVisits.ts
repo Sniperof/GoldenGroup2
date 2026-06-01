@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
+import { applyDeviceDemoResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
 import {
   buildCustomerOwnershipSql,
   mapCustomerOwnership,
@@ -2124,6 +2125,56 @@ router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), asyn
   } catch (err: any) {
     console.error('[field-visits] POST /:id/reopen error:', err);
     res.status(500).json({ error: err?.message ?? 'فشل فتح الزيارة' });
+  }
+});
+
+// ============================================================================
+// POST /field-visits/:visitId/tasks/:taskId/result
+// ============================================================================
+// Unified task-result entrypoint. Routes by visit_tasks.task_type to the
+// matching reflection service (currently: device_demo). The service writes
+// visit_task_results + side table + per-offer rows + reflects onto open_task
+// and calls checkAndCompleteVisit at the end — all in one transaction.
+//
+// Reference: docs/constitution/features/tasks/device-demo.md
+router.post('/:visitId/tasks/:taskId/result', requirePermission('field_visits.edit'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const visitId = Number(req.params.visitId);
+    const taskId  = Number(req.params.taskId);
+    if (!Number.isInteger(visitId) || visitId <= 0) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    if (!Number.isInteger(taskId)  || taskId  <= 0) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+
+    // Verify the visit_task belongs to the requested visit and resolve task_type.
+    const { rows: vtRows } = await pool.query(
+      `SELECT vt.id, vt.task_type, vt.field_visit_id, fv.branch_id
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+        WHERE vt.id = $1 AND vt.field_visit_id = $2 LIMIT 1`,
+      [taskId, visitId],
+    );
+    if (vtRows.length === 0) return res.status(404).json({ error: 'المهمة غير موجودة ضمن هذه الزيارة' });
+    if (!authContext.isSuperAdmin && vtRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية على هذه الزيارة' });
+    }
+
+    const taskType = vtRows[0].task_type;
+    const body = req.body ?? {};
+
+    if (taskType === 'device_demo') {
+      const result = await applyDeviceDemoResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    return res.status(501).json({
+      error: `تسجيل نتيجة موحَّد غير مدعوم بعد لنوع المهمة "${taskType}"`,
+    });
+  } catch (err: any) {
+    if (err instanceof ResultValidationError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    console.error('[field-visits] POST /:visitId/tasks/:taskId/result error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل تسجيل النتيجة' });
   }
 });
 

@@ -3,6 +3,15 @@ import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared
 import { Card, InfoLine, formatDateTime } from '../shared';
 
 const PRIORITY_LABELS: Record<string, string> = { high: 'عالية', medium: 'متوسطة', low: 'منخفضة' };
+
+// Mirror of the DB CHECK on open_tasks.reason — 5 closed values.
+const REASON_LABELS: Record<string, string> = {
+  new_lead:        'زبون جديد',
+  follow_up:       'متابعة',
+  renewal:         'تجديد',
+  service_request: 'طلب خدمة',
+  other:           'أخرى',
+};
 const PRIORITY_COLORS: Record<string, string> = {
   high: 'bg-rose-50 text-rose-700 border-rose-200',
   medium: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -61,7 +70,7 @@ export default function TaskSummaryCard({ task, priorityDraft, prioritySaving, p
             {priorityError && <span className="text-[11px] text-rose-600">{priorityError}</span>}
           </div>
         </div>
-        <InfoLine label="السبب" value={task.reason || '—'} />
+        <InfoLine label="السبب" value={task.reason ? (REASON_LABELS[task.reason] ?? task.reason) : '—'} />
         {task.waitingReasonText && (
           <InfoLine
             label="سبب الانتظار"

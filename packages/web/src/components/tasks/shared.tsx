@@ -14,7 +14,7 @@ export function Card({ title, icon: Icon, children, className = '' }: { title: s
   );
 }
 
-export function InfoLine({ label, value }: { label: string; value: ReactNode }) {
+export function InfoLine({ label, value }: { label: ReactNode; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between py-1.5 gap-4">
       <span className="text-xs text-slate-400 font-bold shrink-0">{label}</span>
@@ -50,12 +50,17 @@ export function TabAlert({ title, items }: { title: string; items: string[] }) {
   );
 }
 
+// All formatters use the Latin numbering system per operator preference
+// (Western digits, e.g. 2026 not ٢٠٢٦) while keeping Arabic month names / locale.
+const LATN: Intl.DateTimeFormatOptions = { numberingSystem: 'latn' } as Intl.DateTimeFormatOptions;
+
 export function formatDateTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   try {
     return new Date(dateStr).toLocaleString('ar-SY', {
       day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
+      ...LATN,
     });
   } catch { return dateStr; }
 }
@@ -65,6 +70,7 @@ export function formatDate(dateStr: string | null | undefined): string {
   try {
     return new Date(dateStr).toLocaleDateString('ar-SY', {
       day: '2-digit', month: '2-digit', year: 'numeric',
+      ...LATN,
     });
   } catch { return dateStr; }
 }
@@ -72,6 +78,6 @@ export function formatDate(dateStr: string | null | undefined): string {
 export function formatMoney(value: any, currency: string | undefined) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
-  const formatted = n.toLocaleString('ar-SY');
+  const formatted = n.toLocaleString('ar-SY', { numberingSystem: 'latn' } as any);
   return currency ? `${formatted} ${currency}` : formatted;
 }

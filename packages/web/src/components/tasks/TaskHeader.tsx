@@ -6,6 +6,18 @@ import {
 } from '@golden-crm/shared';
 import { formatDateTime } from './shared';
 
+// Mirror of DB CHECK on open_tasks.task_family — 8 families.
+const TASK_FAMILY_LABELS: Record<string, string> = {
+  marketing:   'تسويق',
+  sales:       'مبيعات',
+  delivery:    'تسليم',
+  maintenance: 'صيانة',
+  emergency:   'طوارئ',
+  collection:  'تحصيل',
+  service:     'خدمة',
+  warranty:    'كفالة',
+};
+
 const TASK_STATUS_COLORS: Record<string, string> = {
   open: 'bg-sky-50 text-sky-700 border-sky-200',
   needs_follow_up: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -63,7 +75,7 @@ export default function TaskHeader({ task, typeIcon: TypeIcon, typeIconColor = '
             </span>
             {task.taskFamily && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                {task.taskFamily}
+                {TASK_FAMILY_LABELS[task.taskFamily] ?? task.taskFamily}
               </span>
             )}
             {task.originRefId && (

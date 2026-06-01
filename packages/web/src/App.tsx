@@ -54,6 +54,7 @@ import TaskTypes from './pages/admin/TaskTypes';
 import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
 import VisitsListPage from './pages/visits/VisitsListPage';
 import VisitDetailPage from './pages/visits/VisitDetailPage';
+import TaskGroupPage from './pages/tasks/TaskGroupPage';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -96,6 +97,8 @@ export default function App() {
                         <Route path="/tasks/open" element={<OpenTasks />} />
                         <Route path="/tasks/device-demo" element={<DeviceDemo />} />
                         <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
+                        {/* Unified task groups (2026-06-01) — single page, 6 display_groups */}
+                        <Route path="/tasks/group/:group" element={<TaskGroupPage />} />
                         <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
                         <Route path="/field-visits" element={<VisitsListPage />} />
                         <Route path="/field-visits/:id" element={<VisitDetailPage />} />
