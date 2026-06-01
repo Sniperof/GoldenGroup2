@@ -1259,6 +1259,62 @@ router.post('/:id/assign-team', requirePermission('open_tasks.edit'), async (req
  *       500:
  *         description: Internal Server Error
  */
+
+// ============================================================================
+// GET /open-tasks/attempt-alerts — DEC-006 D37
+// ============================================================================
+// MUST be declared BEFORE /:id so Express does not match "attempt-alerts"
+// as a numeric id parameter (which previously caused HTTP 400).
+//
+// Returns open tasks whose attempt_count has crossed the configurable threshold
+// stored in system_settings.attempt_alert_threshold (default 5). The alert is
+// informational only — DEC-006 D37 explicitly says NO forced close.
+router.get('/attempt-alerts', requirePermission('open_tasks.view'), async (req, res) => {
+  try {
+    const branchId = Number((req as any).authContext?.actingBranchId ?? 0) || null;
+    const { getSystemSettingNumber } = await import('../services/systemSettings.js');
+    const threshold = await getSystemSettingNumber('attempt_alert_threshold', 5);
+
+    const params: any[] = [threshold];
+    let branchClause = '';
+    if (branchId != null) {
+      branchClause = `AND ot.branch_id = $2`;
+      params.push(branchId);
+    }
+
+    const { rows } = await pool.query(
+      `SELECT ot.id                  AS "openTaskId",
+              ot.client_id           AS "clientId",
+              c.name                 AS "clientName",
+              c.mobile               AS "clientMobile",
+              ot.task_type           AS "taskType",
+              ot.task_family         AS "taskFamily",
+              ot.status,
+              ot.attempt_count       AS "attemptCount",
+              ot.last_attempt_at     AS "lastAttemptAt",
+              ot.creation_origin     AS "creationOrigin",
+              ot.assigned_team_key   AS "assignedTeamKey",
+              ot.assigned_for_date   AS "assignedForDate"
+         FROM open_tasks ot
+         JOIN clients c ON c.id = ot.client_id
+        WHERE ot.attempt_count >= $1
+          AND ot.status NOT IN ('completed', 'closed', 'cancelled')
+          ${branchClause}
+        ORDER BY ot.attempt_count DESC, ot.last_attempt_at DESC NULLS LAST
+        LIMIT 200`,
+      params,
+    );
+    return res.json({
+      threshold,
+      count: rows.length,
+      items: rows,
+    });
+  } catch (err: any) {
+    console.error('[open-tasks] attempt-alerts failed', err);
+    return res.status(500).json({ error: 'فشل تحميل تنبيهات المحاولات' });
+  }
+});
+
 router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -3186,59 +3242,6 @@ router.post('/:id/schedule-from-expected', requirePermission('telemarketing.appo
     }
     console.error('[schedule-from-expected] failed', err);
     return res.status(500).json({ error: err?.message ?? 'فشل الجدولة من الموعد المتوقع' });
-  }
-});
-
-// ============================================================================
-// GET /open-tasks/attempt-alerts — DEC-006 D37
-// ============================================================================
-// Returns open tasks whose attempt_count has crossed the configurable threshold
-// stored in system_settings.attempt_alert_threshold (default 5). The alert is
-// informational only — DEC-006 D37 explicitly says NO forced close. This feeds
-// the supervisor dashboard surface ("تنبيه: زبائن صعبو الوصول").
-router.get('/attempt-alerts', requirePermission('open_tasks.view'), async (req, res) => {
-  try {
-    const branchId = Number((req as any).authContext?.actingBranchId ?? 0) || null;
-    const { getSystemSettingNumber } = await import('../services/systemSettings.js');
-    const threshold = await getSystemSettingNumber('attempt_alert_threshold', 5);
-
-    const params: any[] = [threshold];
-    let branchClause = '';
-    if (branchId != null) {
-      branchClause = `AND ot.branch_id = $2`;
-      params.push(branchId);
-    }
-
-    const { rows } = await pool.query(
-      `SELECT ot.id                  AS "openTaskId",
-              ot.client_id           AS "clientId",
-              c.name                 AS "clientName",
-              c.mobile               AS "clientMobile",
-              ot.task_type           AS "taskType",
-              ot.task_family         AS "taskFamily",
-              ot.status,
-              ot.attempt_count       AS "attemptCount",
-              ot.last_attempt_at     AS "lastAttemptAt",
-              ot.creation_origin     AS "creationOrigin",
-              ot.assigned_team_key   AS "assignedTeamKey",
-              ot.assigned_for_date   AS "assignedForDate"
-         FROM open_tasks ot
-         JOIN clients c ON c.id = ot.client_id
-        WHERE ot.attempt_count >= $1
-          AND ot.status NOT IN ('completed', 'closed', 'cancelled')
-          ${branchClause}
-        ORDER BY ot.attempt_count DESC, ot.last_attempt_at DESC NULLS LAST
-        LIMIT 200`,
-      params,
-    );
-    return res.json({
-      threshold,
-      count: rows.length,
-      items: rows,
-    });
-  } catch (err: any) {
-    console.error('[open-tasks] attempt-alerts failed', err);
-    return res.status(500).json({ error: 'فشل تحميل تنبيهات المحاولات' });
   }
 });
 

@@ -819,6 +819,52 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
  *       500:
  *         description: Server error
  */
+
+// ============================================================================
+// GET /field-visits/escalation-alerts — DEC-006 D38
+// ============================================================================
+// MUST be declared BEFORE /:id so Express does not match "escalation-alerts"
+// as the visit id parameter (which previously caused HTTP 400).
+router.get('/escalation-alerts', requirePermission('field_visits.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const branchId = authContext.actingBranchId;
+    const params: any[] = [];
+    let branchClause = '';
+    if (branchId != null && !authContext.isSuperAdmin) {
+      params.push(branchId);
+      branchClause = `AND fv.branch_id = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT fv.id            AS "visitId",
+              fv.status,
+              fv.branch_id     AS "branchId",
+              fv.client_id     AS "clientId",
+              c.name           AS "clientName",
+              fv.team_responsible_user_id AS "teamResponsibleUserId",
+              EXTRACT(EPOCH FROM (NOW() - fv.updated_at)) / 3600 AS "hoursSinceUpdate",
+              ARRAY(
+                SELECT tier FROM visit_escalation_alerts
+                 WHERE visit_id = fv.id
+                 ORDER BY tier
+              ) AS "tiersAlerted"
+         FROM field_visits fv
+         LEFT JOIN clients c ON c.id = fv.client_id
+        WHERE fv.status IN ('in_progress', 'ended')
+          AND EXISTS (SELECT 1 FROM visit_escalation_alerts vea WHERE vea.visit_id = fv.id)
+          ${branchClause}
+        ORDER BY fv.updated_at ASC
+        LIMIT 200`,
+      params,
+    );
+    return res.json({ count: rows.length, items: rows });
+  } catch (err: any) {
+    console.error('[field-visits] GET /escalation-alerts error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل تحميل التنبيهات' });
+  }
+});
+
 router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1987,51 +2033,6 @@ router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), asyn
   } catch (err: any) {
     console.error('[field-visits] POST /:id/reopen error:', err);
     res.status(500).json({ error: err?.message ?? 'فشل فتح الزيارة' });
-  }
-});
-
-// ============================================================================
-// GET /field-visits/escalation-alerts — DEC-006 D38
-// ============================================================================
-// Returns visits with active escalation alerts. Used by the supervisor/manager
-// dashboard to surface undocumented visits waiting on action.
-router.get('/escalation-alerts', requirePermission('field_visits.view'), async (req, res) => {
-  try {
-    const authContext = getAuthContext(req);
-    const branchId = authContext.actingBranchId;
-    const params: any[] = [];
-    let branchClause = '';
-    if (branchId != null && !authContext.isSuperAdmin) {
-      params.push(branchId);
-      branchClause = `AND fv.branch_id = $${params.length}`;
-    }
-
-    const { rows } = await pool.query(
-      `SELECT fv.id            AS "visitId",
-              fv.status,
-              fv.branch_id     AS "branchId",
-              fv.client_id     AS "clientId",
-              c.name           AS "clientName",
-              fv.team_responsible_user_id AS "teamResponsibleUserId",
-              EXTRACT(EPOCH FROM (NOW() - fv.updated_at)) / 3600 AS "hoursSinceUpdate",
-              ARRAY(
-                SELECT tier FROM visit_escalation_alerts
-                 WHERE visit_id = fv.id
-                 ORDER BY tier
-              ) AS "tiersAlerted"
-         FROM field_visits fv
-         LEFT JOIN clients c ON c.id = fv.client_id
-        WHERE fv.status IN ('in_progress', 'ended')
-          AND EXISTS (SELECT 1 FROM visit_escalation_alerts vea WHERE vea.visit_id = fv.id)
-          ${branchClause}
-        ORDER BY fv.updated_at ASC
-        LIMIT 200`,
-      params,
-    );
-    return res.json({ count: rows.length, items: rows });
-  } catch (err: any) {
-    console.error('[field-visits] GET /escalation-alerts error:', err);
-    res.status(500).json({ error: err?.message ?? 'فشل تحميل التنبيهات' });
   }
 });
 
