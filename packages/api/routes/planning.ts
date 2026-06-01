@@ -261,6 +261,11 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
  *                   type: string
  *                 taskListGenerated:
  *                   type: boolean
+ *                 taskListGeneratedAt:
+ *                   type: string
+ *                   nullable: true
+ *                 newEligibleCount:
+ *                   type: integer
  *                 clients:
  *                   type: array
  *                   items:
@@ -273,6 +278,8 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
  *                     inList:
  *                       type: integer
  *                     booked:
+ *                       type: integer
+ *                     completed:
  *                       type: integer
  *                     closed:
  *                       type: integer
@@ -307,12 +314,13 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
     //   POST-GENERATION (task list exists) → show ONLY what was generated + excluded
     //     New assignments after generation are invisible until a new generation is triggered.
     const { rows: taskListRows } = await pool.query(
-      `SELECT id FROM telemarketing_task_lists
+      `SELECT id, created_at AS "createdAt" FROM telemarketing_task_lists
         WHERE team_key = $1 AND date = $2 AND branch_id = $3
         LIMIT 1`,
       [teamKey, date, branchId],
     );
     const taskListGenerated = taskListRows.length > 0;
+    const taskListGeneratedAt = taskListRows[0]?.createdAt ?? null;
 
     // ── Step 2: collect relevant client IDs ──────────────────────────────────
     const { rows: clientIdRows } = await pool.query(
@@ -349,7 +357,15 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
     const clientIds = clientIdRows.map((r: any) => Number(r.client_id));
 
     if (clientIds.length === 0) {
-      return res.json({ teamKey, date, taskListGenerated, clients: [], summary: { assigned: 0, inList: 0, booked: 0, closed: 0, excluded: 0 } });
+      return res.json({
+        teamKey,
+        date,
+        taskListGenerated,
+        taskListGeneratedAt,
+        newEligibleCount: 0,
+        clients: [],
+        summary: { assigned: 0, inList: 0, booked: 0, completed: 0, closed: 0, excluded: 0 },
+      });
     }
 
     // ── Step 2: client meta (name, phone, classification, station) ────────
@@ -459,7 +475,8 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
       assigned: 1, open: 1, needs_follow_up: 1,
       in_scheduling: 2,
       scheduled: 3, waiting_execution: 3, in_execution: 3, ended: 3,
-      completed: 4, closed: 4,
+      completed: 4,
+      closed: 5,
     };
 
     function primaryPhone(meta: any): string | null {
@@ -517,16 +534,41 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
       return (b.assignedCount + b.excludedCount) - (a.assignedCount + a.excludedCount);
     });
 
+    let newEligibleCount = 0;
+    if (taskListGenerated) {
+      const { rows: deltaRows } = await pool.query(
+        `SELECT COUNT(DISTINCT ot.client_id)::int AS count
+           FROM open_tasks ot
+          WHERE ot.assigned_team_key = $1
+            AND ot.branch_id = $3
+            AND ot.status = 'assigned'
+            AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM telemarketing_task_list_items tli
+                JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
+               WHERE tl.team_key = $1
+                 AND tl.date = $2
+                 AND tl.branch_id = $3
+                 AND tli.entity_type = 'client'
+                 AND tli.entity_id = ot.client_id
+            )`,
+        [teamKey, date, branchId],
+      );
+      newEligibleCount = Number(deltaRows[0]?.count ?? 0);
+    }
+
     // Summary counters for stats strip
     const summary = {
       assigned:  clients.filter(c => c.taskPhase === 'assigned').length,
       inList:    clients.filter(c => c.taskPhase === 'in_scheduling').length,
       booked:    clients.filter(c => ['scheduled','waiting_execution','in_execution','ended'].includes(c.taskPhase)).length,
-      closed:    clients.filter(c => ['completed','closed'].includes(c.taskPhase)).length,
+      completed: clients.filter(c => c.taskPhase === 'completed').length,
+      closed:    clients.filter(c => c.taskPhase === 'closed').length,
       excluded:  clients.filter(c => c.assignedCount === 0 && c.excludedCount > 0).length,
     };
 
-    return res.json({ teamKey, date, taskListGenerated, clients, summary });
+    return res.json({ teamKey, date, taskListGenerated, taskListGeneratedAt, newEligibleCount, clients, summary });
   } catch (err: any) {
     console.error('Failed to load assigned tasks:', err);
     return res.status(500).json({ error: err.message || 'Failed to load assigned tasks' });

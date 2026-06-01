@@ -44,6 +44,7 @@ type Summary = {
     assigned: number;
     inList: number;
     booked: number;
+    completed: number;
     closed: number;
     excluded: number;
 };
@@ -52,20 +53,23 @@ type DashboardResponse = {
     teamKey: string;
     date: string;
     taskListGenerated: boolean;
+    taskListGeneratedAt: string | null;
+    newEligibleCount: number;
     clients: ClientRow[];
     summary: Summary;
 };
 
 // ─── Phase helpers ────────────────────────────────────────────────────────────
 
-type Phase = 'assigned' | 'in_list' | 'booked' | 'closed' | 'excluded';
+type Phase = 'assigned' | 'in_list' | 'booked' | 'completed' | 'closed' | 'excluded';
 
 function getPhase(c: ClientRow, today: string): Phase {
     if (
         c.assignedCount === 0 && c.excludedCount > 0 &&
         !['in_scheduling','scheduled','waiting_execution','in_execution','ended','completed','closed'].includes(c.taskPhase)
     ) return 'excluded';
-    if (['completed','closed'].includes(c.taskPhase)) return 'closed';
+    if (c.taskPhase === 'closed') return 'closed';
+    if (c.taskPhase === 'completed') return 'completed';
     if (['scheduled','waiting_execution','in_execution','ended'].includes(c.taskPhase)) return 'booked';
     if (c.taskPhase === 'in_scheduling') return 'in_list';
     return 'assigned';
@@ -76,7 +80,8 @@ const PHASE_META: Record<Phase, PhaseMeta> = {
     assigned: { label: 'جاهزة',        icon: '⏳', dot: 'bg-amber-400',   badge: 'border-amber-200 bg-amber-50 text-amber-700',     row: '' },
     in_list:  { label: 'في القائمة',   icon: '📋', dot: 'bg-sky-500',     badge: 'border-sky-200 bg-sky-50 text-sky-700',           row: 'bg-sky-50/30' },
     booked:   { label: 'موعد محجوز',   icon: '📅', dot: 'bg-emerald-500', badge: 'border-emerald-200 bg-emerald-50 text-emerald-700', row: 'bg-emerald-50/20' },
-    closed:   { label: 'مغلقة',        icon: '✓',  dot: 'bg-slate-400',   badge: 'border-slate-200 bg-slate-100 text-slate-500',     row: 'opacity-50' },
+    completed:{ label: 'مكتملة',       icon: '✓',  dot: 'bg-lime-500',    badge: 'border-lime-200 bg-lime-50 text-lime-700',         row: 'bg-lime-50/20' },
+    closed:   { label: 'مُقفلة',       icon: '🔒', dot: 'bg-slate-400',   badge: 'border-slate-200 bg-slate-100 text-slate-500',     row: 'opacity-60' },
     excluded: { label: 'مستثناة',      icon: '✗',  dot: 'bg-red-400',     badge: 'border-red-200 bg-red-50 text-red-600',           row: 'opacity-50 bg-red-50/20' },
 };
 
@@ -96,6 +101,19 @@ function classificationColor(s: string | null) {
 }
 
 const getToday = () => new Date().toISOString().split('T')[0];
+
+function formatGeneratedAt(value: string | null) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat('ar-SY', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    }).format(date);
+}
 
 // ─── Task Modal ───────────────────────────────────────────────────────────────
 
@@ -261,7 +279,7 @@ function StatCard({ phase, count, active, onClick }: {
                     active ? 'border-slate-700 bg-slate-800 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                 }`}>
                 <span className="text-xl font-black">{count}</span>
-                <span className="text-[10px] font-bold">الكل</span>
+                <span className="text-[10px] font-bold">المعروض</span>
             </button>
         );
     }
@@ -367,6 +385,8 @@ export default function PlanningContactTargets() {
     const summary          = data?.summary;
     const assignedCount    = summary?.assigned ?? 0;
     const taskListGenerated = data?.taskListGenerated ?? false;
+    const taskListGeneratedAt = formatGeneratedAt(data?.taskListGeneratedAt ?? null);
+    const newEligibleCount = data?.newEligibleCount ?? 0;
 
     const filteredClients = phaseFilter === 'all'
         ? allClients
@@ -376,6 +396,8 @@ export default function PlanningContactTargets() {
         { key: 'all',      count: allClients.length },
         { key: 'assigned', count: assignedCount },
         { key: 'in_list',  count: summary?.inList   ?? 0 },
+        { key: 'booked',   count: summary?.booked   ?? 0 },
+        { key: 'completed', count: summary?.completed ?? 0 },
         { key: 'closed',   count: summary?.closed   ?? 0 },
         { key: 'excluded', count: summary?.excluded ?? 0 },
     ];
@@ -449,14 +471,20 @@ export default function PlanningContactTargets() {
                                         قائمة الاتصال مُولَّدة وثابتة
                                     </p>
                                     <p className="text-xs text-emerald-600 mt-0.5">
-                                        الداشبورد يعرض الجهات التي وُلِّدت — أي إسنادات جديدة لن تظهر حتى تضغط "إعادة التوليد".
+                                        {taskListGeneratedAt ? `آخر توليد: ${taskListGeneratedAt} — ` : ''}
+                                        الداشبورد يعرض القائمة المولَّدة فقط، وأي فرق لاحق لا يدخل إلا بعد إعادة التوليد.
                                     </p>
+                                    {newEligibleCount > 0 && (
+                                        <p className="mt-1 text-xs font-bold text-amber-700">
+                                            يوجد {newEligibleCount} جهة جديدة مؤهلة منذ آخر توليد.
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                             <button type="button" onClick={handleGenerate} disabled={generating}
                                 className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 shadow-sm whitespace-nowrap transition-colors shrink-0">
                                 {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                                {generating ? 'جاري التوليد...' : 'إعادة التوليد لإضافة جهات جديدة'}
+                                {generating ? 'جاري التوليد...' : newEligibleCount > 0 ? 'إعادة التوليد لإدراج الجدد' : 'إعادة التوليد'}
                             </button>
                         </div>
                     ) : assignedCount > 0 ? (
@@ -473,7 +501,7 @@ export default function PlanningContactTargets() {
                                         {assignedCount} جهة اتصال جاهزة للإدراج
                                     </p>
                                     <p className={`text-xs mt-0.5 ${phaseFilter === 'assigned' ? 'text-amber-600' : 'text-indigo-600'}`}>
-                                        راجع الجدول واستثنِ ما تريد — ثم اضغط "توليد قائمة الاتصال" لتثبيتها في الداشبورد.
+                                        راجع الجدول واستثنِ ما تريد، ثم اضغط "توليد قائمة الاتصال" لتثبيت اللقطة الأولى.
                                     </p>
                                 </div>
                             </div>
