@@ -406,6 +406,10 @@ export const api = {
       const query = new URLSearchParams({ date, teamKey });
       return request<any>(`/planning/assigned-tasks?${query.toString()}`);
     },
+    contactTargetsDashboard: (date: string, teamKey: string) => {
+      const query = new URLSearchParams({ date, teamKey });
+      return request<any>(`/planning/contact-targets-dashboard?${query.toString()}`);
+    },
     marketingTargets: (date: string, teamKey: string, mode: 'planning' | 'assigned' = 'planning') => {
       const query = new URLSearchParams({ date, teamKey, mode });
       return request<any>(`/planning/marketing-targets?${query.toString()}`);

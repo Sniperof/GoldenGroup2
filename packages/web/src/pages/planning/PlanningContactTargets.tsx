@@ -31,7 +31,10 @@ type ClientRow = {
     tasks: AssignedTask[];
     assignedCount: number;
     excludedCount: number;
-    taskPhase: string;
+    generatedInTaskList: boolean;
+    hasPendingSync: boolean;
+    workspaceStatus: Phase;
+    contactTargetId: number | null;
     contactTargetStatus: string | null;
     taskListItemStatus: string | null;
     latestCallOutcome: string | null;
@@ -42,9 +45,9 @@ type ClientRow = {
 
 type Summary = {
     assigned: number;
-    inList: number;
+    queued: number;
+    contacted: number;
     booked: number;
-    completed: number;
     closed: number;
     excluded: number;
 };
@@ -55,6 +58,8 @@ type DashboardResponse = {
     taskListGenerated: boolean;
     taskListGeneratedAt: string | null;
     newEligibleCount: number;
+    generatedCount: number;
+    pendingSyncCount: number;
     clients: ClientRow[];
     summary: Summary;
 };
@@ -64,32 +69,24 @@ type SortDir = 'asc' | 'desc' | null;
 
 // ─── Phase helpers ────────────────────────────────────────────────────────────
 
-type Phase = 'assigned' | 'in_list' | 'booked' | 'completed' | 'closed' | 'excluded';
+type Phase = 'assigned' | 'queued' | 'contacted' | 'booked' | 'closed' | 'excluded';
 
 function getPhase(c: ClientRow, today: string): Phase {
-    if (
-        c.assignedCount === 0 && c.excludedCount > 0 &&
-        !['in_scheduling','scheduled','waiting_execution','in_execution','ended','completed','closed'].includes(c.taskPhase)
-    ) return 'excluded';
-    if (c.taskPhase === 'closed') return 'closed';
-    if (c.taskPhase === 'completed') return 'completed';
-    if (['scheduled','waiting_execution','in_execution','ended'].includes(c.taskPhase)) return 'booked';
-    if (c.taskPhase === 'in_scheduling') return 'in_list';
-    return 'assigned';
+    return c.workspaceStatus;
 }
 
 type PhaseMeta = { label: string; icon: string; dot: string; badge: string; row: string };
 const PHASE_META: Record<Phase, PhaseMeta> = {
-    assigned: { label: 'جاهزة',        icon: '⏳', dot: 'bg-amber-400',   badge: 'border-amber-200 bg-amber-50 text-amber-700',     row: '' },
-    in_list:  { label: 'في القائمة',   icon: '📋', dot: 'bg-sky-500',     badge: 'border-sky-200 bg-sky-50 text-sky-700',           row: 'bg-sky-50/30' },
-    booked:   { label: 'موعد محجوز',   icon: '📅', dot: 'bg-emerald-500', badge: 'border-emerald-200 bg-emerald-50 text-emerald-700', row: 'bg-emerald-50/20' },
-    completed:{ label: 'مكتملة',       icon: '✓',  dot: 'bg-lime-500',    badge: 'border-lime-200 bg-lime-50 text-lime-700',         row: 'bg-lime-50/20' },
-    closed:   { label: 'مُقفلة',       icon: '🔒', dot: 'bg-slate-400',   badge: 'border-slate-200 bg-slate-100 text-slate-500',     row: 'opacity-60' },
-    excluded: { label: 'مستثناة',      icon: '✗',  dot: 'bg-red-400',     badge: 'border-red-200 bg-red-50 text-red-600',           row: 'opacity-50 bg-red-50/20' },
+    assigned:  { label: 'جاهزة الآن',   icon: '⏳', dot: 'bg-amber-400',   badge: 'border-amber-200 bg-amber-50 text-amber-700',       row: '' },
+    queued:    { label: 'في اللقطة',    icon: '📋', dot: 'bg-sky-500',     badge: 'border-sky-200 bg-sky-50 text-sky-700',             row: 'bg-sky-50/30' },
+    contacted: { label: 'تم التواصل',   icon: '📞', dot: 'bg-indigo-500',  badge: 'border-indigo-200 bg-indigo-50 text-indigo-700',    row: 'bg-indigo-50/20' },
+    booked:    { label: 'موعد محجوز',   icon: '📅', dot: 'bg-emerald-500', badge: 'border-emerald-200 bg-emerald-50 text-emerald-700', row: 'bg-emerald-50/20' },
+    closed:    { label: 'مُغلقة',       icon: '🔒', dot: 'bg-slate-400',   badge: 'border-slate-200 bg-slate-100 text-slate-500',      row: 'opacity-60' },
+    excluded:  { label: 'مستثناة',      icon: '✗',  dot: 'bg-red-400',     badge: 'border-red-200 bg-red-50 text-red-600',             row: 'opacity-50 bg-red-50/20' },
 };
 
 const CT_LABELS: Record<string, string> = {
-    new: 'جديدة', queued: 'ضمن القائمة', contacted: 'تم التواصل', closed: 'مغلقة',
+    new: 'جديدة', queued: 'ضمن القائمة', contacted: 'تم التواصل', booked: 'موعد محجوز', closed: 'مغلقة',
 };
 
 function classificationLabel(s: string | null) {
@@ -165,7 +162,6 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
 }) {
     const phase = getPhase(client, today);
     const pm = PHASE_META[phase];
-    const canEdit = phase === 'assigned' || phase === 'excluded';
 
     const [keepSet, setKeepSet] = useState<Set<number>>(() => {
         const s = new Set<number>();
@@ -174,6 +170,7 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
     });
 
     const editableTasks = client.tasks.filter(t => t.status === 'assigned' || t.excludedForDate === today);
+    const canEdit = editableTasks.length > 0;
     const allIds = editableTasks.map(t => t.taskId);
     const allKept = allIds.length > 0 && allIds.every(id => keepSet.has(id));
 
@@ -219,7 +216,11 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                 {canEdit && editableTasks.length > 0 && (
                     <div className="mx-5 mt-3 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                         <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                        <span>المهام المحددة ستُدرج في قائمة الاتصال عند التوليد — قم بإلغاء التحديد لاستثناء أي مهمة.</span>
+                        <span>
+                            {client.generatedInTaskList
+                                ? 'هذه المهام الحية خارج اللقطة الحالية، وأي تعديل هنا سيؤثر على التوليد القادم فقط.'
+                                : 'المهام المحددة ستُدرج في قائمة الاتصال عند التوليد — قم بإلغاء التحديد لاستثناء أي مهمة.'}
+                        </span>
                     </div>
                 )}
 
@@ -375,7 +376,7 @@ export default function PlanningContactTargets() {
         setLoading(true);
         setLoadError(false);
         try {
-            setData(await api.planning.assignedTasks(date, teamKey));
+            setData(await api.planning.contactTargetsDashboard(date, teamKey));
         } catch {
             setLoadError(true);
         } finally {
@@ -469,7 +470,7 @@ export default function PlanningContactTargets() {
                 type: skipped > 0 ? 'warning' : 'success',
                 text: `تم توليد قائمة الاتصال وتثبيتها — ${added} مضاف، ${updated} محدَّث${skipped > 0 ? `، ${skipped} مستبعد` : ''}.`,
             });
-            setPhaseFilter('in_list');
+            setPhaseFilter('queued');
             await loadData(); // reload to switch to post-generation mode
         } catch (err: any) {
             setMessage({ type: 'error', text: err?.message || 'تعذر توليد قائمة الاتصال' });
@@ -502,6 +503,8 @@ export default function PlanningContactTargets() {
     const taskListGenerated = data?.taskListGenerated ?? false;
     const taskListGeneratedAt = formatGeneratedAt(data?.taskListGeneratedAt ?? null);
     const newEligibleCount = data?.newEligibleCount ?? 0;
+    const generatedCount = data?.generatedCount ?? 0;
+    const pendingSyncCount = data?.pendingSyncCount ?? 0;
     const stationOptions = Array.from(new Set(allClients.map(c => c.stationName).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, 'ar'));
     const taskTypeOptions = Array.from(
         new Map(
@@ -573,9 +576,9 @@ export default function PlanningContactTargets() {
     const tabs: { key: Phase | 'all'; count: number }[] = [
         { key: 'all',      count: allClients.length },
         { key: 'assigned', count: assignedCount },
-        { key: 'in_list',  count: summary?.inList   ?? 0 },
+        { key: 'queued',   count: summary?.queued   ?? 0 },
+        { key: 'contacted', count: summary?.contacted ?? 0 },
         { key: 'booked',   count: summary?.booked   ?? 0 },
-        { key: 'completed', count: summary?.completed ?? 0 },
         { key: 'closed',   count: summary?.closed   ?? 0 },
         { key: 'excluded', count: summary?.excluded ?? 0 },
     ];
@@ -691,23 +694,33 @@ export default function PlanningContactTargets() {
                 {/* ── State banner ──────────────────────────────────────────── */}
                 {!loading && (
                     taskListGenerated ? (
-                        /* POST-GENERATION: list is frozen — show regenerate option */
+                        /* POST-GENERATION: generated snapshot + live delta */
                         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                             <div className="flex items-start gap-3">
                                 <PhoneCall className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
                                 <div>
                                     <p className="font-bold text-emerald-800 text-sm">
-                                        قائمة الاتصال مُولَّدة وثابتة
+                                        أنت الآن على اللقطة المولَّدة مع طبقة الفرق الحي
                                     </p>
                                     <p className="text-xs text-emerald-600 mt-0.5">
                                         {taskListGeneratedAt ? `آخر توليد: ${taskListGeneratedAt} — ` : ''}
-                                        الداشبورد يعرض القائمة المولَّدة فقط، وأي فرق لاحق لا يدخل إلا بعد إعادة التوليد.
+                                        المعروض الأساسي هو `contact_targets` المولَّدة، وأي مهام حية لاحقة تظهر كبادجات فرق ولا تدخل اللقطة إلا بعد إعادة التوليد.
                                     </p>
-                                    {newEligibleCount > 0 && (
-                                        <p className="mt-1 text-xs font-bold text-amber-700">
-                                            يوجد {newEligibleCount} جهة جديدة مؤهلة منذ آخر توليد.
-                                        </p>
-                                    )}
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                                        <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-emerald-700">
+                                            {generatedCount} ضمن اللقطة
+                                        </span>
+                                        {newEligibleCount > 0 && (
+                                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                                                {newEligibleCount} جهات جديدة منذ آخر توليد
+                                            </span>
+                                        )}
+                                        {pendingSyncCount > 0 && (
+                                            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-indigo-700">
+                                                {pendingSyncCount} جهات لها فرق حي
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                             <button type="button" onClick={handleGenerate} disabled={generating}
@@ -848,11 +861,11 @@ export default function PlanningContactTargets() {
                         <Info className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                         <span className="flex items-center gap-1.5">
                             <CheckSquare className="h-3.5 w-3.5 text-emerald-600" />
-                            <strong className="text-slate-700">مُحدَّد</strong> = ستُدرج في القائمة
+                            <strong className="text-slate-700">مُحدَّد</strong> = {taskListGenerated ? 'سيدخل في التوليد القادم' : 'ستُدرج في القائمة'}
                         </span>
                         <span className="flex items-center gap-1.5">
                             <Square className="h-3.5 w-3.5 text-red-400" />
-                            <strong className="text-slate-700">غير مُحدَّد</strong> = مستثناة من التوليد
+                            <strong className="text-slate-700">غير مُحدَّد</strong> = {taskListGenerated ? 'سيبقى خارج اللقطة القادمة' : 'مستثناة من التوليد'}
                         </span>
                         <span className="text-slate-400">· اضغط على السطر لتفاصيل المهام</span>
                     </div>
@@ -918,7 +931,7 @@ export default function PlanningContactTargets() {
                                         {/* Checkbox col — only interactive on assigned/excluded */}
                                         <th className="w-12 px-3 py-3 text-center">
                                             {phaseFilter === 'assigned'
-                                                ? <span className="text-[10px] text-slate-400 font-normal">إدراج</span>
+                                                ? <span className="text-[10px] text-slate-400 font-normal">توليد</span>
                                                 : null}
                                         </th>
                                         <th className="px-4 py-3 text-right w-16">
@@ -979,8 +992,8 @@ export default function PlanningContactTargets() {
                                         const phase   = getPhase(client, today);
                                         const pm      = PHASE_META[phase];
                                         const isSaving  = savingId === client.clientId;
-                                        const canToggle = phase === 'assigned' || phase === 'excluded';
                                         const canSelect = client.tasks.some(task => task.status === 'assigned' || task.excludedForDate === today);
+                                        const canToggle = canSelect;
                                         const isSelected = selectedClientIds.has(client.clientId);
                                         const outcomeMeta = client.latestCallOutcome ? getOutcomeMeta(client.latestCallOutcome) : null;
                                         const hasRetry = client.tasks.some(t => t.attemptCount > 0 && t.status === 'assigned');
@@ -1015,11 +1028,31 @@ export default function PlanningContactTargets() {
                                                 <td className="px-4 py-3 font-mono text-xs text-slate-400">#{client.clientId}</td>
 
                                                 <td className="px-4 py-3">
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-2 flex-wrap">
                                                         <span className="font-bold text-slate-800">{client.clientName}</span>
                                                         {hasRetry && (
                                                             <span className="text-[9px] font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 عودة
+                                                            </span>
+                                                        )}
+                                                        {client.generatedInTaskList && (
+                                                            <span className="text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                ضمن اللقطة
+                                                            </span>
+                                                        )}
+                                                        {client.generatedInTaskList && client.hasPendingSync && (
+                                                            <span className="text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                فرق حي
+                                                            </span>
+                                                        )}
+                                                        {!client.generatedInTaskList && taskListGenerated && client.assignedCount > 0 && (
+                                                            <span className="text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                جديد منذ آخر توليد
+                                                            </span>
+                                                        )}
+                                                        {client.excludedCount > 0 && (
+                                                            <span className="text-[9px] font-bold bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                مستثناة {client.excludedCount}
                                                             </span>
                                                         )}
                                                         <button

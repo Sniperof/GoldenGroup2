@@ -575,4 +575,307 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
   }
 });
 
+/**
+ * /api/planning/contact-targets-dashboard:
+ * Daily planning workspace with dual layers:
+ *   - Generated snapshot (contact_targets + today's task list for this team)
+ *   - Live delta after generation (currently assigned / excluded tasks not yet in snapshot)
+ *
+ * PRE-GENERATION:
+ *   Shows the live eligibility set from open_tasks.
+ *
+ * POST-GENERATION:
+ *   Keeps the generated snapshot as the primary status source, but also returns
+ *   live pending tasks so the UI can surface "new since last generation" and
+ *   "generated row with extra live work" without pretending they are already in
+ *   the call list.
+ */
+router.get('/contact-targets-dashboard', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const date = typeof req.query.date === 'string' ? req.query.date : '';
+    const teamKey = typeof req.query.teamKey === 'string' ? req.query.teamKey : '';
+    const branchId = req.authContext?.actingBranchId ?? null;
+
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
+    if (!/^(team|solo)_\d+$/.test(teamKey)) {
+      return res.status(400).json({ error: 'teamKey must be team_X or solo_X' });
+    }
+    if (branchId == null) {
+      return res.status(400).json({ error: 'A branch context is required' });
+    }
+
+    const { rows: taskListRows } = await pool.query(
+      `SELECT id, created_at AS "createdAt" FROM telemarketing_task_lists
+        WHERE team_key = $1 AND date = $2 AND branch_id = $3
+        LIMIT 1`,
+      [teamKey, date, branchId],
+    );
+    const taskListGenerated = taskListRows.length > 0;
+    const taskListGeneratedAt = taskListRows[0]?.createdAt ?? null;
+
+    const { rows: clientIdRows } = await pool.query(
+      `SELECT DISTINCT sub.client_id
+         FROM (
+           SELECT tli.entity_id AS client_id
+             FROM telemarketing_task_list_items tli
+             JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
+            WHERE tl.team_key = $1
+              AND tl.date = $2
+              AND tl.branch_id = $3
+              AND tli.entity_type = 'client'
+
+           UNION
+
+           SELECT ot.client_id
+             FROM open_tasks ot
+            WHERE ot.assigned_team_key = $1
+              AND ot.branch_id = $3
+              AND ot.status = 'assigned'
+              AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
+
+           UNION
+
+           SELECT ot.client_id
+             FROM open_tasks ot
+            WHERE ot.excluded_for_date = $2::date
+              AND ot.branch_id = $3
+              AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+       ) sub`,
+      [teamKey, date, branchId],
+    );
+    const clientIds = clientIdRows.map((r: any) => Number(r.client_id));
+
+    if (clientIds.length === 0) {
+      return res.json({
+        teamKey,
+        date,
+        taskListGenerated,
+        taskListGeneratedAt,
+        newEligibleCount: 0,
+        generatedCount: 0,
+        pendingSyncCount: 0,
+        clients: [],
+        summary: { assigned: 0, queued: 0, contacted: 0, booked: 0, closed: 0, excluded: 0 },
+      });
+    }
+
+    const { rows: clientRows } = await pool.query(
+      `SELECT
+         c.id,
+         c.name,
+         c.mobile,
+         c.contacts,
+         c.candidate_status AS "candidateStatus",
+         gu.name AS "stationName",
+         ct.id AS "contactTargetId",
+         ct.status AS "contactTargetStatus",
+         ct.latest_call_outcome AS "contactTargetOutcome"
+       FROM clients c
+       LEFT JOIN geo_units gu
+         ON gu.id = c.neighborhood
+       LEFT JOIN contact_targets ct
+         ON ct.branch_id = c.branch_id
+        AND ct.target_type = 'client'
+        AND ct.target_id = c.id
+        AND ct.visit_type = 'marketing'
+       WHERE c.id = ANY($1::int[])`,
+      [clientIds],
+    );
+    const clientMetaById = new Map(clientRows.map((r: any) => [Number(r.id), r]));
+
+    const { rows: taskRows } = await pool.query(
+      `SELECT
+         ot.id                                    AS "taskId",
+         ot.client_id                             AS "clientId",
+         ot.task_type                             AS "taskType",
+         ot.task_family                           AS "taskFamily",
+         ot.status,
+         ot.due_date                              AS "dueDate",
+         ot.expected_date                         AS "expectedDate",
+         ot.priority,
+         ot.excluded_for_date                     AS "excludedForDate",
+         ot.excluded_reason                       AS "excludedReason",
+         ot.last_waiting_status                   AS "lastWaitingStatus",
+         ot.attempt_count                         AS "attemptCount",
+         COALESCE(ttc.arabic_label, ot.task_type) AS "taskTypeLabel"
+       FROM open_tasks ot
+       LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+       WHERE ot.client_id = ANY($1::int[])
+         AND ot.branch_id = $2
+         AND ot.status IN ('assigned','in_scheduling','scheduled','waiting_execution',
+                           'in_execution','ended','completed','closed',
+                           'open','needs_follow_up')
+       ORDER BY ot.client_id, ot.created_at`,
+      [clientIds, branchId],
+    );
+
+    const { rows: listItemRows } = await pool.query(
+      `SELECT
+         tli.entity_id AS "clientId",
+         tli.id AS "itemId",
+         tli.status AS "itemStatus",
+         tli.call_outcome AS "callOutcome",
+         tli.open_task_id AS "openTaskId",
+         tli.contact_target_id AS "contactTargetId"
+       FROM telemarketing_task_list_items tli
+       JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
+       WHERE tl.team_key = $1
+         AND tl.date = $2
+         AND tl.branch_id = $3
+         AND tli.entity_type = 'client'
+         AND tli.entity_id = ANY($4::int[])`,
+      [teamKey, date, branchId, clientIds],
+    );
+    const listItemByClient = new Map<number, any>();
+    listItemRows.forEach((r: any) => listItemByClient.set(Number(r.clientId), r));
+
+    const { rows: apptRows } = await pool.query(
+      `SELECT
+         ta.entity_id AS "clientId",
+         ta.id AS "appointmentId",
+         ta.date AS "appointmentDate",
+         ta.time_slot AS "appointmentTime"
+       FROM telemarketing_appointments ta
+       WHERE ta.team_key = $1
+         AND ta.date = $2
+         AND ta.branch_id = $3
+         AND ta.entity_id = ANY($4::int[])
+         AND ta.entity_type = 'client'
+       ORDER BY ta.created_at DESC`,
+      [teamKey, date, branchId, clientIds],
+    );
+    const apptByClient = new Map<number, any>();
+    apptRows.forEach((r: any) => {
+      if (!apptByClient.has(Number(r.clientId))) apptByClient.set(Number(r.clientId), r);
+    });
+
+    const tasksByClient = new Map<number, any[]>();
+    taskRows.forEach((r: any) => {
+      const id = Number(r.clientId);
+      if (!tasksByClient.has(id)) tasksByClient.set(id, []);
+      tasksByClient.get(id)!.push(r);
+    });
+
+    function primaryPhone(meta: any): string | null {
+      const contacts = Array.isArray(meta?.contacts) ? meta.contacts : [];
+      const primary = contacts.find((c: any) => c?.isPrimary && c?.number);
+      return primary?.number ?? meta?.mobile ?? null;
+    }
+
+    const clients = clientIds.map(id => {
+      const meta = clientMetaById.get(id);
+      const tasks = tasksByClient.get(id) ?? [];
+      const listItem = listItemByClient.get(id) ?? null;
+      const appt = apptByClient.get(id) ?? null;
+
+      const assignedTasks = tasks.filter((t: any) => t.status === 'assigned');
+      const excludedTasks = tasks.filter((t: any) => t.excludedForDate === date);
+      const generatedInTaskList = Boolean(listItem);
+      const hasPendingSync = taskListGenerated && assignedTasks.length > 0;
+      const excludedOnly = !generatedInTaskList && assignedTasks.length === 0 && excludedTasks.length > 0;
+
+      let workspaceStatus: 'assigned' | 'queued' | 'contacted' | 'booked' | 'closed' | 'excluded' = 'assigned';
+      if (generatedInTaskList) {
+        if (appt?.appointmentDate || meta?.contactTargetStatus === 'booked') workspaceStatus = 'booked';
+        else if (meta?.contactTargetStatus === 'closed') workspaceStatus = 'closed';
+        else if (meta?.contactTargetStatus === 'contacted') workspaceStatus = 'contacted';
+        else workspaceStatus = 'queued';
+      } else if (excludedOnly) {
+        workspaceStatus = 'excluded';
+      }
+
+      return {
+        clientId: id,
+        clientName: meta?.name ?? '',
+        primaryPhone: primaryPhone(meta),
+        candidateStatus: meta?.candidateStatus ?? null,
+        stationName: meta?.stationName ?? null,
+        tasks,
+        assignedCount: assignedTasks.length,
+        excludedCount: excludedTasks.length,
+        generatedInTaskList,
+        hasPendingSync,
+        workspaceStatus,
+        contactTargetId: meta?.contactTargetId ?? listItem?.contactTargetId ?? null,
+        contactTargetStatus: meta?.contactTargetStatus ?? null,
+        taskListItemStatus: listItem?.itemStatus ?? null,
+        latestCallOutcome: listItem?.callOutcome ?? meta?.contactTargetOutcome ?? null,
+        appointmentDate: appt?.appointmentDate ?? null,
+        appointmentTime: appt?.appointmentTime ?? null,
+        attemptCount: tasks.reduce((sum: number, task: any) => sum + (Number(task.attemptCount) || 0), 0),
+      };
+    });
+
+    const STATUS_ORDER: Record<string, number> = {
+      assigned: 1,
+      excluded: 2,
+      queued: 3,
+      contacted: 4,
+      booked: 5,
+      closed: 6,
+    };
+
+    clients.sort((a, b) => {
+      if (a.generatedInTaskList !== b.generatedInTaskList) return a.generatedInTaskList ? -1 : 1;
+      if (a.hasPendingSync !== b.hasPendingSync) return a.hasPendingSync ? -1 : 1;
+      const pa = STATUS_ORDER[a.workspaceStatus] ?? 0;
+      const pb = STATUS_ORDER[b.workspaceStatus] ?? 0;
+      if (pa !== pb) return pa - pb;
+      return (b.assignedCount + b.excludedCount) - (a.assignedCount + a.excludedCount);
+    });
+
+    let newEligibleCount = 0;
+    if (taskListGenerated) {
+      const { rows: deltaRows } = await pool.query(
+        `SELECT COUNT(DISTINCT ot.client_id)::int AS count
+           FROM open_tasks ot
+          WHERE ot.assigned_team_key = $1
+            AND ot.branch_id = $3
+            AND ot.status = 'assigned'
+            AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM telemarketing_task_list_items tli
+                JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
+               WHERE tl.team_key = $1
+                 AND tl.date = $2
+                 AND tl.branch_id = $3
+                 AND tli.entity_type = 'client'
+                 AND tli.entity_id = ot.client_id
+            )`,
+        [teamKey, date, branchId],
+      );
+      newEligibleCount = Number(deltaRows[0]?.count ?? 0);
+    }
+
+    const generatedCount = clients.filter(client => client.generatedInTaskList).length;
+    const pendingSyncCount = clients.filter(client => client.hasPendingSync).length;
+    const summary = {
+      assigned: clients.filter(client => client.workspaceStatus === 'assigned').length,
+      queued: clients.filter(client => client.workspaceStatus === 'queued').length,
+      contacted: clients.filter(client => client.workspaceStatus === 'contacted').length,
+      booked: clients.filter(client => client.workspaceStatus === 'booked').length,
+      closed: clients.filter(client => client.workspaceStatus === 'closed').length,
+      excluded: clients.filter(client => client.workspaceStatus === 'excluded').length,
+    };
+
+    return res.json({
+      teamKey,
+      date,
+      taskListGenerated,
+      taskListGeneratedAt,
+      newEligibleCount,
+      generatedCount,
+      pendingSyncCount,
+      clients,
+      summary,
+    });
+  } catch (err: any) {
+    console.error('Failed to load contact targets dashboard:', err);
+    return res.status(500).json({ error: err.message || 'Failed to load contact targets dashboard' });
+  }
+});
+
 export default router;
