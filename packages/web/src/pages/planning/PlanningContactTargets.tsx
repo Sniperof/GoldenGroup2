@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
     ArrowRight, Calendar, CheckSquare, ChevronRight,
-    Info, Loader2, PhoneCall, RotateCcw, Square,
+    ExternalLink, Info, Loader2, PhoneCall, RotateCcw, Search, Square,
     Target, Users, X, Zap,
 } from 'lucide-react';
 import { api } from '../../lib/api';
@@ -59,6 +59,9 @@ type DashboardResponse = {
     summary: Summary;
 };
 
+type SortKey = 'clientId' | 'clientName' | 'primaryPhone' | 'stationName' | 'taskCount' | 'attemptCount' | 'phase' | 'appointmentDate';
+type SortDir = 'asc' | 'desc' | null;
+
 // ─── Phase helpers ────────────────────────────────────────────────────────────
 
 type Phase = 'assigned' | 'in_list' | 'booked' | 'completed' | 'closed' | 'excluded';
@@ -100,7 +103,45 @@ function classificationColor(s: string | null) {
     return 'border-sky-200 bg-sky-50 text-sky-700';
 }
 
+function compareValues(a: string | number | null, b: string | number | null, dir: Exclude<SortDir, null>) {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    if (typeof a === 'number' && typeof b === 'number') {
+        return dir === 'asc' ? a - b : b - a;
+    }
+    return dir === 'asc'
+        ? String(a).localeCompare(String(b), 'ar')
+        : String(b).localeCompare(String(a), 'ar');
+}
+
 const getToday = () => new Date().toISOString().split('T')[0];
+
+function parseSortKey(value: string | null): SortKey | null {
+    if (
+        value === 'clientId' ||
+        value === 'clientName' ||
+        value === 'primaryPhone' ||
+        value === 'stationName' ||
+        value === 'taskCount' ||
+        value === 'attemptCount' ||
+        value === 'phase' ||
+        value === 'appointmentDate'
+    ) {
+        return value;
+    }
+    return null;
+}
+
+function parseSortDir(value: string | null): SortDir {
+    if (value === 'asc' || value === 'desc') return value;
+    return null;
+}
+
+function renderSortIndicator(active: boolean, dir: SortDir) {
+    if (!active || !dir) return <span className="text-slate-300">↕</span>;
+    return <span className="text-sky-600">{dir === 'asc' ? '↑' : '↓'}</span>;
+}
 
 function formatGeneratedAt(value: string | null) {
     if (!value) return null;
@@ -303,7 +344,7 @@ function StatCard({ phase, count, active, onClick }: {
 export default function PlanningContactTargets() {
     const navigate = useNavigate();
     const { teamKey = '' } = useParams();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const date = searchParams.get('date') || getToday();
     const teamLabel = searchParams.get('label') || teamKey;
     const today = getToday();
@@ -316,6 +357,19 @@ export default function PlanningContactTargets() {
     const [modalClient, setModalClient] = useState<ClientRow | null>(null);
     const [message, setMessage] = useState<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null);
     const [phaseFilter, setPhaseFilter] = useState<Phase | 'all'>('all');
+    const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || '');
+    const [stationFilter, setStationFilter] = useState(searchParams.get('station') || 'all');
+    const [attemptFilter, setAttemptFilter] = useState<'all' | '1' | '3' | '5'>(() => {
+        const value = searchParams.get('attempts');
+        return value === '1' || value === '3' || value === '5' ? value : 'all';
+    });
+    const [taskTypeFilter, setTaskTypeFilter] = useState<string[]>(() =>
+        searchParams.get('taskTypes')?.split(',').filter(Boolean) ?? [],
+    );
+    const [sortKey, setSortKey] = useState<SortKey | null>(parseSortKey(searchParams.get('sort')) || 'clientName');
+    const [sortDir, setSortDir] = useState<SortDir>(parseSortDir(searchParams.get('dir')) || 'asc');
+    const [selectedClientIds, setSelectedClientIds] = useState<Set<number>>(new Set());
+    const [bulkSaving, setBulkSaving] = useState(false);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -330,6 +384,49 @@ export default function PlanningContactTargets() {
     }, [date, teamKey]);
 
     useEffect(() => { loadData(); }, [loadData]);
+    useEffect(() => { setSelectedClientIds(new Set()); }, [data]);
+    useEffect(() => {
+        const next = new URLSearchParams(searchParams);
+        next.set('date', date);
+        next.set('label', teamLabel);
+
+        if (searchTerm.trim()) next.set('q', searchTerm.trim());
+        else next.delete('q');
+
+        if (stationFilter !== 'all') next.set('station', stationFilter);
+        else next.delete('station');
+
+        if (attemptFilter !== 'all') next.set('attempts', attemptFilter);
+        else next.delete('attempts');
+
+        if (taskTypeFilter.length > 0) next.set('taskTypes', taskTypeFilter.join(','));
+        else next.delete('taskTypes');
+
+        if (sortKey && sortDir) {
+            next.set('sort', sortKey);
+            next.set('dir', sortDir);
+        } else {
+            next.delete('sort');
+            next.delete('dir');
+        }
+
+        const current = searchParams.toString();
+        const updated = next.toString();
+        if (current !== updated) {
+            setSearchParams(next, { replace: true });
+        }
+    }, [
+        attemptFilter,
+        date,
+        searchParams,
+        searchTerm,
+        setSearchParams,
+        sortDir,
+        sortKey,
+        stationFilter,
+        taskTypeFilter,
+        teamLabel,
+    ]);
 
     const handleRowToggle = async (client: ClientRow) => {
         setSavingId(client.clientId);
@@ -381,16 +478,97 @@ export default function PlanningContactTargets() {
         }
     };
 
+    const handleSort = (key: SortKey) => {
+        if (sortKey !== key) {
+            setSortKey(key);
+            setSortDir('asc');
+            return;
+        }
+        if (sortDir === 'asc') {
+            setSortDir('desc');
+            return;
+        }
+        if (sortDir === 'desc') {
+            setSortKey(null);
+            setSortDir(null);
+            return;
+        }
+        setSortDir('asc');
+    };
+
     const allClients       = data?.clients ?? [];
     const summary          = data?.summary;
     const assignedCount    = summary?.assigned ?? 0;
     const taskListGenerated = data?.taskListGenerated ?? false;
     const taskListGeneratedAt = formatGeneratedAt(data?.taskListGeneratedAt ?? null);
     const newEligibleCount = data?.newEligibleCount ?? 0;
+    const stationOptions = Array.from(new Set(allClients.map(c => c.stationName).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, 'ar'));
+    const taskTypeOptions = Array.from(
+        new Map(
+            allClients.flatMap(c => c.tasks.map(t => [t.taskType, t.taskTypeLabel] as const)),
+        ).entries(),
+    ).sort((a, b) => a[1].localeCompare(b[1], 'ar'));
 
-    const filteredClients = phaseFilter === 'all'
-        ? allClients
-        : allClients.filter(c => getPhase(c, today) === phaseFilter);
+    let filteredClients = allClients.filter(client => {
+        if (phaseFilter !== 'all' && getPhase(client, today) !== phaseFilter) return false;
+        if (stationFilter !== 'all' && (client.stationName ?? '') !== stationFilter) return false;
+        if (attemptFilter !== 'all' && client.attemptCount < Number(attemptFilter)) return false;
+        if (taskTypeFilter.length > 0 && !client.tasks.some(task => taskTypeFilter.includes(task.taskType))) return false;
+        if (searchTerm.trim()) {
+            const q = searchTerm.trim().toLowerCase();
+            const haystacks = [
+                String(client.clientId),
+                client.clientName,
+                client.primaryPhone ?? '',
+            ];
+            if (!haystacks.some(value => value.toLowerCase().includes(q))) return false;
+        }
+        return true;
+    });
+
+    if (sortKey && sortDir) {
+        filteredClients = [...filteredClients].sort((a, b) => {
+            const phaseA = PHASE_META[getPhase(a, today)].label;
+            const phaseB = PHASE_META[getPhase(b, today)].label;
+            const valueA: string | number | null =
+                sortKey === 'clientId' ? a.clientId :
+                sortKey === 'clientName' ? a.clientName :
+                sortKey === 'primaryPhone' ? a.primaryPhone :
+                sortKey === 'stationName' ? a.stationName :
+                sortKey === 'taskCount' ? a.tasks.length :
+                sortKey === 'attemptCount' ? a.attemptCount :
+                sortKey === 'phase' ? phaseA :
+                a.appointmentDate;
+            const valueB: string | number | null =
+                sortKey === 'clientId' ? b.clientId :
+                sortKey === 'clientName' ? b.clientName :
+                sortKey === 'primaryPhone' ? b.primaryPhone :
+                sortKey === 'stationName' ? b.stationName :
+                sortKey === 'taskCount' ? b.tasks.length :
+                sortKey === 'attemptCount' ? b.attemptCount :
+                sortKey === 'phase' ? phaseB :
+                b.appointmentDate;
+            return compareValues(valueA, valueB, sortDir);
+        });
+    }
+
+    const editableClientIds = filteredClients
+        .filter(client => client.tasks.some(task => task.status === 'assigned' || task.excludedForDate === today))
+        .map(client => client.clientId);
+    const selectedVisibleClientIds = editableClientIds.filter(id => selectedClientIds.has(id));
+    const allVisibleSelected = editableClientIds.length > 0 && selectedVisibleClientIds.length === editableClientIds.length;
+    const hasActiveFilters =
+        searchTerm.trim() !== '' ||
+        stationFilter !== 'all' ||
+        attemptFilter !== 'all' ||
+        taskTypeFilter.length > 0;
+
+    const clearFilters = () => {
+        setSearchTerm('');
+        setStationFilter('all');
+        setAttemptFilter('all');
+        setTaskTypeFilter([]);
+    };
 
     const tabs: { key: Phase | 'all'; count: number }[] = [
         { key: 'all',      count: allClients.length },
@@ -401,6 +579,57 @@ export default function PlanningContactTargets() {
         { key: 'closed',   count: summary?.closed   ?? 0 },
         { key: 'excluded', count: summary?.excluded ?? 0 },
     ];
+
+    const handleToggleClientSelection = (clientId: number) => {
+        setSelectedClientIds(prev => {
+            const next = new Set(prev);
+            if (next.has(clientId)) next.delete(clientId);
+            else next.add(clientId);
+            return next;
+        });
+    };
+
+    const handleToggleAllVisible = () => {
+        setSelectedClientIds(prev => {
+            const next = new Set(prev);
+            if (allVisibleSelected) {
+                editableClientIds.forEach(id => next.delete(id));
+            } else {
+                editableClientIds.forEach(id => next.add(id));
+            }
+            return next;
+        });
+    };
+
+    const handleBulkExclude = async () => {
+        const taskIds = filteredClients
+            .filter(client => selectedClientIds.has(client.clientId))
+            .flatMap(client => client.tasks.filter(task => task.status === 'assigned').map(task => task.taskId));
+        if (taskIds.length === 0) return;
+        setBulkSaving(true);
+        try {
+            await api.openTasks.bulkExclude(taskIds);
+            setSelectedClientIds(new Set());
+            await loadData();
+        } finally {
+            setBulkSaving(false);
+        }
+    };
+
+    const handleBulkRestore = async () => {
+        const taskIds = filteredClients
+            .filter(client => selectedClientIds.has(client.clientId))
+            .flatMap(client => client.tasks.filter(task => task.excludedForDate === date).map(task => task.taskId));
+        if (taskIds.length === 0) return;
+        setBulkSaving(true);
+        try {
+            await api.openTasks.bulkRestore(taskIds);
+            setSelectedClientIds(new Set());
+            await loadData();
+        } finally {
+            setBulkSaving(false);
+        }
+    };
 
     return (
         <div className="h-full overflow-y-auto bg-slate-50/60 custom-scroll" dir="rtl">
@@ -518,6 +747,101 @@ export default function PlanningContactTargets() {
                     ) : null
                 )}
 
+                {!loading && allClients.length > 0 && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="relative min-w-[220px] flex-1">
+                                <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    placeholder="بحث بالاسم أو الهاتف أو رقم الزبون"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pr-10 pl-3 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:bg-white"
+                                />
+                            </div>
+
+                            <select
+                                value={stationFilter}
+                                onChange={e => setStationFilter(e.target.value)}
+                                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-sky-400"
+                            >
+                                <option value="all">كل المحطات</option>
+                                {stationOptions.map(station => (
+                                    <option key={station} value={station}>{station}</option>
+                                ))}
+                            </select>
+
+                            <select
+                                value={attemptFilter}
+                                onChange={e => setAttemptFilter(e.target.value as 'all' | '1' | '3' | '5')}
+                                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-sky-400"
+                            >
+                                <option value="all">كل المحاولات</option>
+                                <option value="1">1+ محاولة</option>
+                                <option value="3">3+ محاولات</option>
+                                <option value="5">5+ محاولات</option>
+                            </select>
+                        </div>
+
+                        <div className="flex flex-wrap items-start gap-3">
+                            <label className="text-xs font-bold text-slate-500 pt-2">أنواع المهام</label>
+                            <select
+                                multiple
+                                value={taskTypeFilter}
+                                onChange={e => setTaskTypeFilter(Array.from(e.target.selectedOptions).map(option => option.value))}
+                                className="min-h-[92px] min-w-[240px] flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none focus:border-sky-400"
+                            >
+                                {taskTypeOptions.map(([taskType, taskLabel]) => (
+                                    <option key={taskType} value={taskType}>{taskLabel}</option>
+                                ))}
+                            </select>
+                            <div className="text-xs text-slate-400 pt-2">استخدم `Ctrl` أو `Cmd` لاختيار أكثر من نوع</div>
+                        </div>
+
+                        {hasActiveFilters && (
+                            <div className="flex items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                                <span>النتائج المعروضة: {filteredClients.length} من أصل {allClients.length}</span>
+                                <button
+                                    type="button"
+                                    onClick={clearFilters}
+                                    className="font-bold hover:underline"
+                                >
+                                    مسح الفلاتر
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {!loading && selectedVisibleClientIds.length > 0 && (
+                    <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-sm">
+                        <span className="text-sm font-bold text-indigo-800">تم تحديد {selectedVisibleClientIds.length} جهة</span>
+                        <button
+                            type="button"
+                            onClick={handleBulkExclude}
+                            disabled={bulkSaving}
+                            className="rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white hover:bg-red-500 disabled:opacity-60"
+                        >
+                            استثناء المحدد
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleBulkRestore}
+                            disabled={bulkSaving}
+                            className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
+                        >
+                            استرجاع المحدد
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setSelectedClientIds(new Set())}
+                            className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                        >
+                            إلغاء التحديد
+                        </button>
+                    </div>
+                )}
+
                 {/* Checkbox legend — only on assigned tab */}
                 {!loading && phaseFilter === 'assigned' && filteredClients.length > 0 && (
                     <div className="flex items-center gap-4 text-xs text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
@@ -550,10 +874,31 @@ export default function PlanningContactTargets() {
                         <Users className="mx-auto h-10 w-10 text-slate-200" />
                         <p className="text-sm font-bold text-slate-500">لا توجد جهات اتصال لهذا الفريق</p>
                         <p className="text-xs text-slate-400">احفظ نطاق العمل أولاً من صفحة الخطة</p>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/planning/overview')}
+                            className="mt-3 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500"
+                        >
+                            <ArrowRight className="h-4 w-4" />
+                            الذهاب إلى صفحة الخطة
+                        </button>
                     </div>
                 ) : filteredClients.length === 0 ? (
-                    <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center">
-                        <p className="text-sm text-slate-500">لا يوجد عملاء في هذه المرحلة</p>
+                    <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center space-y-3">
+                        <p className="text-sm font-bold text-slate-500">لا توجد نتائج مطابقة في العرض الحالي</p>
+                        <p className="text-xs text-slate-400">
+                            {hasActiveFilters ? 'جرّب تعديل الفلاتر أو مسحها لعرض بقية الجهات.' : 'غيّر المرحلة المختارة أو راجع التوليد الحالي.'}
+                        </p>
+                        {hasActiveFilters && (
+                            <button
+                                type="button"
+                                onClick={clearFilters}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                            >
+                                <RotateCcw className="h-4 w-4" />
+                                مسح الفلاتر
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -561,21 +906,71 @@ export default function PlanningContactTargets() {
                             <table className="w-full min-w-[860px] border-collapse text-sm">
                                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold text-slate-500">
                                     <tr>
+                                        <th className="w-12 px-3 py-3 text-center">
+                                            {editableClientIds.length > 0 ? (
+                                                <button type="button" onClick={handleToggleAllVisible} className="mx-auto">
+                                                    {allVisibleSelected
+                                                        ? <CheckSquare className="h-4 w-4 text-indigo-600" />
+                                                        : <Square className="h-4 w-4 text-slate-400" />}
+                                                </button>
+                                            ) : null}
+                                        </th>
                                         {/* Checkbox col — only interactive on assigned/excluded */}
                                         <th className="w-12 px-3 py-3 text-center">
                                             {phaseFilter === 'assigned'
                                                 ? <span className="text-[10px] text-slate-400 font-normal">إدراج</span>
                                                 : null}
                                         </th>
-                                        <th className="px-4 py-3 text-right w-16">#</th>
-                                        <th className="px-4 py-3 text-right">الزبون</th>
-                                        <th className="px-4 py-3 text-right w-36">الهاتف</th>
+                                        <th className="px-4 py-3 text-right w-16">
+                                            <button type="button" onClick={() => handleSort('clientId')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                #
+                                                {renderSortIndicator(sortKey === 'clientId', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-right">
+                                            <button type="button" onClick={() => handleSort('clientName')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                الزبون
+                                                {renderSortIndicator(sortKey === 'clientName', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-right w-36">
+                                            <button type="button" onClick={() => handleSort('primaryPhone')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                الهاتف
+                                                {renderSortIndicator(sortKey === 'primaryPhone', sortDir)}
+                                            </button>
+                                        </th>
                                         <th className="px-4 py-3 text-right w-20">التصنيف</th>
-                                        <th className="px-4 py-3 text-right w-28">المحطة</th>
-                                        <th className="px-4 py-3 text-center w-16">مهام</th>
-                                        <th className="px-4 py-3 text-right w-28">المرحلة</th>
+                                        <th className="px-4 py-3 text-right w-28">
+                                            <button type="button" onClick={() => handleSort('stationName')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                المحطة
+                                                {renderSortIndicator(sortKey === 'stationName', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-center w-16">
+                                            <button type="button" onClick={() => handleSort('taskCount')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                مهام
+                                                {renderSortIndicator(sortKey === 'taskCount', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-center w-20">
+                                            <button type="button" onClick={() => handleSort('attemptCount')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                محاولات
+                                                {renderSortIndicator(sortKey === 'attemptCount', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-right w-28">
+                                            <button type="button" onClick={() => handleSort('phase')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                المرحلة
+                                                {renderSortIndicator(sortKey === 'phase', sortDir)}
+                                            </button>
+                                        </th>
                                         <th className="px-4 py-3 text-right w-36">آخر نتيجة</th>
-                                        <th className="px-4 py-3 text-right w-32">الموعد</th>
+                                        <th className="px-4 py-3 text-right w-32">
+                                            <button type="button" onClick={() => handleSort('appointmentDate')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                الموعد
+                                                {renderSortIndicator(sortKey === 'appointmentDate', sortDir)}
+                                            </button>
+                                        </th>
                                         <th className="w-8 px-2" />
                                     </tr>
                                 </thead>
@@ -585,6 +980,8 @@ export default function PlanningContactTargets() {
                                         const pm      = PHASE_META[phase];
                                         const isSaving  = savingId === client.clientId;
                                         const canToggle = phase === 'assigned' || phase === 'excluded';
+                                        const canSelect = client.tasks.some(task => task.status === 'assigned' || task.excludedForDate === today);
+                                        const isSelected = selectedClientIds.has(client.clientId);
                                         const outcomeMeta = client.latestCallOutcome ? getOutcomeMeta(client.latestCallOutcome) : null;
                                         const hasRetry = client.tasks.some(t => t.attemptCount > 0 && t.status === 'assigned');
 
@@ -592,6 +989,16 @@ export default function PlanningContactTargets() {
                                             <tr key={client.clientId}
                                                 onClick={() => setModalClient(client)}
                                                 className={`cursor-pointer transition-colors hover:bg-indigo-50/40 ${pm.row}`}>
+
+                                                <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
+                                                    {canSelect ? (
+                                                        <button type="button" onClick={() => handleToggleClientSelection(client.clientId)} className="mx-auto">
+                                                            {isSelected
+                                                                ? <CheckSquare className="h-4 w-4 text-indigo-600" />
+                                                                : <Square className="h-4 w-4 text-slate-400" />}
+                                                        </button>
+                                                    ) : <span className="text-slate-200">—</span>}
+                                                </td>
 
                                                 {/* Checkbox */}
                                                 <td className="px-3 py-3 text-center"
@@ -615,6 +1022,17 @@ export default function PlanningContactTargets() {
                                                                 عودة
                                                             </span>
                                                         )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={e => {
+                                                                e.stopPropagation();
+                                                                navigate(`/clients/${client.clientId}`);
+                                                            }}
+                                                            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-sky-600"
+                                                            title="فتح ملف الزبون"
+                                                        >
+                                                            <ExternalLink className="h-3.5 w-3.5" />
+                                                        </button>
                                                     </div>
                                                 </td>
 
@@ -638,6 +1056,12 @@ export default function PlanningContactTargets() {
                                                         {client.excludedCount > 0 && (
                                                             <span className="text-red-400 text-[9px]">/{client.excludedCount}✗</span>
                                                         )}
+                                                    </span>
+                                                </td>
+
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-bold text-slate-600">
+                                                        {client.attemptCount}
                                                     </span>
                                                 </td>
 
