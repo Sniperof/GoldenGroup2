@@ -627,9 +627,9 @@ export async function getPlanningMarketingTargets(params: {
         ON contact_target.branch_id = c.branch_id
        AND contact_target.target_type = 'client'
        AND contact_target.target_id = c.id
-       AND contact_target.target_stage = 'lead'
+       -- DEC-005 D30: target_stage / source_type dropped (or pinned to 'lead'
+       -- via CHECK). The JOIN no longer references them.
        AND contact_target.visit_type = 'marketing'
-       AND contact_target.source_type = 'lead'
       LEFT JOIN LATERAL (
         SELECT json_build_object(
           'id', a.id,
@@ -1071,9 +1071,9 @@ export async function getAssignedLeadsForTeam(params: {
         ON ct.branch_id    = c.branch_id
        AND ct.target_type  = 'client'
        AND ct.target_id    = c.id
-       AND ct.target_stage = 'lead'
+       -- DEC-005 D30: target_stage / source_type dropped (or CHECK-pinned to
+       -- 'lead'). The JOIN no longer references them.
        AND ct.visit_type   = 'marketing'
-       AND ct.source_type  = 'lead'
       WHERE ot.status            = 'assigned'
         AND ot.assigned_team_key = $1
         AND ot.assigned_for_date = $2
