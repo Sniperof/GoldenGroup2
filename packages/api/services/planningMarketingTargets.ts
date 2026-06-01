@@ -480,12 +480,15 @@ export async function getPlanningMarketingTargets(params: {
           ORDER BY ot_inner.created_at DESC
           LIMIT 1
         ) ttc_eff ON TRUE
+        -- DEC-005 D27: 'contract' location_basis resolves to the customer's
+        -- installed_device.installation_geo_unit_id (the *device* is the physical
+        -- entity with a location; the contract is the financial entity).
         LEFT JOIN LATERAL (
-          SELECT ct.installation_geo_unit_id
-          FROM contracts ct
-          WHERE ct.customer_id = c.id
-            AND ct.installation_geo_unit_id IS NOT NULL
-          ORDER BY ct.created_at DESC
+          SELECT inst.installation_geo_unit_id
+          FROM installed_devices inst
+          WHERE inst.customer_id = c.id
+            AND inst.installation_geo_unit_id IS NOT NULL
+          ORDER BY inst.created_at DESC
           LIMIT 1
         ) ct_loc ON ttc_eff.location_basis = 'contract'
         LEFT JOIN LATERAL (
@@ -684,13 +687,14 @@ export async function getPlanningMarketingTargets(params: {
         ORDER BY ot_inner.created_at DESC
         LIMIT 1
       ) ot ON TRUE
-      -- Resolve the contract's installation zone for 'contract'-basis tasks
+      -- Resolve the installed-device's installation zone for 'contract'-basis
+      -- tasks. DEC-005 D27: the location belongs to the device, not the contract.
       LEFT JOIN LATERAL (
-        SELECT ct.installation_geo_unit_id
-        FROM contracts ct
-        WHERE ct.customer_id = c.id
-          AND ct.installation_geo_unit_id IS NOT NULL
-        ORDER BY ct.created_at DESC
+        SELECT inst.installation_geo_unit_id
+        FROM installed_devices inst
+        WHERE inst.customer_id = c.id
+          AND inst.installation_geo_unit_id IS NOT NULL
+        ORDER BY inst.created_at DESC
         LIMIT 1
       ) ct_zone ON ot.location_basis = 'contract'
       LEFT JOIN LATERAL (
