@@ -151,8 +151,7 @@ export async function getCompanyOwnedClients(branchId: number, zoneIds: number[]
      WHERE c.branch_id = $1
        AND (c.is_active IS NULL OR c.is_active = TRUE)
        AND c.deleted_at IS NULL
-       AND NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
-       AND c.neighborhood::int = ANY($2::int[])
+       AND c.neighborhood = ANY($2::int[])
        AND (
          c.candidate_status IN ('OP', 'FOP')
          OR NOT EXISTS (
