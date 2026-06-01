@@ -2,6 +2,12 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { checkAndCompleteVisit } from '../services/visitCompletion.js';
+import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
+import {
+  buildCustomerOwnershipSql,
+  mapCustomerOwnership,
+} from '../services/customerOwnership.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -295,31 +301,61 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
 
+    // DEC-006 D38 L2: a technician with an undocumented visit older than L2 hours
+    // is barred from starting new visits. They must close out the previous one first.
+    if (authContext.userId != null) {
+      const block = await hasBlockingUndocumentedVisit(authContext.userId);
+      if (block.blocked) {
+        return res.status(409).json({
+          error: `لا يمكن بدء زيارة جديدة — لديك زيارة #${block.visitId} منذ ${block.hoursSinceUpdate} ساعة بدون توثيق (DEC-006 D38 L2). أغلقها أولاً.`,
+          blockingVisitId: block.visitId,
+        });
+      }
+    }
+
     const lat = req.body?.lat != null ? Number(req.body.lat) : null;
     const lng = req.body?.lng != null ? Number(req.body.lng) : null;
     const accuracy = req.body?.accuracy != null ? Number(req.body.accuracy) : null;
+    const locationMissingReasonId = Number(req.body?.locationMissingReasonId) || null;
     const locationMissing = lat === null || lng === null || !Number.isFinite(lat) || !Number.isFinite(lng);
+
+    // DEC-004 D17: when location_missing, a reason from system_lists is required.
+    if (locationMissing && (!locationMissingReasonId || locationMissingReasonId <= 0)) {
+      return res.status(400).json({
+        error: 'GPS غير متاح — يجب اختيار سبب من القائمة (locationMissingReasonId).',
+      });
+    }
 
     const now = new Date();
 
     await pool.query(
       `INSERT INTO visit_geo_logs (visit_id, actual_start_time, actual_start_lat, actual_start_lng,
-         actual_start_accuracy, location_missing, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+         actual_start_accuracy, location_missing, location_missing_reason, started_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
        ON CONFLICT (visit_id) DO UPDATE SET
-         actual_start_time = EXCLUDED.actual_start_time,
-         actual_start_lat  = EXCLUDED.actual_start_lat,
-         actual_start_lng  = EXCLUDED.actual_start_lng,
-         actual_start_accuracy = EXCLUDED.actual_start_accuracy,
-         location_missing  = EXCLUDED.location_missing,
-         updated_at        = NOW()`,
-      [visitId, now, locationMissing ? null : lat, locationMissing ? null : lng,
-       accuracy && Number.isFinite(accuracy) ? Math.round(accuracy) : null, locationMissing],
+         actual_start_time       = EXCLUDED.actual_start_time,
+         actual_start_lat        = EXCLUDED.actual_start_lat,
+         actual_start_lng        = EXCLUDED.actual_start_lng,
+         actual_start_accuracy   = EXCLUDED.actual_start_accuracy,
+         location_missing        = EXCLUDED.location_missing,
+         location_missing_reason = COALESCE(EXCLUDED.location_missing_reason, visit_geo_logs.location_missing_reason),
+         started_by              = COALESCE(EXCLUDED.started_by, visit_geo_logs.started_by),
+         updated_at              = NOW()`,
+      [
+        visitId,
+        now,
+        locationMissing ? null : lat,
+        locationMissing ? null : lng,
+        accuracy && Number.isFinite(accuracy) ? Math.round(accuracy) : null,
+        locationMissing,
+        locationMissing ? locationMissingReasonId : null,
+        authContext.userId ?? null,
+      ],
     );
 
     await pool.query(
       `UPDATE field_visits SET status = 'in_progress', updated_at = NOW()
-       WHERE id = $1 AND status NOT IN ('ended','completed','cancelled')`,
+       WHERE id = $1 AND status NOT IN ('ended','completed','cancelled','closed')`,
       [visitId],
     );
 
@@ -421,7 +457,14 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
     const lat = req.body?.lat != null ? Number(req.body.lat) : null;
     const lng = req.body?.lng != null ? Number(req.body.lng) : null;
     const accuracy = req.body?.accuracy != null ? Number(req.body.accuracy) : null;
+    const locationMissingReasonId = Number(req.body?.locationMissingReasonId) || null;
     const locationMissing = lat === null || lng === null || !Number.isFinite(lat) || !Number.isFinite(lng);
+
+    if (locationMissing && (!locationMissingReasonId || locationMissingReasonId <= 0)) {
+      return res.status(400).json({
+        error: 'GPS غير متاح — يجب اختيار سبب من القائمة (locationMissingReasonId).',
+      });
+    }
 
     const now = new Date();
 
@@ -449,25 +492,36 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
 
     await pool.query(
       `INSERT INTO visit_geo_logs (visit_id, actual_end_time, actual_end_lat, actual_end_lng,
-         actual_end_accuracy, duration_minutes, distance_meters, location_missing, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+         actual_end_accuracy, duration_minutes, distance_meters, location_missing, location_missing_reason, ended_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
        ON CONFLICT (visit_id) DO UPDATE SET
-         actual_end_time     = EXCLUDED.actual_end_time,
-         actual_end_lat      = EXCLUDED.actual_end_lat,
-         actual_end_lng      = EXCLUDED.actual_end_lng,
-         actual_end_accuracy = EXCLUDED.actual_end_accuracy,
-         duration_minutes    = EXCLUDED.duration_minutes,
-         distance_meters     = EXCLUDED.distance_meters,
-         location_missing    = visit_geo_logs.location_missing OR EXCLUDED.location_missing,
-         updated_at          = NOW()`,
-      [visitId, now, locationMissing ? null : lat, locationMissing ? null : lng,
-       accuracy && Number.isFinite(accuracy) ? Math.round(accuracy) : null,
-       durationMinutes, distanceMeters, locationMissing],
+         actual_end_time         = EXCLUDED.actual_end_time,
+         actual_end_lat          = EXCLUDED.actual_end_lat,
+         actual_end_lng          = EXCLUDED.actual_end_lng,
+         actual_end_accuracy     = EXCLUDED.actual_end_accuracy,
+         duration_minutes        = EXCLUDED.duration_minutes,
+         distance_meters         = EXCLUDED.distance_meters,
+         location_missing        = visit_geo_logs.location_missing OR EXCLUDED.location_missing,
+         location_missing_reason = COALESCE(EXCLUDED.location_missing_reason, visit_geo_logs.location_missing_reason),
+         ended_by                = COALESCE(EXCLUDED.ended_by, visit_geo_logs.ended_by),
+         updated_at              = NOW()`,
+      [
+        visitId,
+        now,
+        locationMissing ? null : lat,
+        locationMissing ? null : lng,
+        accuracy && Number.isFinite(accuracy) ? Math.round(accuracy) : null,
+        durationMinutes,
+        distanceMeters,
+        locationMissing,
+        locationMissing ? locationMissingReasonId : null,
+        authContext.userId ?? null,
+      ],
     );
 
     await pool.query(
       `UPDATE field_visits SET status = 'ended', updated_at = NOW()
-       WHERE id = $1 AND status NOT IN ('completed','cancelled')`,
+       WHERE id = $1 AND status NOT IN ('completed','cancelled','closed')`,
       [visitId],
     );
 
@@ -677,6 +731,10 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
     const authContext = getAuthContext(req);
     const clientId = req.query.clientId ? Number(req.query.clientId) : null;
     const date = typeof req.query.date === 'string' ? req.query.date : null;
+    const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+    const status = typeof req.query.status === 'string' ? req.query.status : null;
+    const visitType = typeof req.query.visitType === 'string' ? req.query.visitType : null;
+    const taskType = typeof req.query.taskType === 'string' ? req.query.taskType : null;
 
     if (clientId === null && date === null) {
       return res.status(400).json({ error: 'يجب تحديد clientId أو date' });
@@ -693,6 +751,26 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
     if (date !== null) {
       conditions.push(`fv.scheduled_date = $${idx++}`);
       params.push(date);
+    }
+    if (status !== null) {
+      conditions.push(`fv.status = $${idx++}`);
+      params.push(status);
+    }
+    if (visitType !== null) {
+      conditions.push(`fv.visit_type = $${idx++}`);
+      params.push(visitType);
+    }
+    if (taskType !== null) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM visit_tasks vt_filter
+        WHERE vt_filter.field_visit_id = fv.id
+          AND vt_filter.task_type = $${idx++}
+      )`);
+      params.push(taskType);
+    }
+    if (branchId !== null && authContext.isSuperAdmin) {
+      conditions.push(`fv.branch_id = $${idx++}`);
+      params.push(branchId);
     }
     if (!authContext.isSuperAdmin && authContext.actingBranchId != null) {
       conditions.push(`fv.branch_id = $${idx++}`);
@@ -713,14 +791,77 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
          fv.team_snapshot AS "teamSnapshot",
          fv.customer_snapshot AS "customerSnapshot",
          fv.field_notes AS "fieldNotes",
+         fv.origin_type AS "originType",
+         fv.origin_id AS "originId",
          fv.created_at AS "createdAt",
-         fv.updated_at AS "updatedAt"
+         fv.updated_at AS "updatedAt",
+         c.name AS "clientName",
+         c.mobile AS "clientMobile",
+         c.gender AS "clientGender",
+         c.data_quality AS "clientDataQuality",
+         c.candidate_status AS "clientClassification",
+         b.name AS "branchName",
+         CASE
+           WHEN neigh.id IS NOT NULL AND neigh.level = 4 AND neigh_parent.id IS NOT NULL
+             THEN neigh_parent.name || ' — ' || neigh.name
+           WHEN neigh.id IS NOT NULL AND neigh.level = 3 AND district.id IS NOT NULL
+             THEN district.name || ' — ' || neigh.name
+           WHEN neigh.id IS NOT NULL
+             THEN neigh.name
+           WHEN district.id IS NOT NULL
+             THEN district.name
+           ELSE NULL
+         END AS "addressShort",
+         ownership."ownerType" AS "ownershipOwnerType",
+         ownership."ownerLabel" AS "ownershipOwnerLabel",
+         '[]'::json AS "ownershipPersonalAssignments",
+         ownership."companyOwnershipScope" AS "ownershipCompanyOwnershipScope",
+         ownership."effectiveOwnershipReason" AS "ownershipEffectiveOwnershipReason",
+         COUNT(DISTINCT vt.id)::int AS "taskCount",
+         COUNT(DISTINCT vtr.id) FILTER (WHERE vtr.final_decision IS NOT NULL)::int AS "documentedTaskCount",
+         COALESCE(
+           json_agg(DISTINCT jsonb_build_object('taskType', vt.task_type, 'taskFamily', vt.task_family, 'status', vt.status))
+             FILTER (WHERE vt.id IS NOT NULL),
+           '[]'::json
+         ) AS "tasksSummary",
+         (vs.id IS NOT NULL) AS "hasSurvey",
+         COALESCE(vs.is_skipped, FALSE) AS "surveySkipped",
+         (rs.id IS NOT NULL) AS "hasReferralSheet",
+         vgl.actual_start_time AS "actualStartTime",
+         vgl.actual_end_time AS "actualEndTime",
+         vgl.location_missing AS "locationMissing",
+         COALESCE(
+           ARRAY_AGG(DISTINCT vea.tier) FILTER (WHERE vea.tier IS NOT NULL),
+           ARRAY[]::int[]
+         ) AS "escalationTiers"
        FROM field_visits fv
+       JOIN clients c ON c.id = fv.client_id
+       LEFT JOIN branches b ON b.id = fv.branch_id
+       LEFT JOIN geo_units neigh ON neigh.id = CASE
+         WHEN NULLIF(c.neighborhood::text, '') ~ '^[0-9]+$' THEN c.neighborhood::int
+         ELSE NULL
+       END
+       LEFT JOIN geo_units neigh_parent ON neigh_parent.id = neigh.parent_id
+       LEFT JOIN geo_units district ON district.id = CASE
+         WHEN NULLIF(c.district::text, '') ~ '^[0-9]+$' THEN c.district::int
+         ELSE NULL
+       END
+       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'b.name' })}
+       LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
+       LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+       LEFT JOIN visit_surveys vs ON vs.field_visit_id = fv.id
+       LEFT JOIN referral_sheets rs ON rs.field_visit_id = fv.id
+       LEFT JOIN visit_geo_logs vgl ON vgl.visit_id = fv.id
+       LEFT JOIN visit_escalation_alerts vea ON vea.visit_id = fv.id
        ${where}
+       GROUP BY fv.id, c.id, b.name, neigh.id, neigh.name, neigh.level, neigh_parent.id, neigh_parent.name,
+                district.id, district.name, ownership."ownerType", ownership."ownerLabel",
+                ownership."companyOwnershipScope", ownership."effectiveOwnershipReason", vs.id, vs.is_skipped, rs.id,
+                vgl.actual_start_time, vgl.actual_end_time, vgl.location_missing
        ORDER BY fv.scheduled_date DESC, fv.scheduled_time ASC, fv.created_at DESC`,
       params,
     );
-    return res.json(rows);
+    return res.json(rows.map((row: any) => ({ ...row, ownership: mapCustomerOwnership(row) })));
   } catch (err: any) {
     console.error('[field-visits] GET / error:', err);
     res.status(500).json({ error: 'فشل في تحميل الزيارات' });
@@ -769,6 +910,52 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
  *       500:
  *         description: Server error
  */
+
+// ============================================================================
+// GET /field-visits/escalation-alerts — DEC-006 D38
+// ============================================================================
+// MUST be declared BEFORE /:id so Express does not match "escalation-alerts"
+// as the visit id parameter (which previously caused HTTP 400).
+router.get('/escalation-alerts', requirePermission('field_visits.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const branchId = authContext.actingBranchId;
+    const params: any[] = [];
+    let branchClause = '';
+    if (branchId != null && !authContext.isSuperAdmin) {
+      params.push(branchId);
+      branchClause = `AND fv.branch_id = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT fv.id            AS "visitId",
+              fv.status,
+              fv.branch_id     AS "branchId",
+              fv.client_id     AS "clientId",
+              c.name           AS "clientName",
+              fv.team_responsible_user_id AS "teamResponsibleUserId",
+              EXTRACT(EPOCH FROM (NOW() - fv.updated_at)) / 3600 AS "hoursSinceUpdate",
+              ARRAY(
+                SELECT tier FROM visit_escalation_alerts
+                 WHERE visit_id = fv.id
+                 ORDER BY tier
+              ) AS "tiersAlerted"
+         FROM field_visits fv
+         LEFT JOIN clients c ON c.id = fv.client_id
+        WHERE fv.status IN ('in_progress', 'ended')
+          AND EXISTS (SELECT 1 FROM visit_escalation_alerts vea WHERE vea.visit_id = fv.id)
+          ${branchClause}
+        ORDER BY fv.updated_at ASC
+        LIMIT 200`,
+      params,
+    );
+    return res.json({ count: rows.length, items: rows });
+  } catch (err: any) {
+    console.error('[field-visits] GET /escalation-alerts error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل تحميل التنبيهات' });
+  }
+});
+
 router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -1345,55 +1532,598 @@ router.post('/:id/complete', requirePermission('field_visits.edit'), async (req,
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
 
-    // Guard: all visit_tasks must have results
-    const { rows: pendingTasks } = await pool.query(
-      `SELECT vt.id FROM visit_tasks vt
-       LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
-       WHERE vt.field_visit_id = $1 AND vtr.id IS NULL`,
-      [visitId],
-    );
-    if (pendingTasks.length > 0) {
-      return res.status(400).json({
-        error: `لا يمكن إتمام الزيارة: ${pendingTasks.length} مهمة لم يُسجَّل لها نتيجة بعد`,
-      });
+    // DEC-007 D44/D45 + P-DEC007-04: delegate to the shared completion service.
+    // Guards enforced: (1) every visit_task has a result with final_decision,
+    // (2) visit_surveys row exists (filled OR skipped). Referral sheet is NOT
+    // a guard — the legacy visit_name_collections check is dropped (D45).
+    const result = await checkAndCompleteVisit(visitId, authContext.userId ?? null);
+    if (result.completed) {
+      return res.json({ success: true, alreadyCompleted: result.alreadyCompleted === true });
     }
 
-    // Guard: name collections must be completed (not pending)
-    const { rows: pendingNC } = await pool.query(
-      `SELECT vnc.id, vnc.status, vnc.proposed_count, vnc.actual_count
-       FROM visit_name_collections vnc
-       JOIN visit_tasks vt ON vt.id = vnc.visit_task_id
-       WHERE vt.field_visit_id = $1 AND vnc.status = 'pending' AND vnc.proposed_count > 0`,
-      [visitId],
-    );
-    if (pendingNC.length > 0) {
-      return res.status(400).json({
-        error: 'مهمة التوصيل غير مكتملة — يجب تسجيل الأسماء الفعلية',
-      });
+    if (result.reason === 'guards_failed') {
+      const parts: string[] = [];
+      if (result.missing?.includes('tasks')) {
+        parts.push(`${result.pendingTaskCount ?? 0} مهمة لم تُسجَّل نتيجتها`);
+      }
+      if (result.missing?.includes('survey')) {
+        parts.push('الاستبيان (visit_survey) غير موجود — تعبئة كاملة أو سبب تخطٍ مطلوب');
+      }
+      return res.status(400).json({ error: `لا يمكن إتمام الزيارة: ${parts.join(' و ')}` });
     }
-
-    const { rows: partialNC } = await pool.query(
-      `SELECT vnc.id FROM visit_name_collections vnc
-       JOIN visit_tasks vt ON vt.id = vnc.visit_task_id
-       WHERE vt.field_visit_id = $1 AND vnc.status = 'partial'`,
-      [visitId],
-    );
-    if (partialNC.length > 0) {
-      return res.status(400).json({
-        error: 'عدد الأسماء المسجل أقل من المقترح — تأكد من اكتمال التوصيل',
-      });
+    if (result.reason?.startsWith('status_not_eligible')) {
+      const current = result.reason.split(':')[1] ?? '';
+      return res.status(409).json({ error: `حالة الزيارة الحالية (${current}) لا تسمح بالإكمال` });
     }
-
-    await pool.query(
-      `UPDATE field_visits SET status = 'completed', closed_by = $1, closed_at = NOW(), updated_at = NOW()
-       WHERE id = $2`,
-      [authContext.userId, visitId],
-    );
-
-    res.json({ success: true });
+    return res.status(400).json({ error: result.reason ?? 'فشل غير معروف' });
   } catch (err: any) {
     console.error('[field-visits] POST /:id/complete error:', err);
     res.status(500).json({ error: 'فشل في إتمام الزيارة' });
+  }
+});
+
+// ============================================================================
+// POST /field-visits/:id/tasks — DEC-003 D7 expanded (cascading)
+// ============================================================================
+// Adds a visit_task to a field_visit currently in_progress, optionally creating
+// the underlying open_task in the same call (creation_origin = 'cascading_during_visit').
+//
+// Constraint (D7 expanded): the open_task must belong to the same client_id.
+// No task-type whitelist, no N-window check.
+router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, res) => {
+  const fieldVisitId = Number(req.params.id);
+  if (!Number.isInteger(fieldVisitId) || fieldVisitId <= 0) {
+    return res.status(400).json({ error: 'fieldVisitId غير صالح' });
+  }
+  const performedByUserId = (req as any).authContext?.userId ?? null;
+  const body = req.body ?? {};
+  const taskType = typeof body.taskType === 'string' ? body.taskType : null;
+  if (!taskType) {
+    return res.status(400).json({ error: 'taskType مطلوب' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Load and verify the field_visit is in_progress
+    const { rows: visitRows } = await client.query(
+      `SELECT id, client_id, branch_id, status
+         FROM field_visits
+        WHERE id = $1
+        LIMIT 1`,
+      [fieldVisitId],
+    );
+    if (visitRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    }
+    const visit = visitRows[0];
+    if (visit.status !== 'in_progress') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `إضافة مهمة cascading متاحة فقط لزيارة in_progress (الحالة الحالية: ${visit.status})`,
+      });
+    }
+
+    // 2. Verify task_type is active and resolve task_family
+    const { rows: configRows } = await client.query(
+      `SELECT task_type, task_family
+         FROM task_type_config
+        WHERE task_type = $1 AND is_active = TRUE
+        LIMIT 1`,
+      [taskType],
+    );
+    if (configRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `نوع المهمة "${taskType}" غير معروف أو معطّل.` });
+    }
+    const taskFamily = configRows[0].task_family;
+
+    // 3. Resolve or create the source open_task
+    let openTaskId: number | null = Number(body.openTaskId) || null;
+    if (openTaskId != null && openTaskId > 0) {
+      const { rows: existingRows } = await client.query(
+        `SELECT id, client_id, task_type FROM open_tasks WHERE id = $1 LIMIT 1`,
+        [openTaskId],
+      );
+      if (existingRows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: `open_task #${openTaskId} غير موجودة` });
+      }
+      if (Number(existingRows[0].client_id) !== Number(visit.client_id)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'لا يجوز إضافة مهمة لزبون مختلف عن زبون الزيارة (DEC-003 D7).',
+        });
+      }
+      if (existingRows[0].task_type !== taskType) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `نوع المهمة المطلوب (${taskType}) لا يطابق نوع open_task #${openTaskId} (${existingRows[0].task_type}).`,
+        });
+      }
+    } else {
+      // Create new open_task with creation_origin = cascading_during_visit
+      const { rows: newRows } = await client.query(
+        `INSERT INTO open_tasks (
+           client_id, branch_id, task_type, task_family, reason, status,
+           source, origin, creation_origin,
+           assigned_at, assigned_by, assigned_via,
+           created_by
+         ) VALUES (
+           $1, $2, $3, $4, $5, 'scheduled',
+           'manual', 'manual_entry', 'cascading_during_visit',
+           NOW(), $6, 'cascading',
+           $6
+         )
+         RETURNING id`,
+        [
+          visit.client_id,
+          visit.branch_id,
+          taskType,
+          taskFamily,
+          body.reason ?? 'إضافة أثناء الزيارة',
+          performedByUserId,
+        ],
+      );
+      openTaskId = Number(newRows[0].id);
+    }
+
+    // 4. Insert the visit_task
+    const { rows: vtRows } = await client.query(
+      `INSERT INTO visit_tasks (
+         field_visit_id, source_open_task_id,
+         task_type, task_family,
+         sequence_no, status
+       )
+       SELECT $1, $2, $3, $4,
+              COALESCE(MAX(sequence_no), 0) + 1,
+              'pending'
+         FROM visit_tasks WHERE field_visit_id = $1
+       RETURNING id, sequence_no`,
+      [fieldVisitId, openTaskId, taskType, taskFamily],
+    );
+
+    // 5. Ensure the linked open_task is in scheduled state
+    await client.query(
+      `UPDATE open_tasks SET status = 'scheduled', updated_at = NOW() WHERE id = $1 AND status IN ('open', 'needs_follow_up', 'assigned', 'in_scheduling')`,
+      [openTaskId],
+    );
+
+    await client.query('COMMIT');
+    return res.json({
+      visitTaskId: vtRows[0].id,
+      sequenceNo: vtRows[0].sequence_no,
+      openTaskId,
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('[field-visits] POST /:id/tasks error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل إضافة المهمة' });
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================================================
+// Referral sheet endpoints — DEC-007 D40, D41
+// ============================================================================
+
+/**
+ * GET /api/field-visits/:id/referral-sheet
+ * Returns the referral_sheet bound to this visit (if any). Frontend uses this
+ * to decide whether to show "إضافة لائحة جديدة" or "تعديل عدد اللائحة".
+ */
+router.get('/:id/referral-sheet', requirePermission('field_visits.view'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows } = await pool.query(
+      `SELECT id,
+              field_visit_id  AS "fieldVisitId",
+              target_candidates AS "targetCandidates",
+              owner_user_id   AS "ownerUserId",
+              status,
+              referral_name_snapshot AS "referralNameSnapshot",
+              referral_address_text  AS "referralAddressText"
+         FROM referral_sheets
+        WHERE field_visit_id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    return res.json(rows[0] ?? null);
+  } catch (err: any) {
+    console.error('[field-visits] GET /:id/referral-sheet error:', err);
+    res.status(500).json({ error: 'فشل تحميل اللائحة' });
+  }
+});
+
+/**
+ * POST /api/field-visits/:id/referral-sheet  (DEC-007 D41)
+ *
+ * Creates a referral_sheet bound to this visit. Only allowed while the visit
+ * is in_progress or ended (D46). The team_responsible_user_id snapshot decides
+ * the owner_user_id (D47).
+ */
+router.post('/:id/referral-sheet', requirePermission('field_visits.edit'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const authContext = getAuthContext(req);
+    const body = req.body ?? {};
+    const targetCandidates = Number.isFinite(body.targetCandidates) && body.targetCandidates >= 0
+      ? Math.floor(body.targetCandidates)
+      : 0;
+
+    const { rows: visitRows } = await pool.query(
+      `SELECT fv.id, fv.client_id, fv.branch_id, fv.status,
+              fv.scheduled_date, fv.team_responsible_user_id,
+              c.name AS client_name,
+              c.detailed_address AS client_address
+         FROM field_visits fv
+         LEFT JOIN clients c ON c.id = fv.client_id
+        WHERE fv.id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    const visit = visitRows[0];
+    if (!authContext.isSuperAdmin && visit.branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+    }
+    if (visit.status !== 'in_progress' && visit.status !== 'ended') {
+      return res.status(409).json({
+        error: `إنشاء اللائحة مسموح فقط بعد بدء الزيارة (الحالة الحالية: ${visit.status}) — DEC-007 D46`,
+      });
+    }
+
+    // DEC-007 D40: enforce one referral_sheet per field_visit
+    const { rows: existing } = await pool.query(
+      'SELECT id FROM referral_sheets WHERE field_visit_id = $1 LIMIT 1',
+      [visitId],
+    );
+    if (existing.length > 0) {
+      return res.status(409).json({ error: 'يوجد لائحة لهذه الزيارة سابقاً — استخدم تعديل target_candidates' });
+    }
+
+    const ownerUserId = visit.team_responsible_user_id ?? authContext.userId ?? null;
+
+    const { rows: created } = await pool.query(
+      `INSERT INTO referral_sheets (
+         referral_type, referral_entity_id,
+         referral_name_snapshot, referral_address_text,
+         referral_origin_channel,
+         field_visit_id,
+         owner_user_id,
+         branch_id,
+         target_candidates,
+         status,
+         referral_date,
+         created_by
+       ) VALUES (
+         'client', $1,
+         $2, $3,
+         'visit',
+         $4,
+         $5,
+         $6,
+         $7,
+         'New',
+         $8,
+         $5
+       )
+       RETURNING id, target_candidates AS "targetCandidates", status, owner_user_id AS "ownerUserId"`,
+      [
+        visit.client_id,
+        visit.client_name ?? null,
+        visit.client_address ?? null,
+        visitId,
+        ownerUserId,
+        visit.branch_id,
+        targetCandidates,
+        String(visit.scheduled_date ?? '').slice(0, 10),
+      ],
+    );
+
+    return res.json({ fieldVisitId: visitId, ...created[0] });
+  } catch (err: any) {
+    console.error('[field-visits] POST /:id/referral-sheet error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل إنشاء اللائحة' });
+  }
+});
+
+/**
+ * PATCH /api/field-visits/:id/referral-sheet/target  (DEC-007 D41)
+ * Updates target_candidates on the visit's referral_sheet.
+ */
+router.patch('/:id/referral-sheet/target', requirePermission('field_visits.edit'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const targetCandidates = Number(req.body?.targetCandidates);
+    if (!Number.isFinite(targetCandidates) || targetCandidates < 0) {
+      return res.status(400).json({ error: 'targetCandidates يجب أن يكون رقماً ≥ 0' });
+    }
+    const { rows } = await pool.query(
+      `UPDATE referral_sheets
+          SET target_candidates = $1
+        WHERE field_visit_id = $2
+        RETURNING id, target_candidates AS "targetCandidates"`,
+      [Math.floor(targetCandidates), visitId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'لا توجد لائحة لهذه الزيارة' });
+    }
+    return res.json(rows[0]);
+  } catch (err: any) {
+    console.error('[field-visits] PATCH /:id/referral-sheet/target error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل التحديث' });
+  }
+});
+
+// ============================================================================
+// Visit survey endpoints — DEC-007 D42, D43, D44
+// ============================================================================
+
+/**
+ * GET /api/field-visits/:id/survey
+ * Returns the visit's survey row if it exists.
+ */
+router.get('/:id/survey', requirePermission('field_visits.view'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows } = await pool.query(
+      `SELECT id,
+              field_visit_id                    AS "fieldVisitId",
+              is_skipped                        AS "isSkipped",
+              skip_reason                       AS "skipReason",
+              filled_by_user_id                 AS "filledByUserId",
+              filled_at                         AS "filledAt",
+              household_members_count           AS "householdMembersCount",
+              drinking_water_source             AS "drinkingWaterSource",
+              tds_test_result                   AS "tdsTestResult",
+              hardness_test_drops               AS "hardnessTestDrops",
+              demo_kit_tds_result               AS "demoKitTdsResult",
+              customer_opinion_water_source     AS "customerOpinionWaterSource",
+              customer_opinion_demo_kit         AS "customerOpinionDemoKit",
+              customer_opinion_purification_idea AS "customerOpinionPurificationIdea",
+              customer_purchase_intent          AS "customerPurchaseIntent",
+              expected_payment_method           AS "expectedPaymentMethod",
+              area_evaluation                   AS "areaEvaluation"
+         FROM visit_surveys
+        WHERE field_visit_id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    return res.json(rows[0] ?? null);
+  } catch (err: any) {
+    console.error('[field-visits] GET /:id/survey error:', err);
+    res.status(500).json({ error: 'فشل تحميل الاستبيان' });
+  }
+});
+
+const SURVEY_REQUIRED_FIELDS = [
+  'householdMembersCount',
+  'drinkingWaterSource',
+  'tdsTestResult',
+  'hardnessTestDrops',
+  'demoKitTdsResult',
+  'customerOpinionWaterSource',
+  'customerOpinionDemoKit',
+  'customerOpinionPurificationIdea',
+  'customerPurchaseIntent',
+  'expectedPaymentMethod',
+  'areaEvaluation',
+] as const;
+
+/**
+ * POST /api/field-visits/:id/survey  (DEC-007 D42, D43)
+ *
+ * Upserts a filled visit_survey. All 11 fields must be present. Triggers
+ * checkAndCompleteVisit on success.
+ */
+router.post('/:id/survey', requirePermission('field_visits.edit'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const authContext = getAuthContext(req);
+    const body = req.body ?? {};
+
+    // 1. Verify visit status allows survey edit (DEC-007 D46)
+    const { rows: visitRows } = await pool.query(
+      'SELECT id, branch_id, status FROM field_visits WHERE id = $1 LIMIT 1',
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!authContext.isSuperAdmin && visitRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+    }
+    if (visitRows[0].status !== 'in_progress' && visitRows[0].status !== 'ended') {
+      return res.status(409).json({
+        error: `تعبئة الاستبيان مسموحة فقط بعد بدء الزيارة (الحالة الحالية: ${visitRows[0].status}) — DEC-007 D46`,
+      });
+    }
+
+    // 2. Validate every required field present
+    const missing = SURVEY_REQUIRED_FIELDS.filter((k) => body[k] === undefined || body[k] === null || body[k] === '');
+    if (missing.length > 0) {
+      return res.status(400).json({ error: `حقول مفقودة: ${missing.join(', ')}` });
+    }
+
+    const filledByUserId = authContext.userId ?? null;
+
+    // 3. Upsert (insert or update if a row already exists)
+    const { rows: upserted } = await pool.query(
+      `INSERT INTO visit_surveys (
+         field_visit_id,
+         is_skipped, skip_reason,
+         filled_by_user_id, filled_at,
+         household_members_count, drinking_water_source,
+         tds_test_result, hardness_test_drops, demo_kit_tds_result,
+         customer_opinion_water_source, customer_opinion_demo_kit,
+         customer_opinion_purification_idea, customer_purchase_intent,
+         expected_payment_method, area_evaluation
+       ) VALUES (
+         $1,
+         FALSE, NULL,
+         $2, NOW(),
+         $3, $4,
+         $5, $6, $7,
+         $8, $9,
+         $10, $11,
+         $12, $13
+       )
+       ON CONFLICT (field_visit_id) DO UPDATE SET
+         is_skipped                          = FALSE,
+         skip_reason                         = NULL,
+         filled_by_user_id                   = EXCLUDED.filled_by_user_id,
+         filled_at                           = NOW(),
+         household_members_count             = EXCLUDED.household_members_count,
+         drinking_water_source               = EXCLUDED.drinking_water_source,
+         tds_test_result                     = EXCLUDED.tds_test_result,
+         hardness_test_drops                 = EXCLUDED.hardness_test_drops,
+         demo_kit_tds_result                 = EXCLUDED.demo_kit_tds_result,
+         customer_opinion_water_source       = EXCLUDED.customer_opinion_water_source,
+         customer_opinion_demo_kit           = EXCLUDED.customer_opinion_demo_kit,
+         customer_opinion_purification_idea  = EXCLUDED.customer_opinion_purification_idea,
+         customer_purchase_intent            = EXCLUDED.customer_purchase_intent,
+         expected_payment_method             = EXCLUDED.expected_payment_method,
+         area_evaluation                     = EXCLUDED.area_evaluation,
+         updated_at                          = NOW()
+       RETURNING id, field_visit_id AS "fieldVisitId"`,
+      [
+        visitId,
+        filledByUserId,
+        Number(body.householdMembersCount),
+        String(body.drinkingWaterSource),
+        Number(body.tdsTestResult),
+        Number(body.hardnessTestDrops),
+        Number(body.demoKitTdsResult),
+        String(body.customerOpinionWaterSource),
+        String(body.customerOpinionDemoKit),
+        String(body.customerOpinionPurificationIdea),
+        Boolean(body.customerPurchaseIntent),
+        String(body.expectedPaymentMethod),
+        String(body.areaEvaluation),
+      ],
+    );
+
+    // 4. Trigger auto-completion check (DEC-007 P-DEC007-04)
+    const completion = await checkAndCompleteVisit(visitId, filledByUserId);
+
+    return res.json({ survey: upserted[0], completion });
+  } catch (err: any) {
+    console.error('[field-visits] POST /:id/survey error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل حفظ الاستبيان' });
+  }
+});
+
+/**
+ * POST /api/field-visits/:id/survey/skip  (DEC-007 D42)
+ *
+ * Records that the survey was skipped with a reason from system_lists.
+ * Body: { skipReason: string }. Triggers checkAndCompleteVisit on success.
+ */
+router.post('/:id/survey/skip', requirePermission('field_visits.edit'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const authContext = getAuthContext(req);
+    const skipReason = String(req.body?.skipReason ?? '').trim();
+    if (!skipReason) return res.status(400).json({ error: 'skipReason مطلوب' });
+
+    const { rows: visitRows } = await pool.query(
+      'SELECT id, branch_id, status FROM field_visits WHERE id = $1 LIMIT 1',
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!authContext.isSuperAdmin && visitRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+    }
+    if (visitRows[0].status !== 'in_progress' && visitRows[0].status !== 'ended') {
+      return res.status(409).json({
+        error: `تسجيل التخطي مسموح فقط بعد بدء الزيارة — DEC-007 D46`,
+      });
+    }
+
+    // Insert OR overwrite an existing row with the skipped form
+    const { rows: upserted } = await pool.query(
+      `INSERT INTO visit_surveys (
+         field_visit_id, is_skipped, skip_reason
+       ) VALUES ($1, TRUE, $2)
+       ON CONFLICT (field_visit_id) DO UPDATE SET
+         is_skipped                          = TRUE,
+         skip_reason                         = EXCLUDED.skip_reason,
+         filled_by_user_id                   = NULL,
+         filled_at                           = NULL,
+         household_members_count             = NULL,
+         drinking_water_source               = NULL,
+         tds_test_result                     = NULL,
+         hardness_test_drops                 = NULL,
+         demo_kit_tds_result                 = NULL,
+         customer_opinion_water_source       = NULL,
+         customer_opinion_demo_kit           = NULL,
+         customer_opinion_purification_idea  = NULL,
+         customer_purchase_intent            = NULL,
+         expected_payment_method             = NULL,
+         area_evaluation                     = NULL,
+         updated_at                          = NOW()
+       RETURNING id, field_visit_id AS "fieldVisitId", skip_reason AS "skipReason"`,
+      [visitId, skipReason],
+    );
+
+    const completion = await checkAndCompleteVisit(visitId, authContext.userId ?? null);
+    return res.json({ survey: upserted[0], completion });
+  } catch (err: any) {
+    console.error('[field-visits] POST /:id/survey/skip error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل تسجيل التخطي' });
+  }
+});
+
+// ============================================================================
+// POST /field-visits/:id/reopen — DEC-004 D11
+// ============================================================================
+// Reopens a `closed` visit. Gated by the new field_visits.reopen_closed
+// permission (migration 219). A reason is mandatory and stored as a closing
+// note for audit. The visit returns to `ended` (the last pre-close state),
+// since post-close edits go through the standard "update_result" flow.
+router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const reason = String(req.body?.reason ?? '').trim();
+    if (!reason) return res.status(400).json({ error: 'سبب الفتح مطلوب' });
+
+    const { rows: fvRows } = await pool.query(
+      'SELECT id, branch_id, status FROM field_visits WHERE id = $1',
+      [visitId],
+    );
+    if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+    }
+    if (fvRows[0].status !== 'closed') {
+      return res.status(409).json({ error: `الزيارة ليست مُقفلة (الحالة: ${fvRows[0].status})` });
+    }
+
+    await pool.query(
+      `UPDATE field_visits
+          SET status     = 'ended',
+              closed_by  = NULL,
+              closed_at  = NULL,
+              field_notes = COALESCE(field_notes || E'\n\n', '') || $2,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [visitId, `[reopen by user #${authContext.userId} at ${new Date().toISOString()}] ${reason}`],
+    );
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[field-visits] POST /:id/reopen error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل فتح الزيارة' });
   }
 });
 

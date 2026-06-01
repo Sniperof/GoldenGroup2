@@ -4,6 +4,7 @@ import Login from './pages/auth/Login';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import MainLayout from './layout/MainLayout';
 import Dashboard from './pages/Dashboard';
+import SupervisorAlertsPage from './pages/supervisor/SupervisorAlertsPage';
 import GeoSettings from './pages/GeoSettings';
 import RouteManager from './pages/RouteManager';
 import Employees from './pages/Employees';
@@ -24,6 +25,7 @@ import Returns from './pages/tasks/Returns';
 import FollowUp from './pages/tasks/FollowUp';
 import DeviceManagement from './pages/DeviceManagement';
 import DeviceDetail from './pages/DeviceDetail';
+import DeviceProfilePage from './pages/devices/DeviceProfilePage'; // DEC-CT plan §2
 import ContractList from './pages/contracts/ContractList';
 import ContractForm from './pages/contracts/ContractForm';
 import ContractDetail from './pages/contracts/ContractDetail';
@@ -50,6 +52,7 @@ import RolePermissions from './pages/admin/RolePermissions';
 import PermissionSettings from './pages/admin/PermissionSettings';
 import TaskTypes from './pages/admin/TaskTypes';
 import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
+import VisitsListPage from './pages/visits/VisitsListPage';
 import VisitDetailPage from './pages/visits/VisitDetailPage';
 
 
@@ -69,6 +72,8 @@ export default function App() {
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/devices" element={<DeviceManagement />} />
                         <Route path="/devices/:id" element={<DeviceDetail />} />
+                        {/* DEC-CT plan §2 — standalone profile for a customer's installed device */}
+                        <Route path="/installed-devices/:id" element={<DeviceProfilePage />} />
                         <Route path="/geo" element={<GeoSettings />} />
                         <Route path="/routes" element={<RouteManager />} />
                         <Route path="/employees" element={<Employees />} />
@@ -92,6 +97,7 @@ export default function App() {
                         <Route path="/tasks/device-demo" element={<DeviceDemo />} />
                         <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
                         <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
+                        <Route path="/field-visits" element={<VisitsListPage />} />
                         <Route path="/field-visits/:id" element={<VisitDetailPage />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />
@@ -114,6 +120,9 @@ export default function App() {
                         <Route path="/jobs/interviews" element={<Interviews />} />
                         <Route path="/jobs/training-courses" element={<TrainingCourses />} />
                         <Route path="/jobs/training-courses/:id" element={<TrainingCourseDetail />} />
+
+                        {/* Supervisor */}
+                        <Route path="/supervisor/alerts" element={<SupervisorAlertsPage />} />
 
                         {/* Admin */}
                         <Route path="/admin/roles" element={<Roles />} />

@@ -242,6 +242,13 @@ function buildOpenTaskEligibilityPredicate(
     ? `${otAlias}.status = 'assigned'`
     : `${otAlias}.status IN ('open', 'needs_follow_up')`;
 
+  // DEC-006 D36: needs_follow_up tasks use a FIXED 1-day pre-window (the customer
+  // committed to expected_date and we schedule the visit one day before). The
+  // task_type_config.planning_window_days applies only to status='open' tasks,
+  // where the window is exploratory for the telemarketer.
+  // Implementation: clamp the window-days to '1 day' when status='needs_follow_up'.
+  // This produces the constitutional "1 day before expected_date" behavior without
+  // adding a new column.
   return `
     ${statusClause}
     AND ${ttcAlias}.is_active = TRUE
@@ -251,14 +258,24 @@ function buildOpenTaskEligibilityPredicate(
         ${ttcAlias}.window_basis = 'due_date'
         AND (
           ${otAlias}.due_date IS NULL
-          OR ${otAlias}.due_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days || ' days')::INTERVAL
+          OR ${otAlias}.due_date <= CURRENT_DATE + (
+            CASE
+              WHEN ${otAlias}.status = 'needs_follow_up' THEN '1'
+              ELSE ${ttcAlias}.planning_window_days::text
+            END || ' days'
+          )::INTERVAL
         )
       )
       OR (
         ${ttcAlias}.window_basis = 'expected_date'
         AND (
           ${otAlias}.expected_date IS NULL
-          OR ${otAlias}.expected_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days || ' days')::INTERVAL
+          OR ${otAlias}.expected_date <= CURRENT_DATE + (
+            CASE
+              WHEN ${otAlias}.status = 'needs_follow_up' THEN '1'
+              ELSE ${ttcAlias}.planning_window_days::text
+            END || ' days'
+          )::INTERVAL
         )
       )
     )
@@ -472,21 +489,30 @@ export async function getPlanningMarketingTargets(params: {
           LIMIT 1
         ) ct_loc ON ttc_eff.location_basis = 'contract'
         LEFT JOIN LATERAL (
+          -- Phase 4 refactor (Q-C): read from field_visits + visit_tasks instead of
+          -- the legacy marketing_visits + marketing_visit_tasks pair. The bridge
+          -- migration 148 backfilled visit_tasks.source_open_task_id from the
+          -- legacy rows so historical unfinished detection is preserved.
           SELECT 1 AS has_unfinished_visit
-          FROM marketing_visit_tasks mvt
-          JOIN marketing_visits mv ON mv.id = mvt.visit_id
-          WHERE mvt.source_open_task_id = ttc_eff.id
-            AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
-            AND NULLIF(mv.scheduled_date, '')::date < $4::date
+          FROM visit_tasks vt
+          JOIN field_visits fv ON fv.id = vt.field_visit_id
+          WHERE vt.source_open_task_id = ttc_eff.id
+            AND fv.status IN ('scheduled', 'in_progress', 'ended', 'not_completed')
+            AND fv.scheduled_date < $4::date
           LIMIT 1
         ) unfinished_visit ON TRUE
         WHERE c.is_candidate = FALSE
+          -- DEC-005 D-customer-filters: cooldown + do_not_contact (D29)
+          AND c.do_not_contact = FALSE
+          AND (c.cooldown_until IS NULL OR c.cooldown_until < CURRENT_DATE)
           AND c.branch_id = $1
           AND ${buildTeamOwnedClientScopePredicate('c')}
           AND ttc_eff.id IS NOT NULL
           AND unfinished_visit.has_unfinished_visit IS NULL
           AND (
-            NOT EXISTS (SELECT 1 FROM visits v WHERE v.customer_id = c.id)
+            -- DEC-005 §4: NOT EXISTS visits (legacy) removed; OR-branch kept so the
+            -- assigned-task scope still resolves the customer in the planning sub-query.
+            TRUE
             OR EXISTS (
               SELECT 1
               FROM open_tasks ot_scope
@@ -668,15 +694,19 @@ export async function getPlanningMarketingTargets(params: {
         LIMIT 1
       ) ct_zone ON ot.location_basis = 'contract'
       LEFT JOIN LATERAL (
+        -- Phase 4 refactor (Q-C): read from field_visits + visit_tasks
         SELECT 1 AS has_unfinished_visit
-        FROM marketing_visit_tasks mvt
-        JOIN marketing_visits mv ON mv.id = mvt.visit_id
+        FROM visit_tasks mvt
+        JOIN field_visits mv ON mv.id = mvt.field_visit_id
         WHERE mvt.source_open_task_id = ot.id
-          AND mv.status IN ('scheduled', 'in_progress', 'not_completed', 'rescheduled')
-          AND NULLIF(mv.scheduled_date, '')::date < $4::date
+          AND mv.status IN ('scheduled', 'in_progress', 'ended', 'not_completed')
+          AND mv.scheduled_date < $4::date
         LIMIT 1
       ) unfinished_visit ON TRUE
       WHERE c.is_candidate = FALSE
+        -- DEC-005 D-customer-filters: cooldown + do_not_contact (D29)
+        AND c.do_not_contact = FALSE
+        AND (c.cooldown_until IS NULL OR c.cooldown_until < CURRENT_DATE)
         AND c.branch_id = $1
         AND ${buildTeamOwnedClientScopePredicate('c')}
         AND ot.id IS NOT NULL
@@ -690,7 +720,8 @@ export async function getPlanningMarketingTargets(params: {
             AND c.neighborhood::int = ANY($2::int[]))
         )
         AND (
-          NOT EXISTS (SELECT 1 FROM visits v WHERE v.customer_id = c.id)
+          -- DEC-005 §4: legacy NOT EXISTS visits filter removed
+          TRUE
           OR EXISTS (
             SELECT 1
             FROM open_tasks ot_scope
@@ -841,7 +872,9 @@ export async function getPlanningWorkScope(params: {
   // Build a set of client IDs reachable by this team:
   //   1) client is company-owned in zone
   //   2) client is personally assigned to a team actor
-  const queryParams: any[] = [branchId, companyOwnedIds, actorHrUserIds, date];
+  // DEC-006 D31: solo teams (EmergencySlot) only carry emergency_maintenance.
+  const isSoloTeam = keyMatch[1] === 'solo';
+  const queryParams: any[] = [branchId, companyOwnedIds, actorHrUserIds, date, isSoloTeam];
 
   const { rows: taskRows } = await pool.query(
     `SELECT
@@ -893,6 +926,8 @@ export async function getPlanningWorkScope(params: {
       AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
       AND (c.is_active IS NULL OR c.is_active = TRUE)
        AND c.deleted_at IS NULL
+       -- DEC-006 D31: EmergencySlot capability is exclusively emergency_maintenance
+       AND ($5::boolean = FALSE OR ot.task_type = 'emergency_maintenance')
        AND (
          (cardinality($2::int[]) > 0 AND ot.client_id = ANY($2::int[]))
          OR (cardinality($3::int[]) > 0 AND EXISTS (

@@ -1,18 +1,26 @@
 import { useEffect, useState, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ChevronRight, Phone, MapPin, Share2,
     History, ArrowLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
-    X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle
+    X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle,
+    Cpu, Package, Sparkles
 } from 'lucide-react';
+import { DevicesTab } from './clientProfile/DevicesTab'; // plan §1 — replaces legacy ContractsTab
+import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
+import { PartsStockTab } from './clientProfile/PartsStockTab';
+import { PreOffersTab } from './clientProfile/PreOffersTab'; // plan B — device-demo pre-offers audit
 import { api } from '../lib/api';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import type { Client, GeoUnit } from '../lib/types';
+import { buildGeoPath, geoLevelLabel } from '../lib/geoPath';
 import ClientAvatar from '../components/ClientAvatar';
 import { getOutcomeMeta, OUTCOMES_BY_GROUP, TelemarketingOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY, OUTCOME_MAP } from '@golden-crm/shared';
 import OutcomeRecorderModal, { SaveExtras } from '../components/telemarketing/OutcomeRecorderModal';
+import ContactControlCard from '../components/clients/ContactControlCard';
 import CustomerCallLog from '../components/customers/CustomerCallLog';
 import PhoneCallLog from '../components/customers/PhoneCallLog';
 import DeviceOfferModal from '../components/clients/DeviceOfferModal';
@@ -26,10 +34,279 @@ const referrerTypesAr: Record<string, string> = {
     'Other': 'أخرى',
 };
 
+const EMPTY_VALUE = '-';
+
+function valueOrEmpty(value?: string | number | null): string {
+    if (value === null || value === undefined || value === '') return EMPTY_VALUE;
+    return String(value);
+}
+
+function formatDate(value?: string | null): string {
+    if (!value) return EMPTY_VALUE;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString('en-GB');
+}
+
+function getClientDisplayName(client: Client): string {
+    return [client.firstName, client.fatherName, client.lastName].filter(Boolean).join(' ') || client.name || EMPTY_VALUE;
+}
+
+function getLifecycleMeta(client: Client) {
+    const stage = ((client as any).lifecycleStage || client.candidateStatus || 'Lead') as string;
+    const map: Record<string, { label: string; className: string }> = {
+        OP: { label: 'زبون فعلي (OP)', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+        FOP: { label: 'مستهدف (FOP)', className: 'bg-orange-50 text-orange-700 border-orange-200' },
+        Lead: { label: 'مرشح (Lead)', className: 'bg-sky-50 text-sky-700 border-sky-200' },
+    };
+    return map[stage] || { label: stage || 'مرشح (Lead)', className: 'bg-slate-50 text-slate-600 border-slate-200' };
+}
+
+function getRatingLabel(rating?: string | null): string {
+    if (rating === 'Committed') return 'زبون ملتزم';
+    if (rating === 'NotCommitted') return 'زبون غير ملتزم';
+    return EMPTY_VALUE;
+}
+
+function getLocationLeafId(client: Client): number | null {
+    const candidates = [client.neighborhood, client.district, client.governorate];
+    for (const candidate of candidates) {
+        if (candidate === null || candidate === undefined || candidate === '') continue;
+        const id = Number(candidate);
+        if (!Number.isNaN(id)) return id;
+    }
+    return null;
+}
+
+function formatWesternNumber(value?: string | number | null): string {
+    if (value === null || value === undefined || value === '') return EMPTY_VALUE;
+    return String(value).replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+        .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)));
+}
+
+function InfoItem({ label, value, dir }: { label: string; value?: string | number | null; dir?: 'rtl' | 'ltr' }) {
+    return (
+        <div className="min-w-0 rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5">
+            <p className="text-[11px] font-bold text-slate-400">{label}</p>
+            <p className="mt-1 break-words text-sm font-bold leading-6 text-slate-800" dir={dir}>
+                {valueOrEmpty(value)}
+            </p>
+        </div>
+    );
+}
+
+function OwnershipItem({ client }: { client: Client }) {
+    const assignments = client.assignments?.filter((assignment) => assignment.userName) || [];
+    const ownerLabel = client.ownership?.ownerLabel;
+
+    return (
+        <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
+            <p className="text-[11px] font-bold text-slate-400">الملكية / الإسناد</p>
+            {assignments.length > 1 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                    {assignments.map((assignment) => (
+                        <span key={assignment.userId} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-700">
+                            {assignment.userName}
+                            {assignment.roleDisplayName ? <span className="text-slate-400"> - {assignment.roleDisplayName}</span> : null}
+                        </span>
+                    ))}
+                </div>
+            ) : (
+                <p className="mt-1 break-words text-sm font-bold leading-6 text-slate-800">
+                    {ownerLabel || assignments[0]?.userName || EMPTY_VALUE}
+                </p>
+            )}
+        </div>
+    );
+}
+
+function HeaderMetaItem({ label, value }: { label: string; value?: string | number | null }) {
+    return (
+        <div className="min-w-[8rem] rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] font-bold text-slate-400">{label}</p>
+            <p className="mt-0.5 break-words text-sm font-black text-slate-800">{valueOrEmpty(value)}</p>
+        </div>
+    );
+}
+
+function InfoGroup({ title, icon: Icon, children }: { title: string; icon: any; children: ReactNode }) {
+    return (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-4 flex items-center gap-2">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+                    <Icon className="h-4 w-4" />
+                </div>
+                <h3 className="text-sm font-black text-slate-800">{title}</h3>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{children}</div>
+        </section>
+    );
+}
+
+function ProfileHeaderSection({ client, geoUnits }: { client: Client; geoUnits: GeoUnit[] }) {
+    const displayName = getClientDisplayName(client);
+    const lifecycle = getLifecycleMeta(client);
+    const locationPath = buildGeoPath(geoUnits, getLocationLeafId(client));
+    const locationText = locationPath.map((unit) => unit.name).join('، ');
+    const hasGps =
+        client.gpsCoordinates &&
+        typeof client.gpsCoordinates.lat === 'number' &&
+        typeof client.gpsCoordinates.lng === 'number';
+    const lat = hasGps ? client.gpsCoordinates!.lat : null;
+    const lng = hasGps ? client.gpsCoordinates!.lng : null;
+    const mapEmbedUrl = hasGps
+        ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng! - 0.01}%2C${lat! - 0.01}%2C${lng! + 0.01}%2C${lat! + 0.01}&layer=mapnik&marker=${lat!}%2C${lng!}`
+        : '';
+    const mapOpenUrl = hasGps
+        ? `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`
+        : '';
+
+    return (
+        <section className="border-b border-slate-200 bg-slate-50 px-4 py-5 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-7xl space-y-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
+                            <ClientAvatar
+                                gender={client.gender}
+                                dataQuality={client.dataQuality}
+                                size="lg"
+                                className="shrink-0 border-4 border-white shadow-lg"
+                            />
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <h1 className="break-words text-2xl font-black leading-9 text-slate-900 sm:text-3xl">
+                                        {displayName}
+                                    </h1>
+                                    {client.nickname && (
+                                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-500">
+                                            {client.nickname}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    <span className={`rounded-full border px-3 py-1 text-xs font-black ${lifecycle.className}`}>
+                                        {lifecycle.label}
+                                    </span>
+                                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                                        الالتزام: {getRatingLabel(client.rating)}
+                                    </span>
+                                </div>
+                                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 lg:max-w-2xl">
+                                    <HeaderMetaItem label="فرع التسجيل" value={client.branchName} />
+                                    <HeaderMetaItem label="تاريخ الإنشاء" value={formatDate(client.createdAt)} />
+                                    <HeaderMetaItem label="منشئ السجل" value={client.createdByUserName} />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="w-full lg:max-w-md">
+                            <OwnershipItem client={client} />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+                    <div className="space-y-4">
+                        <InfoGroup title="الهوية الشخصية" icon={ShieldCheck}>
+                            <InfoItem label="الرقم الوطني" value={formatWesternNumber(client.nationalId)} dir="ltr" />
+                            <InfoItem label="تاريخ الميلاد" value={formatDate(client.birthDate)} />
+                            <InfoItem label="اسم الأم" value={client.motherName} />
+                            <InfoItem label="القيد" value={client.nationalIdRegistry} />
+                            <InfoItem label="أمانة الإصدار" value={client.nationalIdIssuedBy} />
+                            <InfoItem label="تاريخ الإصدار" value={formatDate(client.nationalIdIssueDate)} />
+                            <InfoItem label="الخانة" value={formatWesternNumber(client.nationalIdBox)} />
+                        </InfoGroup>
+
+                        <InfoGroup title="العمل والمعيشة" icon={Briefcase}>
+                            <InfoItem label="المهنة" value={client.occupation} />
+                            <InfoItem label="مهنة الزوجة" value={client.spouseOccupation} />
+                            <InfoItem label="مصدر المياه" value={client.waterSource} />
+                        </InfoGroup>
+                    </div>
+
+                    <section className="rounded-2xl border border-sky-200 bg-white p-4 shadow-sm sm:p-5">
+                        <div className="mb-4 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="mb-2 flex items-center gap-2">
+                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+                                        <MapPin className="h-5 w-5" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[11px] font-black uppercase tracking-wide text-sky-500">موقع الزبون</p>
+                                        <h3 className="text-base font-black text-slate-900">العنوان والموقع على الخريطة</h3>
+                                    </div>
+                                </div>
+                                {locationPath.length > 0 ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {locationPath.map((unit) => (
+                                            <span key={unit.id} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+                                                <span className="text-slate-400">{geoLevelLabel(unit.level)}: </span>
+                                                {unit.name}
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-sm font-bold text-slate-400">{EMPTY_VALUE}</p>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="mb-4 space-y-3">
+                            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                                <p className="text-[11px] font-bold text-slate-400">المسار الجغرافي</p>
+                                <p className="mt-1 break-words text-sm font-black leading-6 text-slate-800">
+                                    {locationText || EMPTY_VALUE}
+                                </p>
+                            </div>
+                            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                                <p className="text-[11px] font-bold text-slate-400">العنوان التفصيلي</p>
+                                <p className="mt-1 break-words text-sm font-bold leading-6 text-slate-800">
+                                    {valueOrEmpty(client.detailedAddress)}
+                                </p>
+                            </div>
+                        </div>
+
+                        {hasGps ? (
+                            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                                <iframe
+                                    src={mapEmbedUrl}
+                                    className="h-64 w-full sm:h-72 xl:h-80"
+                                    style={{ border: 0 }}
+                                    loading="lazy"
+                                    title="خريطة موقع الزبون"
+                                />
+                                <div className="flex flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                                    <span className="font-mono text-xs text-slate-500" dir="ltr">
+                                        {formatWesternNumber(lat)}, {formatWesternNumber(lng)}
+                                    </span>
+                                    <a
+                                        href={mapOpenUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-sky-500"
+                                    >
+                                        <Navigation className="h-4 w-4" />
+                                        فتح الخريطة
+                                    </a>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex h-40 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center text-slate-400">
+                                <Navigation className="mb-2 h-6 w-6" />
+                                <p className="text-sm font-bold">لا توجد إحداثيات GPS لهذا الزبون</p>
+                            </div>
+                        )}
+                    </section>
+                </div>
+            </div>
+        </section>
+    );
+}
+
 export default function ClientProfile() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network' | 'contracts'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network' | 'devices' | 'purchase_history' | 'parts_stock' | 'pre_offers'>('overview');
     const [callLogRefreshKey, setCallLogRefreshKey] = useState(0);
     const [client, setClient] = useState<Client | null>(null);
     const [clients, setClients] = useState<Client[]>([]);
@@ -78,20 +355,6 @@ export default function ClientProfile() {
         };
     }, [id]);
 
-    const getFullLocationStr = (neighborhoodId?: string) => {
-        if (!neighborhoodId) return 'غير محدد';
-        const nId = parseInt(neighborhoodId);
-        const n = allGeoUnits.find(g => g.id === nId);
-        if (!n) return 'غير محدد';
-        const d = allGeoUnits.find(g => g.id === n.parentId);
-        const g = allGeoUnits.find(g => g.id === d?.parentId);
-        const parts = [];
-        if (g) parts.push(g.name);
-        if (d) parts.push(d.name);
-        if (n) parts.push(n.name);
-        return parts.join(' > ') || 'غير محدد';
-    };
-
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-slate-500">
@@ -111,199 +374,43 @@ export default function ClientProfile() {
         );
     }
 
-    const formattedName = [client.firstName, client.fatherName, client.lastName, client.nickname ? `(${client.nickname})` : ''].filter(Boolean).join(' ');
-    const primaryContact = client.contacts?.find(c => c.isPrimary) || client.contacts?.[0];
-    const primaryNumber = primaryContact?.number || '--';
-
-    // Classification mapping
-    const classificationObj = {
-        'OP': { color: 'bg-emerald-500 text-white', text: 'زبون فعلي (OP)' },
-        'FOP': { color: 'bg-orange-500 text-white', text: 'مستهدف (FOP)' },
-        'Lead': { color: 'bg-sky-500 text-white', text: 'مرشح (Lead)' }
-    };
-    const cClass = ((client as any).lifecycleStage as keyof typeof classificationObj) || 'Lead';
-    const classification = classificationObj[cClass] || classificationObj['Lead'];
-
-    const referrerTypeStr = referrerTypesAr[client.referrerType || ''] || client.referrerType || 'غير محدد';
-
     return (
-        <div className="h-full flex flex-col bg-slate-50/50" style={{ direction: 'rtl' }}>
+        <div className="h-full flex flex-col overflow-hidden bg-slate-50" style={{ direction: 'rtl' }}>
             {/* Header / Breadcrumbs - Corrected path text */}
-            <div className="px-8 py-4 bg-white border-b border-gray-200 flex items-center justify-between shadow-sm shrink-0">
-                <div className="flex items-center gap-2 text-sm max-w-lg">
-                    <button onClick={() => navigate('/clients')} className="text-slate-400 hover:text-sky-600 transition-colors font-bold whitespace-nowrap hidden sm:block">سجلات الزبائن</button>
-                    <ChevronRight className="w-4 h-4 text-slate-300 hidden sm:block" />
-                    <span className="text-slate-900 font-bold ml-4 truncate">{client.name}</span>
+            <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-3 shadow-sm sm:px-6 lg:px-8">
+                <div className="mx-auto flex max-w-7xl items-center gap-2 text-sm">
+                    <button onClick={() => navigate('/clients')} className="flex items-center gap-2 font-bold text-slate-500 transition-colors hover:text-sky-600">
+                        <ArrowLeft className="h-4 w-4" />
+                        <span className="hidden sm:inline">سجلات الزبائن</span>
+                        <span className="sm:hidden">رجوع</span>
+                    </button>
+                    <ChevronRight className="hidden h-4 w-4 text-slate-300 sm:block" />
+                    <span className="min-w-0 break-words font-bold text-slate-900">{getClientDisplayName(client)}</span>
                 </div>
             </div>
 
-            <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
+            <div className="flex-1 overflow-y-auto custom-scroll">
+                <ProfileHeaderSection client={client} geoUnits={allGeoUnits} />
 
-                {/* --- Left Column: 35% Width ID Card --- */}
-                <aside className="w-full lg:w-[35%] xl:w-[420px] bg-white lg:border-l border-b lg:border-b-0 border-gray-200 flex flex-col overflow-y-auto shrink-0 z-10 shadow-[2px_0_10px_rgba(0,0,0,0.02)] custom-scroll">
-                    <div className="p-8 flex-1 space-y-8">
-                        {/* Avatar & Name */}
-                        <div className="flex flex-col items-center text-center">
-                            <div className="relative mb-4">
-                                <ClientAvatar
-                                    gender={client.gender}
-                                    dataQuality={client.dataQuality}
-                                    size="lg"
-                                    className="border-4 border-white shadow-xl"
-                                />
-                                <div className={`absolute -bottom-1 -right-4 px-3 py-1 rounded-full text-[10px] font-black shadow-md border-2 border-white ${classification.color} whitespace-nowrap`}>
-                                    {classification.text}
-                                </div>
-                            </div>
-                            <h2 className="text-2xl font-black text-slate-800 mb-1">{formattedName}</h2>
-                        </div>
-
-                        {/* Info List */}
-                        <div className="space-y-4">
-                            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center gap-4 hover:border-sky-200 hover:shadow-md transition-all">
-                                <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm shrink-0">
-                                    <Phone className="w-5 h-5 text-sky-500" />
-                                </div>
-                                <div className="flex-1">
-                                    <p className="text-[10px] text-slate-400 font-bold mb-0.5">رقم التواصل المعتمد</p>
-                                    <p className="text-base font-bold text-slate-800 font-mono tracking-wide" dir="ltr">{primaryNumber}</p>
-                                </div>
-                            </div>
-
-                            <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 hover:shadow-lg transition-all space-y-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center shadow-sm shrink-0 border border-slate-100">
-                                        <MapPin className="w-5 h-5 text-sky-500" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider mb-0.5">العنوان الجغرافي</p>
-                                        <h4 className="text-sm font-bold text-slate-800">تفاصيل الموقع</h4>
-                                    </div>
-                                </div>
-
-                                {/* Structured Address Hierarchy */}
-                                <div className="grid grid-cols-2 gap-2">
-                                    {(() => {
-                                        const nId = parseInt(client.neighborhood);
-                                        const n = allGeoUnits.find(g => g.id === nId);
-                                        const d = allGeoUnits.find(g => g.id === n?.parentId);
-                                        const go = allGeoUnits.find(g => g.id === d?.parentId);
-                                        return [
-                                            { label: 'المحافظة', value: go?.name },
-                                            { label: 'المنطقة', value: d?.name },
-                                            { label: 'الحي/المحلة', value: n?.name },
-                                            { label: 'تفاصيل العنوان', value: client.detailedAddress || 'غير محدد' }
-                                        ].map((item, idx) => (
-                                            <div key={idx} className="bg-white/60 p-2.5 rounded-2xl border border-slate-100/50">
-                                                <p className="text-[9px] text-slate-400 font-bold mb-1">{item.label}</p>
-                                                <p className="text-xs font-black text-slate-700 truncate">{item.value || '--'}</p>
-                                            </div>
-                                        ));
-                                    })()}
-                                </div>
-
-                                {/* Map Preview */}
-                                {client.gpsCoordinates && (
-                                    <div className="rounded-2xl overflow-hidden border border-slate-100 shadow-inner h-32 relative group/map">
-                                        <iframe
-                                            src={`https://www.openstreetmap.org/export/embed.html?bbox=${(client.gpsCoordinates as any).lng - 0.005},${(client.gpsCoordinates as any).lat - 0.002},${(client.gpsCoordinates as any).lng + 0.005},${(client.gpsCoordinates as any).lat + 0.002}&layer=mapnik&marker=${(client.gpsCoordinates as any).lat},${(client.gpsCoordinates as any).lng}`}
-                                            className="w-full h-full grayscale-[0.5] contrast-[1.1] group-hover/map:grayscale-0 transition-all duration-700"
-                                            style={{ border: 0 }}
-                                            title="خريطة الموقع"
-                                        />
-                                        <div className="absolute inset-0 pointer-events-none ring-1 ring-inset ring-black/5 rounded-2xl" />
-                                    </div>
-                                )}
-                                {!client.gpsCoordinates && (
-                                    <div className="bg-gray-100/50 rounded-2xl border border-dashed border-gray-200 h-24 flex flex-col items-center justify-center text-slate-400">
-                                        <Navigation className="w-5 h-5 mb-1 opacity-40" />
-                                        <p className="text-[10px] font-bold">لا توجد إحداثيات GPS</p>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 flex items-center gap-4 hover:border-emerald-200 hover:shadow-md transition-all">
-                                <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm shrink-0">
-                                    <Briefcase className="w-5 h-5 text-emerald-500" />
-                                </div>
-                                <div className="flex-1">
-                                    <p className="text-[10px] text-slate-400 font-bold mb-0.5">المصدر والوسيط</p>
-                                    <p className="text-sm font-bold text-slate-800">المصدر: {client.referrerName || 'غير معد'} / {referrerTypeStr}</p>
-                                </div>
-                            </div>
-
-                            {client.occupation && (
-                                <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-4 flex items-center gap-4 hover:border-amber-200 hover:shadow-md transition-all">
-                                    <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm shrink-0">
-                                        <Briefcase className="w-5 h-5 text-amber-500" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-[10px] text-slate-400 font-bold mb-0.5">المهنة</p>
-                                        <p className="text-sm font-bold text-slate-800">{client.occupation}</p>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className={`rounded-2xl p-4 flex items-center gap-4 transition-all border ${client.rating === 'Committed'
-                                ? 'bg-emerald-50/50 border-emerald-100'
-                                : client.rating === 'NotCommitted'
-                                    ? 'bg-rose-50/50 border-rose-100'
-                                    : 'bg-slate-50/50 border-slate-100'
-                                }`}>
-                                <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm shrink-0">
-                                    <ShieldCheck className={`w-5 h-5 ${client.rating === 'Committed'
-                                        ? 'text-emerald-500'
-                                        : client.rating === 'NotCommitted'
-                                            ? 'text-rose-500'
-                                            : 'text-slate-400'
-                                        }`} />
-                                </div>
-                                <div className="flex-1">
-                                    <p className="text-[10px] text-slate-400 font-bold mb-0.5">مدى الالتزام</p>
-                                    <p className={`text-sm font-bold ${client.rating === 'Committed'
-                                        ? 'text-emerald-700'
-                                        : client.rating === 'NotCommitted'
-                                            ? 'text-rose-700'
-                                            : 'text-slate-500'
-                                        }`}>
-                                        {client.rating === 'Committed' ? 'زبون ملتزم' : client.rating === 'NotCommitted' ? 'زبون غير ملتزم' : 'غير محدد'}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </aside>
-
-                {/* --- Right Column: 65% Main Content Workspace --- */}
-                <main className="flex-1 flex flex-col min-w-0 bg-slate-50/50">
-                    <div className="px-8 pt-6 pb-6 lg:pt-8 bg-white border-b border-gray-100 shrink-0">
-                        {/* Header Action Buttons */}
-                        <div className="flex flex-wrap items-center gap-3 mb-6">
-                            <button className="px-5 py-2.5 bg-sky-600 text-white border-transparent rounded-xl text-sm font-bold shadow-[0_4px_12px_rgba(14,165,233,0.3)] hover:bg-sky-500 transition-all hover:-translate-y-0.5 flex items-center gap-2">
-                                <Plus className="w-4 h-4" /> عقد جديد
-                            </button>
-                            <button className="px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-bold shadow-sm hover:bg-indigo-100 transition-all flex items-center gap-2">
-                                <Plus className="w-4 h-4" /> زيارة تسويق
-                            </button>
-                            <button className="px-5 py-2.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-sm font-bold shadow-sm hover:bg-amber-100 transition-all flex items-center gap-2">
-                                <Plus className="w-4 h-4" /> زيارة صيانة
-                            </button>
-                        </div>
-
-                        {/* Tab Navigation */}
-                        <div className="flex items-center gap-1.5 p-1.5 bg-gray-50 border border-gray-200 rounded-2xl w-full xl:w-fit overflow-x-auto shadow-sm no-scrollbar">
+                <main className="min-w-0 bg-slate-50">
+                    <div className="sticky top-0 z-20 border-b border-gray-100 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-6 lg:px-8">
+                        <div className="mx-auto max-w-7xl overflow-x-auto no-scrollbar">
+                            <div className="flex w-max min-w-full items-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 p-1.5 shadow-sm">
                             {[
                                 { id: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
                                 { id: 'contacts', label: 'التواصل', icon: Contact2 },
                                 { id: 'calllog', label: 'سجل الاتصال', icon: PhoneCall },
                                 { id: 'visits', label: 'الزيارات', icon: Navigation },
-                                { id: 'contracts', label: 'العقود', icon: ShieldCheck },
+                                { id: 'devices', label: 'الأجهزة', icon: Cpu },
+                                { id: 'purchase_history', label: 'سجل المشتريات', icon: History },
+                                { id: 'parts_stock', label: 'المخزون', icon: Package },
+                                { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
                                 { id: 'network', label: 'الشبكة', icon: Share2 },
                             ].map((tab) => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id as any)}
-                                    className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap flex-1 xl:flex-none ${activeTab === tab.id
+                                    className={`flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all whitespace-nowrap sm:px-5 ${activeTab === tab.id
                                         ? 'text-sky-700 bg-white shadow-sm border border-gray-100'
                                         : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
                                         }`}
@@ -312,10 +419,11 @@ export default function ClientProfile() {
                                     <span>{tab.label}</span>
                                 </button>
                             ))}
+                            </div>
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto px-6 py-6 lg:px-8 lg:py-8 custom-scroll">
+                    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={activeTab}
@@ -325,7 +433,15 @@ export default function ClientProfile() {
                                 transition={{ duration: 0.2 }}
                                 className="h-full"
                             >
-                                {activeTab === 'overview' && <OverviewTab client={client} />}
+                                {activeTab === 'overview' && (
+                                    <OverviewTab
+                                        client={client}
+                                        onClientChanged={async () => {
+                                            const fresh = await api.clients.get(client.id);
+                                            setClient(fresh);
+                                        }}
+                                    />
+                                )}
                                 {activeTab === 'contacts' && (
                                     <ContactsTab
                                         client={client}
@@ -341,7 +457,10 @@ export default function ClientProfile() {
                                     </div>
                                 )}
                                 {activeTab === 'visits' && <VisitsTab client={client} />}
-                                {activeTab === 'contracts' && <ContractsTab client={client} getFullLocationStr={getFullLocationStr} />}
+                                {activeTab === 'devices' && <DevicesTab client={client} />}
+                                {activeTab === 'purchase_history' && <PurchaseHistoryTab client={client} />}
+                                {activeTab === 'parts_stock' && <PartsStockTab client={client} />}
+                                {activeTab === 'pre_offers' && <PreOffersTab client={client} />}
                                 {activeTab === 'network' && <NetworkTab client={client} clients={clients} candidates={candidates} />}
                             </motion.div>
                         </AnimatePresence>
@@ -354,18 +473,13 @@ export default function ClientProfile() {
 
 {/* ============ TABS COMPONENTS ============ */ }
 
-function OverviewTab({ client }: { client: Client }) {
-    const activities = [
-        { type: 'call', date: 'منذ ساعتين', title: 'مكالمة متابعة سريعة', desc: 'تأكيد رضا الزبون بعد الصيانة الأخيرة.', status: 'completed' },
-        { type: 'visit', date: 'أمس، 10:00 ص', title: 'زيارة صيانة دورية ', desc: 'تم تبديل الفلاتر الأساسية.', status: 'completed' },
-        { type: 'referral', date: '15 فبراير', title: 'ترشيح زبون جديد', desc: 'قام بترشيح "محمد الجاسم" .', status: 'new' },
-        { type: 'contract', date: '10 يناير', title: 'إضافة عقد جديد', desc: 'توقيع عقد شراء جهاز RO 7 مراحل.', status: 'completed' },
-        { type: 'visit', date: '5 يناير', title: 'زيارة تسويق ', desc: 'تم تقييم موقع التركيب وشرح العروض.', status: 'completed' },
-    ];
-
+function OverviewTab({ client, onClientChanged }: { client: Client; onClientChanged: () => void | Promise<void> }) {
     return (
-        <div className="w-full h-full max-w-3xl space-y-10">
-            {client.notes && (
+        <div className="w-full h-full max-w-4xl space-y-4">
+            {/* DEC-005 D29 + DEC-006 D32: contact-control surface (cooldown + do_not_contact) */}
+            <ContactControlCard client={client} onChange={() => { void onClientChanged(); }} />
+
+            {client.notes ? (
                 <section>
                     <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
                         <Plus className="w-5 h-5 text-sky-500" />
@@ -384,26 +498,12 @@ function OverviewTab({ client }: { client: Client }) {
                         `}</style>
                     </div>
                 </section>
-            )}
-
-            <section>
-                <h3 className="text-lg font-black text-slate-800 mb-6">النشاطات الأخيرة للزبون (Timeline)</h3>
-                <div className="space-y-0 relative before:absolute before:right-6 before:top-2 before:bottom-0 before:w-px before:bg-slate-200">
-                    {activities.map((act, i) => (
-                        <div key={i} className="relative pr-14 pb-8 group last:pb-0">
-                            <div className="absolute right-[19px] top-1.5 w-3 h-3 rounded-full border-2 border-slate-50 bg-sky-400 shadow-[0_0_0_4px_white] z-10 group-hover:bg-sky-500 group-hover:scale-110 transition-all" />
-                            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm group-hover:border-sky-200 group-hover:shadow-md transition-all">
-                                <div className="flex items-center justify-between mb-3">
-                                    <span className="text-xs font-black text-sky-600 uppercase tracking-wide bg-sky-50 px-2 py-0.5 rounded-md">{act.type}</span>
-                                    <span className="text-xs text-slate-400 font-mono tracking-tighter">{act.date}</span>
-                                </div>
-                                <h4 className="font-bold text-slate-800 mb-1">{act.title}</h4>
-                                <p className="text-sm text-slate-500 leading-relaxed max-w-lg">{act.desc}</p>
-                            </div>
-                        </div>
-                    ))}
+            ) : (
+                <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-center text-slate-400 shadow-sm">
+                    <FileText className="mx-auto mb-3 h-8 w-8 opacity-50" />
+                    <p className="text-sm font-bold">لا توجد ملاحظات مسجلة لهذا الزبون.</p>
                 </div>
-            </section>
+            )}
         </div>
     );
 }
@@ -640,7 +740,10 @@ function VisitsTab({ client }: { client: Client }) {
     const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
-    const hasIncompleteTask = tasks.some((task) => task.status !== 'completed' && task.status !== 'cancelled');
+    const hasActiveDeviceDemo = tasks.some((task) => {
+        const taskType = task.taskType ?? task.task_type ?? task.openTaskType;
+        return taskType === 'device_demo' && !['completed', 'cancelled', 'closed'].includes(task.status);
+    });
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -685,14 +788,14 @@ function VisitsTab({ client }: { client: Client }) {
                     </button>
                     <button
                         onClick={() => setModalOpen(true)}
-                        disabled={hasIncompleteTask}
+                        disabled={hasActiveDeviceDemo}
                         className="px-4 py-2 bg-sky-600 text-white font-bold rounded-xl shadow-sm hover:bg-sky-500 transition-all flex items-center gap-1.5 text-sm disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                     >
                         <Plus className="w-4 h-4" /> عرض جهاز
                     </button>
                 </div>
             </div>
-            {hasIncompleteTask && (
+            {hasActiveDeviceDemo && (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
                     لا يمكن إنشاء عرض جديد ما دامت هناك مهمة غير مكتملة لهذا الزبون.
                 </div>
@@ -947,560 +1050,6 @@ function NetworkTab({ client, clients, candidates }: any) {
                 </div>
             </section>
 
-        </div>
-    );
-}
-
-function PartCard({ item, contract, installed }: { item: any; contract: any; installed: boolean }) {
-    const label = item.description || item.name || 'قطعة ملحقة';
-    const code = item.code || item.sparePartCode;
-    const qty = item.quantity || 1;
-    const price = item.unitPrice != null ? Number(item.unitPrice) : null;
-    const totalPrice = price != null ? price * qty : null;
-
-    return (
-        <div className={`flex items-start p-4 rounded-2xl border transition-colors ${
-            installed ? 'bg-slate-50 border-slate-100' : 'bg-amber-50 border-amber-200'
-        }`}>
-            <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs font-bold ${installed ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                        {label}
-                    </span>
-                    {code && (
-                        <span className="text-[10px] text-slate-400 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
-                            {code}
-                        </span>
-                    )}
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                        installed ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-100 text-amber-700'
-                    }`}>
-                        {installed ? '✓ مركّب' : '⏳ بانتظار التركيب'}
-                    </span>
-                </div>
-                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                    <span className="text-[11px] text-slate-500">الكمية: {qty}</span>
-                    {totalPrice != null && (
-                        <span className="text-[11px] text-slate-500">
-                            السعر: {totalPrice.toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س
-                            {qty > 1 && price != null && (
-                                <span className="text-slate-400"> ({price.toLocaleString('ar-SY', { numberingSystem: 'latn' })} × {qty})</span>
-                            )}
-                        </span>
-                    )}
-                    <span className="text-[11px] text-slate-400">
-                        تاريخ الشراء: {contract?.contractDate ? new Date(contract.contractDate).toLocaleDateString('ar-SY') : '—'}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                        المصدر: عقد #{contract?.contractNumber || contract?.id}
-                    </span>
-                    {item.oldPartRemoved === true && (
-                        <span className="text-[11px] text-emerald-600 font-medium">✓ تم تبديل القطعة القديمة</span>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-}
-
-interface ContractsTabProps {
-    client: Client;
-    getFullLocationStr: (neighborhoodId?: string) => string;
-}
-
-function ContractsTab({ client, getFullLocationStr }: ContractsTabProps) {
-    const [contracts, setContracts] = useState<any[]>([]);
-    const [tasks, setTasks] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [selectedContract, setSelectedContract] = useState<any | null>(null);
-    const [selectedContractDetails, setSelectedContractDetails] = useState<any | null>(null);
-    const [detailsLoading, setDetailsLoading] = useState(false);
-    const [actionLoading, setActionLoading] = useState(false);
-    const [lineItemUpdatingId, setLineItemUpdatingId] = useState<number | null>(null);
-
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-
-        try {
-            const contractData = await api.contracts.list({ customerId: client.id });
-            const filteredContracts = contractData.filter((c: any) => c.customerId === client.id && c.status !== 'cancelled');
-            setContracts(filteredContracts);
-        } catch (err) {
-            console.error('Failed to fetch contracts:', err);
-            setContracts([]);
-        }
-
-        try {
-            const taskData = await api.openTasks.listByClient(client.id);
-            setTasks(taskData);
-        } catch (err) {
-            console.error('Failed to fetch tasks:', err);
-            setTasks([]);
-        }
-
-        setLoading(false);
-    }, [client.id]);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    const fetchContractDetails = async (contractId: number) => {
-        setDetailsLoading(true);
-        try {
-            const details = await api.contracts.get(contractId);
-            setSelectedContractDetails(details);
-        } catch (err) {
-            console.error('Failed to fetch contract details', err);
-        } finally {
-            setDetailsLoading(false);
-        }
-    };
-
-    const handleSelectContract = (contract: any) => {
-        setSelectedContract(contract);
-        fetchContractDetails(contract.id);
-    };
-
-    const handleCreateTask = async (taskType: 'device_installation' | 'device_activation') => {
-        if (!selectedContract) return;
-        setActionLoading(true);
-        try {
-            const taskFamily = 'delivery';
-            const reason = 'service_request';
-            const dueDate = new Date().toISOString().split('T')[0];
-            await api.openTasks.create({
-                clientId: client.id,
-                branchId: selectedContract.branchId,
-                taskType,
-                taskFamily,
-                reason,
-                contractId: selectedContract.id,
-                dueDate
-            });
-            // Refresh main lists
-            await fetchData();
-            // Refresh current details to update status and task lists
-            await fetchContractDetails(selectedContract.id);
-        } catch (err) {
-            console.error('Failed to create task:', err);
-            alert('حدث خطأ أثناء إنشاء المهمة.');
-        } finally {
-            setActionLoading(false);
-        }
-    };
-
-    const handleToggleInstallation = async (itemId: number, currentInstalled: boolean) => {
-        if (!selectedContract) return;
-        setLineItemUpdatingId(itemId);
-        try {
-            await api.contracts.toggleLineItemInstallation(selectedContract.id, itemId, !currentInstalled);
-            // Refresh details to update state
-            await fetchContractDetails(selectedContract.id);
-        } catch (err) {
-            console.error('Failed to toggle installation status:', err);
-            alert('حدث خطأ أثناء تحديث حالة تركيب القطعة.');
-        } finally {
-            setLineItemUpdatingId(null);
-        }
-    };
-
-    const lineItemsAll = (selectedContractDetails?.lineItems ?? []).filter((item: any) => item.itemType !== 'device');
-    const installedItems = lineItemsAll.filter((item: any) => !!item.isInstalled);
-    const pendingItems = lineItemsAll.filter((item: any) => !item.isInstalled);
-    const installedCount = installedItems.length;
-    const pendingCount = pendingItems.length;
-    const totalCount = lineItemsAll.length;
-
-    if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-                <Loader2 className="w-8 h-8 animate-spin text-sky-500 mb-4" />
-                <p className="text-sm font-bold">جاري تحميل العقود...</p>
-            </div>
-        );
-    }
-
-    const steps = [
-        { key: 'pending_delivery', label: 'قيد التسليم', desc: 'توليد مهمة تسليم الجهاز' },
-        { key: 'delivered', label: 'تم التسليم', desc: 'جدولة مهمة تركيب الجهاز' },
-        { key: 'installed', label: 'تم التركيب', desc: 'جدولة مهمة تشغيل وفحص الجهاز' },
-        { key: 'active', label: 'نشط', desc: 'تفعيل العقد والجهاز بالكامل' }
-    ];
-
-    const currentStatus = selectedContractDetails?.deviceStatus || selectedContract?.deviceStatus || 'pending_delivery';
-    let activeStepIndex = 0;
-    if (currentStatus === 'delivered') activeStepIndex = 1;
-    else if (currentStatus === 'installed') activeStepIndex = 2;
-    else if (currentStatus === 'active') activeStepIndex = 3;
-
-    return (
-        <div className="space-y-6 max-w-5xl">
-            <div className="flex items-center justify-between">
-                <h3 className="text-lg font-black text-slate-800">عقود شراء الأجهزة وتتبعها</h3>
-            </div>
-
-            {contracts.length === 0 ? (
-                <div className="bg-white rounded-3xl border border-slate-100 p-16 text-center flex flex-col items-center justify-center shadow-sm">
-                    <FileText className="w-12 h-12 text-slate-300 mb-4" />
-                    <h4 className="text-base text-slate-600 font-black mb-2">لا توجد عقود شراء مسجلة</h4>
-                    <p className="text-xs text-slate-400 font-bold max-w-md">لم يقم هذا الزبون بشراء أي جهاز أو إبرام عقد بيع بعد.</p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {contracts.map((c: any) => {
-                        let statusLabel = 'قيد التسليم';
-                        let statusColor = 'text-amber-600 bg-amber-50 border-amber-100';
-                        if (c.deviceStatus === 'delivered') {
-                            statusLabel = 'تم التسليم';
-                            statusColor = 'text-blue-600 bg-blue-50 border-blue-100';
-                        } else if (c.deviceStatus === 'installed') {
-                            statusLabel = 'تم التركيب';
-                            statusColor = 'text-indigo-600 bg-indigo-50 border-indigo-100';
-                        } else if (c.deviceStatus === 'active') {
-                            statusLabel = 'نشط (يعمل)';
-                            statusColor = 'text-emerald-600 bg-emerald-50 border-emerald-100';
-                        }
-
-                        let progressPercentage = 25;
-                        if (c.deviceStatus === 'delivered') progressPercentage = 50;
-                        else if (c.deviceStatus === 'installed') progressPercentage = 75;
-                        else if (c.deviceStatus === 'active') progressPercentage = 100;
-
-                        return (
-                            <div
-                                key={c.id}
-                                onClick={() => handleSelectContract(c)}
-                                className="bg-white rounded-3xl border border-slate-100 hover:border-sky-300 hover:shadow-lg transition-all p-6 cursor-pointer flex flex-col justify-between group shadow-sm"
-                            >
-                                <div>
-                                    <div className="flex items-center justify-between mb-4">
-                                        <span className="text-xs font-black text-slate-400 font-mono">#{c.contractNumber}</span>
-                                        <span className={`text-[10px] font-black px-2.5 py-1.5 rounded-xl border ${statusColor}`}>
-                                            {statusLabel}
-                                        </span>
-                                    </div>
-                                    <h4 className="font-bold text-slate-800 text-base mb-2 group-hover:text-sky-600 transition-colors">
-                                        {c.deviceModelName}
-                                    </h4>
-                                    <div className="space-y-1.5 text-xs text-slate-500 font-medium">
-                                        <div className="flex items-center gap-2">
-                                            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                            <span>تاريخ العقد: <span className="font-bold text-slate-700">{new Date(c.contractDate).toLocaleDateString('ar-SY')}</span></span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                            <span>الرقم التسلسلي: <span className="font-mono text-slate-700 font-bold">{c.serialNumber || 'غير محدد بعد'}</span></span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="mt-6 pt-4 border-t border-slate-50">
-                                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mb-2">
-                                        <span>مرحلة التتبع</span>
-                                        <span>{progressPercentage}%</span>
-                                    </div>
-                                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                                        <div
-                                            className="bg-gradient-to-l from-sky-500 to-emerald-500 h-full rounded-full transition-all duration-500"
-                                            style={{ width: `${progressPercentage}%` }}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-
-            {/* Slide-over Drawer */}
-            <AnimatePresence>
-                {selectedContract && (
-                    <>
-                        {/* Overlay */}
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 0.4 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => { setSelectedContract(null); setSelectedContractDetails(null); }}
-                            className="fixed inset-0 bg-black z-[90] pointer-events-auto"
-                        />
-                        {/* Drawer content */}
-                        <motion.div
-                            initial={{ x: '100%' }}
-                            animate={{ x: 0 }}
-                            exit={{ x: '100%' }}
-                            transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-                            className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-50 shadow-2xl z-[100] flex flex-col h-full border-l border-slate-200 overflow-hidden"
-                            style={{ direction: 'rtl' }}
-                        >
-                            {/* Drawer Header */}
-                            <div className="px-6 py-5 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
-                                <div>
-                                    <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                                        <FileText className="w-5 h-5 text-sky-500" />
-                                        تفاصيل عقد البيع #{selectedContract.contractNumber}
-                                    </h3>
-                                    <p className="text-xs text-slate-400 font-medium mt-1">تتبع دورة حياة وتثبيت الجهاز</p>
-                                </div>
-                                <button
-                                    onClick={() => { setSelectedContract(null); setSelectedContractDetails(null); }}
-                                    className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center transition-colors text-slate-400 hover:text-slate-600"
-                                >
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </div>
-
-                            {/* Drawer Body */}
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scroll">
-                                {/* Vertical Lifecycle Stepper */}
-                                <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
-                                    <h4 className="font-black text-slate-800 text-sm mb-4">حالة تتبع الجهاز</h4>
-                                    <div className="relative before:absolute before:right-6 before:top-4 before:bottom-4 before:w-0.5 before:bg-slate-100">
-                                        {steps.map((step, idx) => {
-                                            const isCompleted = idx < activeStepIndex;
-                                            const isActive = idx === activeStepIndex;
-
-                                            let stepColor = 'bg-slate-50 border-slate-200 text-slate-400';
-                                            if (isCompleted) {
-                                                stepColor = 'bg-emerald-500 border-emerald-500 text-white';
-                                            } else if (isActive) {
-                                                stepColor = 'bg-white border-sky-500 text-sky-600 ring-4 ring-sky-50';
-                                            }
-
-                                            return (
-                                                <div key={step.key} className="relative pr-14 pb-6 last:pb-0 flex items-start gap-4">
-                                                    {/* Circle Badge */}
-                                                    <div className={`absolute right-3.5 top-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center font-bold text-xs z-10 transition-all ${stepColor}`}>
-                                                        {isCompleted ? (
-                                                            <Check className="w-3.5 h-3.5" />
-                                                        ) : (
-                                                            <span>{idx + 1}</span>
-                                                        )}
-                                                    </div>
-
-                                                    <div>
-                                                        <h5 className={`font-bold text-sm ${isActive ? 'text-sky-600 text-sm font-black' : isCompleted ? 'text-slate-700' : 'text-slate-400'}`}>
-                                                            {step.label}
-                                                        </h5>
-                                                        <p className="text-[11px] text-slate-400 font-medium mt-0.5">{step.desc}</p>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-
-                                {/* Dynamic Action CTA Button */}
-                                {currentStatus === 'delivered' && (
-                                    <div className="bg-gradient-to-l from-sky-500 to-indigo-600 rounded-3xl p-6 text-white shadow-[0_8px_20px_rgba(14,165,233,0.15)]">
-                                        <h5 className="font-bold text-sm mb-1">الجهاز مسلّم وجاهز للتركيب</h5>
-                                        <p className="text-xs text-white/80 font-medium mb-4">يمكنك الآن جدولة مهمة تركيب الجهاز للزبون لإرسال الفنيين للموقع.</p>
-                                        <button
-                                            onClick={() => handleCreateTask('device_installation')}
-                                            disabled={actionLoading}
-                                            className="w-full py-3 bg-white text-sky-700 hover:bg-slate-50 font-bold rounded-2xl shadow transition-all hover:scale-[1.01] flex items-center justify-center gap-2 text-xs disabled:opacity-50"
-                                        >
-                                            {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4" />}
-                                            إضافة مهمة تركيب الجهاز
-                                        </button>
-                                    </div>
-                                )}
-
-                                {currentStatus === 'installed' && (
-                                    <div className="bg-gradient-to-l from-indigo-500 to-emerald-600 rounded-3xl p-6 text-white shadow-[0_8px_20px_rgba(99,102,241,0.15)]">
-                                        <h5 className="font-bold text-sm mb-1">الجهاز مركّب وجاهز للتشغيل</h5>
-                                        <p className="text-xs text-white/80 font-medium mb-4">يمكنك الآن جدولة مهمة تشغيل وفحص الجهاز النهائية لتفعيله بشكل كامل.</p>
-                                        <button
-                                            onClick={() => handleCreateTask('device_activation')}
-                                            disabled={actionLoading}
-                                            className="w-full py-3 bg-white text-indigo-700 hover:bg-slate-50 font-bold rounded-2xl shadow transition-all hover:scale-[1.01] flex items-center justify-center gap-2 text-xs disabled:opacity-50"
-                                        >
-                                            {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                                            إضافة مهمة تشغيل الجهاز
-                                        </button>
-                                    </div>
-                                )}
-
-                                {currentStatus === 'pending_delivery' && (
-                                    <div className="bg-amber-50 border border-amber-100 rounded-3xl p-5 text-amber-800">
-                                        <h5 className="font-bold text-xs mb-1 flex items-center gap-1.5">
-                                            <Truck className="w-4 h-4 text-amber-500" />
-                                            في انتظار تسليم الجهاز
-                                        </h5>
-                                        <p className="text-[11px] font-bold text-amber-600">
-                                            العقد في مرحلة التسليم حالياً. سيتم تحديث هذه الصفحة تلقائياً بمجرد إكمال الفنيين لمهمة تسليم الجهاز.
-                                        </p>
-                                    </div>
-                                )}
-
-                                {currentStatus === 'active' && (
-                                    <div className="bg-emerald-50 border border-emerald-100 rounded-3xl p-5 text-emerald-800">
-                                        <h5 className="font-bold text-xs mb-1 flex items-center gap-1.5">
-                                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                                            الجهاز نشط بالكامل
-                                        </h5>
-                                        <p className="text-[11px] font-bold text-emerald-600">
-                                            تم تسليم، تركيب، وتشغيل الجهاز بنجاح. العقد والجهاز حالياً نشطان وتعمل الصيانة الدورية وفق الخطة.
-                                        </p>
-                                    </div>
-                                )}
-
-                                {/* Linked Tasks */}
-                                <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
-                                    <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
-                                        <Activity className="w-4 h-4 text-slate-400" />
-                                        مهام التتبع المرتبطة بالعقد
-                                    </h4>
-                                    {tasks.filter((t: any) => t.contractId === selectedContract.id).length === 0 ? (
-                                        <p className="text-xs text-slate-400 font-bold text-center py-4">لا توجد مهام مرتبطة حالياً.</p>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {tasks.filter((t: any) => t.contractId === selectedContract.id).map((t: any) => {
-                                                let typeLabel = t.taskType;
-                                                if (t.taskType === 'device_delivery') typeLabel = 'تسليم الجهاز';
-                                                else if (t.taskType === 'device_installation') typeLabel = 'تركيب الجهاز';
-                                                else if (t.taskType === 'device_activation') typeLabel = 'تشغيل الجهاز';
-
-                                                let statusText = t.status;
-                                                let statusStyle = 'bg-slate-50 text-slate-500 border-slate-100';
-                                                if (t.status === 'open') {
-                                                    statusText = 'مفتوحة';
-                                                    statusStyle = 'bg-amber-50 text-amber-700 border-amber-100';
-                                                } else if (t.status === 'scheduled') {
-                                                    statusText = 'مجدولة';
-                                                    statusStyle = 'bg-sky-50 text-sky-700 border-sky-100';
-                                                } else if (t.status === 'in_visit') {
-                                                    statusText = 'في الزيارة';
-                                                    statusStyle = 'bg-purple-50 text-purple-700 border-purple-100';
-                                                } else if (t.status === 'completed') {
-                                                    statusText = 'مكتملة';
-                                                    statusStyle = 'bg-emerald-50 text-emerald-700 border-emerald-100';
-                                                } else if (t.status === 'cancelled') {
-                                                    statusText = 'ملغية';
-                                                    statusStyle = 'bg-rose-50 text-rose-700 border-rose-100';
-                                                }
-
-                                                return (
-                                                    <div key={t.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                                                        <div>
-                                                            <h5 className="font-bold text-xs text-slate-800">{typeLabel}</h5>
-                                                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">الموعد: {t.dueDate || '--'}</p>
-                                                        </div>
-                                                        <span className={`text-[10px] font-black px-2 py-1 rounded-lg border ${statusStyle}`}>
-                                                            {statusText}
-                                                        </span>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Specifications Grid */}
-                                <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
-                                    <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
-                                        <Layers className="w-4 h-4 text-slate-400" />
-                                        مواصفات الجهاز وموقع التركيب
-                                    </h4>
-                                    <div className="grid grid-cols-2 gap-4 text-xs">
-                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
-                                            <p className="text-[10px] text-slate-400 font-bold mb-1">موديل الجهاز</p>
-                                            <p className="font-bold text-slate-700">{selectedContract.deviceModelName}</p>
-                                        </div>
-                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
-                                            <p className="text-[10px] text-slate-400 font-bold mb-1">الرقم التسلسلي</p>
-                                            <p className="font-mono font-bold text-slate-700">{selectedContract.serialNumber || 'غير محدد'}</p>
-                                        </div>
-                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
-                                            <p className="text-[10px] text-slate-400 font-bold mb-1">دورة الصيانة</p>
-                                            <p className="font-bold text-slate-700">
-                                              {selectedContract.warrantyMonths && selectedContract.warrantyVisits
-                                                ? `كل ${Math.round((selectedContract.warrantyMonths * 30) / selectedContract.warrantyVisits)} يوم`
-                                                : selectedContract.maintenancePlan
-                                                  ? `كل ${selectedContract.maintenancePlan} أشهر`
-                                                  : '—'}
-                                            </p>
-                                        </div>
-                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50">
-                                            <p className="text-[10px] text-slate-400 font-bold mb-1">نوع البيع</p>
-                                            <p className="font-bold text-slate-700">
-                                                {selectedContract.saleType === 'direct' ? 'مباشر' : selectedContract.saleType === 'tradein' ? 'مقايضة' : 'حفظ'}
-                                            </p>
-                                        </div>
-                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/50 col-span-2">
-                                            <p className="text-[10px] text-slate-400 font-bold mb-1">عنوان التركيب</p>
-                                            <p className="font-bold text-slate-700 flex items-center gap-1">
-                                                <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                <span>
-                                                    {getFullLocationStr(selectedContract.installationGeoUnitId) !== 'غير محدد' ? `${getFullLocationStr(selectedContract.installationGeoUnitId)} - ` : ''}
-                                                    {selectedContract.installationAddressText || 'لا يوجد تفاصيل إضافية'}
-                                                </span>
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Line Items — قطع وملحقات الجهاز */}
-                                <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
-                                    <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
-                                        <Wrench className="w-4 h-4 text-slate-400" />
-                                        قطع وملحقات الجهاز
-                                    </h4>
-                                    {detailsLoading ? (
-                                        <div className="text-center py-4">
-                                            <Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-300" />
-                                        </div>
-                                    ) : (
-                                        <>
-                                            {totalCount > 0 && (
-                                                <div className="flex items-center gap-3 flex-wrap">
-                                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200">
-                                                        <span className="text-xs font-bold text-emerald-700">{installedCount}</span>
-                                                        <span className="text-[10px] text-emerald-600">مركّب</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200">
-                                                        <span className="text-xs font-bold text-amber-700">{pendingCount}</span>
-                                                        <span className="text-[10px] text-amber-600">باقي</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200">
-                                                        <span className="text-xs font-bold text-slate-700">{totalCount}</span>
-                                                        <span className="text-[10px] text-slate-600">الإجمالي</span>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {pendingItems.length > 0 && (
-                                                <div className="space-y-2">
-                                                    <h5 className="text-xs font-bold text-amber-700 flex items-center gap-1.5">
-                                                        <AlertCircle className="w-3.5 h-3.5" />
-                                                        بانتظار التركيب ({pendingItems.length})
-                                                    </h5>
-                                                    {pendingItems.map((item: any) => (
-                                                        <PartCard key={item.id} item={item} contract={selectedContract} installed={false} />
-                                                    ))}
-                                                </div>
-                                            )}
-                                            {installedItems.length > 0 && (
-                                                <div className="space-y-2">
-                                                    <h5 className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
-                                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                                        مركّب ({installedItems.length})
-                                                    </h5>
-                                                    {installedItems.map((item: any) => (
-                                                        <PartCard key={item.id} item={item} contract={selectedContract} installed={true} />
-                                                    ))}
-                                                </div>
-                                            )}
-                                            {totalCount === 0 && (
-                                                <p className="text-xs text-slate-400 font-bold text-center py-4">لا توجد قطع أو ملحقات مسجلة.</p>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        </motion.div>
-                    </>
-                )}
-            </AnimatePresence>
         </div>
     );
 }

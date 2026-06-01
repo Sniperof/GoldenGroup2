@@ -5,7 +5,7 @@ import type {
 } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
 
-const API_BASE = '/api';
+export const API_BASE = '/api';
 
 // Read token from localStorage at call time (not at import time)
 function getToken(): string | null {
@@ -129,10 +129,30 @@ export const api = {
     update: (id: number, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/clients/${id}`, { method: 'DELETE' }),
     bulkDelete: (ids: number[]) => request<any>('/clients/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+    // DEC-005 D29 + DEC-006 D32: contact-control surface
+    setCooldown: (id: number, data: { days: number; reason: string }) =>
+      request<any>(`/clients/${id}/cooldown`, { method: 'POST', body: JSON.stringify(data) }),
+    clearCooldown: (id: number) =>
+      request<any>(`/clients/${id}/cooldown`, { method: 'DELETE' }),
+    setDoNotContact: (id: number, doNotContact: boolean) =>
+      request<any>(`/clients/${id}/do-not-contact`, { method: 'PATCH', body: JSON.stringify({ doNotContact }) }),
   },
   customers: {
     getPurchaseHistory: (customerId: number) =>
       request<any>(`/customers/${customerId}/purchase-history`),
+    getPartsStock: (customerId: number) =>
+      request<any>(`/customers/${customerId}/parts-stock`),
+    // DEC-CT-10: chronological merge of installments + payment entries.
+    getStatement: (customerId: number) =>
+      request<{ customerId: number; entries: any[] }>(`/customers/${customerId}/statement`),
+    // Pre-offers tab — every device-demo pre-offer with its outcome.
+    getPreOffers: (customerId: number) =>
+      request<{ customerId: number; entries: any[]; summary: any }>(`/customers/${customerId}/pre-offers`),
+    createPreOffers: (customerId: number, data: { branchId?: number | null; offers: any[] }) =>
+      request<{ success: boolean; created: Array<{ id: number }> }>(`/customers/${customerId}/pre-offers`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
   customerCalls: {
     list: (customerId: number) => request<any[]>(`/customers/${customerId}/calls`),
@@ -187,6 +207,31 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ isInstalled }),
       }),
+    // DEC-CT-01 follow-up: approve / reject the draft → terminal transitions.
+    approve: (contractId: number, body?: { closingEmployeeId?: number }) =>
+      request<any>(`/contracts/${contractId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+      }),
+    reject: (contractId: number, body?: { reason?: string }) =>
+      request<any>(`/contracts/${contractId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+      }),
+    // DEC-CT-14/15: fetch the legal printable HTML with the auth header
+    // attached. Returns the raw HTML; callers turn it into a Blob URL so
+    // it can be opened in a new tab without exposing the JWT.
+    getPrintableHtml: async (contractId: number): Promise<string> => {
+      const token = getToken();
+      const res = await fetch(`${API_BASE}/contracts/${contractId}/printable`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`فشل تحميل النسخة القانونية (${res.status}): ${text}`);
+      }
+      return res.text();
+    },
   },
   dues: {
     list: () => request<any[]>('/dues'),
@@ -209,6 +254,14 @@ export const api = {
     },
     get: (id: number) => request<any>(`/installed-devices/${id}`),
     update: (id: number, data: any) => request<any>(`/installed-devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  },
+  // DEC-CT-09: device possession ledger.
+  // Backend route is mounted at /api/devices/:deviceId/possession.
+  devicePossession: {
+    list:     (deviceId: number) => request<any[]>(`/devices/${deviceId}/possession`),
+    current:  (deviceId: number) => request<any | null>(`/devices/${deviceId}/possession/current`),
+    transfer: (deviceId: number, data: { holderType: string; holderId?: number | null; reason: string; notes?: string; transferAt?: string }) =>
+      request<any>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
   },
   deviceModels: {
     list: () => request<any[]>('/device-models'),
@@ -262,6 +315,35 @@ export const api = {
     update: (id: number, data: any) => request<any>(`/open-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     assignTeam: (id: number, data: { supervisorId?: number; technicianId?: number; traineeId?: number }) =>
       request<any>(`/open-tasks/${id}/assign-team`, { method: 'POST', body: JSON.stringify(data) }),
+    /** DEC-004 D22: book a field_visit from a needs_follow_up task using its expected_date. */
+    scheduleFromExpected: (id: number, data: {
+      date?: string;
+      timeSlot?: string;
+      teamKey: string;
+      notes?: string | null;
+    }) => request<{ fieldVisitId: number; visitTaskIds: number[] }>(
+      `/open-tasks/${id}/schedule-from-expected`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+    /** DEC-006 D37: open tasks whose attempt_count crossed system_settings.attempt_alert_threshold. */
+    attemptAlerts: () => request<{
+      threshold: number;
+      count: number;
+      items: Array<{
+        openTaskId: number;
+        clientId: number;
+        clientName: string;
+        clientMobile: string | null;
+        taskType: string;
+        taskFamily: string;
+        status: string;
+        attemptCount: number;
+        lastAttemptAt: string | null;
+        creationOrigin: string | null;
+        assignedTeamKey: string | null;
+        assignedForDate: string | null;
+      }>;
+    }>('/open-tasks/attempt-alerts'),
     getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
     submitEmergencyResult: (id: number, data: any) =>
       request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),
@@ -294,6 +376,16 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    // DEC-005 D26: manual close of a contact_target with optional cooldown activation
+    close: (contactTargetId: number, data: {
+      closingReason?: string;
+      activateCooldown?: boolean;
+      cooldownReason?: string;
+      cooldownDays?: number;
+    }) => request<{ contactTarget: any; cooldown: any | null }>(`/contact-targets/${contactTargetId}/close`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   },
   visits: {
     list: () => request<any[]>('/visits'),
@@ -332,10 +424,21 @@ export const api = {
       request<any>(`/work-scopes/${id}/generate-tasks`, { method: 'POST' }),
   },
   fieldVisits: {
-    list: (params: { clientId?: number; date?: string }) => {
+    list: (params: {
+      clientId?: number;
+      date?: string;
+      branchId?: number;
+      status?: string;
+      visitType?: string;
+      taskType?: string;
+    }) => {
       const qs = new URLSearchParams();
       if (params.clientId) qs.append('clientId', String(params.clientId));
       if (params.date) qs.append('date', params.date);
+      if (params.branchId) qs.append('branchId', String(params.branchId));
+      if (params.status) qs.append('status', params.status);
+      if (params.visitType) qs.append('visitType', params.visitType);
+      if (params.taskType) qs.append('taskType', params.taskType);
       return request<any[]>(`/field-visits/?${qs.toString()}`);
     },
     get: (id: number) => request<any>(`/field-visits/${id}`),
@@ -356,6 +459,82 @@ export const api = {
       request<any>(`/field-visits/visit-tasks/${taskId}/direct-suggestions`, { method: 'POST', body: JSON.stringify(data) }),
     listDirectSuggestions: (taskId: number) =>
       request<any[]>(`/field-visits/visit-tasks/${taskId}/direct-suggestions`),
+    /** DEC-003 D7 expanded: add an in-flight visit_task to an in_progress field_visit. */
+    addTask: (id: number, data: {
+      taskType: string;
+      openTaskId?: number;
+      reason?: string;
+    }) => request<{ visitTaskId: number; sequenceNo: number; openTaskId: number }>(
+      `/field-visits/${id}/tasks`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+    // ── DEC-007 D40/D41: referral sheet on the visit ──────────────────────
+    getReferralSheet: (id: number) => request<{
+      id: number; fieldVisitId: number; targetCandidates: number;
+      ownerUserId: number | null; status: string;
+      referralNameSnapshot: string | null; referralAddressText: string | null;
+    } | null>(`/field-visits/${id}/referral-sheet`),
+    createReferralSheet: (id: number, data: { targetCandidates: number }) =>
+      request<any>(`/field-visits/${id}/referral-sheet`, { method: 'POST', body: JSON.stringify(data) }),
+    updateReferralTarget: (id: number, targetCandidates: number) =>
+      request<any>(`/field-visits/${id}/referral-sheet/target`, { method: 'PATCH', body: JSON.stringify({ targetCandidates }) }),
+    // ── DEC-007 D42/D43/D44: visit survey ────────────────────────────────
+    getSurvey: (id: number) => request<{
+      id: number; fieldVisitId: number; isSkipped: boolean; skipReason: string | null;
+      filledByUserId: number | null; filledAt: string | null;
+      householdMembersCount: number | null;
+      drinkingWaterSource: string | null;
+      tdsTestResult: number | null;
+      hardnessTestDrops: number | null;
+      demoKitTdsResult: number | null;
+      customerOpinionWaterSource: string | null;
+      customerOpinionDemoKit: string | null;
+      customerOpinionPurificationIdea: string | null;
+      customerPurchaseIntent: boolean | null;
+      expectedPaymentMethod: string | null;
+      areaEvaluation: string | null;
+    } | null>(`/field-visits/${id}/survey`),
+    saveSurvey: (id: number, data: {
+      householdMembersCount: number;
+      drinkingWaterSource: string;
+      tdsTestResult: number;
+      hardnessTestDrops: number;
+      demoKitTdsResult: number;
+      customerOpinionWaterSource: string;
+      customerOpinionDemoKit: string;
+      customerOpinionPurificationIdea: string;
+      customerPurchaseIntent: boolean;
+      expectedPaymentMethod: string;
+      areaEvaluation: string;
+    }) => request<{ survey: any; completion: any }>(
+      `/field-visits/${id}/survey`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+    skipSurvey: (id: number, skipReason: string) =>
+      request<{ survey: any; completion: any }>(
+        `/field-visits/${id}/survey/skip`,
+        { method: 'POST', body: JSON.stringify({ skipReason }) },
+      ),
+    /** DEC-004 D11: reopen a closed visit. Requires field_visits.reopen_closed. */
+    reopen: (id: number, reason: string) =>
+      request<{ success: boolean }>(
+        `/field-visits/${id}/reopen`,
+        { method: 'POST', body: JSON.stringify({ reason }) },
+      ),
+    /** DEC-006 D38: visits with active escalation alerts (scoped to caller's branch). */
+    escalationAlerts: () => request<{
+      count: number;
+      items: Array<{
+        visitId: number;
+        status: string;
+        branchId: number;
+        clientId: number;
+        clientName: string | null;
+        teamResponsibleUserId: number | null;
+        hoursSinceUpdate: number;
+        tiersAlerted: number[];
+      }>;
+    }>('/field-visits/escalation-alerts'),
   },
   marketingVisits: {
     list: (date: string, clientId?: number) => {
@@ -402,7 +581,24 @@ telemarketing: {
     generateTaskListFromPlan: (data: { date: string; teamKey: string }) => request<any>('/telemarketing/task-lists/generate-from-plan', { method: 'POST', body: JSON.stringify(data) }),
     updateTaskListItem: (taskListId: string, itemId: string, data: any) => request<any>(`/telemarketing/task-lists/${taskListId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     createCallLog: (data: any) => request<any>('/telemarketing/call-logs', { method: 'POST', body: JSON.stringify(data) }),
+    /** @deprecated since DEC-003 D2 — use bookVisit. Kept for callers not yet migrated. */
     createAppointment: (data: any) => request<any>('/telemarketing/appointments', { method: 'POST', body: JSON.stringify(data) }),
+    /** DEC-003 D2 canonical booking endpoint — creates field_visit directly. */
+    bookVisit: (data: {
+      clientId?: number;
+      date: string;
+      timeSlot: string;
+      teamKey: string;
+      taskListId?: string;
+      taskListItemId?: string;
+      callLogId?: string | number;
+      selectedOpenTasks?: Array<{ openTaskId: number; taskType: string }>;
+      customerSnapshot?: Record<string, unknown> | null;
+      notes?: string | null;
+    }) => request<{ fieldVisitId: number; visitTaskIds: number[]; contactTargetId: number | null }>(
+      '/telemarketing/book-visit',
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
     taskTypeOptions: () => request<{ taskType: string; arabicLabel: string; taskFamily: string }[]>('/telemarketing/task-type-options'),
     createServiceTask: (data: { clientId: number; taskType: string; notes?: string; priority?: string }) =>
       request<any>('/telemarketing/service-tasks', { method: 'POST', body: JSON.stringify(data) }),

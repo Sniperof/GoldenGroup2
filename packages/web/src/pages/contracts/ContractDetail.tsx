@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { DeviceStatusBadge as SharedDeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
+import { usePermissions } from '../../hooks/usePermissions';
 
 // ── Lookup maps ───────────────────────────────────────────────────────────────
 
@@ -56,9 +58,11 @@ function fmtMoney(n?: number | null) {
   return Number(n).toLocaleString('en-US') + ' ل.س';
 }
 
-function contractTitle(type: string, _subtype?: string | null) {
-  if (type === 'maintenance_contract') return 'عقد صيانة وتركيب';
-  return 'عقد بيع';
+function contractTitle(type: string, subtype?: string | null) {
+  if (type === 'maintenance_contract') return 'اتفاقية خدمة قديمة';
+  if (subtype === 'temporary') return 'عقد مؤقت';
+  if (subtype === 'free') return 'عقد هدية / تمليك بلا مقابل';
+  return 'عقد بيع قطعي';
 }
 
 function saleSubtypeLabel(subtype: string) {
@@ -113,25 +117,17 @@ function StatusBadge({ status }: { status: string }) {
     active:    { cls: 'bg-emerald-100 text-emerald-700', label: 'نشط' },
     completed: { cls: 'bg-blue-100 text-blue-700',      label: 'مكتمل' },
     cancelled: { cls: 'bg-red-100 text-red-700',        label: 'ملغى' },
-    temporary: { cls: 'bg-amber-100 text-amber-700',    label: 'مؤقت' },
+    discarded: { cls: 'bg-slate-200 text-slate-700',    label: 'مؤرشف / مرفوض' },
   };
   const m = map[status] ?? { cls: 'bg-slate-100 text-slate-600', label: status };
   return <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${m.cls}`}>{m.label}</span>;
 }
 
+// DEC-CT-03: the device status badge is now sourced from the shared
+// components/devices/DeviceStatusBadge so the DevicesTab, DeviceProfilePage,
+// and this legacy view stay in lockstep.
 function DeviceStatusBadge({ status }: { status: string }) {
-  const map: Record<string, { cls: string; label: string }> = {
-    pending_delivery:  { cls: 'bg-amber-100 text-amber-700',    label: 'بانتظار التوصيل' },
-    delivered:         { cls: 'bg-sky-100 text-sky-700',        label: 'تم التوصيل' },
-    installed:         { cls: 'bg-emerald-100 text-emerald-700', label: 'مركّب' },
-    active:            { cls: 'bg-green-100 text-green-700',    label: 'نشط' },
-    under_maintenance: { cls: 'bg-orange-100 text-orange-700',  label: 'تحت الصيانة' },
-    faulty:            { cls: 'bg-red-100 text-red-700',        label: 'معطل' },
-    retrieved:         { cls: 'bg-slate-100 text-slate-600',    label: 'مستردة' },
-    disconnected:      { cls: 'bg-gray-100 text-gray-500',      label: 'مفصولة' },
-  };
-  const m = map[status] ?? { cls: 'bg-slate-100 text-slate-600', label: status };
-  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${m.cls}`}>{m.label}</span>;
+  return <SharedDeviceStatusBadge status={status} />;
 }
 
 function ClientAvatar({ dataQuality }: { dataQuality?: string | null }) {
@@ -162,6 +158,9 @@ export default function ContractDetail() {
   const [activateInstallmentsCount, setActivateInstallmentsCount] = useState<number>(6);
   const [actionLoading, setActionLoading] = useState(false);
   const [activationLoading, setActivationLoading] = useState(false);
+  // DEC-CT-01 follow-up: draft approve / reject workflow.
+  const { hasPermission } = usePermissions();
+  const [approvalLoading, setApprovalLoading] = useState<'approve' | 'reject' | null>(null);
 
   useEffect(() => {
     if (data && activateFinalPrice === 0) setActivateFinalPrice(Number(data.finalPrice) || 0);
@@ -185,6 +184,47 @@ export default function ContractDetail() {
       alert('فشل إلغاء العقد: ' + (err.message || err));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // DEC-CT-01 follow-up:
+  // Approving a draft fires the materialization triggers DB-side (211)
+  // and then refreshes the contract so the UI reflects the new active state.
+  const handleApprove = async () => {
+    if (!data) return;
+    if (!data.closingEmployeeId) {
+      const ok = window.confirm(
+        'لا يوجد موظف تسكير محدد على العقد. سيتم تسجيل المستخدم الحالي كموظف تسكير. متابعة؟',
+      );
+      if (!ok) return;
+    } else if (!window.confirm('تأكيد الموافقة على العقد؟ سيتم إنشاء الجهاز ومهمة التوصيل.')) {
+      return;
+    }
+    setApprovalLoading('approve');
+    try {
+      await api.contracts.approve(Number(id));
+      const fresh = await api.contracts.get(Number(id));
+      setData(fresh);
+    } catch (err: any) {
+      alert('فشل اعتماد العقد: ' + (err.message || err));
+    } finally {
+      setApprovalLoading(null);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!data) return;
+    const reason = window.prompt('سبب الرفض (اختياري):', '') ?? '';
+    if (!window.confirm('تأكيد رفض العقد؟ لن يُحتسب بعد ذلك.')) return;
+    setApprovalLoading('reject');
+    try {
+      await api.contracts.reject(Number(id), { reason: reason.trim() || undefined });
+      const fresh = await api.contracts.get(Number(id));
+      setData(fresh);
+    } catch (err: any) {
+      alert('فشل رفض العقد: ' + (err.message || err));
+    } finally {
+      setApprovalLoading(null);
     }
   };
 
@@ -298,8 +338,48 @@ export default function ContractDetail() {
         </div>
       </div>
 
+      {/* ── Draft approval banner (DEC-CT-01 follow-up) ──────────────────── */}
+      {data.status === 'draft' && (
+        <div className="max-w-5xl mx-auto px-4 pt-4">
+          <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-bold text-indigo-900">📝 العقد بحالة مسودة</p>
+              <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                لا يوجد جهاز مُسجّل، ولا مهمة توصيل، ولا أثر مالي حتى اعتماد العقد من موظف التسكير.
+                {data.closingEmployeeName
+                  ? <> موظف التسكير المقترح: <span className="font-bold">{data.closingEmployeeName}</span>.</>
+                  : <> لا يوجد موظف تسكير محدد بعد.</>}
+              </p>
+            </div>
+            {hasPermission('contracts.approve') ? (
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  disabled={approvalLoading !== null}
+                  onClick={handleApprove}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-4 py-2 text-xs font-bold transition-colors disabled:opacity-60"
+                >
+                  {approvalLoading === 'approve' ? 'جاري الاعتماد...' : '✓ موافقة واعتماد'}
+                </button>
+                <button
+                  disabled={approvalLoading !== null}
+                  onClick={handleReject}
+                  className="bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl px-4 py-2 text-xs font-bold transition-colors disabled:opacity-60"
+                >
+                  {approvalLoading === 'reject' ? 'جاري الرفض...' : '✕ رفض'}
+                </button>
+              </div>
+            ) : (
+              <span className="text-[11px] text-indigo-500 italic shrink-0">
+                لا تملك صلاحية الاعتماد (contracts.approve).
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Temporary Contract Banner ─────────────────────────────────────── */}
-      {data.status === 'temporary' && (
+      {/* DEC-CT-01: `temporary` moved from status → saleSubtype */}
+      {data.saleSubtype === 'temporary' && data.status !== 'cancelled' && data.status !== 'discarded' && (
         <div className="max-w-5xl mx-auto px-4 pt-4">
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -318,6 +398,17 @@ export default function ContractDetail() {
                 {actionLoading ? 'جاري...' : 'إلغاء العقد'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isMaintenance && (
+        <div className="max-w-5xl mx-auto px-4 pt-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+            <p className="text-sm font-bold text-amber-900">هذا السجل من مسار عقود الصيانة القديم</p>
+            <p className="text-xs text-amber-700 mt-1">
+              المسار الحالي للأجهزة الخارجية أصبح عبر اتفاقيات الخدمة، وليس من شاشة العقود.
+            </p>
           </div>
         </div>
       )}
@@ -425,29 +516,28 @@ export default function ContractDetail() {
               </>
             )}
 
-            {/* الجزء هـ: الوسيط الأساسي */}
-            {data.client?.referrersCount > 0 && data.client.referrers?.[0] && (
+            {/* الجزء هـ: وسطاء العقد */}
+            {Array.isArray(data.contractReferrers) && data.contractReferrers.length > 0 && (
               <>
                 <Divider />
                 <div>
-                  <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">🤝 الوسيط</div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-slate-700 font-medium">{data.client.referrers[0].name}</span>
-                    {data.client.referrers[0].type && (
-                      <span className="text-xs text-slate-400">
-                        ({data.client.referrers[0].type === 'client' ? 'زبون'
-                          : data.client.referrers[0].type === 'employee' ? 'موظف'
-                          : data.client.referrers[0].type === 'personal' ? 'شخصي'
-                          : data.client.referrers[0].type === 'customer' ? 'عميل'
-                          : data.client.referrers[0].type})
-                      </span>
-                    )}
+                  <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">🤝 وسطاء العقد</div>
+                  <div className="flex flex-wrap gap-2">
+                    {data.contractReferrers.map((referrer: any) => (
+                      <div key={referrer.id || referrer.referrerName} className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sm">
+                        <span className="text-slate-700 font-medium">{referrer.referrerName}</span>
+                        {referrer.referrerType && (
+                          <span className="text-xs text-slate-400">
+                            ({referrer.referrerType === 'client' ? 'زبون'
+                              : referrer.referrerType === 'employee' ? 'موظف'
+                              : referrer.referrerType === 'personal' ? 'شخصي'
+                              : referrer.referrerType === 'customer' ? 'عميل'
+                              : referrer.referrerType})
+                          </span>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                  {data.client.referrersCount > 1 && (
-                    <div className="text-xs text-slate-500 mt-1">
-                      +{data.client.referrersCount - 1} وسيط آخر
-                    </div>
-                  )}
                 </div>
               </>
             )}
@@ -746,11 +836,16 @@ export default function ContractDetail() {
           </Card>
         )}
 
-        {/* ══ Group 10: الذمم المالية ══════════════════════════════════════════ */}
+        {/* ══ Group 10: الأقساط المفتوحة (projection of installment balances) ══ */}
         {dues.length > 0 && (
           <Card className="!p-0 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
-              <span className="text-base font-bold text-slate-800">💰 الذمم المالية ({dues.length})</span>
+              <div className="flex flex-col gap-1">
+                <span className="text-base font-bold text-slate-800">💰 الأقساط المفتوحة ({dues.length})</span>
+                <span className="text-xs text-slate-500">
+                  هذا القسم مشتق تلقائياً من الأقساط التي لا يزال عليها رصيد متبقٍ.
+                </span>
+              </div>
             </div>
             <div className="grid gap-x-3 px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-400"
               style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 5rem' }}>
@@ -778,7 +873,7 @@ export default function ContractDetail() {
             })}
             <div className="grid gap-x-3 px-5 py-3 bg-slate-50 text-xs font-bold text-slate-500"
               style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 5rem' }}>
-              <span></span><span>إجمالي المتبقي</span><span></span>
+              <span></span><span>إجمالي الرصيد المفتوح</span><span></span>
               <span className="font-mono text-amber-700">
                 {fmtMoney(dues.reduce((s: number, d: any) => s + Number(d.remainingBalance), 0))}
               </span>

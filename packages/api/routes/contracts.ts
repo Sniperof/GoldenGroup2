@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
+import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
 
 const router = Router();
 router.use(requireAuth);
@@ -44,6 +45,9 @@ const contractSelect = `
   c.code AS "code",
   c.installed_device_id AS "installedDeviceId",
   c.created_by AS "createdById",
+  c.sale_owner_id AS "saleOwnerId",
+  c.offer_team_snapshot AS "offerTeamSnapshot",
+  c.contract_referrers AS "contractReferrers",
   -- Physical device fields (source: installed_devices)
   d.serial_number              AS "serialNumber",
   d.status                     AS "deviceStatus",
@@ -76,12 +80,139 @@ function mapDue(d: any) {
   return { ...d, originalAmount: Number(d.originalAmount), remainingBalance: Number(d.remainingBalance) };
 }
 
-const dueSelect = `
-  id, contract_id AS "contractId", type, scheduled_date AS "scheduledDate",
-  adjusted_date AS "adjustedDate", original_amount AS "originalAmount",
-  remaining_balance AS "remainingBalance", assigned_telemarketer_id AS "assignedTelemarketerId",
-  status, escalated
+function deriveContractStatus(
+  status: unknown,
+  closingEmployeeId: unknown,
+): 'draft' | 'active' | 'cancelled' | 'completed' | 'discarded' {
+  if (status === 'cancelled' || status === 'completed' || status === 'discarded') {
+    return status;
+  }
+  return closingEmployeeId ? 'active' : 'draft';
+}
+
+function computeContractWarrantySnapshot(
+  activatedAt: unknown,
+  warrantyMonths: number | null,
+): {
+  activatedAt: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  status: 'pending' | 'active';
+} {
+  const months = Number(warrantyMonths) || 0;
+  if (!activatedAt || months <= 0) {
+    return { activatedAt: null, startDate: null, endDate: null, status: 'pending' };
+  }
+
+  const activationMoment = new Date(String(activatedAt));
+  if (Number.isNaN(activationMoment.getTime())) {
+    return { activatedAt: null, startDate: null, endDate: null, status: 'pending' };
+  }
+
+  const endDate = new Date(activationMoment);
+  endDate.setMonth(endDate.getMonth() + months);
+
+  return {
+    activatedAt: activationMoment.toISOString(),
+    startDate: activationMoment.toISOString().slice(0, 10),
+    endDate: endDate.toISOString().slice(0, 10),
+    status: 'active',
+  };
+}
+
+async function syncContractWarrantySnapshot(
+  dbClient: any,
+  contractId: number | string,
+  warrantyMonthsStored: number | null,
+  warrantyVisits: number | null,
+) {
+  const { rows } = await dbClient.query(
+    `SELECT id, activated_at AS "activatedAt"
+     FROM installed_devices
+     WHERE contract_id = $1
+     LIMIT 1`,
+    [contractId],
+  );
+
+  const device = rows[0];
+  if (!device) return;
+
+  const snapshot = computeContractWarrantySnapshot(device.activatedAt, warrantyMonthsStored);
+
+  await dbClient.query(
+    `UPDATE installed_devices
+        SET contract_warranty_end_date = $1
+      WHERE id = $2`,
+    [snapshot.endDate, device.id],
+  );
+
+  if (!warrantyMonthsStored) return;
+
+  await dbClient.query(
+    `INSERT INTO device_warranties
+      (device_id, warranty_type, start_date, end_date, months, visits, status, activated_at)
+     VALUES ($1, 'contract', $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (device_id, warranty_type) DO UPDATE SET
+       months = EXCLUDED.months,
+       visits = EXCLUDED.visits,
+       start_date = CASE
+         WHEN device_warranties.status IN ('cancelled', 'expired') THEN device_warranties.start_date
+         ELSE COALESCE(device_warranties.start_date, EXCLUDED.start_date)
+       END,
+       end_date = CASE
+         WHEN device_warranties.status IN ('cancelled', 'expired') THEN device_warranties.end_date
+         ELSE EXCLUDED.end_date
+       END,
+       status = CASE
+         WHEN device_warranties.status IN ('cancelled', 'expired') THEN device_warranties.status
+         ELSE EXCLUDED.status
+       END,
+       activated_at = CASE
+         WHEN device_warranties.status IN ('cancelled', 'expired') THEN device_warranties.activated_at
+         ELSE COALESCE(device_warranties.activated_at, EXCLUDED.activated_at)
+       END`,
+    [
+      device.id,
+      snapshot.startDate,
+      snapshot.endDate,
+      warrantyMonthsStored,
+      warrantyVisits,
+      snapshot.status,
+      snapshot.activatedAt,
+    ],
+  );
+}
+
+const projectedDueSelect = `
+  i.id,
+  i.contract_id AS "contractId",
+  'Installment'::varchar AS type,
+  i.due_date AS "scheduledDate",
+  i.due_date AS "adjustedDate",
+  i.amount_syp AS "originalAmount",
+  i.remaining_balance AS "remainingBalance",
+  i.collection_owner_id AS "assignedTelemarketerId",
+  CASE
+    WHEN i.remaining_balance <= 0 THEN 'Paid'
+    WHEN COALESCE(i.paid_amount, 0) > 0 THEN 'Partial'
+    WHEN i.status = 'overdue' OR i.due_date < CURRENT_DATE THEN 'Overdue'
+    ELSE 'Pending'
+  END AS status,
+  FALSE AS escalated
 `;
+
+async function fetchProjectedDuesByContractIds(dbClient: any, contractIds: number[]) {
+  if (contractIds.length === 0) return [] as any[];
+  const { rows } = await dbClient.query(
+    `SELECT ${projectedDueSelect}
+       FROM contract_installments i
+      WHERE i.contract_id = ANY($1)
+        AND i.remaining_balance > 0
+      ORDER BY i.contract_id, i.installment_number`,
+    [contractIds],
+  );
+  return rows.map(mapDue);
+}
 
 /**
  * @swagger
@@ -276,10 +407,8 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows: contracts } = await pool.query(`SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id ${where} ORDER BY c.id DESC`, params);
   const ids = contracts.map((c: any) => c.id);
-  const { rows: dues } = ids.length
-    ? await pool.query(`SELECT ${dueSelect} FROM dues WHERE contract_id = ANY($1) ORDER BY contract_id, scheduled_date`, [ids])
-    : { rows: [] as any[] };
-  res.json(contracts.map((c: any) => ({ ...mapContract(c), dues: dues.filter((d: any) => d.contractId === c.id).map(mapDue) })));
+  const dues = await fetchProjectedDuesByContractIds(pool, ids);
+  res.json(contracts.map((c: any) => ({ ...mapContract(c), dues: dues.filter((d: any) => d.contractId === c.id) })));
 });
 
 /**
@@ -326,10 +455,6 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
   const access = authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const contract = mapContract(rows[0]);
-  const { rows: dues } = await pool.query(
-    `SELECT ${dueSelect} FROM dues WHERE contract_id = $1 ORDER BY scheduled_date`,
-    [contract.id],
-  );
   // Linked open tasks (emergency, maintenance, collection, service, etc.)
   const { rows: tasks } = await pool.query(
     `SELECT ot.id, ot.task_type AS "taskType", ot.task_family AS "taskFamily",
@@ -419,14 +544,16 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
       `SELECT id, method, currency, amount_value AS "amountValue", exchange_rate AS "exchangeRate",
               amount_syp AS "amountSyp", reference_number AS "referenceNumber",
               barter_name AS "barterName", barter_value_syp AS "barterValueSyp",
-              received_by_employee_id AS "receivedByEmployeeId", received_at AS "receivedAt", notes
+              received_by_employee_id AS "receivedByEmployeeId", received_at AS "receivedAt", notes,
+              entry_type AS "entryType", installment_id AS "installmentId"
        FROM contract_payment_entries WHERE contract_id = $1 ORDER BY id`,
       [contract.id],
     ),
     pool.query(
       `SELECT id, installment_number AS "installmentNumber", due_date AS "dueDate",
               amount_syp AS "amountSyp", status, paid_amount AS "paidAmount",
-              remaining_balance AS "remainingBalance", confirmed
+              remaining_balance AS "remainingBalance", confirmed,
+              collection_owner_id AS "collectionOwnerId"
        FROM contract_installments WHERE contract_id = $1 ORDER BY installment_number`,
       [contract.id],
     ),
@@ -434,12 +561,30 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
       ? pool.query(`SELECT id, label, percentage FROM device_discounts WHERE id = $1`, [contract.discountId])
       : Promise.resolve({ rows: [] as any[] }),
   ]);
+  const dues = installmentsResult.rows
+    .filter((inst: any) => Number(inst.remainingBalance) > 0)
+    .map((inst: any) => mapDue({
+      id: inst.id,
+      contractId: contract.id,
+      type: 'Installment',
+      scheduledDate: inst.dueDate,
+      adjustedDate: inst.dueDate,
+      originalAmount: inst.amountSyp,
+      remainingBalance: inst.remainingBalance,
+      assignedTelemarketerId: inst.collectionOwnerId ?? null,
+      status:
+        inst.status === 'paid' ? 'Paid'
+          : inst.status === 'partial' ? 'Partial'
+            : inst.status === 'overdue' ? 'Overdue'
+              : (inst.dueDate && new Date(inst.dueDate) < new Date() ? 'Overdue' : 'Pending'),
+      escalated: false,
+    }));
 
   res.json({
     ...contract,
     installationGeoPath,
     ownershipDisplay,
-    dues: dues.map(mapDue),
+    dues,
     tasks,
     client: client ? {
       ...client,
@@ -512,6 +657,7 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  */
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const c = req.body;
+  const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
   if (targetBranchId == null) return;
 
@@ -531,14 +677,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     const installationLat = c.mapPosition?.[0] ?? null;
     const installationLng = c.mapPosition?.[1] ?? null;
 
-    // Calculate contract_warranty_end_date from warrantyMonths + contractDate
-    let contractWarrantyEndDate: string | null = null;
     const warrantyMonths = Number(c.warrantyMonths) || 0;
-    if (warrantyMonths > 0 && c.contractDate) {
-      const d = new Date(c.contractDate);
-      d.setMonth(d.getMonth() + warrantyMonths);
-      contractWarrantyEndDate = d.toISOString().slice(0, 10);
-    }
     const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
     const warrantyMonthsStored = warrantyMonths > 0 ? warrantyMonths : null;
 
@@ -554,14 +693,15 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         buyer_national_id_issue_date, buyer_national_id_box,
         buyer_birth_date, buyer_gender,
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number,
-        no_closing_reason_id, sale_subtype, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+        no_closing_reason_id, sale_subtype, created_by,
+        sale_owner_id, offer_team_snapshot, contract_referrers)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
       RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        null, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0,
-       c.status || 'active', targetBranchId, c.saleType || 'direct',
+       derivedStatus, targetBranchId, c.saleType || 'direct',
        c.discountId || null, c.saleSource || null,
        c.closingEmployeeId || null, c.invoiceNotes || null,
        c.appliedDeviceDiscountId || null,
@@ -570,7 +710,11 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        c.buyerBirthDate || null, c.buyerGender || null,
        c.contractType || 'sale_contract', c.sourceOpenTaskId || null, c.sourceTaskOfferId || null, c.saleReferenceNumber || null,
        c.noClosingReasonId || null, c.saleSubtype || 'definitive',
-       (req as any).user?.id || null]
+       (req as any).user?.id || null,
+       // DEC-CT-11 / DEC-CT-13 — frozen at creation; never updated later via this path.
+       c.saleOwnerId || null,
+       c.offerTeamSnapshot ? JSON.stringify(c.offerTeamSnapshot) : null,
+       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]']
     );
     const contractId = rows[0].id;
 
@@ -594,24 +738,16 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         [c.serialNumber || null, c.deviceStatus || 'pending_delivery',
          c.deliveryDate || null, c.installationDate || null,
          installationGeoUnitId, installationAddressText, installationLat, installationLng,
-         warrantyMonthsStored, warrantyVisits, contractWarrantyEndDate,
+         warrantyMonthsStored, warrantyVisits, null,
          contractId]
       );
     }
 
-    // Phase 4: upsert contract warranty into device_warranties
-    if ((c.contractType || 'sale_contract') === 'sale_contract' && warrantyMonthsStored) {
-      await client.query(
-        `INSERT INTO device_warranties (device_id, warranty_type, start_date, end_date, months, visits)
-         SELECT d.id, 'contract', $1::date, $2::date, $3, $4
-         FROM installed_devices d WHERE d.contract_id = $5
-         ON CONFLICT (device_id, warranty_type) DO UPDATE SET
-           start_date = EXCLUDED.start_date,
-           end_date   = EXCLUDED.end_date,
-           months     = EXCLUDED.months,
-           visits     = EXCLUDED.visits`,
-        [c.contractDate || null, contractWarrantyEndDate, warrantyMonthsStored, warrantyVisits, contractId],
-      );
+    // Contract warranty becomes effective only after the device actually enters
+    // service. We keep the legal entitlement at contract time, but the snapshot
+    // dates/status are derived from installed_devices.activated_at.
+    if ((c.contractType || 'sale_contract') === 'sale_contract') {
+      await syncContractWarrantySnapshot(client, contractId, warrantyMonthsStored, warrantyVisits);
     }
 
     // Re-fetch with JOIN so installed_devices fields are included in the response
@@ -621,20 +757,14 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     );
     const contract = fetchRows[0];
 
-    // Automatically create a device delivery task for sale contracts (Phase 3: include device_id)
-    if (contract.contractType === 'sale_contract') {
-      const dueDate = c.deliveryDate || new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
-      const { rows: devIdRows } = await client.query(
-        'SELECT id FROM installed_devices WHERE contract_id = $1 LIMIT 1',
-        [contractId],
-      );
-      const deliveryDeviceId = devIdRows[0]?.id ?? null;
-      await client.query(
-        `INSERT INTO open_tasks (
-           client_id, branch_id, task_type, task_family, reason, status, due_date, source, origin, contract_id, device_id
-         ) VALUES ($1, $2, 'device_delivery', 'delivery', 'service_request', 'open', $3, 'system', 'manual_entry', $4, $5)`,
-        [contract.customerId, contract.branchId, dueDate, contract.id, deliveryDeviceId]
-      );
+    // Automatically create a device delivery task for sale contracts (Phase 3: include device_id).
+    //
+    // Constitution rule (DEC-CT-01 follow-up — see migration 211): a draft
+    // contract has NO side effects. The delivery task is deferred until the
+    // contract is approved via POST /api/contracts/:id/approve, which calls
+    // createDeliveryTaskForContract() below.
+    if (contract.contractType === 'sale_contract' && contract.status === 'active') {
+      await createDeliveryTaskForContract(client, contract);
     }
 
     if (Array.isArray(c.lineItems) && c.lineItems.length > 0) {
@@ -654,13 +784,16 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         await client.query(
           `INSERT INTO contract_payment_entries
             (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
-             reference_number, barter_name, barter_value_syp, received_by_employee_id, notes)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+             reference_number, barter_name, barter_value_syp, received_by_employee_id, notes,
+             entry_type, installment_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           [contract.id, entry.method, entry.currency || 'SYP', entry.amountValue || 0,
            entry.exchangeRate || null, entry.amountSyp || 0,
            entry.referenceNumber || null, entry.barterName || null,
            entry.barterValueSyp || null, entry.receivedByEmployeeId || null,
-           entry.notes || null],
+           entry.notes || null,
+           entry.entryType || 'collection',
+           entry.installmentId || null],
         );
       }
     }
@@ -676,20 +809,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       }
     }
 
-    const duesResult: any[] = [];
-    if (c.dues && c.dues.length > 0) {
-      for (const d of c.dues) {
-        const { rows: dRows } = await client.query(
-          `INSERT INTO dues (contract_id, type, scheduled_date, adjusted_date,
-            original_amount, remaining_balance, assigned_telemarketer_id, status, escalated)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${dueSelect}`,
-          [contract.id, d.type, d.scheduledDate, d.adjustedDate,
-           d.originalAmount, d.remainingBalance, d.assignedTelemarketerId || null,
-           d.status || 'Pending', d.escalated || false]
-        );
-        duesResult.push(dRows[0]);
-      }
-    }
+    // Financial constitution: `dues` are no longer stored independently.
+    // Any legacy payload field is ignored; open receivables are projected from
+    // contract_installments.remaining_balance instead.
+    const duesResult = await fetchProjectedDuesByContractIds(client, [contract.id]);
 
     // OP promotion: client now has a contract → company ownership, no personal assignments
     if (c.customerId) {
@@ -697,7 +820,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json({ ...mapContract(contract), dues: duesResult.map(mapDue) });
+    res.json({ ...mapContract(contract), dues: duesResult });
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -758,11 +881,18 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
  */
 router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const authContext = req.authContext!;
-  const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [req.params.id]);
+  // DEC-CT-15: we need the previous status to detect the draft→active transition
+  // and trigger the auto-freeze of the legal copy.
+  const { rows: existing } = await pool.query(
+    'SELECT branch_id, status AS "prevStatus" FROM contracts WHERE id = $1',
+    [req.params.id],
+  );
   if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
   const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branch_id });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
+  const prevStatus: string = existing[0].prevStatus;
   const c = req.body;
+  const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
 
   // Physical device location (for installed_devices)
   const installationGeoUnitId = c.geoSelection?.neighborhoodId || c.installationGeoUnitId || null;
@@ -770,14 +900,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const installationLat = c.mapPosition?.[0] ?? c.installationLat ?? null;
   const installationLng = c.mapPosition?.[1] ?? c.installationLng ?? null;
 
-  // Warranty computation for installed_devices
-  let contractWarrantyEndDate: string | null = null;
+  // Warranty payload: dates are derived from device activation, not contract date.
   const warrantyMonths = Number(c.warrantyMonths) || 0;
-  if (warrantyMonths > 0 && c.contractDate) {
-    const d = new Date(c.contractDate);
-    d.setMonth(d.getMonth() + warrantyMonths);
-    contractWarrantyEndDate = d.toISOString().slice(0, 10);
-  }
   const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
   const warrantyMonthsStored = warrantyMonths > 0 ? warrantyMonths : null;
 
@@ -799,13 +923,15 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
         buyer_national_id_issue_date=$23, buyer_national_id_box=$24,
         buyer_birth_date=$25, buyer_gender=$26,
         contract_type=$27, source_open_task_id=$28, source_task_offer_id=$29,
-        sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32
-      WHERE id=$33`,
+        sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32,
+        sale_owner_id=$33, contract_referrers=$34
+        -- offer_team_snapshot is deliberately NOT updated here: DEC-CT-13 freezes it at creation.
+      WHERE id=$35`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0,
-       c.status || 'active',
+       derivedStatus,
        c.discountId || null, c.saleSource || null,
        c.closingEmployeeId || null, c.invoiceNotes || null,
        c.appliedDeviceDiscountId || null,
@@ -818,6 +944,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        c.saleReferenceNumber || null,
        c.noClosingReasonId || null,
        c.saleSubtype || 'definitive',
+       c.saleOwnerId || null,
+       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]',
        req.params.id]
     );
 
@@ -834,28 +962,33 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
         installation_lng          = $8,
         warranty_months           = COALESCE($9, warranty_months),
         warranty_visits           = COALESCE($10, warranty_visits),
-        contract_warranty_end_date = COALESCE($11, contract_warranty_end_date)
+        contract_warranty_end_date = $11
       WHERE contract_id = $12`,
       [c.serialNumber || null, c.deviceStatus || 'pending_delivery',
        c.deliveryDate || null, c.installationDate || null,
        installationGeoUnitId, installationAddressText, installationLat, installationLng,
-       warrantyMonthsStored, warrantyVisits, contractWarrantyEndDate,
+       warrantyMonthsStored, warrantyVisits, null,
        req.params.id]
     );
 
-    // Phase 4: upsert contract warranty into device_warranties
-    if (warrantyMonthsStored) {
-      await pgClient.query(
-        `INSERT INTO device_warranties (device_id, warranty_type, start_date, end_date, months, visits)
-         SELECT d.id, 'contract', $1::date, $2::date, $3, $4
-         FROM installed_devices d WHERE d.contract_id = $5
-         ON CONFLICT (device_id, warranty_type) DO UPDATE SET
-           start_date = EXCLUDED.start_date,
-           end_date   = EXCLUDED.end_date,
-           months     = EXCLUDED.months,
-           visits     = EXCLUDED.visits`,
-        [c.contractDate || null, contractWarrantyEndDate, warrantyMonthsStored, warrantyVisits, req.params.id],
-      );
+    // Respect DB-side activation/cancellation triggers and only synchronize the
+    // warranty snapshot from the device's effective activation state.
+    if ((c.contractType || 'sale_contract') === 'sale_contract') {
+      await syncContractWarrantySnapshot(pgClient, Number(req.params.id), warrantyMonthsStored, warrantyVisits);
+    }
+
+    // DEC-CT-15: auto-freeze the legal copy at the draft→active transition.
+    // freezeContractDocument() is idempotent — if a copy already exists,
+    // nothing is written, so a redundant transition is safe.
+    const newStatus = derivedStatus;
+    if (prevStatus === 'draft' && newStatus === 'active') {
+      try {
+        await freezeContractDocument(pgClient, Number(req.params.id), (req as any).user?.id ?? null);
+      } catch (freezeErr: any) {
+        // Don't abort the contract update if freezing fails (e.g. missing template
+        // for a sale_subtype we haven't implemented yet). Log and continue.
+        console.warn('[contracts] auto-freeze skipped for contract', req.params.id, ':', freezeErr?.message);
+      }
     }
 
     await pgClient.query('COMMIT');
@@ -944,13 +1077,16 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
       await pgClient.query(
         `INSERT INTO contract_payment_entries
           (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
-           reference_number, barter_name, barter_value_syp, received_by_employee_id, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+           reference_number, barter_name, barter_value_syp, received_by_employee_id, notes,
+           entry_type, installment_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [contractId, entry.method, entry.currency || 'SYP', entry.amountValue || 0,
          entry.exchangeRate || null, entry.amountSyp || 0,
          entry.referenceNumber || null, entry.barterName || null,
          entry.barterValueSyp || null, entry.receivedByEmployeeId || null,
-         entry.notes || null],
+         entry.notes || null,
+         entry.entryType || 'collection',
+         entry.installmentId || null],
       );
     }
     await pgClient.query('COMMIT');
@@ -1229,6 +1365,200 @@ router.put('/:id/line-items/:itemId/installation', requirePermission('contracts.
   );
 
   res.json({ success: true, isInstalled });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Draft → active / discarded workflow (DEC-CT-01 follow-up).
+//
+// A contract created with status='draft' has zero side effects (see
+// migration 211). Two terminal moves are possible from draft:
+//
+//   POST /api/contracts/:id/approve   draft → active
+//   POST /api/contracts/:id/reject    draft → discarded
+//
+// Both are gated by the dedicated `contracts.approve` permission (seeded by
+// migration 212) so not every editor can flip the legal state of a contract.
+//
+// On approve the route:
+//   • sets closing_employee_id (from body, falling back to current user)
+//   • flips status='active'  → DB triggers materialize installed_devices,
+//                              the warranty cascade, and replay installment
+//                              recompute (so payments saved during draft
+//                              now take effect).
+//   • creates the device_delivery open_task (app-side, mirroring the POST
+//     path so behavior is identical to "born active" contracts).
+//   • freezes the legal contract document (DEC-CT-15).
+// ──────────────────────────────────────────────────────────────────────────
+
+async function createDeliveryTaskForContract(db: any, contract: any) {
+  const dueDate = contract.deliveryDate
+    || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const { rows: devIdRows } = await db.query(
+    'SELECT id, branch_id AS "branchId" FROM installed_devices WHERE contract_id = $1 LIMIT 1',
+    [contract.id],
+  );
+  const deliveryDeviceId = devIdRows[0]?.id ?? null;
+  const deliveryBranchId = devIdRows[0]?.branchId ?? contract.branchId;
+  await db.query(
+    `INSERT INTO open_tasks (
+       client_id, branch_id, task_type, task_family, reason, status, due_date,
+       source, origin, contract_id, device_id
+     ) VALUES ($1, $2, 'device_delivery', 'delivery', 'service_request', 'open', $3,
+               'system', 'manual_entry', $4, $5)`,
+    [contract.customerId, deliveryBranchId, dueDate, contract.id, deliveryDeviceId],
+  );
+}
+
+router.post('/:id/approve', requirePermission('contracts.approve'), async (req, res) => {
+  const authContext = req.authContext!;
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId <= 0) {
+    return res.status(400).json({ error: 'id غير صالح' });
+  }
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    // Pessimistic lock so two approvers can't race.
+    const { rows: cur } = await pgClient.query(
+      `SELECT id, status, contract_type, customer_id, branch_id, closing_employee_id,
+              delivery_date
+         FROM contracts WHERE id = $1 FOR UPDATE`,
+      [contractId],
+    );
+    if (!cur[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const c = cur[0];
+
+    const access = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
+    if (!access.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+
+    if (c.status !== 'draft') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: `لا يمكن الموافقة على عقد بحالة "${c.status}". الموافقة متاحة فقط للعقود بحالة "draft".`,
+      });
+    }
+
+    const incomingCloser = req.body?.closingEmployeeId
+      ? Number(req.body.closingEmployeeId)
+      : null;
+    const closerId =
+      incomingCloser
+      ?? c.closing_employee_id
+      ?? (authContext as any).userId
+      ?? null;
+
+    if (!closerId) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'closingEmployeeId مطلوب للموافقة على العقد' });
+    }
+
+    // Flip status — this fires the DB triggers (211/204/etc.) that
+    // materialize the installed_devices row, cascade warranties, and replay
+    // installment balance recompute.
+    await pgClient.query(
+      `UPDATE contracts
+         SET status = 'active',
+             closing_employee_id = $1,
+             closing_date = NOW()
+       WHERE id = $2`,
+      [closerId, contractId],
+    );
+
+    // Refresh after triggers settle.
+    const { rows: after } = await pgClient.query(
+      `SELECT c.id, c.contract_type AS "contractType", c.customer_id AS "customerId",
+              c.branch_id AS "branchId", c.delivery_date AS "deliveryDate",
+              c.status
+         FROM contracts c WHERE c.id = $1`,
+      [contractId],
+    );
+    const refreshed = after[0];
+
+    // App-side side effects: delivery task (mirrors the POST path).
+    if (refreshed.contractType === 'sale_contract') {
+      await createDeliveryTaskForContract(pgClient, refreshed);
+    }
+
+    // Freeze the legal copy (DEC-CT-15).
+    try {
+      await freezeContractDocument(pgClient, contractId, (req as any).user?.id ?? null);
+    } catch (freezeErr: any) {
+      console.warn('[contracts] auto-freeze on approve skipped for', contractId, ':', freezeErr?.message);
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({ success: true, contractId, status: 'active', closingEmployeeId: closerId });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[contracts] approve failed:', err);
+    res.status(500).json({ error: 'فشل اعتماد العقد', detail: err?.message });
+  } finally {
+    pgClient.release();
+  }
+});
+
+router.post('/:id/reject', requirePermission('contracts.approve'), async (req, res) => {
+  const authContext = req.authContext!;
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId <= 0) {
+    return res.status(400).json({ error: 'id غير صالح' });
+  }
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    const { rows: cur } = await pgClient.query(
+      `SELECT id, status, branch_id FROM contracts WHERE id = $1 FOR UPDATE`,
+      [contractId],
+    );
+    if (!cur[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const c = cur[0];
+
+    const access = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
+    if (!access.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+
+    if (c.status !== 'draft') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: `لا يمكن رفض عقد بحالة "${c.status}". الرفض متاح فقط للعقود بحالة "draft".`,
+      });
+    }
+
+    const reason = (req.body?.reason ?? '').toString().trim() || null;
+
+    await pgClient.query(
+      `UPDATE contracts
+         SET status = 'discarded',
+             invoice_notes = COALESCE(invoice_notes, '') ||
+               CASE WHEN $1::text IS NULL THEN '' ELSE E'\n[rejected] ' || $1::text END
+       WHERE id = $2`,
+      [reason, contractId],
+    );
+
+    await pgClient.query('COMMIT');
+    res.json({ success: true, contractId, status: 'discarded' });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[contracts] reject failed:', err);
+    res.status(500).json({ error: 'فشل رفض العقد', detail: err?.message });
+  } finally {
+    pgClient.release();
+  }
 });
 
 export default router;

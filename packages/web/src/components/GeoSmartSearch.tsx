@@ -128,16 +128,19 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
 
     // Search suggestions
     const suggestions = useMemo((): GeoSuggestion[] => {
+        if (!isOpen) return [];
+
         if (!search.trim()) {
-            // Default: show only selectable levels sorted by level ascending.
-            return geoUnits
-                .filter(u => u.level >= minSelectableLevel)
-                .map(u => {
-                    const path = buildPath(u, unitsMap);
-                    return { unit: u, path, score: 0 };
-                })
-                .sort((a, b) => a.unit.level - b.unit.level)
-                .slice(0, 30);
+            // Keep the closed-field transition cheap. When opened without a
+            // search term, surface only a small default window instead of
+            // traversing the full geo tree.
+            const defaults: GeoSuggestion[] = [];
+            for (const unit of geoUnits) {
+                if (unit.level < minSelectableLevel) continue;
+                defaults.push({ unit, path: buildPath(unit, unitsMap), score: 0 });
+                if (defaults.length >= 30) break;
+            }
+            return defaults.sort((a, b) => a.unit.level - b.unit.level);
         }
 
         const q = search.trim().toLowerCase();
@@ -155,7 +158,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
         // Sort by score, then by level ascending (more general first when tied)
         results.sort((a, b) => a.score - b.score || a.unit.level - b.unit.level);
         return results.slice(0, 15);
-    }, [search, geoUnits, unitsMap, minSelectableLevel]);
+    }, [search, geoUnits, unitsMap, minSelectableLevel, isOpen]);
 
     // Selection handler
     const handleSelect = useCallback((suggestion: GeoSuggestion) => {

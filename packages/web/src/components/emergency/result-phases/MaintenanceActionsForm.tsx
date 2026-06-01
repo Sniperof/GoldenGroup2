@@ -27,6 +27,7 @@ type SavedPart = {
   unitPrice: number;
   quantity: number;
   retrieved: boolean;
+  placementState: 'installed' | 'customer_stock';
   noRetrievalReasonId: number | null;
   noRetrievalReasonText: string;
 };
@@ -39,6 +40,7 @@ type DraftPart = {
   unitPrice: string;
   quantity: string;
   retrieved: boolean;
+  placementState: 'installed' | 'customer_stock';
   noRetrievalReasonId: string;
 };
 
@@ -56,7 +58,7 @@ const TYPE_COLORS: Record<string, string> = {
 function emptyDraft(): DraftPart {
   return { sparePartId: '', partNameSnapshot: '', partCodeSnapshot: '',
            maintenanceType: '', unitPrice: '0', quantity: '1',
-           retrieved: true, noRetrievalReasonId: '' };
+           retrieved: true, placementState: 'installed', noRetrievalReasonId: '' };
 }
 function toSaved(d: DraftPart): SavedPart {
   return {
@@ -67,6 +69,7 @@ function toSaved(d: DraftPart): SavedPart {
     unitPrice:           Number(d.unitPrice) || 0,
     quantity:            Number(d.quantity)  || 1,
     retrieved:           d.retrieved,
+    placementState:      d.placementState,
     noRetrievalReasonId: d.noRetrievalReasonId ? Number(d.noRetrievalReasonId) : null,
     noRetrievalReasonText: '',
   };
@@ -190,6 +193,24 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
       </div>
 
       {/* Row 4: هل تم سحب القطعة المبدلة؟ */}
+      <div className="space-y-1 pt-1 border-t border-rose-100">
+        <label className="block text-[11px] font-bold text-slate-600">مصير القطعة الجديدة</label>
+        <div className="flex gap-2">
+          {[
+            { val: 'installed', label: 'تم تركيبها', active: 'bg-sky-600 text-white border-sky-500' },
+            { val: 'customer_stock', label: 'سُلّمت ولم تُركب', active: 'bg-violet-600 text-white border-violet-500' },
+          ].map(opt => (
+            <button key={opt.val} type="button"
+              onClick={() => set('placementState', opt.val)}
+              className={`flex-1 px-3 py-2 rounded-xl text-[11px] font-bold border-2 transition-all ${
+                draft.placementState === opt.val ? opt.active : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+              }`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex items-center gap-3 pt-1 border-t border-rose-100">
         <span className="text-[11px] font-bold text-slate-600 shrink-0">هل تم سحب القطعة المبدلة؟</span>
         <div className="flex gap-2">
@@ -277,6 +298,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
         unitPrice:           Number(p.unitPrice),
         quantity:            Number(p.quantity),
         retrieved:           p.retrieved !== false,
+        placementState:      p.placementState === 'customer_stock' ? 'customer_stock' : 'installed',
         noRetrievalReasonId: p.noRetrievalReasonId ?? null,
         noRetrievalReasonText: p.noRetrievalReasonText ?? '',
       })));
@@ -296,6 +318,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
       unitPrice:            p.unitPrice,
       quantity:             p.quantity,
       retrieved:            p.retrieved,
+      placementState:       p.placementState,
       noRetrievalReasonId:  p.noRetrievalReasonId,
       noRetrievalReasonText: p.noRetrievalReasonText || null,
     })));
@@ -354,6 +377,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
       unitPrice:           String(p.unitPrice),
       quantity:            String(p.quantity),
       retrieved:           p.retrieved,
+      placementState:      p.placementState,
       noRetrievalReasonId: p.noRetrievalReasonId ? String(p.noRetrievalReasonId) : '',
     });
     setEditIndex(i);
@@ -454,6 +478,13 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
                             {TYPE_LABELS[p.maintenanceType]}
                           </span>
                         )}
+                        <span className={`text-[10px] font-bold rounded-full border px-2 py-0.5 ${
+                          p.placementState === 'customer_stock'
+                            ? 'bg-violet-50 text-violet-700 border-violet-200'
+                            : 'bg-sky-50 text-sky-700 border-sky-200'
+                        }`}>
+                          {p.placementState === 'customer_stock' ? 'مسلّمة وغير مركبة' : 'مركبة'}
+                        </span>
                         {!p.retrieved && (
                           <span className="text-[10px] font-bold rounded-full border border-amber-200 bg-amber-50 text-amber-700 px-2 py-0.5">
                             لم تُسحب

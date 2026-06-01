@@ -4,23 +4,31 @@ import {
     ArrowRight, MapPin, Clock, AlertTriangle, CheckCircle2, AlertCircle,
     User, Building2, Users, Play, Square, Flag, Loader2,
     ClipboardList, Phone, UserPlus, Navigation, Ruler,
-    ShoppingCart, Smartphone, Wrench, Zap, Puzzle
+    ShoppingCart, Smartphone, Wrench, Zap, Puzzle,
+    ClipboardCheck, ListPlus, Lock, Unlock,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import NameCollectionModal from '../../components/NameCollectionModal';
 import DirectSuggestionForm from '../../components/DirectSuggestionForm';
+import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
+import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';
+import { useAuthStore } from '../../hooks/useAuthStore';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+// DEC-004 D18: 7 canonical states + `closed`. Legacy statuses left for
+// retro display of historical visits until migration 231 backfill is applied.
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
     scheduled:              { label: 'مجدولة',             color: 'text-slate-700',  bg: 'bg-slate-100'  },
     in_progress:            { label: 'جارية',              color: 'text-blue-700',   bg: 'bg-blue-50'    },
     ended:                  { label: 'انتهت ميدانياً',     color: 'text-amber-700',  bg: 'bg-amber-50'   },
     completed:              { label: 'مكتملة',             color: 'text-emerald-700',bg: 'bg-emerald-50' },
     not_completed:          { label: 'لم تتم',             color: 'text-rose-700',   bg: 'bg-rose-50'    },
+    cancelled:              { label: 'ملغاة',              color: 'text-slate-500',  bg: 'bg-slate-100'  },
+    closed:                 { label: 'مُقفلة إدارياً',     color: 'text-slate-700',  bg: 'bg-slate-200'  },
+    // Legacy values — retained for historical visits before migration 231
     postponed_by_company:   { label: 'مؤجلة (الشركة)',    color: 'text-amber-700',  bg: 'bg-amber-50'   },
     postponed_by_customer:  { label: 'مؤجلة (الزبون)',    color: 'text-orange-700', bg: 'bg-orange-50'  },
-    cancelled:              { label: 'ملغاة',              color: 'text-slate-500',  bg: 'bg-slate-100'  },
     needs_reschedule:       { label: 'تحتاج إعادة جدولة', color: 'text-yellow-700', bg: 'bg-yellow-50'  },
 };
 
@@ -55,8 +63,15 @@ export default function VisitDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-    // Name collection modal state
+    // Name collection modal state (legacy — preserved for visits created before Phase 6)
     const [ncModal, setNcModal] = useState<any | null>(null);
+
+    // DEC-007: visit-level survey + referral sheet modals
+    const [surveyOpen, setSurveyOpen] = useState(false);
+    const [referralOpen, setReferralOpen] = useState(false);
+    const [reopening, setReopening] = useState(false);
+    const hasPermission = useAuthStore((s) => s.hasPermission);
+    const canReopen = hasPermission('field_visits.reopen_closed');
 
     // Direct suggestions per task (local state)
     const [suggestions, setSuggestions] = useState<Record<string, any[]>>({});
@@ -342,6 +357,52 @@ export default function VisitDetailPage() {
                             {actionLoading === 'complete' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flag className="w-4 h-4" />}
                             <span>إتمام الزيارة</span>
                         </button>
+                    )}
+                    {/* DEC-007 D40/D41/D46: referral sheet button — visible during in_progress / ended */}
+                    {(visit?.status === 'in_progress' || visit?.status === 'ended') && (
+                        <button
+                            onClick={() => setReferralOpen(true)}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 text-white text-sm font-bold hover:bg-sky-500 transition-colors">
+                            <ListPlus className="w-4 h-4" />
+                            <span>اللائحة</span>
+                        </button>
+                    )}
+                    {/* DEC-007 D42/D46: visit survey button */}
+                    {(visit?.status === 'in_progress' || visit?.status === 'ended') && (
+                        <button
+                            onClick={() => setSurveyOpen(true)}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 text-white text-sm font-bold hover:bg-emerald-600 transition-colors">
+                            <ClipboardCheck className="w-4 h-4" />
+                            <span>الاستبيان</span>
+                        </button>
+                    )}
+                    {/* DEC-004 D11: reopen closed visit (admin only) */}
+                    {visit?.status === 'closed' && canReopen && (
+                        <button
+                            onClick={async () => {
+                                const reason = window.prompt('سبب فتح الزيارة المُقفلة:');
+                                if (!reason || !reason.trim()) return;
+                                setReopening(true);
+                                try {
+                                    await api.fieldVisits.reopen(visit.id, reason.trim());
+                                    await load();
+                                } catch (e: any) {
+                                    alert(e?.message ?? 'فشل الفتح');
+                                } finally {
+                                    setReopening(false);
+                                }
+                            }}
+                            disabled={reopening}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-bold hover:bg-violet-500 disabled:opacity-60 transition-colors">
+                            {reopening ? <Loader2 className="w-4 h-4 animate-spin" /> : <Unlock className="w-4 h-4" />}
+                            <span>فتح المُقفل</span>
+                        </button>
+                    )}
+                    {visit?.status === 'closed' && !canReopen && (
+                        <span className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-500 text-xs">
+                            <Lock className="w-3.5 h-3.5" />
+                            مُقفلة — فتحها يتطلب صلاحية الإدارة العليا
+                        </span>
                     )}
                 </div>
             </div>
@@ -640,13 +701,31 @@ export default function VisitDetailPage() {
                 )}
             </div>
 
-            {/* Name Collection Modal */}
+            {/* Name Collection Modal (legacy) */}
             {ncModal && (
                 <NameCollectionModal
                     nameColl={ncModal}
                     onClose={() => setNcModal(null)}
                     onSaved={() => { setNcModal(null); load(); }}
                 />
+            )}
+
+            {/* DEC-007: visit-level survey + referral sheet modals */}
+            {visit && (
+                <>
+                    <VisitSurveyModal
+                        visitId={visit.id}
+                        open={surveyOpen}
+                        onClose={() => setSurveyOpen(false)}
+                        onSaved={() => { setSurveyOpen(false); load(); }}
+                    />
+                    <ReferralSheetModal
+                        visitId={visit.id}
+                        open={referralOpen}
+                        onClose={() => setReferralOpen(false)}
+                        onSaved={() => { setReferralOpen(false); load(); }}
+                    />
+                </>
             )}
         </div>
     );

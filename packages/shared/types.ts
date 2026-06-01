@@ -321,6 +321,12 @@ export interface Client {
     isCandidate?: boolean;
     targetClient?: string;
     candidateStatus?: string;
+    // DEC-005 D29: contact-control state surfaced to the client profile UI
+    doNotContact?: boolean;
+    cooldownUntil?: string | null;
+    cooldownReason?: string | null;
+    cooldownSetBy?: number | null;
+    cooldownSetAt?: string | null;
 }
 
 export interface SmartMatchVisibleClient {
@@ -556,6 +562,7 @@ export interface MarketingVisitTaskOfferInput {
     extensionReasonId?: number | null;
     extensionDueDate?: string | null;
     saleReferenceNumber?: string | null;
+    sourceCustomerPreOfferId?: number | null;
     contractId?: number | null;
 }
 
@@ -587,6 +594,7 @@ export interface MarketingVisitLifecycleTaskUpdate {
     openTaskId: number;
     priority: 'high' | 'medium' | 'low';
     dueDate?: string | null;
+    expectedDate?: string | null;
 }
 
 export interface MarketingVisitRescheduleRequest {
@@ -681,10 +689,88 @@ export interface DeviceDiscount {
   createdAt?: string;
 }
 
-export type ContractStatus = 'active' | 'cancelled' | 'temporary';
+// Contract status — unified per DEC-CT-01.
+// `temporary` is no longer a status; it lives in `saleSubtype` instead.
+//   draft      — created without closing_employee_id
+//   active     — closing_employee_id assigned (legally bound)
+//   completed  — all installments settled (financial closure)
+//   cancelled  — was active, then explicitly cancelled
+//   discarded  — was draft, rejected before activation
+export type ContractStatus = 'draft' | 'active' | 'cancelled' | 'completed' | 'discarded';
 export type SaleSubtype = 'definitive' | 'temporary' | 'free';
 export type SaleType = 'tradein' | 'retention' | 'direct';
+// DEC-CT-02: `maintenance_contract` has been extracted into the independent
+// `service_agreements` entity. The literal is retained in this union for
+// backward compatibility with existing web state and read paths only —
+// the DB CHECK constraint (migration 207) rejects any new insert/update
+// with this value. New code MUST use ServiceAgreement instead.
+//
+// @deprecated maintenance_contract — use ServiceAgreement (see shared types below).
 export type ContractType = 'sale_contract' | 'maintenance_contract';
+
+// Device status dictionary — unified per DEC-CT-03.
+// Legacy `under_maintenance`/`disconnected` mapped via migration 199.
+export type DeviceStatus =
+  | 'registered'
+  | 'pending_delivery'
+  | 'delivered'
+  | 'installed'
+  | 'active'
+  | 'faulty'
+  | 'in_workshop'
+  | 'ready'
+  | 'out_of_service'
+  | 'retrieved';
+
+// Warranty status — per DEC-CT-05 (replaces is_active).
+export type WarrantyStatus = 'pending' | 'active' | 'cancelled' | 'expired';
+export type WarrantyCancellationReason = 'contract_cancelled' | 'device_retrieved' | 'manual';
+
+// DEC-CT-02: independent service agreement for third-party devices we maintain.
+export type ServiceAgreementStatus = 'draft' | 'active' | 'cancelled' | 'completed' | 'discarded';
+
+export interface ServiceAgreement {
+  id: number;
+  agreementNumber?: string | null;
+  customerId: number;
+  customerName: string;
+  branchId?: number | null;
+  agreementDate: string;
+  externalDeviceModelName?: string | null;
+  externalDeviceSerial?: string | null;
+  externalDeviceNotes?: string | null;
+  maintenancePlan?: string | null;
+  visitsCount?: number | null;
+  feeSyp: number;
+  status: ServiceAgreementStatus;
+  startDate?: string | null;
+  endDate?: string | null;
+  closingEmployeeId?: number | null;
+  createdBy?: number | null;
+  /** id of the legacy contracts row this agreement was migrated from (DEC-CT-02). */
+  legacyContractId?: number | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// DEC-CT-09: device possession ledger.
+export type PossessionHolderType = 'warehouse' | 'technician' | 'customer' | 'workshop' | 'supplier';
+export type PossessionReason     = 'sale_delivery' | 'repair_pickup' | 'temporary_swap'
+                                  | 'retrieval' | 'cancellation' | 'transfer';
+
+export interface DevicePossessionEntry {
+  id: number;
+  deviceId: number;
+  holderType: PossessionHolderType;
+  holderId: number | null;
+  startAt: string;
+  endAt: string | null;
+  reason: PossessionReason;
+  notes?: string | null;
+  createdBy?: number | null;
+  createdAt: string;
+}
 export type SaleSource = string;
 export type PaymentType = 'cash' | 'installment';
 export type MaintenancePlan = '3' | '6' | '12';
@@ -701,6 +787,13 @@ export interface ContractLineItem {
     isInstalled?: boolean;
 }
 
+/** DEC-CT-13 — a single member of the frozen offer-team snapshot on a contract. */
+export interface ContractOfferTeamMember {
+    employeeId: number;
+    name: string;
+    role?: string | null;
+}
+
 export interface ContractDiscountSnapshot {
     id: number;
     label: string;
@@ -710,6 +803,9 @@ export interface ContractDiscountSnapshot {
 export type DueType = 'Installment' | 'Maintenance Fee' | 'Down Payment';
 export type DueStatus = 'Pending' | 'Partial' | 'Paid' | 'Overdue';
 
+// DEC-CT-06: `Due` is now a UI/read-model projection of unsettled installments.
+// It is kept for backward-compatible contract screens, while the source of truth
+// for remaining receivables lives on ContractInstallment.remainingBalance.
 export interface Due {
     id: number;
     contractId: number;
@@ -722,6 +818,10 @@ export interface Due {
     status: DueStatus;
     escalated: boolean;
 }
+
+// DEC-CT-08: entry_type distinguishes collection (default) from refund.
+// Amount remains positive; semantics flow from entry_type.
+export type PaymentEntryType = 'collection' | 'refund';
 
 export interface ContractPaymentEntry {
     id: number;
@@ -737,6 +837,10 @@ export interface ContractPaymentEntry {
     receivedByEmployeeId?: number | null;
     receivedAt: string;
     notes?: string;
+    /** DEC-CT-08 — defaults to 'collection' if omitted. */
+    entryType?: PaymentEntryType;
+    /** DEC-CT-06 — allocation target. Null for down-payments / generic refunds. */
+    installmentId?: number | null;
 }
 
 export interface ContractInstallment {
@@ -749,6 +853,8 @@ export interface ContractInstallment {
     paidAmount: number;
     remainingBalance: number;
     confirmed: boolean;
+    /** DEC-CT-12 — per-installment collection owner. */
+    collectionOwnerId?: number | null;
 }
 
 export interface Contract {
@@ -767,6 +873,7 @@ export interface Contract {
     paymentType: PaymentType;
     downPayment: number;
     installmentsCount: number;
+    /** Backward-compatible read projection of open installment balances. */
     dues: Due[];
     deliveryDate: string;
     installationDate: string;
@@ -776,11 +883,17 @@ export interface Contract {
     discountId?: number | null;
     discount?: ContractDiscountSnapshot | null;
     lineItems?: ContractLineItem[];
-    deviceStatus?: 'pending_delivery' | 'delivered' | 'installed' | 'active';
+    deviceStatus?: DeviceStatus;
     paymentEntries?: ContractPaymentEntry[];
     installments?: ContractInstallment[];
     closingEmployeeId?: number | null;
     closingDate?: string | null;
+    /** DEC-CT-11 — deal originator, distinct from closing employee. */
+    saleOwnerId?: number | null;
+    /** DEC-CT-13 — JSON snapshot of the offer team, frozen at contract creation. */
+    offerTeamSnapshot?: ContractOfferTeamMember[] | null;
+    /** Selected customer referrers frozen on the contract at creation/update time. */
+    contractReferrers?: ClientReferrer[] | null;
     invoiceNotes?: string | null;
     receiptNumber?: string | null;
     createdAt: string;
@@ -808,6 +921,7 @@ export interface Contract {
 }
 
 export type MaintenancePartType = 'Periodic' | 'Emergency' | 'Accessory';
+export type EmergencyPartPlacementState = 'installed' | 'customer_stock';
 
 export interface SparePart {
     id: number;
@@ -1282,15 +1396,15 @@ export const TASK_SCHEDULING_PATTERN_LABELS: Record<TaskSchedulingPattern, strin
 
 export const TASK_SCHEDULING_PATTERN_DESCRIPTIONS: Record<TaskSchedulingPattern, string> = {
   immediate:       'لا تاريخ مستقبلي — تظهر فور إنشائها، N لا تنطبق',
-  short_window:    'لها due_date — تدخل النطاق قبل موعدها بأيام قليلة (3–7)',
-  long_window:     'لها due_date بعيد (شهور) — تدخل النطاق قبل موعدها بنافذة أطول (15–30)',
+  short_window:    'لها تاريخ مطلوب — تدخل النطاق قبل موعدها بأيام قليلة (3–7)',
+  long_window:     'لها تاريخ مطلوب بعيد (شهور) — تدخل النطاق قبل موعدها بنافذة أطول (15–30)',
   expected_window: 'لا due_date صارم — تستخدم expected_date من محادثة الزبون',
 };
 
 export const TASK_WINDOW_BASIS_LABELS: Record<TaskWindowBasis, string> = {
   none:          'لا ينطبق',
-  due_date:      'تاريخ الاستحقاق',
-  expected_date: 'الموعد المتوقع',
+  due_date:      'التاريخ المطلوب',
+  expected_date: 'التاريخ المتوقع',
 };
 
 export const TASK_LOCATION_BASIS_LABELS: Record<TaskLocationBasis, string> = {

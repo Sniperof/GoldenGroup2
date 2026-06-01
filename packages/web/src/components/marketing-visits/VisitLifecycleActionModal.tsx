@@ -19,7 +19,7 @@ interface TaskFormState {
   taskLabel: string;
   customerName: string;
   priority: Priority;
-  dueDate: string;
+  targetDate: string;
 }
 
 interface VisitLifecycleActionModalProps {
@@ -93,7 +93,7 @@ function normalizeTasks(visit: MarketingVisit | null): TaskFormState[] {
       taskLabel: buildTaskLabel(visit, task.id),
       customerName: visit.customerName || 'الزبون الحالي',
       priority: task.openTaskPriority ?? 'medium',
-      dueDate: '',
+      targetDate: '',
     }));
 }
 
@@ -200,7 +200,8 @@ export default function VisitLifecycleActionModal({
     const taskUpdates: MarketingVisitLifecycleTaskUpdate[] = taskStates.map((task) => ({
       openTaskId: task.openTaskId,
       priority: task.priority,
-      dueDate: task.dueDate.trim() || null,
+      dueDate: mode === 'cancel' ? (task.targetDate.trim() || null) : null,
+      expectedDate: mode === 'reschedule' ? (task.targetDate.trim() || null) : null,
     }));
 
     setValidationError('');
@@ -304,7 +305,7 @@ export default function VisitLifecycleActionModal({
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-bold text-slate-700">المهام المرتبطة بالزيارة</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  حدّد أولوية كل مهمة. تاريخ الاستحقاق اختياري، وإذا تُرك فارغاً سيبقى التاريخ الحالي كما هو.
+                  حدّد أولوية كل مهمة. {mode === 'reschedule' ? 'التاريخ المتوقع' : 'التاريخ المطلوب'} اختياري، وإذا تُرك فارغاً سيبقى التاريخ الحالي كما هو.
                 </p>
               </div>
 
@@ -345,11 +346,11 @@ export default function VisitLifecycleActionModal({
                     </div>
 
                     <label className="block">
-                      <span className="mb-2 block text-xs font-bold text-slate-600">تاريخ الاستحقاق</span>
+                      <span className="mb-2 block text-xs font-bold text-slate-600">{mode === 'reschedule' ? 'التاريخ المتوقع' : 'التاريخ المطلوب'}</span>
                       <input
                         type="date"
-                        value={task.dueDate}
-                        onChange={(event) => updateTaskState(task.openTaskId, { dueDate: event.target.value })}
+                        value={task.targetDate}
+                        onChange={(event) => updateTaskState(task.openTaskId, { targetDate: event.target.value })}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
                       />
                     </label>

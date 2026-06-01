@@ -14,7 +14,8 @@ import {
     ClipboardList, UsersRound, MapPinned, ChevronDown, Gem, Eye,
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
-    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2
+    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
+    Bell,
 } from 'lucide-react';
 
 const navItems = [
@@ -41,6 +42,8 @@ const operationsChildren = [
     { path: '/tasks/periodic', label: 'صيانة دورية', icon: RefreshCw },
     { path: '/tasks/returns', label: 'إرجاع', icon: RotateCcw },
     { path: '/tasks/followup', label: 'متابعة', icon: PhoneCall },
+    // DEC-006 D37/D38: hub for supervisor alerts (attempt threshold + visit escalation)
+    { path: '/supervisor/alerts', label: 'تنبيهات المشرف', icon: Bell },
 ];
 
 const planningChildren = [
@@ -119,6 +122,7 @@ export default function MainLayout() {
     }
     const isPlanningActive = location.pathname.startsWith('/planning');
     const isOperationsActive = location.pathname.startsWith('/tasks');
+    const isVisitsActive = location.pathname.startsWith('/field-visits');
     const isContractsActive = location.pathname.startsWith('/contracts');
     const isGeoActive = location.pathname === '/geo' || location.pathname === '/routes';
     const isRecordsActive = visibleRecordsChildren.some(child => location.pathname.startsWith(child.path));
@@ -284,6 +288,23 @@ export default function MainLayout() {
                     >
                         <Headset className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
                         <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إدارة المواعيد</span>
+                    </NavLink>
+                    )}
+
+                    {/* 3. Field Visits (central daily visit hub) */}
+                    {canSeeBranchModules && can('field_visits.view') && (
+                    <NavLink
+                        to="/field-visits"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={({ isActive }: { isActive: boolean }) =>
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive || isVisitsActive
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                            } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                        }
+                    >
+                        <MapPinned className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                        <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>الزيارات</span>
                     </NavLink>
                     )}
 

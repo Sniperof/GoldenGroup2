@@ -22,6 +22,8 @@ import referralSheetsRouter from './routes/referralSheets.js';
 import routesRouter from './routes/routes.js';
 import tasksRouter from './routes/tasks.js';
 import contractsRouter from './routes/contracts.js';
+import contractDocumentsRouter from './routes/contractDocuments.js';
+import serviceAgreementsRouter from './routes/serviceAgreements.js';
 import duesRouter from './routes/dues.js';
 import deviceModelsRouter from './routes/deviceModels.js';
 import installedDevicesRouter from './routes/installedDevices.js';
@@ -51,10 +53,13 @@ import openTasksRouter from './routes/openTasks.js';
 import workScopesRouter from './routes/workScopes.js';
 import fieldVisitsRouter from './routes/fieldVisits.js';
 import customerCallsRouter from './routes/customerCalls.js';
+import customerStatementRouter from './routes/customerStatement.js';
+import customerPreOffersRouter from './routes/customerPreOffers.js';
 import taskTypeConfigRouter from './routes/taskTypeConfig.js';
 import emergencyActionTypesRouter from './routes/emergencyActionTypes.js';
 import emergencyResultRouter from './routes/emergencyResult.js';
 import deviceWarrantiesRouter from './routes/deviceWarranties.js';
+import devicePossessionRouter from './routes/devicePossession.js';
 import devicePartsRouter from './routes/deviceParts.js';
 
 const app = express();
@@ -118,12 +123,17 @@ app.use('/api/field-visits', ...branchOnly, fieldVisitsRouter);
 
 // ── Customer call logs (accessible from both HQ and branch contexts) ─────────
 app.use('/api/customers', requireAuth, customerCallsRouter);
+app.use('/api/customers', requireAuth, customerStatementRouter); // DEC-CT-10
+app.use('/api/customers', requireAuth, customerPreOffersRouter); // pre-offers tab
 
 // ── Shared routes (HQ + branch) ───────────────────────────────────────────────
 app.use('/api/contracts', contractsRouter);
+app.use('/api/contracts', contractDocumentsRouter); // DEC-CT-14, DEC-CT-15
+app.use('/api/service-agreements', serviceAgreementsRouter); // DEC-CT-02
 app.use('/api/device-models', deviceModelsRouter);
 app.use('/api/installed-devices', installedDevicesRouter);
 app.use('/api/device-warranties', deviceWarrantiesRouter);
+app.use('/api/devices', devicePossessionRouter); // DEC-CT-09
 app.use('/api/device-parts', devicePartsRouter);
 app.use('/api/spare-parts', sparePartsRouter);
 app.use('/api/dashboard', dashboardRouter);
@@ -169,6 +179,15 @@ export async function start() {
       } else {
         console.log(`  mode: production (serving built frontend from packages/web/dist)`);
       }
+      // DEC-005 D26: launch daily contact_targets cleanup job after the
+      // listener is up so a failing job never blocks the server from booting.
+      void import('./services/contactTargetsCleanupJob.js').then((mod) =>
+        mod.startContactTargetsCleanupJob(),
+      );
+      // DEC-006 D38: three-tier escalation for undocumented visits.
+      void import('./services/visitEscalationJob.js').then((mod) =>
+        mod.startVisitEscalationJob(),
+      );
       resolve();
     });
   });

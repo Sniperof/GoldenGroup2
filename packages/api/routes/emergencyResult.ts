@@ -193,6 +193,9 @@ const router = Router();
  *           type: number
  *         retrieved:
  *           type: boolean
+ *         placementState:
+ *           type: string
+ *           enum: [installed, customer_stock]
  *         noRetrievalReasonId:
  *           type: integer
  *         noRetrievalReasonText:
@@ -981,9 +984,9 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
         const { rows: inserted } = await db.query(
           `INSERT INTO emergency_result_parts
              (open_task_id, spare_part_id, part_name_snapshot, part_code_snapshot,
-              maintenance_type, unit_price, quantity, retrieved,
+              maintenance_type, unit_price, quantity, retrieved, placement_state,
               no_retrieval_reason_id, no_retrieval_reason_text)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
           [
             taskId,
             p.sparePartId ?? null,
@@ -993,6 +996,7 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
             Number(p.unitPrice) || 0,
             Number(p.quantity) || 1,
             p.retrieved !== false,
+            p.placementState === 'customer_stock' ? 'customer_stock' : 'installed',
             p.noRetrievalReasonId ?? null,
             p.noRetrievalReasonText ?? null,
           ],
@@ -1010,6 +1014,7 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
         await db.query('DELETE FROM device_installed_parts WHERE open_task_id = $1', [taskId]);
         for (const p of parts) {
           if (!p.partNameSnapshot?.trim()) continue;
+          if (p.placementState === 'customer_stock') continue;
           await db.query(
             `INSERT INTO device_installed_parts
                (device_id, open_task_id, spare_part_id, part_name_snapshot, part_code_snapshot,
@@ -1087,7 +1092,8 @@ router.get('/:taskId/parts', requirePermission('marketing_visits.view'), async (
               erp.part_code_snapshot AS "partCodeSnapshot",
               erp.maintenance_type AS "maintenanceType",
               erp.unit_price AS "unitPrice", erp.quantity, erp.line_total AS "lineTotal",
-              erp.retrieved, erp.no_retrieval_reason_id AS "noRetrievalReasonId",
+              erp.retrieved, erp.placement_state AS "placementState",
+              erp.no_retrieval_reason_id AS "noRetrievalReasonId",
               erp.no_retrieval_reason_text AS "noRetrievalReasonText",
               sl.value AS "noRetrievalReasonLabel"
          FROM emergency_result_parts erp

@@ -5,8 +5,18 @@ import {
   buildCustomerOwnershipSql,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
+import { getSystemSettingNumber } from '../services/systemSettings.js';
 
 const ACTIVE_OPEN_TASK_STATUSES = ['open', 'needs_follow_up', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution', 'in_execution', 'ended'];
+
+// DEC-005 D26 closing_reason vocabulary (mirrored from migration 224 COMMENT)
+const ALLOWED_CLOSING_REASONS = new Set([
+  'booked',
+  'manual_telemarketer',
+  'manual_supervisor',
+  'auto_closed_by_cron',
+  'cooldown_set',
+]);
 
 const router = Router();
 
@@ -101,22 +111,19 @@ const marketingTargetSelect = `
     AND ct.visit_type = 'marketing'
     AND ct.source_type = 'lead'
     AND c.is_candidate = FALSE
-    AND NOT EXISTS (
-      SELECT 1
-      FROM contracts contract
-      WHERE contract.customer_id = c.id
-    )
+    -- DEC-005 D-customer-filters: cooldown + do_not_contact
+    AND c.do_not_contact = FALSE
+    AND (c.cooldown_until IS NULL OR c.cooldown_until < CURRENT_DATE)
     AND EXISTS (
       SELECT 1
       FROM open_tasks ot
       WHERE ot.client_id = c.id
         AND ot.status = ANY($2::varchar[])
     )
-    AND NOT EXISTS (
-      SELECT 1
-      FROM visits visit
-      WHERE visit.customer_id = c.id
-    )
+    -- DEC-005 section 4: NOT EXISTS contracts filter removed (wrong assumption —
+    --   clients with contracts can still have open marketing tasks for new devices)
+    -- DEC-005 section 4: NOT EXISTS visits (legacy) filter removed (the legacy
+    --   visits table will be dropped in Phase 9; D23 governs field_visits filtering)
   ORDER BY c.id
 `;
 
@@ -314,22 +321,16 @@ router.post('/marketing/sync', async (req, res) => {
       ) assignment ON TRUE
       WHERE c.branch_id = $1
         AND c.is_candidate = FALSE
-        AND NOT EXISTS (
-          SELECT 1
-          FROM contracts contract
-          WHERE contract.customer_id = c.id
-        )
+        -- DEC-005 D-customer-filters
+        AND c.do_not_contact = FALSE
+        AND (c.cooldown_until IS NULL OR c.cooldown_until < CURRENT_DATE)
         AND EXISTS (
           SELECT 1
           FROM open_tasks ot
           WHERE ot.client_id = c.id
             AND ot.status = ANY(ARRAY['open', 'needs_follow_up', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution', 'in_execution', 'ended']::varchar[])
         )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM visits visit
-          WHERE visit.customer_id = c.id
-        )
+        -- DEC-005 §4: removed NOT EXISTS contracts + NOT EXISTS visits (legacy)
       ON CONFLICT (branch_id, target_type, target_id, visit_type, source_type)
       DO UPDATE SET
         supervisor_hr_user_id = EXCLUDED.supervisor_hr_user_id,
@@ -342,6 +343,118 @@ router.post('/marketing/sync', async (req, res) => {
 
   const { rows } = await pool.query(marketingTargetSelect, [branchId, ACTIVE_OPEN_TASK_STATUSES]);
   return res.json({ targets: rows.map((row: any) => ({ ...row, ownership: mapCustomerOwnership(row) })), count: rows.length });
+});
+
+// ============================================================================
+// Manual close + optional cooldown activation (DEC-005 D26 + D29)
+// ============================================================================
+
+/**
+ * @swagger
+ * /api/contact-targets/{id}/close:
+ *   post:
+ *     tags: [Contact Targets]
+ *     summary: Manually close a contact target (DEC-005 D26)
+ *     description: |
+ *       Sets contact_targets.status = 'closed' + closing_reason + closed_by +
+ *       closed_at. Optionally activates client cooldown via `activateCooldown`
+ *       (DEC-005 D29 — manual path). Auto-cooldown on `not_interested` outcome
+ *       is handled separately in telemarketing.ts.
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/:id/close', async (req, res) => {
+  try {
+    const branchId = getBranchId(req);
+    if (branchId == null) {
+      return res.status(400).json({ error: 'A branch context is required' });
+    }
+    const targetId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: 'contact_target id غير صالح' });
+    }
+
+    const authContext: any = (req as any).authContext;
+    const userId = authContext?.userId ?? null;
+
+    const {
+      closingReason,
+      activateCooldown,
+      cooldownReason,
+      cooldownDays,
+    } = req.body as {
+      closingReason?: string;
+      activateCooldown?: boolean;
+      cooldownReason?: string;
+      cooldownDays?: number;
+    };
+
+    // Default the closing_reason based on caller role per DEC-005 D26.
+    // Telemarketers / supervisors can supply 'manual_telemarketer' or
+    // 'manual_supervisor'; we don't hard-enforce role here, the UI surface
+    // does (telemarketer-only button vs supervisor button).
+    const finalClosingReason = (closingReason && ALLOWED_CLOSING_REASONS.has(closingReason))
+      ? closingReason
+      : 'manual_telemarketer';
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const { rows: targetRows } = await client.query(
+        `UPDATE contact_targets
+            SET status         = 'closed',
+                closing_reason = $1,
+                closed_by      = $2,
+                closed_at      = NOW(),
+                updated_at     = NOW()
+          WHERE id = $3 AND branch_id = $4
+          RETURNING id, target_id AS "clientId", closing_reason AS "closingReason"`,
+        [finalClosingReason, userId, targetId, branchId],
+      );
+      if (targetRows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'contact_target غير موجود في الفرع الحالي' });
+      }
+
+      let cooldownPayload: any = null;
+      if (activateCooldown === true) {
+        if (!cooldownReason || !cooldownReason.trim()) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'سبب التهدئة مطلوب عند تفعيلها (cooldownReason)' });
+        }
+        const days = Number.isFinite(cooldownDays) && cooldownDays! > 0
+          ? Math.floor(cooldownDays!)
+          : await getSystemSettingNumber('default_cooldown_days', 7);
+
+        const { rows: clientRows } = await client.query(
+          `UPDATE clients
+              SET cooldown_until  = CURRENT_DATE + ($1 || ' days')::INTERVAL,
+                  cooldown_reason = $2,
+                  cooldown_set_by = $3,
+                  cooldown_set_at = NOW()
+            WHERE id = $4
+            RETURNING cooldown_until  AS "cooldownUntil",
+                      cooldown_reason AS "cooldownReason"`,
+          [days, cooldownReason.trim(), userId, targetRows[0].clientId],
+        );
+        cooldownPayload = clientRows[0] ?? null;
+      }
+
+      await client.query('COMMIT');
+      return res.json({
+        contactTarget: targetRows[0],
+        cooldown: cooldownPayload,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

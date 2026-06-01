@@ -36,7 +36,7 @@ function overviewIssuesFor(data: TaskDetailData): string[] {
   const issues: string[] = [];
   if (!task.createdByName) issues.push('منشئ المهمة غير موجود أو ناقص');
   if (!task.source) issues.push('مصدر الإنشاء غير محدد');
-  if (!task.dueDate) issues.push('تاريخ الاستحقاق غير محدد');
+  if (!task.dueDate) issues.push('التاريخ المطلوب غير محدد');
   const visitDate = task.scheduledDate || task.visitDate;
   if (!visitDate && !task.marketingVisitId) issues.push('تفاصيل الزيارة غير مرتبطة بعد');
   if (!task.priority) issues.push('الأولوية غير محددة');
