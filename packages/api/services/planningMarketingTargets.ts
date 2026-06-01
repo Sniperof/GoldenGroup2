@@ -451,11 +451,8 @@ export async function getPlanningMarketingTargets(params: {
           CASE
             WHEN ttc_eff.location_basis = 'contract' AND ct_loc.installation_geo_unit_id IS NOT NULL
               THEN ct_loc.installation_geo_unit_id
-            ELSE
-              CASE WHEN NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
-                THEN c.neighborhood::int
-                ELSE NULL
-              END
+            -- clients.neighborhood is already INTEGER; NULL means "no zone".
+            ELSE c.neighborhood
           END AS effective_zone
         FROM clients c
         LEFT JOIN LATERAL (
@@ -720,8 +717,7 @@ export async function getPlanningMarketingTargets(params: {
           (ot.location_basis = 'contract' AND ct_zone.installation_geo_unit_id = ANY($2::int[]))
           OR
           (COALESCE(ot.location_basis, 'client') = 'client'
-            AND NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
-            AND c.neighborhood::int = ANY($2::int[]))
+            AND c.neighborhood = ANY($2::int[]))
         )
         AND (
           -- DEC-005 §4: legacy NOT EXISTS visits filter removed

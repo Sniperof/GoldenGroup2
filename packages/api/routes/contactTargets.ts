@@ -305,10 +305,8 @@ router.post('/marketing/sync', async (req, res) => {
         'lead',
         c.id,
         assignment.hr_user_id,
-        CASE
-          WHEN NULLIF(c.neighborhood, '') ~ '^[0-9]+$' THEN c.neighborhood::int
-          ELSE NULL
-        END,
+        -- clients.neighborhood is INTEGER; NULL is fine here.
+        c.neighborhood,
         'new'
       FROM clients c
       LEFT JOIN LATERAL (
