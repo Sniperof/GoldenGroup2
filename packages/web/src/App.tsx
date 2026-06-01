@@ -4,6 +4,7 @@ import Login from './pages/auth/Login';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import MainLayout from './layout/MainLayout';
 import Dashboard from './pages/Dashboard';
+import SupervisorAlertsPage from './pages/supervisor/SupervisorAlertsPage';
 import GeoSettings from './pages/GeoSettings';
 import RouteManager from './pages/RouteManager';
 import Employees from './pages/Employees';
@@ -117,6 +118,9 @@ export default function App() {
                         <Route path="/jobs/interviews" element={<Interviews />} />
                         <Route path="/jobs/training-courses" element={<TrainingCourses />} />
                         <Route path="/jobs/training-courses/:id" element={<TrainingCourseDetail />} />
+
+                        {/* Supervisor */}
+                        <Route path="/supervisor/alerts" element={<SupervisorAlertsPage />} />
 
                         {/* Admin */}
                         <Route path="/admin/roles" element={<Roles />} />
