@@ -337,26 +337,29 @@ erDiagram
 
 | الكود | الموضوع | الحالة |
 |---|---|---|
-| `V-G001` | Migrations DEC-003 (`appointment_*`, `customer_snapshot`, `cancellation_*`, `origin_type`, `origin_id`) | يحتاج تنفيذ |
-| `V-G002` | حذف `telemarketing_appointments` فعلياً من DB | يحتاج تنفيذ |
-| `V-G003` | تحديث 5 ملفات backend تستخدم `telemarketing_appointments` | يحتاج تنفيذ |
-| `V-G004` | endpoint `POST /telemarketing/book-visit` | يحتاج تنفيذ |
-| `V-G005` | endpoint `POST /field-visits/:id/tasks` (cascading موسّع — D7) | يحتاج تنفيذ |
-| `V-G006` | Migrations DEC-004 (lifecycle 7 حالات، `location_missing_reason`, `started_by`, `ended_by`, `field_visits.reopen_closed`) | يحتاج تنفيذ |
-| `V-G007` | endpoint `POST /open-tasks/:id/schedule-from-expected` (D22) | يحتاج تنفيذ |
-| `V-G008` | فحص D18 الثلاثي في كل الـ booking endpoints | يحتاج تنفيذ |
-| `V-G009` | منطق escalation `ended` → 24h/48h (D9) | يحتاج تنفيذ |
-| `V-G010` | شاشة "متابعات اليوم" (Schedule-from-Expected) + شاشة "مهام خارج الخطة" (D13) | يحتاج تنفيذ |
-| `V-G011` | تعريف `system_lists` الجديدة: `visit_cancellation_reasons`, `location_missing_reasons`, `visit_task_reasons`, `customer_followup_reasons` | يحتاج تنفيذ |
-| `V-G012` | استبدال BR-2 trigger chain (migration 050) — الموعد→الزيارة لم يعد له معنى | يحتاج تنفيذ |
-| `V-G013` | حذف جدول `visit_name_collections` + ترحيل بياناته إلى `referral_sheets` (DEC-007 D40) | migrations 214-216 جاهزة، الترحيل والـ DROP يحتاج تنفيذ |
-| `V-G014` | جدول `visit_surveys` + UI `VisitSurveyModal` + endpoints `/survey` و `/survey/skip` (DEC-007 D42) | migration 214 جاهز، UI/API يحتاج تنفيذ |
-| `V-G015` | إنشاء `referral_sheet` يدوي بزر بعد start + endpoint `/referral-sheet` (DEC-007 D41) | يحتاج تنفيذ |
-| `V-G016` | تصعيد ثلاثي 24/48/72h لزيارات بدون توثيق + 4 مفاتيح `system_settings` (DEC-006 D38) | يحتاج تنفيذ |
-| `V-G017` | helper `checkAndCompleteVisit()` ينفّذ الانتقال الآلي إلى `completed` بعد كل save (DEC-007 P-DEC007-04) | يحتاج تنفيذ |
-| `V-G018` | seed فئة `area_evaluation_options` (4 قيم) + فئة `survey_skip_reasons` (DEC-007 D43) + باقي فئات DEC-006 الست | migration 215 يغطي جزئياً |
-| `V-G019` | حقل `team_responsible_user_id` على `field_visits` + تعبئة من `team_snapshot` لحظة الإنشاء (DEC-007 D47) | يحتاج تنفيذ |
-| `V-G020` | `UNIQUE(field_visit_id)` على `referral_sheets` (DEC-007 D40) | migration 216 جاهز |
+> **⏳ Implementation status:** سجل تنفيذ كامل لـ Phases 0-8 في
+> [`plans/2026-06-01-implementation-status.md`](../plans/2026-06-01-implementation-status.md).
+
+| `V-G001` | Migrations DEC-003 (`appointment_*`, `customer_snapshot`, `cancellation_*`, `origin_type`, `origin_id`) | ✅ محلولة — Phase 1 (migration 222) + migrations سابقة 165/166 |
+| `V-G002` | حذف `telemarketing_appointments` فعلياً من DB | 🔄 مؤجلة — Phase 9 بعد 14 يوم staging |
+| `V-G003` | تحديث 5 ملفات backend تستخدم `telemarketing_appointments` | 🔄 جزئية — planning يقرأ من field_visits الآن (Phase 4); 4 ملفات legacy تبقى حتى Phase 9 |
+| `V-G004` | endpoint `POST /telemarketing/book-visit` | ✅ محلولة — Phase 4 (`50d334a`) |
+| `V-G005` | endpoint `POST /field-visits/:id/tasks` (cascading موسّع — D7) | ✅ محلولة — Phase 4 (`50d334a`) |
+| `V-G006` | Migrations DEC-004 (lifecycle 7 حالات، `location_missing_reason`, `started_by`, `ended_by`, `field_visits.reopen_closed`) | ✅ محلولة — Phase 0 (219) + Phase 1 (223) + Phase 7 (231) |
+| `V-G007` | endpoint `POST /open-tasks/:id/schedule-from-expected` (D22) | ✅ محلولة — Phase 4 (`50d334a`) |
+| `V-G008` | فحص D18 الثلاثي في كل الـ booking endpoints | ✅ محلولة — Phase 4 (`services/visitBooking.ts::assertD18`) |
+| `V-G009` | منطق escalation `ended` → 24h/48h (D9) | ✅ محلولة — Phase 7 توسعت لـ 24/48/72h (DEC-006 D38) في `services/visitEscalationJob.ts` |
+| `V-G010` | شاشة "متابعات اليوم" (Schedule-from-Expected) + شاشة "مهام خارج الخطة" (D13) | 🔄 جزئية — `ScheduleFromExpectedModal` جاهز (Phase 8)؛ شاشة خارج الخطة pending |
+| `V-G011` | تعريف `system_lists` الجديدة: `visit_cancellation_reasons`, `location_missing_reasons`, `visit_task_reasons`, `customer_followup_reasons` | ✅ محلولة — Phase 0 (migration 218) بـ "أخرى" كحد أدنى؛ القيم الكاملة تخص P-DEC006-01 |
+| `V-G012` | استبدال BR-2 trigger chain (migration 050) — الموعد→الزيارة لم يعد له معنى | 🔄 جزئية — لا trigger فعلي في migration 050 (راجعنا)؛ الـ chain فهمناه كمسار logical |
+| `V-G013` | حذف جدول `visit_name_collections` + ترحيل بياناته إلى `referral_sheets` (DEC-007 D40) | ✅ migration 230 جاهز مع bridge backfill + safety guard — Phase 6 |
+| `V-G014` | جدول `visit_surveys` + UI `VisitSurveyModal` + endpoints `/survey` و `/survey/skip` (DEC-007 D42) | ✅ محلولة — migration 214 + Phase 6 (`c441b02`) |
+| `V-G015` | إنشاء `referral_sheet` يدوي بزر بعد start + endpoint `/referral-sheet` (DEC-007 D41) | ✅ محلولة — Phase 6 (`c441b02`) |
+| `V-G016` | تصعيد ثلاثي 24/48/72h لزيارات بدون توثيق + 4 مفاتيح `system_settings` (DEC-006 D38) | ✅ محلولة — Phase 0 (217) + Phase 7 (`services/visitEscalationJob.ts`) |
+| `V-G017` | helper `checkAndCompleteVisit()` ينفّذ الانتقال الآلي إلى `completed` بعد كل save (DEC-007 P-DEC007-04) | ✅ محلولة — Phase 6 (`services/visitCompletion.ts`) |
+| `V-G018` | seed فئة `area_evaluation_options` (4 قيم) + فئة `survey_skip_reasons` (DEC-007 D43) + باقي فئات DEC-006 الست | ✅ محلولة — migration 215 + Phase 0 (218) |
+| `V-G019` | حقل `team_responsible_user_id` على `field_visits` + تعبئة من `team_snapshot` لحظة الإنشاء (DEC-007 D47) | ✅ محلولة — Phase 1 (migration 222) + Phase 4 (تعبئة في `visitBooking.ts`) |
+| `V-G020` | `UNIQUE(field_visit_id)` على `referral_sheets` (DEC-007 D40) | ✅ محلولة — migration 216 |
 
 ---
 

@@ -2,6 +2,8 @@
 
 > **الهدف:** نسجّل كل ثغرة أو تضارب أو قصور نكتشفو — ونحدد مين المسؤول عن حلو.
 > **القاعدة:** أي ثغرة بدون رقم (GAP-XXX) = ما موجودة. لازم كل ثغرة تاخد رقم وتحط هون.
+>
+> **آخر مزامنة:** 2026-06-01 — بعد تنفيذ DEC-003→DEC-007 (Phases 0-8). راجع سجل التنفيذ في [`plans/2026-06-01-implementation-status.md`](plans/2026-06-01-implementation-status.md).
 
 ---
 
@@ -344,17 +346,17 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [field-visits.md §9.2](domains/field-visits.md#92-الثغرة-الثانية) |
 
-### GAP-029: Lack of Direct Visit Creation Endpoint 🟡 متوسطة — **جديد**
+### GAP-029: Lack of Direct Visit Creation Endpoint 🟡 متوسطة — ✅ **محلولة (Phase 4)**
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | field_visits |
-| **الموقع** | `packages/api/routes/fieldVisits.ts` |
-| **الوصف** | لا يوجد أي مسار برميجي متاح بالخادم يسمح بإنشاء زيارة ميدانية جديدة بشكل مستقل ومباشر (`POST /api/field-visits/` معطل أو غير منشأ). |
-| **التأثير** | يعجز المدير الإداري للفرع عن تعيين وتكليف زيارة يدوية فجائية للفنيين دون توليد موعد تواصل هاتفي أو مهمة صيانة طارئة مسبقة بالخلفية. |
-| **الحل المقترح** | بناء مسار مخصص للإنشاء اليدوي المباشر `POST /api/field-visits` وتوفير الصلاحيات المخصصة له. |
-| **الحالة** | ⏳ مفتوحة |
-| **ملف الدستور** | [field-visits.md §9.3](domains/field-visits.md#93-الثغرة-الثالثة) |
+| **الموقع** | `packages/api/routes/telemarketing.ts` (`POST /telemarketing/book-visit`) + `services/visitBooking.ts` |
+| **الوصف القديم** | لا يوجد مسار برمجي متاح بالخادم يسمح بإنشاء زيارة ميدانية جديدة بشكل مستقل ومباشر. |
+| **الحل المنفذ** | Phase 4 (`50d334a`): خدمة `bookVisit()` موحدة مع فحص D18 الثلاثي، تُستدعى من ثلاث endpoints — `POST /telemarketing/book-visit` (DEC-003 D2) لحجز فوري من مكالمة، `POST /open-tasks/:id/schedule-from-expected` (DEC-004 D22) من وعد سابق، و `POST /field-visits/:id/tasks` (DEC-003 D7) للـ cascading أثناء التنفيذ. الـ origin_type يميّز المصدر. |
+| **المتبقي** | لا شيء بنيوياً — endpoint manual باسم `POST /field-visits` تركيبياً غير مطلوب لأن المسارات الموحّدة تغطي كل الحالات. |
+| **الحالة** | ✅ محلولة كاملة |
+| **ملف الدستور** | [visits.md §7](domains/visits.md) + [plans/2026-06-01-implementation-status.md](plans/2026-06-01-implementation-status.md) |
 
 ### GAP-030: Unchecked Technical Diagnostic Fields 🟢 منخفضة — **جديد**
 
@@ -368,17 +370,17 @@
 | **الحالة** | ⏳ مفتوحة |
 | **ملف الدستور** | [field-visits.md §9.4](domains/field-visits.md#94-الثغرة-الرابعة) |
 
-### GAP-031: Lack of Automatic Candidate Generation from Name Collection 🟢 منخفضة — **محلولة جزئياً بـ DEC-007**
+### GAP-031: Lack of Automatic Candidate Generation from Name Collection 🟢 منخفضة — 🔄 **محلولة بنيوياً (Phase 6)**
 
 | البند | التفصيل |
 |---|---|
 | **الكيان** | ~~visit_name_collections~~ / referral_sheets / candidates |
-| **الموقع** | `packages/api/routes/fieldVisits.ts` |
+| **الموقع** | `packages/api/routes/fieldVisits.ts` + `migration 230` + frontend `ReferralSheetModal` |
 | **الوصف القديم** | عند نجاح مهمة جمع الأسماء وتوثيق `actual_count` بجدول `visit_name_collections` وتحديث سجل `referral_sheets` بالعدد، لا يقوم النظام بالإنشاء والتحويل التلقائي لتلك التوصيات كـ `candidates` بقاعدة البيانات. |
-| **التحديث (DEC-007 D40/D45)** | الأسماء **لا تُدخَل ضمن الزيارة أصلاً**. الزيارة تحمل فقط `target_candidates` كوعد على `referral_sheets` (لائحة على مستوى الزيارة بـ `UNIQUE(field_visit_id)`). جدول `visit_name_collections` يُحذف. مفهوم "actual_count المحسوب ضمن الزيارة" يختفي. |
-| **المتبقي** | تصميم **شاشة "سجلات الأسماء المقترحة" المنفصلة** التي يُفتح فيها إدخال candidates لاحقاً (خارج سياق الزيارة) — هذا هو P-DEC007-03 في DEC-007. |
-| **الحالة** | 🔄 محلولة جزئياً (إعادة تصميم بنيوية) — انتظار شاشة سجلات الأسماء |
-| **ملف الدستور** | [field-visits.md](domains/field-visits.md) — قسم GAP-031 محدّث |
+| **الحل المنفذ (DEC-007 D40/D45)** | الأسماء **لا تُدخَل ضمن الزيارة أصلاً**. الزيارة تحمل فقط `target_candidates` كوعد على `referral_sheets` (لائحة على مستوى الزيارة بـ `UNIQUE(field_visit_id)`). Phase 6 (`c441b02`) ينفذ: migration 230 لحذف `visit_name_collections` مع safety guard، endpoints جديدة `/referral-sheet` (POST + PATCH + GET)، و `ReferralSheetModal.tsx` بـ target_candidates فقط. |
+| **المتبقي** | تصميم **شاشة "سجلات الأسماء المقترحة" المنفصلة** التي يُفتح فيها إدخال candidates لاحقاً (خارج سياق الزيارة) — هذا هو P-DEC007-03 في DEC-007. هذه ميزة مستقلة. |
+| **الحالة** | 🔄 محلولة بنيوياً — فقدت الـ "actual_count داخل الزيارة" تماماً؛ شاشة منفصلة pending |
+| **ملف الدستور** | [field-visits.md](domains/field-visits.md) + [plans/2026-06-01-implementation-status.md](plans/2026-06-01-implementation-status.md) |
 
 ### GAP-032: No Soft-Delete for Field Visits and Tasks 🟡 متوسطة — **جديد**
 

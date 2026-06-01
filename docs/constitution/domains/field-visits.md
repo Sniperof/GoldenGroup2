@@ -8,6 +8,8 @@
 > - أبرز التغييرات: حذف `visit_name_collections` (DEC-007 D40)، استبدالها بـ `referral_sheets` على مستوى الزيارة، إنشاء `visit_surveys` (DEC-007 D42)، إعادة تعريف completion guards (DEC-007 D44/D45)، تصعيد ثلاثي 24/48/72h لعدم التوثيق (DEC-006 D38)، انتقال `completed` آلي عبر `checkAndCompleteVisit()`.
 > - الحقول والجداول المُعلَّمة بـ `⛔ DEPRECATED` أدناه تبقى مذكورة للتوثيق التاريخي حتى تنفيذ migrations الإسقاط الفعلي.
 
+> **⏳ Implementation status (2026-06-01):** Phases 0-8 منفذة. Phase 9 (Legacy Removal) و Phase 10 (Sync) قيد التقدم. سجل التنفيذ الكامل: [`plans/2026-06-01-implementation-status.md`](../plans/2026-06-01-implementation-status.md).
+
 ---
 
 ## 1. هوية الكيان (Entity Identity)
