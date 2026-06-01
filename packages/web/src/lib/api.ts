@@ -452,6 +452,53 @@ export const api = {
       `/field-visits/${id}/tasks`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+    // ── DEC-007 D40/D41: referral sheet on the visit ──────────────────────
+    getReferralSheet: (id: number) => request<{
+      id: number; fieldVisitId: number; targetCandidates: number;
+      ownerUserId: number | null; status: string;
+      referralNameSnapshot: string | null; referralAddressText: string | null;
+    } | null>(`/field-visits/${id}/referral-sheet`),
+    createReferralSheet: (id: number, data: { targetCandidates: number }) =>
+      request<any>(`/field-visits/${id}/referral-sheet`, { method: 'POST', body: JSON.stringify(data) }),
+    updateReferralTarget: (id: number, targetCandidates: number) =>
+      request<any>(`/field-visits/${id}/referral-sheet/target`, { method: 'PATCH', body: JSON.stringify({ targetCandidates }) }),
+    // ── DEC-007 D42/D43/D44: visit survey ────────────────────────────────
+    getSurvey: (id: number) => request<{
+      id: number; fieldVisitId: number; isSkipped: boolean; skipReason: string | null;
+      filledByUserId: number | null; filledAt: string | null;
+      householdMembersCount: number | null;
+      drinkingWaterSource: string | null;
+      tdsTestResult: number | null;
+      hardnessTestDrops: number | null;
+      demoKitTdsResult: number | null;
+      customerOpinionWaterSource: string | null;
+      customerOpinionDemoKit: string | null;
+      customerOpinionPurificationIdea: string | null;
+      customerPurchaseIntent: boolean | null;
+      expectedPaymentMethod: string | null;
+      areaEvaluation: string | null;
+    } | null>(`/field-visits/${id}/survey`),
+    saveSurvey: (id: number, data: {
+      householdMembersCount: number;
+      drinkingWaterSource: string;
+      tdsTestResult: number;
+      hardnessTestDrops: number;
+      demoKitTdsResult: number;
+      customerOpinionWaterSource: string;
+      customerOpinionDemoKit: string;
+      customerOpinionPurificationIdea: string;
+      customerPurchaseIntent: boolean;
+      expectedPaymentMethod: string;
+      areaEvaluation: string;
+    }) => request<{ survey: any; completion: any }>(
+      `/field-visits/${id}/survey`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+    skipSurvey: (id: number, skipReason: string) =>
+      request<{ survey: any; completion: any }>(
+        `/field-visits/${id}/survey/skip`,
+        { method: 'POST', body: JSON.stringify({ skipReason }) },
+      ),
   },
   marketingVisits: {
     list: (date: string, clientId?: number) => {

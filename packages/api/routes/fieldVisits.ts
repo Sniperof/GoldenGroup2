@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1345,52 +1346,30 @@ router.post('/:id/complete', requirePermission('field_visits.edit'), async (req,
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
 
-    // Guard: all visit_tasks must have results
-    const { rows: pendingTasks } = await pool.query(
-      `SELECT vt.id FROM visit_tasks vt
-       LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
-       WHERE vt.field_visit_id = $1 AND vtr.id IS NULL`,
-      [visitId],
-    );
-    if (pendingTasks.length > 0) {
-      return res.status(400).json({
-        error: `لا يمكن إتمام الزيارة: ${pendingTasks.length} مهمة لم يُسجَّل لها نتيجة بعد`,
-      });
+    // DEC-007 D44/D45 + P-DEC007-04: delegate to the shared completion service.
+    // Guards enforced: (1) every visit_task has a result with final_decision,
+    // (2) visit_surveys row exists (filled OR skipped). Referral sheet is NOT
+    // a guard — the legacy visit_name_collections check is dropped (D45).
+    const result = await checkAndCompleteVisit(visitId, authContext.userId ?? null);
+    if (result.completed) {
+      return res.json({ success: true, alreadyCompleted: result.alreadyCompleted === true });
     }
 
-    // Guard: name collections must be completed (not pending)
-    const { rows: pendingNC } = await pool.query(
-      `SELECT vnc.id, vnc.status, vnc.proposed_count, vnc.actual_count
-       FROM visit_name_collections vnc
-       JOIN visit_tasks vt ON vt.id = vnc.visit_task_id
-       WHERE vt.field_visit_id = $1 AND vnc.status = 'pending' AND vnc.proposed_count > 0`,
-      [visitId],
-    );
-    if (pendingNC.length > 0) {
-      return res.status(400).json({
-        error: 'مهمة التوصيل غير مكتملة — يجب تسجيل الأسماء الفعلية',
-      });
+    if (result.reason === 'guards_failed') {
+      const parts: string[] = [];
+      if (result.missing?.includes('tasks')) {
+        parts.push(`${result.pendingTaskCount ?? 0} مهمة لم تُسجَّل نتيجتها`);
+      }
+      if (result.missing?.includes('survey')) {
+        parts.push('الاستبيان (visit_survey) غير موجود — تعبئة كاملة أو سبب تخطٍ مطلوب');
+      }
+      return res.status(400).json({ error: `لا يمكن إتمام الزيارة: ${parts.join(' و ')}` });
     }
-
-    const { rows: partialNC } = await pool.query(
-      `SELECT vnc.id FROM visit_name_collections vnc
-       JOIN visit_tasks vt ON vt.id = vnc.visit_task_id
-       WHERE vt.field_visit_id = $1 AND vnc.status = 'partial'`,
-      [visitId],
-    );
-    if (partialNC.length > 0) {
-      return res.status(400).json({
-        error: 'عدد الأسماء المسجل أقل من المقترح — تأكد من اكتمال التوصيل',
-      });
+    if (result.reason?.startsWith('status_not_eligible')) {
+      const current = result.reason.split(':')[1] ?? '';
+      return res.status(409).json({ error: `حالة الزيارة الحالية (${current}) لا تسمح بالإكمال` });
     }
-
-    await pool.query(
-      `UPDATE field_visits SET status = 'completed', closed_by = $1, closed_at = NOW(), updated_at = NOW()
-       WHERE id = $2`,
-      [authContext.userId, visitId],
-    );
-
-    res.json({ success: true });
+    return res.status(400).json({ error: result.reason ?? 'فشل غير معروف' });
   } catch (err: any) {
     console.error('[field-visits] POST /:id/complete error:', err);
     res.status(500).json({ error: 'فشل في إتمام الزيارة' });
@@ -1538,6 +1517,382 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
     res.status(500).json({ error: err?.message ?? 'فشل إضافة المهمة' });
   } finally {
     client.release();
+  }
+});
+
+// ============================================================================
+// Referral sheet endpoints — DEC-007 D40, D41
+// ============================================================================
+
+/**
+ * GET /api/field-visits/:id/referral-sheet
+ * Returns the referral_sheet bound to this visit (if any). Frontend uses this
+ * to decide whether to show "إضافة لائحة جديدة" or "تعديل عدد اللائحة".
+ */
+router.get('/:id/referral-sheet', requirePermission('field_visits.view'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows } = await pool.query(
+      `SELECT id,
+              field_visit_id  AS "fieldVisitId",
+              target_candidates AS "targetCandidates",
+              owner_user_id   AS "ownerUserId",
+              status,
+              referral_name_snapshot AS "referralNameSnapshot",
+              referral_address_text  AS "referralAddressText"
+         FROM referral_sheets
+        WHERE field_visit_id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    return res.json(rows[0] ?? null);
+  } catch (err: any) {
+    console.error('[field-visits] GET /:id/referral-sheet error:', err);
+    res.status(500).json({ error: 'فشل تحميل اللائحة' });
+  }
+});
+
+/**
+ * POST /api/field-visits/:id/referral-sheet  (DEC-007 D41)
+ *
+ * Creates a referral_sheet bound to this visit. Only allowed while the visit
+ * is in_progress or ended (D46). The team_responsible_user_id snapshot decides
+ * the owner_user_id (D47).
+ */
+router.post('/:id/referral-sheet', requirePermission('field_visits.edit'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const authContext = getAuthContext(req);
+    const body = req.body ?? {};
+    const targetCandidates = Number.isFinite(body.targetCandidates) && body.targetCandidates >= 0
+      ? Math.floor(body.targetCandidates)
+      : 0;
+
+    const { rows: visitRows } = await pool.query(
+      `SELECT fv.id, fv.client_id, fv.branch_id, fv.status,
+              fv.scheduled_date, fv.team_responsible_user_id,
+              c.name AS client_name,
+              c.detailed_address AS client_address
+         FROM field_visits fv
+         LEFT JOIN clients c ON c.id = fv.client_id
+        WHERE fv.id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    const visit = visitRows[0];
+    if (!authContext.isSuperAdmin && visit.branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+    }
+    if (visit.status !== 'in_progress' && visit.status !== 'ended') {
+      return res.status(409).json({
+        error: `إنشاء اللائحة مسموح فقط بعد بدء الزيارة (الحالة الحالية: ${visit.status}) — DEC-007 D46`,
+      });
+    }
+
+    // DEC-007 D40: enforce one referral_sheet per field_visit
+    const { rows: existing } = await pool.query(
+      'SELECT id FROM referral_sheets WHERE field_visit_id = $1 LIMIT 1',
+      [visitId],
+    );
+    if (existing.length > 0) {
+      return res.status(409).json({ error: 'يوجد لائحة لهذه الزيارة سابقاً — استخدم تعديل target_candidates' });
+    }
+
+    const ownerUserId = visit.team_responsible_user_id ?? authContext.userId ?? null;
+
+    const { rows: created } = await pool.query(
+      `INSERT INTO referral_sheets (
+         referral_type, referral_entity_id,
+         referral_name_snapshot, referral_address_text,
+         referral_origin_channel,
+         field_visit_id,
+         owner_user_id,
+         branch_id,
+         target_candidates,
+         status,
+         referral_date,
+         created_by
+       ) VALUES (
+         'client', $1,
+         $2, $3,
+         'visit',
+         $4,
+         $5,
+         $6,
+         $7,
+         'New',
+         $8,
+         $5
+       )
+       RETURNING id, target_candidates AS "targetCandidates", status, owner_user_id AS "ownerUserId"`,
+      [
+        visit.client_id,
+        visit.client_name ?? null,
+        visit.client_address ?? null,
+        visitId,
+        ownerUserId,
+        visit.branch_id,
+        targetCandidates,
+        String(visit.scheduled_date ?? '').slice(0, 10),
+      ],
+    );
+
+    return res.json({ fieldVisitId: visitId, ...created[0] });
+  } catch (err: any) {
+    console.error('[field-visits] POST /:id/referral-sheet error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل إنشاء اللائحة' });
+  }
+});
+
+/**
+ * PATCH /api/field-visits/:id/referral-sheet/target  (DEC-007 D41)
+ * Updates target_candidates on the visit's referral_sheet.
+ */
+router.patch('/:id/referral-sheet/target', requirePermission('field_visits.edit'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const targetCandidates = Number(req.body?.targetCandidates);
+    if (!Number.isFinite(targetCandidates) || targetCandidates < 0) {
+      return res.status(400).json({ error: 'targetCandidates يجب أن يكون رقماً ≥ 0' });
+    }
+    const { rows } = await pool.query(
+      `UPDATE referral_sheets
+          SET target_candidates = $1
+        WHERE field_visit_id = $2
+        RETURNING id, target_candidates AS "targetCandidates"`,
+      [Math.floor(targetCandidates), visitId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'لا توجد لائحة لهذه الزيارة' });
+    }
+    return res.json(rows[0]);
+  } catch (err: any) {
+    console.error('[field-visits] PATCH /:id/referral-sheet/target error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل التحديث' });
+  }
+});
+
+// ============================================================================
+// Visit survey endpoints — DEC-007 D42, D43, D44
+// ============================================================================
+
+/**
+ * GET /api/field-visits/:id/survey
+ * Returns the visit's survey row if it exists.
+ */
+router.get('/:id/survey', requirePermission('field_visits.view'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows } = await pool.query(
+      `SELECT id,
+              field_visit_id                    AS "fieldVisitId",
+              is_skipped                        AS "isSkipped",
+              skip_reason                       AS "skipReason",
+              filled_by_user_id                 AS "filledByUserId",
+              filled_at                         AS "filledAt",
+              household_members_count           AS "householdMembersCount",
+              drinking_water_source             AS "drinkingWaterSource",
+              tds_test_result                   AS "tdsTestResult",
+              hardness_test_drops               AS "hardnessTestDrops",
+              demo_kit_tds_result               AS "demoKitTdsResult",
+              customer_opinion_water_source     AS "customerOpinionWaterSource",
+              customer_opinion_demo_kit         AS "customerOpinionDemoKit",
+              customer_opinion_purification_idea AS "customerOpinionPurificationIdea",
+              customer_purchase_intent          AS "customerPurchaseIntent",
+              expected_payment_method           AS "expectedPaymentMethod",
+              area_evaluation                   AS "areaEvaluation"
+         FROM visit_surveys
+        WHERE field_visit_id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    return res.json(rows[0] ?? null);
+  } catch (err: any) {
+    console.error('[field-visits] GET /:id/survey error:', err);
+    res.status(500).json({ error: 'فشل تحميل الاستبيان' });
+  }
+});
+
+const SURVEY_REQUIRED_FIELDS = [
+  'householdMembersCount',
+  'drinkingWaterSource',
+  'tdsTestResult',
+  'hardnessTestDrops',
+  'demoKitTdsResult',
+  'customerOpinionWaterSource',
+  'customerOpinionDemoKit',
+  'customerOpinionPurificationIdea',
+  'customerPurchaseIntent',
+  'expectedPaymentMethod',
+  'areaEvaluation',
+] as const;
+
+/**
+ * POST /api/field-visits/:id/survey  (DEC-007 D42, D43)
+ *
+ * Upserts a filled visit_survey. All 11 fields must be present. Triggers
+ * checkAndCompleteVisit on success.
+ */
+router.post('/:id/survey', requirePermission('field_visits.edit'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const authContext = getAuthContext(req);
+    const body = req.body ?? {};
+
+    // 1. Verify visit status allows survey edit (DEC-007 D46)
+    const { rows: visitRows } = await pool.query(
+      'SELECT id, branch_id, status FROM field_visits WHERE id = $1 LIMIT 1',
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!authContext.isSuperAdmin && visitRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+    }
+    if (visitRows[0].status !== 'in_progress' && visitRows[0].status !== 'ended') {
+      return res.status(409).json({
+        error: `تعبئة الاستبيان مسموحة فقط بعد بدء الزيارة (الحالة الحالية: ${visitRows[0].status}) — DEC-007 D46`,
+      });
+    }
+
+    // 2. Validate every required field present
+    const missing = SURVEY_REQUIRED_FIELDS.filter((k) => body[k] === undefined || body[k] === null || body[k] === '');
+    if (missing.length > 0) {
+      return res.status(400).json({ error: `حقول مفقودة: ${missing.join(', ')}` });
+    }
+
+    const filledByUserId = authContext.userId ?? null;
+
+    // 3. Upsert (insert or update if a row already exists)
+    const { rows: upserted } = await pool.query(
+      `INSERT INTO visit_surveys (
+         field_visit_id,
+         is_skipped, skip_reason,
+         filled_by_user_id, filled_at,
+         household_members_count, drinking_water_source,
+         tds_test_result, hardness_test_drops, demo_kit_tds_result,
+         customer_opinion_water_source, customer_opinion_demo_kit,
+         customer_opinion_purification_idea, customer_purchase_intent,
+         expected_payment_method, area_evaluation
+       ) VALUES (
+         $1,
+         FALSE, NULL,
+         $2, NOW(),
+         $3, $4,
+         $5, $6, $7,
+         $8, $9,
+         $10, $11,
+         $12, $13
+       )
+       ON CONFLICT (field_visit_id) DO UPDATE SET
+         is_skipped                          = FALSE,
+         skip_reason                         = NULL,
+         filled_by_user_id                   = EXCLUDED.filled_by_user_id,
+         filled_at                           = NOW(),
+         household_members_count             = EXCLUDED.household_members_count,
+         drinking_water_source               = EXCLUDED.drinking_water_source,
+         tds_test_result                     = EXCLUDED.tds_test_result,
+         hardness_test_drops                 = EXCLUDED.hardness_test_drops,
+         demo_kit_tds_result                 = EXCLUDED.demo_kit_tds_result,
+         customer_opinion_water_source       = EXCLUDED.customer_opinion_water_source,
+         customer_opinion_demo_kit           = EXCLUDED.customer_opinion_demo_kit,
+         customer_opinion_purification_idea  = EXCLUDED.customer_opinion_purification_idea,
+         customer_purchase_intent            = EXCLUDED.customer_purchase_intent,
+         expected_payment_method             = EXCLUDED.expected_payment_method,
+         area_evaluation                     = EXCLUDED.area_evaluation,
+         updated_at                          = NOW()
+       RETURNING id, field_visit_id AS "fieldVisitId"`,
+      [
+        visitId,
+        filledByUserId,
+        Number(body.householdMembersCount),
+        String(body.drinkingWaterSource),
+        Number(body.tdsTestResult),
+        Number(body.hardnessTestDrops),
+        Number(body.demoKitTdsResult),
+        String(body.customerOpinionWaterSource),
+        String(body.customerOpinionDemoKit),
+        String(body.customerOpinionPurificationIdea),
+        Boolean(body.customerPurchaseIntent),
+        String(body.expectedPaymentMethod),
+        String(body.areaEvaluation),
+      ],
+    );
+
+    // 4. Trigger auto-completion check (DEC-007 P-DEC007-04)
+    const completion = await checkAndCompleteVisit(visitId, filledByUserId);
+
+    return res.json({ survey: upserted[0], completion });
+  } catch (err: any) {
+    console.error('[field-visits] POST /:id/survey error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل حفظ الاستبيان' });
+  }
+});
+
+/**
+ * POST /api/field-visits/:id/survey/skip  (DEC-007 D42)
+ *
+ * Records that the survey was skipped with a reason from system_lists.
+ * Body: { skipReason: string }. Triggers checkAndCompleteVisit on success.
+ */
+router.post('/:id/survey/skip', requirePermission('field_visits.edit'), async (req, res) => {
+  try {
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const authContext = getAuthContext(req);
+    const skipReason = String(req.body?.skipReason ?? '').trim();
+    if (!skipReason) return res.status(400).json({ error: 'skipReason مطلوب' });
+
+    const { rows: visitRows } = await pool.query(
+      'SELECT id, branch_id, status FROM field_visits WHERE id = $1 LIMIT 1',
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!authContext.isSuperAdmin && visitRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+    }
+    if (visitRows[0].status !== 'in_progress' && visitRows[0].status !== 'ended') {
+      return res.status(409).json({
+        error: `تسجيل التخطي مسموح فقط بعد بدء الزيارة — DEC-007 D46`,
+      });
+    }
+
+    // Insert OR overwrite an existing row with the skipped form
+    const { rows: upserted } = await pool.query(
+      `INSERT INTO visit_surveys (
+         field_visit_id, is_skipped, skip_reason
+       ) VALUES ($1, TRUE, $2)
+       ON CONFLICT (field_visit_id) DO UPDATE SET
+         is_skipped                          = TRUE,
+         skip_reason                         = EXCLUDED.skip_reason,
+         filled_by_user_id                   = NULL,
+         filled_at                           = NULL,
+         household_members_count             = NULL,
+         drinking_water_source               = NULL,
+         tds_test_result                     = NULL,
+         hardness_test_drops                 = NULL,
+         demo_kit_tds_result                 = NULL,
+         customer_opinion_water_source       = NULL,
+         customer_opinion_demo_kit           = NULL,
+         customer_opinion_purification_idea  = NULL,
+         customer_purchase_intent            = NULL,
+         expected_payment_method             = NULL,
+         area_evaluation                     = NULL,
+         updated_at                          = NOW()
+       RETURNING id, field_visit_id AS "fieldVisitId", skip_reason AS "skipReason"`,
+      [visitId, skipReason],
+    );
+
+    const completion = await checkAndCompleteVisit(visitId, authContext.userId ?? null);
+    return res.json({ survey: upserted[0], completion });
+  } catch (err: any) {
+    console.error('[field-visits] POST /:id/survey/skip error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل تسجيل التخطي' });
   }
 });
 
