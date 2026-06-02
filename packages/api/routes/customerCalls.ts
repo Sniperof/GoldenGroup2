@@ -1137,7 +1137,7 @@ router.get(
             erp.quantity::integer AS quantity_available
           FROM emergency_result_parts erp
           JOIN open_tasks ot ON ot.id = erp.open_task_id
-          JOIN visit_tasks vt ON vt.open_task_id = ot.id
+          JOIN visit_tasks vt ON vt.source_open_task_id = ot.id
           JOIN field_visits fv ON fv.id = vt.field_visit_id
           LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
           LEFT JOIN contracts c ON c.id = ot.contract_id

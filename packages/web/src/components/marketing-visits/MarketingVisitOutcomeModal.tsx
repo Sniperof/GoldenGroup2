@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CheckCircle2,
   Clock3,
   Loader2,
   Package2,
@@ -91,11 +90,6 @@ interface OfferEditorState {
   draft: OfferDraft;
 }
 
-interface PlaceholderReasonOption {
-  id: number;
-  label: string;
-}
-
 interface VisitDeviceLike {
   deviceModelId?: number | null;
   deviceModelName?: string | null;
@@ -112,8 +106,10 @@ interface PreOfferLike {
   firstPaymentAmount?: number | null;
   installmentMonths?: number | null;
   discountPercentage?: number | null;
+  appliedDeviceDiscountId?: number | null;
   closedByEmployeeId?: number | null;
   noClosingReason?: string | null;
+  saleReferenceNumber?: string | null;
   sourceCustomerPreOfferId?: number | null;
 }
 
@@ -130,13 +126,6 @@ const OUTCOME_OPTIONS: Array<{
     description: 'تسجيل عدة عروض وربط رد الزبون بكل عرض',
     icon: ShoppingCart,
     color: 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100',
-  },
-  {
-    value: 'device_sold',
-    label: 'تم البيع',
-    description: 'إغلاق البيع مباشرة من نفس الزيارة',
-    icon: CheckCircle2,
-    color: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
   },
   {
     value: 'needs_reschedule',
@@ -161,13 +150,6 @@ const STEP_TITLES: Record<WizardStep, string> = {
   3: 'ردود الزبون',
   4: 'الملخص',
 };
-
-const REJECTION_REASON_OPTIONS: PlaceholderReasonOption[] = [
-  { id: 1, label: 'السعر مرتفع' },
-  { id: 2, label: 'الجودة غير مرضية' },
-  { id: 3, label: 'الزبون غير مهتم' },
-  { id: 4, label: 'سبب آخر' },
-];
 
 function parsePositiveNumber(value: string): number | null {
   if (!value.trim()) return null;
@@ -313,6 +295,7 @@ export default function MarketingVisitOutcomeModal({
   const [validationError, setValidationError] = useState('');
   const [cancellationReasons, setCancellationReasons] = useState<SystemList[]>([]);
   const [rescheduleReasons, setRescheduleReasons] = useState<SystemList[]>([]);
+  const [rejectionReasons, setRejectionReasons] = useState<SystemList[]>([]);
   const [closers, setClosers] = useState<Employee[]>([]);
   const [noClosingReasons, setNoClosingReasons] = useState<SystemList[]>([]);
   const [deviceDiscounts, setDeviceDiscounts] = useState<Array<{ id: number; label: string; percentage: number }>>([]);
@@ -328,9 +311,10 @@ export default function MarketingVisitOutcomeModal({
     if (!isOpen || !visit) return;
 
     const rawDevices = (visit as MarketingVisit & { devices?: VisitDeviceLike[] }).devices;
-    const hasSavedOutcome = task?.outcome != null;
+    const hasSavedOutcome = task?.outcome != null || task?.result != null;
     const savedOffers = (task as MarketingVisitTask & { offers?: any[] | null })?.offers ?? [];
-    const isEditMode = hasSavedOutcome || savedOffers.length > 0;
+    const hasOfferResponses = savedOffers.some((offer) => offer.customerResponse != null);
+    const isEditMode = hasSavedOutcome || hasOfferResponses;
 
     const baseGroups = buildDeviceOfferGroups(visit, deviceModels);
     const groupMap = new Map<number, DeviceOfferGroup>(
@@ -344,7 +328,7 @@ export default function MarketingVisitOutcomeModal({
       if (hasOffers) return 'offer_presented';
       if (!outcome) return '';
       if (outcome === 'rescheduled') return 'needs_reschedule';
-      if (outcome === 'device_sold') return 'device_sold';
+      if (outcome === 'device_sold') return 'offer_presented';
       if (outcome === 'offer_presented') return 'offer_presented';
       if (outcome === 'cancelled') return 'cancelled';
       return '';
@@ -439,14 +423,14 @@ export default function MarketingVisitOutcomeModal({
           firstPaymentAmount: offer.firstPaymentAmount ?? null,
           installmentMonths: offer.installmentMonths ?? null,
           discountPercentage: offer.discountPercentage ?? null,
-          appliedDeviceDiscountId: null,
+          appliedDeviceDiscountId: offer.appliedDeviceDiscountId ?? null,
           closedByEmployeeId: offer.closedByEmployeeId ?? null,
           noClosingReason: offer.noClosingReason ?? null,
           customerResponse: null,
           rejectionReasonId: null,
           extensionReasonId: null,
           extensionDueDate: null,
-          saleReferenceNumber: null,
+          saleReferenceNumber: offer.saleReferenceNumber ?? null,
           sourceCustomerPreOfferId: offer.sourceCustomerPreOfferId ?? null,
         });
 
@@ -459,9 +443,10 @@ export default function MarketingVisitOutcomeModal({
     const initialDeviceOffers = Array.from(groupMap.values());
 
     if (isEditMode && task) {
-      const overallOutcome = mapOutcomeToWizardValue(task.outcome, savedOffers.length > 0);
+      const overallOutcome = mapOutcomeToWizardValue(task.outcome, hasOfferResponses);
+      const shouldStartAtSummary = hasOfferResponses && overallOutcome === 'offer_presented';
       setWizardState({
-        step: overallOutcome === 'offer_presented' ? 4 : 0,
+        step: shouldStartAtSummary ? 4 : 0,
         overallOutcome,
         deviceOffers: initialDeviceOffers,
         notes: task.resultNotes ?? '',
@@ -496,17 +481,19 @@ export default function MarketingVisitOutcomeModal({
     if (!fetchedRef.current) {
       fetchedRef.current = true;
       Promise.all([
-        api.systemLists.getItemsByCode('task_cancellation_reasons'),
-        api.systemLists.getItemsByCode('task_reschedule_reasons'),
+        api.systemLists.getItemsByCode('visit_cancellation_reasons'),
+        api.systemLists.getItemsByCode('customer_followup_reasons'),
+        api.systemLists.getItemsByCode('offer_refusal_reasons'),
         api.systemLists.getItemsByCode('no_closing_reasons'),
       ])
-        .then(([cancellation, reschedule, noClosing]) => {
+        .then(([cancellation, reschedule, rejection, noClosing]) => {
           setCancellationReasons(cancellation);
           setRescheduleReasons(reschedule);
+          setRejectionReasons(rejection);
           setNoClosingReasons(noClosing);
         })
         .catch(() => {});
-      api.employees.closers()
+      api.employees.employeeClosers()
         .then(setClosers)
         .catch(() => setClosers([]));
     }
@@ -543,13 +530,14 @@ export default function MarketingVisitOutcomeModal({
   };
   const pendingOffers = flatOffers.filter(({ offer }) => isOfferResponsePending(offer));
   const summary = computeFinalOutcome(wizardState.deviceOffers);
+  const rejectionReasonOptions = rejectionReasons.length > 0 ? rejectionReasons : noClosingReasons;
 
   // device_sold uses the same multi-device UI as offer_presented but skips the response step
   const isDeviceSoldFlow = wizardState.overallOutcome === 'device_sold';
   // useOfferUI: any outcome that uses the device-offer list (steps 1+)
   const useOfferUI = isOfferFlow || isDeviceSoldFlow;
 
-  // Rule 1: lock outcome once responses are recorded OR once device_sold offers exist
+  // Rule 1: lock outcome once responses are recorded OR once a legacy device_sold flow has offers
   const isOutcomeLocked =
     flatOffers.some(({ offer }) => offer.customerResponse != null) ||
     (isDeviceSoldFlow && flatOffers.length > 0);
@@ -565,10 +553,9 @@ export default function MarketingVisitOutcomeModal({
   };
 
   const openCreateOffer = (deviceModelId?: number) => {
-    // For device_sold: any device model can be selected; no pre-existing group needed
     const targetId = deviceModelId
       ?? wizardState.deviceOffers[0]?.deviceModelId
-      ?? (isDeviceSoldFlow ? deviceModels[0]?.id : undefined);
+      ?? deviceModels[0]?.id;
     if (!targetId) return;
     const model = deviceModels.find((m) => m.id === targetId);
     const basePrice = model?.basePrice ?? 0;
@@ -658,17 +645,10 @@ export default function MarketingVisitOutcomeModal({
       return;
     }
     const selectedEmployeeId = parsePositiveInteger(offerEditor.draft.closedByEmployeeId);
-    // device_sold: closer/noClosingReason are optional (direct sale)
-    if (!isDeviceSoldFlow && selectedEmployeeId == null && !offerEditor.draft.noClosingReason.trim()) {
-      setOfferEditorError('يرجى اختيار موظف أو إدخال سبب عدم التسكير');
+    if (selectedEmployeeId == null && !offerEditor.draft.noClosingReason.trim()) {
+      setOfferEditorError('يرجى اختيار موظف التسكير أو سبب عدم التسكير');
       return;
     }
-    // offer_presented: device group must already exist
-    if (!isDeviceSoldFlow && !wizardState.deviceOffers.some((group) => group.deviceModelId === offerEditor.deviceModelId)) {
-      setOfferEditorError('لا يوجد أجهزة محددة للزيارة');
-      return;
-    }
-
     const appliedDeviceDiscountId = parsePositiveInteger(offerEditor.draft.appliedDeviceDiscountId);
 
     const nextOffer: DeviceOffer = {
@@ -709,6 +689,7 @@ export default function MarketingVisitOutcomeModal({
                 extensionReasonId: existing.extensionReasonId,
                 extensionDueDate: existing.extensionDueDate,
                 saleReferenceNumber: existing.saleReferenceNumber,
+                sourceCustomerPreOfferId: existing.sourceCustomerPreOfferId ?? null,
               };
 
         // device_sold: if the device group doesn't exist yet, create it
@@ -782,6 +763,9 @@ export default function MarketingVisitOutcomeModal({
         return 'لا يوجد أجهزة محددة لهذه الزيارة';
       }
       const totalOffers = wizardState.deviceOffers.reduce((sum, group) => sum + group.offers.length, 0);
+      if (flatOffers.some(({ offer }) => offer.closedByEmployeeId == null && !offer.noClosingReason)) {
+        return 'يجب اختيار موظف التسكير أو سبب عدم التسكير لكل عرض قبل المتابعة';
+      }
       if (totalOffers === 0) {
         return isDeviceSoldFlow ? 'أضف جهازاً مباعاً واحداً على الأقل للمتابعة' : 'أضف عرضاً واحداً على الأقل للمتابعة';
       }
@@ -792,6 +776,12 @@ export default function MarketingVisitOutcomeModal({
       const hasPendingResponse = flatOffers.some(({ offer }) => isOfferResponsePending(offer));
       if (hasPendingResponse) {
         return 'يجب تحديد رد الزبون على كل العروض قبل الانتقال للملخص';
+      }
+      const acceptedWithoutCloser = flatOffers.some(({ offer }) =>
+        offer.customerResponse === 'accepted' && offer.closedByEmployeeId == null && !offer.noClosingReason
+      );
+      if (acceptedWithoutCloser) {
+        return 'العرض المقبول يحتاج موظف تسكير أو سبب عدم التسكير قبل حفظ النتيجة';
       }
       return null;
     }
@@ -883,7 +873,7 @@ export default function MarketingVisitOutcomeModal({
         : null;
 
     await onSubmit({
-      outcome: summary.outcome === 'device_sold' ? 'device_sold' : 'offer_presented',
+      outcome: 'offer_presented',
       offers: wizardState.deviceOffers.flatMap((group) =>
         group.offers.map((offer) => ({
           deviceModelId: group.deviceModelId,
@@ -1059,7 +1049,7 @@ export default function MarketingVisitOutcomeModal({
                 </div>
                 {isOutcomeLocked && (
                   <p className="text-[11px] text-amber-600">
-                    🔒 نوع النتيجة مقفل — تم تسجيل رد الزبون على عرض واحد على الأقل.
+                    🔒 نوع النتيجة مقفل بعد تسجيل رد الزبون. البيع يُسجل من داخل رد العرض المقبول ضمن مسار "تقديم عرض".
                   </p>
                 )}
               </section>
@@ -1170,21 +1160,20 @@ export default function MarketingVisitOutcomeModal({
                         : 'أضف العروض لكل جهاز، ثم راجع ملخص العروض قبل تسجيل ردود الزبون.'}
                     </p>
                   </div>
-                  {wizardState.deviceOffers.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => openCreateOffer()}
-                      className="inline-flex items-center gap-1 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      إضافة عرض
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => openCreateOffer()}
+                    disabled={deviceModels.length === 0}
+                    className="inline-flex items-center gap-1 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    إضافة عرض
+                  </button>
                 </div>
 
                 {wizardState.deviceOffers.length === 0 ? (
                   <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-6 text-center text-sm text-amber-700">
-                    ⚠️ لا يوجد أجهزة محددة لهذه الزيارة. لا يمكن إضافة عروض.
+                    ⚠️ لا توجد عروض مسجلة بعد. استخدم زر "إضافة عرض" لاختيار جهاز وإدخال العرض.
                   </div>
                 ) : (
                   wizardState.deviceOffers.map((group) => (
@@ -1334,6 +1323,7 @@ export default function MarketingVisitOutcomeModal({
                                     ...current,
                                     customerResponse: option.value as Exclude<CustomerResponse, null>,
                                     rejectionReasonId: option.value === 'rejected' ? current.rejectionReasonId : null,
+                                    noClosingReason: option.value === 'rejected' ? current.noClosingReason : current.noClosingReason,
                                     extensionReasonId:
                                       option.value === 'extension_requested' ? current.extensionReasonId : null,
                                     extensionDueDate:
@@ -1379,14 +1369,17 @@ export default function MarketingVisitOutcomeModal({
                               updateOffer(deviceModelId, offer.id, (current) => ({
                                 ...current,
                                 rejectionReasonId: event.target.value ? Number(event.target.value) : null,
+                                noClosingReason:
+                                  rejectionReasonOptions.find((reason) => String(reason.id) === event.target.value)?.value
+                                  ?? null,
                               }))
                             }
                             className="w-full rounded-xl border border-red-100 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
                           >
                             <option value="">اختر سبب الرفض...</option>
-                            {REJECTION_REASON_OPTIONS.map((reason) => (
+                            {rejectionReasonOptions.map((reason) => (
                               <option key={reason.id} value={reason.id}>
-                                {reason.label}
+                                {reason.value}
                               </option>
                             ))}
                           </select>
@@ -1627,9 +1620,9 @@ export default function MarketingVisitOutcomeModal({
             </div>
 
             <div className="space-y-4 px-5 py-5">
-              {wizardState.deviceOffers.length === 0 ? (
+              {deviceModels.length === 0 ? (
                 <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-6 text-center text-sm text-amber-700">
-                  لا يوجد أجهزة محددة للزيارة
+                  لا توجد أجهزة متاحة لإضافة عرض
                 </div>
               ) : (
                 <>
@@ -1659,18 +1652,11 @@ export default function MarketingVisitOutcomeModal({
                   }}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
                 >
-                  {isDeviceSoldFlow
-                    ? deviceModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.nameAr || model.name}
-                        </option>
-                      ))
-                    : wizardState.deviceOffers.map((group) => (
-                        <option key={group.deviceModelId} value={group.deviceModelId}>
-                          {group.deviceModelName}
-                        </option>
-                      ))
-                  }
+                  {deviceModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.nameAr || model.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1927,7 +1913,14 @@ export default function MarketingVisitOutcomeModal({
                     setOfferEditor((current) => (
                       current == null
                         ? null
-                        : { ...current, draft: { ...current.draft, noClosingReason: event.target.value } }
+                        : {
+                            ...current,
+                            draft: {
+                              ...current.draft,
+                              noClosingReason: event.target.value,
+                              closedByEmployeeId: event.target.value ? '' : current.draft.closedByEmployeeId,
+                            },
+                          }
                     ))
                   }
                   disabled={!!offerEditor.draft.closedByEmployeeId}
@@ -1962,8 +1955,8 @@ export default function MarketingVisitOutcomeModal({
               <button
                 type="button"
                 onClick={handleSaveOffer}
-                disabled={wizardState.deviceOffers.length === 0}
-                className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-700"
+                disabled={deviceModels.length === 0}
+                className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 تثبيت العرض
               </button>

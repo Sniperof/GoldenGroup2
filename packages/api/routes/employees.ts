@@ -193,22 +193,31 @@ router.get('/closers', requirePermission('employees.view_list'), async (req, res
       ? (Number(req.header('x-branch-id')) || null)
       : (authContext.actingBranchId ?? null);
 
-    // Find employees whose role has the sales.can_close permission
+    // Find users whose role has the sales.can_close permission. Some legacy
+    // consumers need hr_users.id, while pre-offer/device-demo tables FK to
+    // employees.id; target=employee returns the latter explicitly.
+    const target = String(req.query?.target ?? '').trim();
     const branchFilter = branchId != null
       ? `AND (u.branch_id = ${Number(branchId)} OR rpg.scope_type = 'GLOBAL')`
       : '';
 
     const { rows } = await (await import('../db.js')).default.query(`
-      SELECT DISTINCT u.id, u.name,
+      SELECT DISTINCT
+        ${target === 'employee' ? 'e.id' : 'u.id'} AS id,
+        u.id AS "hrUserId",
+        e.id AS "employeeId",
+        COALESCE(e.name, u.name) AS name,
         COALESCE(r.display_name, u.role) AS "roleDisplayName"
       FROM hr_users u
+      LEFT JOIN employees e ON e.id = u.employee_id
       JOIN roles r ON r.id = u.role_id
       JOIN role_permission_grants rpg ON rpg.role_id = r.id
       JOIN permissions p ON p.id = rpg.permission_id
       WHERE p.key = 'sales.can_close'
         AND u.is_active = true
+        ${target === 'employee' ? 'AND e.id IS NOT NULL' : ''}
         ${branchFilter}
-      ORDER BY u.name
+      ORDER BY COALESCE(e.name, u.name)
     `);
 
     return res.json(rows);

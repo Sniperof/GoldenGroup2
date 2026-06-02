@@ -70,7 +70,11 @@ export function OutcomeChip({
       >
         <Icon className="w-3 h-3" />
         {s.label}
-        {contractNumber && <span className="font-mono opacity-80">→ #{contractNumber}</span>}
+        {contractNumber && (
+          <span className="rounded-lg bg-white/70 px-1.5 py-0.5 font-mono text-[10px] opacity-90">
+            عقد #{contractNumber}
+          </span>
+        )}
       </Link>
     );
   }

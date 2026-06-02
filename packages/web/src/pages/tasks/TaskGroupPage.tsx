@@ -285,8 +285,10 @@ export default function TaskGroupPage() {
       } else {
         setRows([]);
       }
-    } catch {
-      setError('تعذر تحميل بيانات المهام');
+    } catch (err) {
+      console.error('Failed to load task group rows:', err);
+      const detail = err instanceof Error ? err.message : '';
+      setError(detail ? `تعذر تحميل بيانات المهام: ${detail}` : 'تعذر تحميل بيانات المهام');
     } finally {
       setLoading(false);
     }

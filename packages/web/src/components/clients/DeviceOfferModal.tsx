@@ -411,7 +411,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     setError('');
     Promise.all([
       api.deviceModels.list(),
-      api.employees.closers(),
+      api.employees.employeeClosers(),
       api.systemLists.getItemsByCode('open_task_reasons'),
       api.systemLists.getItemsByCode('no_closing_reasons'),
       api.customers.getPreOffers(client.id),
@@ -803,7 +803,10 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700">موظف التسكير</label>
                       <select value={draftOffer.closedByEmployeeId}
-                        onChange={e => updateDraftOffer('closedByEmployeeId', e.target.value)}
+                        onChange={e => {
+                          updateDraftOffer('closedByEmployeeId', e.target.value);
+                          if (e.target.value) updateDraftOffer('noClosingReason', '');
+                        }}
                         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
                         <option value="">اختياري</option>
                         {closers.map(c => (
@@ -816,7 +819,10 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700">سبب عدم التسكير</label>
                       <select value={draftOffer.noClosingReason}
-                        onChange={e => updateDraftOffer('noClosingReason', e.target.value)}
+                        onChange={e => {
+                          updateDraftOffer('noClosingReason', e.target.value);
+                          if (e.target.value) updateDraftOffer('closedByEmployeeId', '');
+                        }}
                         disabled={!!draftOffer.closedByEmployeeId}
                         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
                         <option value="">بدون سبب</option>

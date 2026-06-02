@@ -11,6 +11,9 @@ export interface LoginUserRecord {
   is_active: boolean;
   is_super_admin: boolean;
   branch_id: number | null;
+  /** hr_users.employee_id — needed to match the user against team_snapshot in
+   *  the Field Team view (DEC-007 D47). */
+  employee_id: number | null;
 }
 
 export async function findUserForLogin(username: string): Promise<LoginUserRecord | null> {
@@ -24,7 +27,8 @@ export async function findUserForLogin(username: string): Promise<LoginUserRecor
             r.display_name AS role_display_name,
             u.is_active,
             u.is_super_admin,
-            u.branch_id
+            u.branch_id,
+            u.employee_id
        FROM hr_users u
        LEFT JOIN roles r ON r.id = u.role_id
       WHERE u.username = $1`,

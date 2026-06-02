@@ -8,6 +8,7 @@ import { bookVisit, BookingError } from '../services/visitBooking.js';
 import {
   buildCustomerOwnershipSelectColumns,
   buildCustomerOwnershipSql,
+  buildClientLifecycleStatusSql,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
 
@@ -66,11 +67,7 @@ const OPEN_TASK_SELECT = `
     c.notes AS "clientNotes",
     c.source_channel AS "clientSourceChannel",
     -- Level 2 §أ — lifecycle classification: LEAD / FOP / OP (computed live).
-    CASE
-      WHEN EXISTS (SELECT 1 FROM contracts ct WHERE ct.customer_id = c.id) THEN 'OP'
-      WHEN EXISTS (SELECT 1 FROM field_visits fv WHERE fv.client_id = c.id) THEN 'FOP'
-      ELSE 'LEAD'
-    END AS "clientClassification",
+    ${buildClientLifecycleStatusSql('c')} AS "clientClassification",
     b.name AS "branchName",
     creator.name AS "createdByName",
     latest_visit.id AS "marketingVisitId",
@@ -779,6 +776,16 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
 
     if (Array.isArray(preOffers) && preOffers.length > 0) {
       for (const offer of preOffers) {
+        const closedByEmployeeId = Number.isInteger(Number(offer.closedByEmployeeId)) && Number(offer.closedByEmployeeId) > 0
+          ? Number(offer.closedByEmployeeId)
+          : null;
+        const noClosingReason = typeof offer.noClosingReason === 'string'
+          ? offer.noClosingReason.trim() || null
+          : null;
+        if ((closedByEmployeeId == null && noClosingReason == null) || (closedByEmployeeId != null && noClosingReason != null)) {
+          await pgClient.query('ROLLBACK');
+          return res.status(400).json({ error: 'كل عرض يجب أن يحتوي إما على موظف تسكير أو سبب عدم التسكير فقط' });
+        }
         await pgClient.query(
           `INSERT INTO open_task_pre_offers (
              open_task_id, device_model_id, offer_type, quantity, total_amount,
@@ -797,8 +804,8 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
             offer.currency,
             offer.discountPercentage ?? null,
             offer.appliedDeviceDiscountId ?? null,
-            offer.closedByEmployeeId ?? null,
-            offer.noClosingReason ?? null,
+            closedByEmployeeId,
+            noClosingReason,
             offer.sourceCustomerPreOfferId ?? null,
           ],
         );
@@ -1135,11 +1142,7 @@ router.get('/device-demo', requirePermission('open_tasks.view'), async (req, res
         c.mobile AS "clientMobile",
         c.neighborhood AS "clientNeighborhood",
         -- Lifecycle classification: LEAD (candidate or no activity) / FOP (has visits, no contract) / OP (has a contract).
-        CASE
-          WHEN EXISTS (SELECT 1 FROM contracts ct WHERE ct.customer_id = c.id) THEN 'OP'
-          WHEN EXISTS (SELECT 1 FROM field_visits fv WHERE fv.client_id = c.id) THEN 'FOP'
-          ELSE 'LEAD'
-        END AS "clientClassification",
+        ${buildClientLifecycleStatusSql('c')} AS "clientClassification",
         c.governorate AS "clientGovernorate",
         c.district AS "clientDistrict",
         c.detailed_address AS "clientDetailedAddress",
@@ -1194,7 +1197,10 @@ router.get('/device-demo', requirePermission('open_tasks.view'), async (req, res
     })));
   } catch (err: any) {
     console.error('[open-tasks] GET /device-demo error:', err);
-    res.status(500).json({ error: 'فشل في تحميل مهام عروض الأجهزة' });
+    res.status(500).json({
+      error: 'فشل في تحميل مهام عروض الأجهزة',
+      ...(process.env.NODE_ENV !== 'production' ? { detail: err?.message } : {}),
+    });
   }
 });
 
@@ -1456,7 +1462,9 @@ router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
         `SELECT
           vt.status AS "resultStatus",
           vt.legacy_result AS result,
+          vtr.id AS "visitTaskResultId",
           vtr.final_decision AS "finalDecision",
+          vtr.final_decision AS "latestFinalDecision",
           vtr.reason_code AS "cancellationReason",
           vtr.closing_notes AS "resultNotes",
           vtr.closed_at AS "completedAt",
@@ -1499,15 +1507,23 @@ router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
         otpo.discount_percentage::float AS "discountPercentage",
         otpo.applied_device_discount_id AS "appliedDeviceDiscountId",
         otpo.closed_by_employee_id AS "closedByEmployeeId",
+        prep.name AS "closedByEmployeeName",
         otpo.no_closing_reason AS "noClosingReason",
-        otpo.source_customer_pre_offer_id AS "sourceCustomerPreOfferId"
+        otpo.source_customer_pre_offer_id AS "sourceCustomerPreOfferId",
+        otpo.sale_reference_number AS "saleReferenceNumber",
+        linked_spo.response_state AS "customerResponse"
       FROM open_task_pre_offers otpo
       LEFT JOIN device_models dm ON dm.id = otpo.device_model_id
+      LEFT JOIN employees prep ON prep.id = otpo.closed_by_employee_id
+      LEFT JOIN customer_device_pre_offers linked_spo ON linked_spo.id = otpo.source_customer_pre_offer_id
       WHERE otpo.open_task_id = $1
       ORDER BY otpo.id`,
       [id],
     );
     (taskData as any).preOffers = preOfferRows;
+    if ((taskData as any).visitTaskResultId != null || (taskData as any).finalDecision != null) {
+      (taskData as any).offers = preOfferRows;
+    }
 
     res.json(taskData);
   } catch (err: any) {
@@ -3002,6 +3018,54 @@ router.post('/:id/activity', requirePermission('open_tasks.edit'), async (req, r
  *       500:
  *         description: Internal Server Error
  */
+// ── سياق المهمة: سلسلة محاولات التنفيذ (visit_tasks تحت نفس المهمة) ──────────
+// Each visit_task is one execution attempt ("chapter") of this task. Returns the
+// chain ordered chronologically, each with its visit + general result.
+router.get('/:id/attempts', requirePermission('open_tasks.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+
+    const { rows: taskRows } = await pool.query(
+      'SELECT branch_id, status FROM open_tasks WHERE id = $1', [id],
+    );
+    if (taskRows.length === 0) return res.status(404).json({ error: 'المهمة غير موجودة' });
+    if (!authContext.isSuperAdmin && taskRows[0].branch_id !== authContext.actingBranchId) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT
+         vt.id           AS "visitTaskId",
+         vt.status       AS "taskStatus",
+         vt.sequence_no  AS "sequenceNo",
+         vt.created_at   AS "createdAt",
+         fv.id           AS "visitId",
+         fv.scheduled_date AS "scheduledDate",
+         fv.scheduled_time AS "scheduledTime",
+         fv.status       AS "visitStatus",
+         ttc.arabic_label AS "arabicLabel",
+         vtr.final_decision AS "finalDecision",
+         vtr.reason_code    AS "reasonCode",
+         vtr.closing_notes  AS "closingNotes",
+         vtr.closed_at      AS "closedAt"
+       FROM visit_tasks vt
+       JOIN field_visits fv ON fv.id = vt.field_visit_id
+       LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+       LEFT JOIN task_type_config ttc ON ttc.task_type = vt.task_type
+       WHERE vt.source_open_task_id = $1
+       ORDER BY fv.scheduled_date ASC NULLS LAST, vt.created_at ASC`,
+      [id],
+    );
+
+    res.json({ taskStatus: taskRows[0].status, attempts: rows });
+  } catch (err: any) {
+    console.error('[open-tasks] GET /:id/attempts error:', err);
+    res.status(500).json({ error: 'فشل في تحميل سياق المهمة' });
+  }
+});
+
 router.get('/:id/devices', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);

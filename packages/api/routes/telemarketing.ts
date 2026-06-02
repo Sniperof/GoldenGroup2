@@ -1713,11 +1713,22 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
       });
       await returnTasksToWaiting(pool, contactTargetId, calledBy, `إغلاق تلقائي بنتيجة: ${outcome}`);
     } else if (normalised === 'booked_marketing_appointment') {
-      // Booked: update latest_call_outcome but do NOT set status = booked here.
-      // Appointment creation handles the status transition to booked.
-      await updateContactTargetLifecycle(pool, contactTargetId, {
-        latestCallOutcome: outcome,
-      });
+      // The call result itself means the contact happened. The later visit
+      // booking step closes the target with closing_reason='booked' if it
+      // succeeds, but a booking failure must not leave the target as queued.
+      await pool.query(
+        `
+          UPDATE contact_targets
+          SET latest_call_outcome = $1,
+              status = CASE
+                WHEN status IN ('new', 'queued', 'in_call_list') THEN 'contacted'
+                ELSE status
+              END,
+              updated_at = NOW()
+          WHERE id = $2
+        `,
+        [outcome, contactTargetId],
+      );
     } else {
       // All other outcomes (retry, follow-up, phone-quality): keep target active/contacted
       await pool.query(

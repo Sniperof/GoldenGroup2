@@ -70,7 +70,6 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     const currentUserDisplayName = authUser?.name?.trim() || '';
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [allClients, setAllClients] = useState<Client[]>([]);
-    const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
     useEffect(() => {
@@ -79,15 +78,13 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         Promise.all([
             api.geoUnits.list(),
             api.clients.list(),
-            api.visits.list(),
             api.contracts.list(),
             api.systemLists.list({ category: 'occupation', activeOnly: true }),
         ])
-            .then(([units, clients, visitsData, contractsData, occupationList]) => {
+            .then(([units, clients, contractsData, occupationList]) => {
                 if (!active) return;
                 setGeoUnits(units);
                 setAllClients(clients);
-                setVisits(visitsData);
                 setContracts(contractsData);
                 setOccupationOptions(occupationList.map((item: any) => item.value));
             })
@@ -96,7 +93,6 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 if (!active) return;
                 setGeoUnits([]);
                 setAllClients([]);
-                setVisits([]);
                 setContracts([]);
                 setOccupationOptions([]);
             });
@@ -260,8 +256,9 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     };
 
     const getClientLifecycleStage = (client: Client) => {
+        const serverStage = (client as any).lifecycleStage;
+        if (serverStage === 'OP' || serverStage === 'FOP') return serverStage;
         if (contracts.some(contract => contract.customerId === client.id)) return 'OP';
-        if (visits.some(visit => visit.customerId === client.id)) return 'FOP';
         return 'Lead';
     };
 

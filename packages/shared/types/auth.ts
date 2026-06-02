@@ -17,4 +17,7 @@ export interface AuthUser {
   roleDisplayName?: string | null;
   isSuperAdmin?: boolean;
   branchId?: number | null;
+  /** Optional link to `employees.id` — used by the Field Team view to match
+   *  the logged-in user against `team_snapshot` employee IDs. */
+  employeeId?: number | null;
 }

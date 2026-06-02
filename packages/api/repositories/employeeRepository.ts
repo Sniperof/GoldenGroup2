@@ -28,7 +28,7 @@ const EMPLOYEE_RESIDENCE_SQL = `
       COALESCE(NULLIF(region.name, ''), NULLIF(a.city_or_area, '')),
       COALESCE(NULLIF(sub.name, ''), NULLIF(a.sub_area, '')),
       COALESCE(NULLIF(neigh.name, ''), NULLIF(a.neighborhood, '')),
-      COALESCE(NULLIF(e.detailed_address, ''), NULLIF(a.detailed_address, ''), NULLIF(e.residence, ''))
+      COALESCE(NULLIF(e.detailed_address, ''), NULLIF(a.detailed_address, ''))
     ),
     ''
   )
@@ -58,7 +58,7 @@ const EMPLOYEE_SELECT_COLS = `
   COALESCE(NULLIF(b.name, ''), NULLIF(e.branch, ''), NULLIF(jv.branch, '')) AS branch,
   e.department_id AS "departmentId",
   d.name AS "departmentName",
-  COALESCE(${EMPLOYEE_RESIDENCE_SQL}, NULLIF(e.residence, '')) AS residence,
+  ${EMPLOYEE_RESIDENCE_SQL} AS residence,
   ${EMPLOYEE_RESIDENCE_SHORT_SQL} AS "residenceShort",
   e.status,
   e.avatar,

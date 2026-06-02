@@ -46,9 +46,12 @@ export interface OfferInput {
   installment_months?: number | null;
   discount_percentage?: number | null;
   applied_device_discount_id?: number | null;
+  closed_by_employee_id?: number | null;
   customer_response: CustomerResponse;
   /** Free-text refusal reason. Required when customer_response='rejected'. */
   no_closing_reason?: string | null;
+  sale_reference_number?: string | null;
+  source_customer_pre_offer_id?: number | null;
 }
 
 export interface DeviceDemoResultBody {
@@ -85,6 +88,7 @@ export interface CascadeHints {
     installmentMonths?: number | null;
     discountPercentage?: number | null;
     closedByEmployeeId: number | null;
+    saleReferenceNumber: string | null;
     /** customer_pre_offers.id when from offer_presented, NULL when from device_sold. */
     sourceCustomerPreOfferId: number | null;
   } | null;
@@ -130,6 +134,23 @@ function assertOfferShape(o: OfferInput, idx: number): void {
   if (o.customer_response === 'rejected' && !(typeof o.no_closing_reason === 'string' && o.no_closing_reason.trim())) {
     throw new ResultValidationError(`العرض #${idx + 1}: سبب الرفض مطلوب`);
   }
+  if (
+    !isPositiveNumber(o.closed_by_employee_id)
+    && !(typeof o.no_closing_reason === 'string' && o.no_closing_reason.trim())
+  ) {
+    throw new ResultValidationError(`Offer #${idx + 1}: closed_by_employee_id or no_closing_reason is required`);
+  }
+}
+
+function normalizeSaleReference(value: string | null | undefined): string | null {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized.length > 0 ? normalized.slice(0, 32) : null;
+}
+
+function generateSaleReferenceNumber(): string {
+  const compact = new Date().toISOString().replace(/\D/g, '').slice(2, 14);
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `S${compact}${suffix}`;
 }
 
 function deriveReflectionForOfferPresented(offers: OfferInput[]): {
@@ -176,10 +197,10 @@ export async function applyDeviceDemoResult(
     if (vt.task_type !== 'device_demo') {
       throw new ResultValidationError(`نوع المهمة "${vt.task_type}" — هذا الـ service لـ device_demo فقط`);
     }
-    if (!['in_progress', 'ended'].includes(vt.visit_status)) {
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
       throw new ResultValidationError(`لا يمكن تسجيل النتيجة — الزيارة في حالة "${vt.visit_status}"`);
     }
-    if (!['pending', 'in_progress'].includes(vt.status)) {
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
       throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
     }
 
@@ -198,7 +219,7 @@ export async function applyDeviceDemoResult(
         throw new ResultValidationError('offers مطلوبة عند offer_presented');
       }
       body.offers.forEach(assertOfferShape);
-      if (!isPositiveNumber(body.closed_by_employee_id)) {
+      if (false && body.offers.some(o => o.customer_response === 'accepted') && !isPositiveNumber(body.closed_by_employee_id)) {
         throw new ResultValidationError('closed_by_employee_id مطلوب');
       }
 
@@ -246,6 +267,19 @@ export async function applyDeviceDemoResult(
     // ── 4. Insert visit_task_device_demo_results (side table) ──
     const isDeviceSold = decision === 'device_sold' ||
       (decision === 'offer_presented' && (body.offers ?? []).some(o => o.customer_response === 'accepted'));
+    const firstAcceptedOffer = decision === 'offer_presented'
+      ? (body.offers ?? []).find(o => o.customer_response === 'accepted') ?? null
+      : null;
+    const deviceSoldSaleReference = isDeviceSold
+      ? (
+          decision === 'device_sold'
+            ? normalizeSaleReference(body.sale_reference_number) ?? generateSaleReferenceNumber()
+            : normalizeSaleReference(firstAcceptedOffer?.sale_reference_number) ?? generateSaleReferenceNumber()
+        )
+      : null;
+    if (firstAcceptedOffer) {
+      firstAcceptedOffer.sale_reference_number = deviceSoldSaleReference;
+    }
 
     const { rows: vtdrRows } = await db.query(
       `INSERT INTO visit_task_device_demo_results
@@ -257,6 +291,18 @@ export async function applyDeviceDemoResult(
           reason_code_id, closing_notes,
           created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11,NOW(),NOW())
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+          offer_type = EXCLUDED.offer_type,
+          offer_amount = EXCLUDED.offer_amount,
+          installment_months = EXCLUDED.installment_months,
+          closed_by_employee_id = EXCLUDED.closed_by_employee_id,
+          discount_percentage = EXCLUDED.discount_percentage,
+          sale_reference_number = EXCLUDED.sale_reference_number,
+          is_device_sold = EXCLUDED.is_device_sold,
+          offered_device_model_id = EXCLUDED.offered_device_model_id,
+          reason_code_id = EXCLUDED.reason_code_id,
+          closing_notes = EXCLUDED.closing_notes,
+          updated_at = NOW()
        RETURNING id`,
       [
         visitTaskResultId,
@@ -265,9 +311,9 @@ export async function applyDeviceDemoResult(
         decision === 'device_sold' ? (body.installment_months ?? null) : null,
         body.closed_by_employee_id ?? null,
         decision === 'device_sold' ? (body.discount_percentage ?? null) : null,
-        decision === 'device_sold' ? (body.sale_reference_number ?? null) : null,
+        deviceSoldSaleReference,
         isDeviceSold,
-        decision === 'device_sold' ? body.sold_device_model_id : null,
+        decision === 'device_sold' ? body.sold_device_model_id : firstAcceptedOffer?.device_model_id ?? null,
         body.reason_code_id ?? null,
         body.closing_notes ?? null,
       ],
@@ -279,50 +325,49 @@ export async function applyDeviceDemoResult(
     let acceptedOfferData: OfferInput | null = null;
 
     if (decision === 'offer_presented') {
-      // Each offer creates a row in customer_device_pre_offers (customer-level
-      // tracking with response_state) plus a row in open_task_pre_offers
-      // (open_task-level history). The two are linked via source_customer_pre_offer_id.
+      // Linked standalone offers keep their identity: result recording updates
+      // customer_device_pre_offers instead of creating a duplicate history row.
       for (const offer of body.offers!) {
-        const { rows: cdpoRows } = await db.query(
-          `INSERT INTO customer_device_pre_offers
-             (customer_id, branch_id, device_model_id, offer_type, quantity,
-              total_amount, first_payment_amount, installment_months, currency,
-              discount_percentage, applied_device_discount_id,
-              closed_by_employee_id, no_closing_reason, response_state,
-              created_by, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW(),NOW())
-           RETURNING id`,
-          [
-            vt.client_id,
-            vt.branch_id,
-            offer.device_model_id,
-            offer.offer_type,
-            offer.quantity,
-            offer.total_amount,
-            offer.first_payment_amount ?? null,
-            offer.installment_months ?? null,
-            offer.currency,
-            offer.discount_percentage ?? null,
-            offer.applied_device_discount_id ?? null,
-            offer.customer_response === 'accepted' ? (body.closed_by_employee_id ?? null) : null,
-            typeof offer.no_closing_reason === 'string' ? offer.no_closing_reason.trim() || null : null,
-            offer.customer_response,
-            performedByUserId,
-          ],
-        );
-        const cdpoId = Number(cdpoRows[0].id);
+        const sourceCustomerPreOfferId = isPositiveNumber(offer.source_customer_pre_offer_id)
+          ? Number(offer.source_customer_pre_offer_id)
+          : null;
+        const offerCloserId = offer.closed_by_employee_id ?? body.closed_by_employee_id ?? null;
+        const offerNoClosingReason = typeof offer.no_closing_reason === 'string'
+          ? offer.no_closing_reason.trim() || null
+          : null;
+        const offerSaleReference = offer.customer_response === 'accepted'
+          ? normalizeSaleReference(offer.sale_reference_number) ?? generateSaleReferenceNumber()
+          : null;
+        if (offer.customer_response === 'accepted') {
+          offer.sale_reference_number = offerSaleReference;
+        }
 
-        if (vt.source_open_task_id) {
-          await db.query(
-            `INSERT INTO open_task_pre_offers
-               (open_task_id, device_model_id, offer_type, quantity,
-                total_amount, first_payment_amount, installment_months, currency,
-                discount_percentage, applied_device_discount_id,
-                closed_by_employee_id, no_closing_reason,
-                source_customer_pre_offer_id, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())`,
+        let cdpoId: number | null = null;
+        if (sourceCustomerPreOfferId != null) {
+          const { rows: updatedRows } = await db.query(
+            `UPDATE customer_device_pre_offers
+                SET branch_id = $2,
+                    device_model_id = $3,
+                    offer_type = $4,
+                    quantity = $5,
+                    total_amount = $6,
+                    first_payment_amount = $7,
+                    installment_months = $8,
+                    currency = $9,
+                    discount_percentage = $10,
+                    applied_device_discount_id = $11,
+                    closed_by_employee_id = $12,
+                    no_closing_reason = $13,
+                    response_state = $14,
+                    response_notes = COALESCE($15, response_notes),
+                    sale_reference_number = $16,
+                    updated_at = NOW()
+              WHERE id = $1
+                AND customer_id = $17
+              RETURNING id`,
             [
-              vt.source_open_task_id,
+              sourceCustomerPreOfferId,
+              vt.branch_id,
               offer.device_model_id,
               offer.offer_type,
               offer.quantity,
@@ -332,10 +377,107 @@ export async function applyDeviceDemoResult(
               offer.currency,
               offer.discount_percentage ?? null,
               offer.applied_device_discount_id ?? null,
-              offer.customer_response === 'accepted' ? (body.closed_by_employee_id ?? null) : null,
-              typeof offer.no_closing_reason === 'string' ? offer.no_closing_reason.trim() || null : null,
-              cdpoId,
+              offerCloserId,
+              offerNoClosingReason,
+              offer.customer_response,
+              body.closing_notes ?? null,
+              offerSaleReference,
+              vt.client_id,
             ],
+          );
+          cdpoId = updatedRows.length > 0 ? Number(updatedRows[0].id) : null;
+        }
+
+        if (cdpoId == null) {
+          const { rows: cdpoRows } = await db.query(
+            `INSERT INTO customer_device_pre_offers
+               (customer_id, branch_id, device_model_id, offer_type, quantity,
+                total_amount, first_payment_amount, installment_months, currency,
+                discount_percentage, applied_device_discount_id,
+                closed_by_employee_id, no_closing_reason, response_state,
+                response_notes, sale_reference_number, created_by, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),NOW())
+             RETURNING id`,
+            [
+              vt.client_id,
+              vt.branch_id,
+              offer.device_model_id,
+              offer.offer_type,
+              offer.quantity,
+              offer.total_amount,
+              offer.first_payment_amount ?? null,
+              offer.installment_months ?? null,
+              offer.currency,
+              offer.discount_percentage ?? null,
+              offer.applied_device_discount_id ?? null,
+              offerCloserId,
+              offerNoClosingReason,
+              offer.customer_response,
+              body.closing_notes ?? null,
+              offerSaleReference,
+              performedByUserId,
+            ],
+          );
+          cdpoId = Number(cdpoRows[0].id);
+        }
+
+        if (vt.source_open_task_id) {
+          const openTaskOfferValues = [
+            vt.source_open_task_id,
+            offer.device_model_id,
+            offer.offer_type,
+            offer.quantity,
+            offer.total_amount,
+            offer.first_payment_amount ?? null,
+            offer.installment_months ?? null,
+            offer.currency,
+            offer.discount_percentage ?? null,
+            offer.applied_device_discount_id ?? null,
+            offerCloserId,
+            offerNoClosingReason,
+            cdpoId,
+            offerSaleReference,
+          ];
+
+          if (sourceCustomerPreOfferId != null) {
+            const { rowCount } = await db.query(
+              `UPDATE open_task_pre_offers
+                  SET device_model_id = $2,
+                      offer_type = $3,
+                      quantity = $4,
+                      total_amount = $5,
+                      first_payment_amount = $6,
+                      installment_months = $7,
+                      currency = $8,
+                      discount_percentage = $9,
+                      applied_device_discount_id = $10,
+                      closed_by_employee_id = $11,
+                      no_closing_reason = $12,
+                      source_customer_pre_offer_id = $13,
+                      sale_reference_number = $14,
+                      updated_at = NOW()
+                WHERE open_task_id = $1
+                  AND source_customer_pre_offer_id = $13`,
+              openTaskOfferValues,
+            );
+            if (rowCount > 0) {
+              if (offer.customer_response === 'accepted' && acceptedPreOfferId == null) {
+                acceptedPreOfferId = cdpoId;
+                acceptedOfferData = offer;
+              }
+              continue;
+            }
+          }
+
+          await db.query(
+            `INSERT INTO open_task_pre_offers
+               (open_task_id, device_model_id, offer_type, quantity,
+                total_amount, first_payment_amount, installment_months, currency,
+                discount_percentage, applied_device_discount_id,
+                closed_by_employee_id, no_closing_reason,
+                source_customer_pre_offer_id, sale_reference_number, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())`,
+            openTaskOfferValues,
           );
         }
 
@@ -404,6 +546,7 @@ export async function applyDeviceDemoResult(
         installmentMonths:       body.installment_months ?? null,
         discountPercentage:      body.discount_percentage ?? null,
         closedByEmployeeId:      body.closed_by_employee_id ?? null,
+        saleReferenceNumber:     deviceSoldSaleReference,
         sourceCustomerPreOfferId: null,
       };
     } else if (decision === 'offer_presented' && acceptedOfferData) {
@@ -414,7 +557,8 @@ export async function applyDeviceDemoResult(
         firstPaymentAmount:      acceptedOfferData.first_payment_amount ?? null,
         installmentMonths:       acceptedOfferData.installment_months ?? null,
         discountPercentage:      acceptedOfferData.discount_percentage ?? null,
-        closedByEmployeeId:      body.closed_by_employee_id ?? null,
+        closedByEmployeeId:      acceptedOfferData.closed_by_employee_id ?? body.closed_by_employee_id ?? null,
+        saleReferenceNumber:     normalizeSaleReference(acceptedOfferData.sale_reference_number),
         sourceCustomerPreOfferId: acceptedPreOfferId,
       };
     }

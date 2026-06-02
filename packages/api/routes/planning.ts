@@ -3,8 +3,168 @@ import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
 import { getPlanningMarketingTargets } from '../services/planningMarketingTargets.js';
 import { syncAssignedTasks } from '../services/assignedTasks.js';
+import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
 
 const router = Router();
+
+type ContactTargetWorkspaceStatus = 'assigned' | 'queued' | 'contacted' | 'closed';
+
+async function reconcileContactTargetWorkspace(
+  date: string,
+  teamKey: string,
+  branchId: number,
+  userId: number | null,
+) {
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+
+    const { rows: taskRows } = await db.query(
+      `SELECT
+         ot.id AS "taskId",
+         ot.client_id AS "clientId",
+         ot.status,
+         ot.excluded_for_date::text AS "excludedForDate",
+         c.neighborhood AS "zoneId",
+         ct.id AS "contactTargetId",
+         ct.status AS "contactTargetStatus",
+         ct.closing_reason AS "closingReason"
+       FROM open_tasks ot
+       JOIN clients c ON c.id = ot.client_id AND c.branch_id = ot.branch_id
+       LEFT JOIN LATERAL (
+         SELECT id, status, closing_reason
+           FROM contact_targets
+          WHERE branch_id = ot.branch_id
+            AND target_type = 'client'
+            AND target_id = ot.client_id
+            AND visit_type = 'marketing'
+            AND date = $2::date
+            AND team_key = $1
+          ORDER BY id DESC
+          LIMIT 1
+       ) ct ON true
+       WHERE ot.branch_id = $3
+         AND ot.client_id IS NOT NULL
+         AND (
+           (
+             ot.assigned_team_key = $1
+             AND ot.status = 'assigned'
+             AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
+           )
+           OR (
+             ot.excluded_for_date = $2::date
+             AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+           )
+         )
+       ORDER BY ot.client_id, ot.id`,
+      [teamKey, date, branchId],
+    );
+
+    const tasksByClient = new Map<number, any[]>();
+    for (const row of taskRows) {
+      const clientId = Number(row.clientId);
+      if (!Number.isInteger(clientId) || clientId <= 0) continue;
+      if (!tasksByClient.has(clientId)) tasksByClient.set(clientId, []);
+      tasksByClient.get(clientId)!.push(row);
+    }
+
+    for (const [clientId, clientTasks] of tasksByClient) {
+      const first = clientTasks[0];
+      let contactTargetId = Number(first.contactTargetId);
+
+      if (!Number.isInteger(contactTargetId) || contactTargetId <= 0) {
+        const { rows } = await db.query(
+          `INSERT INTO contact_targets (
+             branch_id, target_type, target_id, target_stage, visit_type,
+             source_type, source_id, supervisor_hr_user_id, zone_id, status,
+             date, team_key
+           )
+           VALUES ($1, 'client', $2, 'lead', 'marketing', 'lead', $2, NULL, $3, 'new', $4::date, $5)
+           RETURNING id`,
+          [branchId, clientId, first.zoneId ?? null, date, teamKey],
+        );
+        contactTargetId = Number(rows[0]?.id);
+      }
+
+      if (!Number.isInteger(contactTargetId) || contactTargetId <= 0) continue;
+
+      const activeTasks = clientTasks.filter(task =>
+        task.status === 'assigned' && task.excludedForDate !== date,
+      );
+      const allTasksExcluded = clientTasks.length > 0 && activeTasks.length === 0;
+
+      for (const task of clientTasks) {
+        const taskId = Number(task.taskId);
+        if (!Number.isInteger(taskId) || taskId <= 0) continue;
+        const linkStatus = task.excludedForDate === date
+          ? 'excluded'
+          : allTasksExcluded
+            ? 'closed'
+            : 'ready';
+
+        await db.query(
+          `INSERT INTO contact_target_open_tasks (
+             contact_target_id, open_task_id, branch_id, team_key, date, link_status
+           )
+           VALUES ($1, $2, $3, $4, $5::date, $6)
+           ON CONFLICT (contact_target_id, open_task_id, date)
+           DO UPDATE SET
+             branch_id = EXCLUDED.branch_id,
+             team_key = EXCLUDED.team_key,
+             link_status = EXCLUDED.link_status,
+             updated_at = NOW()`,
+          [contactTargetId, taskId, branchId, teamKey, date, linkStatus],
+        );
+
+        await db.query(
+          `UPDATE open_tasks
+              SET contact_target_id = $1,
+                  updated_at = NOW()
+            WHERE id = $2
+              AND branch_id = $3
+              AND (contact_target_id IS NULL OR contact_target_id = $1)`,
+          [contactTargetId, taskId, branchId],
+        );
+      }
+
+      if (allTasksExcluded) {
+        await db.query(
+          `UPDATE contact_targets
+              SET status = 'closed',
+                  closing_reason = 'manual_supervisor',
+                  closed_by = COALESCE(closed_by, $2::int),
+                  closed_at = COALESCE(closed_at, NOW()),
+                  updated_at = NOW()
+            WHERE id = $1
+              AND branch_id = $3
+              AND status IN ('new', 'queued', 'in_call_list', 'contacted')`,
+          [contactTargetId, userId, branchId],
+        );
+      } else {
+        await db.query(
+          `UPDATE contact_targets
+              SET status = 'new',
+                  closing_reason = NULL,
+                  closed_by = NULL,
+                  closed_at = NULL,
+                  updated_at = NOW()
+            WHERE id = $1
+              AND branch_id = $2
+              AND status = 'closed'
+              AND closing_reason = 'manual_supervisor'`,
+          [contactTargetId, branchId],
+        );
+      }
+    }
+
+    await db.query('COMMIT');
+  } catch (error) {
+    await db.query('ROLLBACK');
+    throw error;
+  } finally {
+    db.release();
+  }
+}
 
 /**
  * @swagger
@@ -375,7 +535,7 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
          c.name,
          c.mobile,
          c.contacts,
-         c.candidate_status   AS "candidateStatus",
+         ${buildClientLifecycleStatusSql('c')} AS "candidateStatus",
          gu.name              AS "stationName",
          ct.id                AS "contactTargetId",
          ct.status            AS "contactTargetStatus",
@@ -608,6 +768,8 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       return res.status(400).json({ error: 'A branch context is required' });
     }
 
+    await reconcileContactTargetWorkspace(date, teamKey, branchId, req.authContext?.userId ?? null);
+
     const { rows: taskListRows } = await pool.query(
       `SELECT id, created_at AS "createdAt" FROM telemarketing_task_lists
         WHERE team_key = $1 AND date = $2 AND branch_id = $3
@@ -641,9 +803,28 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
 
            SELECT ot.client_id
              FROM open_tasks ot
-            WHERE ot.excluded_for_date = $4::date
+           WHERE ot.excluded_for_date = $4::date
               AND ot.branch_id = $3
               AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+
+           UNION
+
+           SELECT ct.target_id AS client_id
+             FROM contact_targets ct
+            WHERE ct.branch_id = $3
+              AND ct.target_type = 'client'
+              AND ct.visit_type = 'marketing'
+              AND ct.date = $4::date
+              AND ct.team_key = $1
+
+           UNION
+
+           SELECT ot.client_id
+             FROM contact_target_open_tasks ctot
+             JOIN open_tasks ot ON ot.id = ctot.open_task_id
+            WHERE ctot.branch_id = $3
+              AND ctot.team_key = $1
+              AND ctot.date = $4::date
        ) sub`,
       [teamKey, date, branchId, date],
     );
@@ -659,7 +840,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
         generatedCount: 0,
         pendingSyncCount: 0,
         clients: [],
-        summary: { assigned: 0, queued: 0, contacted: 0, booked: 0, closed: 0, excluded: 0 },
+        summary: { assigned: 0, queued: 0, contacted: 0, closed: 0 },
       });
     }
 
@@ -669,7 +850,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
          c.name,
          c.mobile,
          c.contacts,
-         c.candidate_status AS "candidateStatus",
+         ${buildClientLifecycleStatusSql('c')} AS "candidateStatus",
          gu.name AS "stationName",
          ct.id AS "contactTargetId",
          ct.status AS "contactTargetStatus",
@@ -682,8 +863,10 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
         AND ct.target_type = 'client'
         AND ct.target_id = c.id
         AND ct.visit_type = 'marketing'
+        AND ct.date = $2::date
+        AND ct.team_key = $3
        WHERE c.id = ANY($1::int[])`,
-      [clientIds],
+      [clientIds, date, teamKey],
     );
     const clientMetaById = new Map(clientRows.map((r: any) => [Number(r.id), r]));
 
@@ -701,16 +884,22 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
          ot.excluded_reason                       AS "excludedReason",
          ot.last_waiting_status                   AS "lastWaitingStatus",
          ot.attempt_count                         AS "attemptCount",
+         ctot.link_status                         AS "contactTargetTaskStatus",
          COALESCE(ttc.arabic_label, ot.task_type) AS "taskTypeLabel"
        FROM open_tasks ot
        LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+       LEFT JOIN contact_target_open_tasks ctot
+         ON ctot.open_task_id = ot.id
+        AND ctot.branch_id = ot.branch_id
+        AND ctot.team_key = $3
+        AND ctot.date = $4::date
        WHERE ot.client_id = ANY($1::int[])
          AND ot.branch_id = $2
          AND ot.status IN ('assigned','in_scheduling','scheduled','waiting_execution',
                            'in_execution','ended','completed','closed',
                            'open','needs_follow_up')
        ORDER BY ot.client_id, ot.created_at`,
-      [clientIds, branchId],
+      [clientIds, branchId, teamKey, date],
     );
 
     const { rows: listItemRows } = await pool.query(
@@ -780,14 +969,13 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       const hasPendingSync = taskListGenerated && assignedTasks.length > 0;
       const excludedOnly = !generatedInTaskList && assignedTasks.length === 0 && excludedTasks.length > 0;
 
-      let workspaceStatus: 'assigned' | 'queued' | 'contacted' | 'booked' | 'closed' | 'excluded' = 'assigned';
-      if (generatedInTaskList) {
-        if (appt?.appointmentDate || meta?.contactTargetStatus === 'booked') workspaceStatus = 'booked';
-        else if (meta?.contactTargetStatus === 'closed') workspaceStatus = 'closed';
-        else if (meta?.contactTargetStatus === 'contacted') workspaceStatus = 'contacted';
-        else workspaceStatus = 'queued';
-      } else if (excludedOnly) {
-        workspaceStatus = 'excluded';
+      let workspaceStatus: ContactTargetWorkspaceStatus = 'assigned';
+      if (meta?.contactTargetStatus === 'closed' || excludedOnly) {
+        workspaceStatus = 'closed';
+      } else if (meta?.contactTargetStatus === 'contacted') {
+        workspaceStatus = 'contacted';
+      } else if (generatedInTaskList || meta?.contactTargetStatus === 'queued' || meta?.contactTargetStatus === 'in_call_list' || appt?.appointmentDate) {
+        workspaceStatus = 'queued';
       }
 
       return {
@@ -815,11 +1003,9 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
 
     const STATUS_ORDER: Record<string, number> = {
       assigned: 1,
-      excluded: 2,
-      queued: 3,
-      contacted: 4,
-      booked: 5,
-      closed: 6,
+      queued: 2,
+      contacted: 3,
+      closed: 4,
     };
 
     clients.sort((a, b) => {
@@ -861,9 +1047,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       assigned: clients.filter(client => client.workspaceStatus === 'assigned').length,
       queued: clients.filter(client => client.workspaceStatus === 'queued').length,
       contacted: clients.filter(client => client.workspaceStatus === 'contacted').length,
-      booked: clients.filter(client => client.workspaceStatus === 'booked').length,
       closed: clients.filter(client => client.workspaceStatus === 'closed').length,
-      excluded: clients.filter(client => client.workspaceStatus === 'excluded').length,
     };
 
     return res.json({

@@ -1,5 +1,6 @@
 import { useState, type ComponentType } from 'react';
-import { CheckCircle2, Plus } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CalendarClock, CheckCircle2, ChevronLeft, Clock, Footprints, Plus } from 'lucide-react';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
 import { Card, InfoLine, TabAlert, formatDateTime } from '../shared';
 import type { TaskResultRendererProps } from '../types';
@@ -19,6 +20,16 @@ const FINAL_DECISION_LABELS: Record<string, { label: string; cls: string }> = {
   needs_followup:  { label: 'متابعة (قديم)',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
 };
 
+const VISIT_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
+  scheduled: { label: 'مجدولة', cls: 'bg-slate-100 text-slate-600' },
+  in_progress: { label: 'جارية', cls: 'bg-blue-50 text-blue-700' },
+  ended: { label: 'انتهت ميدانياً', cls: 'bg-amber-50 text-amber-700' },
+  completed: { label: 'مكتملة', cls: 'bg-emerald-50 text-emerald-700' },
+  not_completed: { label: 'لم تتم', cls: 'bg-rose-50 text-rose-700' },
+  cancelled: { label: 'ملغاة', cls: 'bg-slate-100 text-slate-500' },
+  closed: { label: 'مقفلة', cls: 'bg-slate-200 text-slate-700' },
+};
+
 function renderFinalDecision(value?: string | null) {
   if (!value) return 'غير مسجلة بعد';
   const meta = FINAL_DECISION_LABELS[value];
@@ -30,29 +41,86 @@ function renderFinalDecision(value?: string | null) {
   );
 }
 
+function renderDerivedOutcome(finalDecision: string | null, task: any, preOffers: any[] = []) {
+  const offers = Array.isArray(task.offers) && task.offers.length > 0
+    ? task.offers
+    : preOffers;
+  const count = (response: string) =>
+    offers.filter((offer: any) => offer?.customerResponse === response).length;
+  const accepted = count('accepted');
+  const rejected = count('rejected');
+  const extension = count('extension_requested');
+  const total = offers.length;
+
+  let label = 'غير مسجلة بعد';
+  let cls = 'bg-slate-50 text-slate-600 border-slate-200';
+
+  if (finalDecision === 'offer_presented') {
+    if (accepted > 0) {
+      label = accepted === 1 ? 'بيع عبر عرض مقبول' : `بيع عبر ${accepted} عروض مقبولة`;
+      cls = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    } else if (extension > 0) {
+      label = extension === 1 ? 'بانتظار متابعة عرض عليه مهلة' : `بانتظار متابعة ${extension} عروض عليها مهلة`;
+      cls = 'bg-amber-50 text-amber-700 border-amber-200';
+    } else if (total > 0 && rejected === total) {
+      label = 'لم يتم البيع - كل العروض مرفوضة';
+      cls = 'bg-rose-50 text-rose-700 border-rose-200';
+    } else if (total > 0) {
+      label = 'تقديم عرض - بانتظار ردود مكتملة';
+      cls = 'bg-sky-50 text-sky-700 border-sky-200';
+    } else {
+      label = 'تقديم عرض - لا توجد عروض مقروءة';
+      cls = 'bg-sky-50 text-sky-700 border-sky-200';
+    }
+  } else if (finalDecision === 'device_sold') {
+    label = 'بيع مباشر';
+    cls = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  } else if (finalDecision === 'rescheduled') {
+    label = 'مؤجلة / تحتاج متابعة';
+    cls = 'bg-amber-50 text-amber-700 border-amber-200';
+  } else if (finalDecision === 'cancelled') {
+    label = 'ألغيت / لم تنجز';
+    cls = 'bg-rose-50 text-rose-700 border-rose-200';
+  }
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
 export interface TaskResultTabProps {
   task: any;
   hasResult: boolean;
+  attempts?: any[];
   /** Custom result renderer provided by the task type (e.g. device demo pre-offers table). */
   ResultRenderer?: ComponentType<TaskResultRendererProps>;
   /** Extra data forwarded to the custom renderer */
   rendererProps?: Partial<TaskResultRendererProps>;
 }
 
-export default function TaskResultTab({ task, hasResult, ResultRenderer, rendererProps }: TaskResultTabProps) {
+export default function TaskResultTab({ task, hasResult, attempts = [], ResultRenderer, rendererProps }: TaskResultTabProps) {
   const statusLabel = OPEN_TASK_STATUS_LABELS[task.status as OpenTaskStatus] ?? task.status;
   const [showResultModal, setShowResultModal] = useState(false);
 
   // Final decision lives on the visit_task_result row, surfaced as latestFinalDecision.
   // Fall back to outcome/result for legacy rows.
-  const finalDecision: string | null = task.latestFinalDecision ?? task.outcome ?? task.result ?? null;
+  const finalDecision: string | null = task.latestFinalDecision ?? task.finalDecision ?? task.outcome ?? task.result ?? null;
+  const shouldShowResultDetails = finalDecision === 'offer_presented';
 
   // Result modal is only wired for device_demo today; other task types still
   // surface a read-only result block until they migrate to the new model.
+  const latestAttemptAlreadyHasResult =
+    task.visitTaskResultId != null ||
+    task.latestFinalDecision != null ||
+    task.finalDecision != null;
   const canRecordResult =
     task.taskType === 'device_demo' &&
     task.marketingVisitId != null &&
     task.latestVisitTaskId != null &&
+    (task.visitStatus === 'in_progress' || task.visitStatus === 'ended') &&
+    !latestAttemptAlreadyHasResult &&
     !['completed', 'closed', 'cancelled'].includes(task.status);
 
   return (
@@ -75,6 +143,10 @@ export default function TaskResultTab({ task, hasResult, ResultRenderer, rendere
       <Card title="ملخص النتيجة" icon={CheckCircle2}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1.5">
           <InfoLine label="النتيجة" value={renderFinalDecision(finalDecision)} />
+          <InfoLine
+            label="المحصلة"
+            value={renderDerivedOutcome(finalDecision, task, rendererProps?.preOffers ?? [])}
+          />
           <InfoLine label="الحالة" value={statusLabel} />
           <InfoLine label="تاريخ الإتمام" value={task.completedAt ? formatDateTime(task.completedAt) : '—'} />
           {task.cancellationReason && (
@@ -94,12 +166,73 @@ export default function TaskResultTab({ task, hasResult, ResultRenderer, rendere
         </div>
       </Card>
 
-      {ResultRenderer && <ResultRenderer task={task} {...rendererProps} />}
+      <Card title="محاولات التنفيذ" icon={Footprints}>
+        {attempts.length > 0 ? (
+          <div className="space-y-2.5">
+            <p className="text-xs text-slate-400 mb-1">
+              كل سطر هو محاولة تنفيذ لهذه المهمة الأم داخل زيارة مستقلة. النتيجة هنا تخص المحاولة، ثم تنعكس آخر نتيجة فعالة على حالة المهمة.
+            </p>
+            {attempts.map((at: any, idx: number) => {
+              const vs = VISIT_STATUS_LABELS[at.visitStatus] ?? { label: at.visitStatus, cls: 'bg-slate-100 text-slate-600' };
+              const decision = at.finalDecision
+                ? (FINAL_DECISION_LABELS[at.finalDecision]?.label ?? at.finalDecision)
+                : null;
+              return (
+                <Link
+                  key={at.visitTaskId ?? `${at.visitId}-${idx}`}
+                  to={`/field-visits/${at.visitId}`}
+                  className="flex items-center gap-3 rounded-xl bg-white border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 p-3 shadow-sm transition-colors group"
+                >
+                  <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 text-xs font-black">
+                    {idx + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-bold text-slate-800">المحاولة {idx + 1}</span>
+                      {at.arabicLabel && <span className="text-[11px] text-slate-400">· {at.arabicLabel}</span>}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${vs.cls}`}>{vs.label}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1 flex-wrap">
+                      {at.scheduledDate && (
+                        <span className="inline-flex items-center gap-1">
+                          <CalendarClock className="w-3 h-3" />
+                          {String(at.scheduledDate).slice(0, 10)}{at.scheduledTime ? ` · ${at.scheduledTime}` : ''}
+                        </span>
+                      )}
+                      {decision ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
+                          <CheckCircle2 className="w-3 h-3" /> نتيجة المحاولة: {decision}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-amber-600">
+                          <Clock className="w-3 h-3" /> بانتظار نتيجة المحاولة
+                        </span>
+                      )}
+                    </div>
+                    {at.closingNotes && <p className="text-[11px] text-slate-400 mt-1 truncate">{at.closingNotes}</p>}
+                  </div>
+                  <ChevronLeft className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 shrink-0" />
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-6 text-center">
+            <Footprints className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+            <p className="text-sm font-bold text-slate-500">لا توجد محاولات تنفيذ بعد</p>
+            <p className="text-xs text-slate-400 mt-1">عند جدولة المهمة ضمن زيارة، ستظهر هنا كل محاولة مع نتيجتها.</p>
+          </div>
+        )}
+      </Card>
+
+      {ResultRenderer && shouldShowResultDetails && <ResultRenderer task={task} {...rendererProps} />}
 
       {showResultModal && canRecordResult && (
         <DeviceDemoResultModal
           visitId={Number(task.marketingVisitId)}
           taskId={Number(task.latestVisitTaskId)}
+          task={task}
+          preOffers={rendererProps?.preOffers ?? []}
           onClose={() => setShowResultModal(false)}
           onSaved={() => {
             setShowResultModal(false);

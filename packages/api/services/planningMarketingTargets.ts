@@ -2,6 +2,7 @@ import pool from '../db.js';
 import { resolveTeamPlanningScope } from './teamPlanningScope.js';
 import type { CustomerOwnership } from '@golden-crm/shared';
 import {
+  buildClientLifecycleStatusSql,
   buildCustomerOwnershipSelectColumns,
   buildCustomerOwnershipSql,
   mapCustomerOwnership,
@@ -582,7 +583,7 @@ export async function getPlanningMarketingTargets(params: {
         c.created_at AS "createdAt",
         c.is_candidate AS "isCandidate",
         c.target_client AS "targetClient",
-        c.candidate_status AS "candidateStatus",
+        ${buildClientLifecycleStatusSql('c')} AS "candidateStatus",
         c.branch_id AS "branchId",
         b.name AS "branchName",
         contact_target.id AS "contactTargetId",
@@ -890,10 +891,10 @@ export async function getPlanningWorkScope(params: {
        c.name              AS "clientName",
        c.mobile            AS "clientMobile",
        c.neighborhood      AS "clientNeighborhood",
-       c.candidate_status  AS "candidateStatus",
+       ${buildClientLifecycleStatusSql('c')} AS "candidateStatus",
        b.name              AS "branchName",
        CASE
-         WHEN c.candidate_status IN ('OP', 'FOP') THEN 'company_branch'
+         WHEN (${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP') THEN 'company_branch'
          WHEN NOT EXISTS (
            SELECT 1 FROM client_assignments ca2
            JOIN hr_users u2 ON u2.id = ca2.hr_user_id
@@ -903,7 +904,7 @@ export async function getPlanningWorkScope(params: {
        END AS "ownershipType",
        COALESCE(
          CASE
-           WHEN c.candidate_status IN ('OP', 'FOP') THEN b.name
+           WHEN (${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP') THEN b.name
            WHEN NOT EXISTS (
              SELECT 1 FROM client_assignments ca3
              JOIN hr_users u3 ON u3.id = ca3.hr_user_id
@@ -1047,7 +1048,7 @@ export async function getAssignedLeadsForTeam(params: {
         c.branch_id        AS "branchId",
         c.is_candidate     AS "isCandidate",
         c.target_client    AS "targetClient",
-        c.candidate_status AS "candidateStatus",
+        ${buildClientLifecycleStatusSql('c')} AS "candidateStatus",
         ct.id              AS "contactTargetId",
         ct.status          AS "contactTargetStatus",
         ct.latest_call_outcome AS "latestCallOutcome",

@@ -8,7 +8,7 @@ import TaskHeader from './TaskHeader';
 import TaskOverviewTab from './tabs/TaskOverviewTab';
 import TaskClientTab from './tabs/TaskClientTab';
 import TaskContractTab from './tabs/TaskContractTab';
-import TaskCommunicationTab from './tabs/TaskCommunicationTab';
+import TaskCommunicationOnlyTab from './tabs/TaskCommunicationOnlyTab';
 import TaskResultTab from './tabs/TaskResultTab';
 import type { TaskTypeExtension, TaskDetailData } from './types';
 
@@ -73,6 +73,7 @@ export default function TaskDetailLayout({
   const [activity, setActivity] = useState<any[]>([]);
   const [devices, setDevices] = useState<any[]>([]);
   const [calls, setCalls] = useState<any[]>([]);
+  const [attempts, setAttempts] = useState<any[]>([]);
   const [preOffers, setPreOffers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,11 +96,12 @@ export default function TaskDetailLayout({
 
     (async () => {
       try {
-        const [taskData, activityData, devicesData, callsData] = await Promise.all([
+        const [taskData, activityData, devicesData, callsData, attemptsData] = await Promise.all([
           api.openTasks.get(taskId),
           api.openTasks.getActivity(taskId).catch(() => [] as any[]),
           api.openTasks.getDevices(taskId).catch(() => [] as any[]),
           api.openTasks.getCalls(taskId).catch(() => [] as any[]),
+          api.openTasks.getAttempts(taskId).catch(() => ({ taskStatus: '', attempts: [] })),
         ]);
         if (!active) return;
         const taskPreOffers = taskData?.preOffers || taskData?.pre_offers || [];
@@ -107,6 +109,7 @@ export default function TaskDetailLayout({
         setActivity(activityData);
         setDevices(devicesData);
         setCalls(callsData);
+        setAttempts(attemptsData?.attempts ?? []);
         setPreOffers(taskPreOffers);
         setPriorityDraft(taskData?.priority ?? '');
         setExpectedDateDraft(taskData?.expectedDate ? taskData.expectedDate.slice(0, 10) : '');
@@ -259,7 +262,7 @@ export default function TaskDetailLayout({
           )}
 
           {activeTab === 'communication' && (
-            <TaskCommunicationTab
+            <TaskCommunicationOnlyTab
               calls={calls}
               activity={activity}
               onSubmitNote={handleSubmitNote}
@@ -273,6 +276,7 @@ export default function TaskDetailLayout({
               task={task}
               hasResult={hasResult}
               ResultRenderer={extension?.ResultRenderer}
+              attempts={attempts}
               rendererProps={{ preOffers }}
             />
           )}

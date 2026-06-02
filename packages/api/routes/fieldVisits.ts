@@ -6,6 +6,7 @@ import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
 import { applyDeviceDemoResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
 import {
+  buildClientLifecycleStatusSql,
   buildCustomerOwnershipSql,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
@@ -790,6 +791,41 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
          fv.client_id AS "clientId",
          fv.branch_id AS "branchId",
          fv.team_snapshot AS "teamSnapshot",
+         -- Resolved team (DEC-007 D47): combines names from team_snapshot IDs
+         -- with reassignment overrides. teamName is "فريق + اسم المسؤول" -
+         -- supervisor for standard teams, technician for emergency.
+         jsonb_build_object(
+           'supervisor', CASE
+             WHEN COALESCE(fv.reassigned_supervisor_id, NULLIF((fv.team_snapshot->>'supervisorEmployeeId')::text, '')::int) IS NOT NULL
+               THEN jsonb_build_object(
+                 'id',   COALESCE(fv.reassigned_supervisor_id, NULLIF((fv.team_snapshot->>'supervisorEmployeeId')::text, '')::int),
+                 'name', team_lookup.supervisor_name
+               )
+             ELSE NULL
+           END,
+           'technician', CASE
+             WHEN COALESCE(fv.reassigned_technician_id, NULLIF((fv.team_snapshot->>'technicianEmployeeId')::text, '')::int) IS NOT NULL
+               THEN jsonb_build_object(
+                 'id',   COALESCE(fv.reassigned_technician_id, NULLIF((fv.team_snapshot->>'technicianEmployeeId')::text, '')::int),
+                 'name', team_lookup.technician_name
+               )
+             ELSE NULL
+           END,
+           'trainee', CASE
+             WHEN COALESCE(fv.reassigned_trainee_id, NULLIF((fv.team_snapshot->>'traineeEmployeeId')::text, '')::int) IS NOT NULL
+               THEN jsonb_build_object(
+                 'id',   COALESCE(fv.reassigned_trainee_id, NULLIF((fv.team_snapshot->>'traineeEmployeeId')::text, '')::int),
+                 'name', team_lookup.trainee_name
+               )
+             ELSE NULL
+           END,
+           'teamName', CASE
+             WHEN team_lookup.supervisor_name IS NOT NULL THEN 'فريق ' || team_lookup.supervisor_name
+             WHEN team_lookup.technician_name IS NOT NULL THEN 'فريق ' || team_lookup.technician_name
+             ELSE NULL
+           END,
+           'reassigned', (fv.reassigned_supervisor_id IS NOT NULL OR fv.reassigned_technician_id IS NOT NULL OR fv.reassigned_trainee_id IS NOT NULL)
+         ) AS "team",
          fv.customer_snapshot AS "customerSnapshot",
          fv.field_notes AS "fieldNotes",
          fv.origin_type AS "originType",
@@ -800,7 +836,7 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
          c.mobile AS "clientMobile",
          c.gender AS "clientGender",
          c.data_quality AS "clientDataQuality",
-         c.candidate_status AS "clientClassification",
+         ${buildClientLifecycleStatusSql('c')} AS "clientClassification",
          b.name AS "branchName",
          CASE
            WHEN neigh.id IS NOT NULL AND neigh.level = 4 AND neigh_parent.id IS NOT NULL
@@ -854,11 +890,22 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
        LEFT JOIN referral_sheets rs ON rs.field_visit_id = fv.id
        LEFT JOIN visit_geo_logs vgl ON vgl.visit_id = fv.id
        LEFT JOIN visit_escalation_alerts vea ON vea.visit_id = fv.id
+       LEFT JOIN LATERAL (
+         SELECT
+           sup.name   AS supervisor_name,
+           tech.name  AS technician_name,
+           train.name AS trainee_name
+         FROM (SELECT 1) _
+         LEFT JOIN employees sup   ON sup.id   = COALESCE(fv.reassigned_supervisor_id, NULLIF((fv.team_snapshot->>'supervisorEmployeeId')::text, '')::int)
+         LEFT JOIN employees tech  ON tech.id  = COALESCE(fv.reassigned_technician_id, NULLIF((fv.team_snapshot->>'technicianEmployeeId')::text, '')::int)
+         LEFT JOIN employees train ON train.id = COALESCE(fv.reassigned_trainee_id, NULLIF((fv.team_snapshot->>'traineeEmployeeId')::text, '')::int)
+       ) team_lookup ON TRUE
        ${where}
        GROUP BY fv.id, c.id, b.name, neigh.id, neigh.name, neigh.level, neigh_parent.id, neigh_parent.name,
                 district.id, district.name, ownership."ownerType", ownership."ownerLabel",
                 ownership."companyOwnershipScope", ownership."effectiveOwnershipReason", vs.id, vs.is_skipped, rs.id,
-                vgl.actual_start_time, vgl.actual_end_time, vgl.location_missing
+                vgl.actual_start_time, vgl.actual_end_time, vgl.location_missing,
+                team_lookup.supervisor_name, team_lookup.technician_name, team_lookup.trainee_name
        ORDER BY fv.scheduled_date DESC, fv.scheduled_time ASC, fv.created_at DESC`,
       params,
     );
@@ -957,20 +1004,247 @@ router.get('/escalation-alerts', requirePermission('field_visits.view'), async (
   }
 });
 
+// ─── EXECUTIVE BRANCH SUMMARY ────────────────────────────────────────────────
+// Cross-branch aggregation for the executive view of the visits page. Returns
+// one row per branch for a date range, with KPIs that let leadership compare
+// performance side-by-side. Requires GLOBAL scope (super admin or admin with
+// global field_visits.view) - branch-scoped users are restricted to their own
+// branch and would not need this endpoint.
+router.get('/branch-summary', requirePermission('field_visits.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    // Default window: last 7 days inclusive. Caller may override via from/to.
+    const today = new Date();
+    const defaultTo = today.toISOString().slice(0, 10);
+    const defaultFrom = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const from = typeof req.query.from === 'string' && req.query.from ? req.query.from : defaultFrom;
+    const to   = typeof req.query.to   === 'string' && req.query.to   ? req.query.to   : defaultTo;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      return res.status(400).json({ error: 'صيغة التاريخ غير صحيحة (المتوقع YYYY-MM-DD)' });
+    }
+    if (from > to) {
+      return res.status(400).json({ error: 'تاريخ البداية يجب أن يسبق تاريخ النهاية' });
+    }
+
+    // Branch-scoped callers only see their own branch in the summary - they
+    // still get a "table" but it has one row. Super admins see all branches.
+    const params: any[] = [from, to];
+    let branchClause = '';
+    if (!authContext.isSuperAdmin && authContext.actingBranchId != null) {
+      params.push(authContext.actingBranchId);
+      branchClause = `AND fv.branch_id = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `WITH visit_summary AS (
+         SELECT
+           fv.id,
+           fv.branch_id,
+           fv.status,
+           vgl.duration_minutes,
+           vgl.location_missing,
+           EXISTS (
+             SELECT 1 FROM visit_escalation_alerts vea WHERE vea.visit_id = fv.id
+           ) AS is_escalated
+         FROM field_visits fv
+         LEFT JOIN visit_geo_logs vgl ON vgl.visit_id = fv.id
+         WHERE fv.scheduled_date BETWEEN $1::date AND $2::date
+         ${branchClause}
+       ),
+       -- Device-demo pre-offer outcomes. Source of truth is the customer-level
+       -- pre-offer record (customer_device_pre_offers.response_state), reached
+       -- via: field_visit -> visit_task(device_demo) -> open_task ->
+       -- open_task_pre_offers.source_customer_pre_offer_id ->
+       -- customer_device_pre_offers. Pre-offers without a customer-level link
+       -- are excluded (they have no recorded response yet).
+       demo_offers AS (
+         SELECT
+           fv.branch_id,
+           cdpo.response_state
+         FROM field_visits fv
+         JOIN visit_tasks vt ON vt.field_visit_id = fv.id AND vt.task_type = 'device_demo'
+         JOIN open_task_pre_offers otpo ON otpo.open_task_id = vt.source_open_task_id
+         JOIN customer_device_pre_offers cdpo ON cdpo.id = otpo.source_customer_pre_offer_id
+         WHERE fv.scheduled_date BETWEEN $1::date AND $2::date
+         ${branchClause}
+       )
+       SELECT
+         b.id   AS "branchId",
+         b.name AS "branchName",
+         COUNT(vs.id)::int                                                            AS total,
+         COUNT(vs.id) FILTER (WHERE vs.status = 'scheduled')::int                     AS scheduled,
+         COUNT(vs.id) FILTER (WHERE vs.status = 'in_progress')::int                   AS "inProgress",
+         COUNT(vs.id) FILTER (WHERE vs.status = 'ended')::int                         AS ended,
+         COUNT(vs.id) FILTER (WHERE vs.status = 'completed')::int                     AS completed,
+         COUNT(vs.id) FILTER (WHERE vs.status = 'not_completed')::int                 AS "notCompleted",
+         COUNT(vs.id) FILTER (WHERE vs.status = 'cancelled')::int                     AS cancelled,
+         COUNT(vs.id) FILTER (WHERE vs.is_escalated)::int                             AS "stuckEscalated",
+         COUNT(vs.id) FILTER (WHERE vs.location_missing = TRUE)::int                  AS "locationMissing",
+         COALESCE(ROUND(AVG(vs.duration_minutes) FILTER (WHERE vs.duration_minutes IS NOT NULL))::int, 0) AS "avgDurationMinutes",
+         COALESCE((SELECT COUNT(*)::int FROM demo_offers d WHERE d.branch_id = b.id), 0)                                              AS "demoOffersPresented",
+         COALESCE((SELECT COUNT(*)::int FROM demo_offers d WHERE d.branch_id = b.id AND d.response_state = 'accepted'), 0)            AS "demoOffersAccepted",
+         COALESCE((SELECT COUNT(*)::int FROM demo_offers d WHERE d.branch_id = b.id AND d.response_state = 'rejected'), 0)            AS "demoOffersRejected",
+         COALESCE((SELECT COUNT(*)::int FROM demo_offers d WHERE d.branch_id = b.id AND d.response_state = 'extension_requested'), 0) AS "demoOffersExtension",
+         COALESCE((SELECT COUNT(*)::int FROM demo_offers d WHERE d.branch_id = b.id AND d.response_state = 'pending'), 0)             AS "demoOffersPending"
+       FROM branches b
+       LEFT JOIN visit_summary vs ON vs.branch_id = b.id
+       ${!authContext.isSuperAdmin && authContext.actingBranchId != null
+         ? `WHERE b.id = $${params.length}` : ''}
+       GROUP BY b.id, b.name
+       ORDER BY total DESC, b.name ASC`,
+      params,
+    );
+
+    return res.json({ from, to, branches: rows });
+  } catch (err: any) {
+    console.error('[field-visits] GET /branch-summary error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل تحميل ملخص الفروع' });
+  }
+});
+
+// ─── TASK-TYPE ANALYTICS SUMMARY ─────────────────────────────────────────────
+// Per-task-type aggregation over a date range for the executive "تحليل المهام"
+// view. One row per active task type with universal KPIs (attempts, status
+// breakdown, documentation rate) plus type-specific KPIs we can compute today
+// (currently only device_demo pre-offer outcomes). Other task types are listed
+// without their specialized KPIs - those will be added per ticket as the
+// matching success criteria get nailed down.
+router.get('/task-type-summary', requirePermission('field_visits.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const today = new Date();
+    const defaultTo = today.toISOString().slice(0, 10);
+    const defaultFrom = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const from = typeof req.query.from === 'string' && req.query.from ? req.query.from : defaultFrom;
+    const to   = typeof req.query.to   === 'string' && req.query.to   ? req.query.to   : defaultTo;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      return res.status(400).json({ error: 'صيغة التاريخ غير صحيحة (المتوقع YYYY-MM-DD)' });
+    }
+    if (from > to) {
+      return res.status(400).json({ error: 'تاريخ البداية يجب أن يسبق تاريخ النهاية' });
+    }
+
+    const params: any[] = [from, to];
+    let branchClause = '';
+    if (!authContext.isSuperAdmin && authContext.actingBranchId != null) {
+      params.push(authContext.actingBranchId);
+      branchClause = `AND fv.branch_id = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `WITH visit_tasks_in_period AS (
+         SELECT vt.id, vt.task_type, vt.status, vt.source_open_task_id, fv.branch_id
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         WHERE fv.scheduled_date BETWEEN $1::date AND $2::date
+         ${branchClause}
+       ),
+       -- Device-demo pre-offer outcomes (the only type with a fully-wired
+       -- success signal today). Linked via the same chain used by the branch
+       -- summary endpoint.
+       demo_offers AS (
+         SELECT cdpo.response_state
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_task_pre_offers otpo ON otpo.open_task_id = vt.source_open_task_id
+         JOIN customer_device_pre_offers cdpo ON cdpo.id = otpo.source_customer_pre_offer_id
+         WHERE vt.task_type = 'device_demo'
+           AND fv.scheduled_date BETWEEN $1::date AND $2::date
+           ${branchClause}
+       )
+       SELECT
+         ttc.task_type                                                                    AS "taskType",
+         ttc.task_family                                                                  AS "taskFamily",
+         ttc.arabic_label                                                                 AS "arabicLabel",
+         ttc.display_order                                                                AS "displayOrder",
+         COALESCE(COUNT(vtp.id)::int, 0)                                                  AS "totalAttempts",
+         COALESCE(COUNT(vtp.id) FILTER (WHERE vtp.status = 'completed')::int, 0)          AS completed,
+         COALESCE(COUNT(vtp.id) FILTER (WHERE vtp.status = 'not_completed')::int, 0)      AS "notCompleted",
+         COALESCE(COUNT(vtp.id) FILTER (WHERE vtp.status = 'cancelled')::int, 0)          AS cancelled,
+         COALESCE(COUNT(vtp.id) FILTER (WHERE vtp.status = 'in_progress')::int, 0)        AS "inProgress",
+         COALESCE(COUNT(vtp.id) FILTER (WHERE vtp.status = 'pending')::int, 0)            AS pending,
+         COALESCE(COUNT(vtp.id) FILTER (WHERE EXISTS (
+           SELECT 1 FROM visit_task_results vtr
+           WHERE vtr.visit_task_id = vtp.id AND vtr.final_decision IS NOT NULL
+         ))::int, 0)                                                                     AS documented,
+         CASE WHEN ttc.task_type = 'device_demo'
+           THEN COALESCE((SELECT COUNT(*)::int FROM demo_offers), 0)
+           ELSE NULL END                                                                  AS "demoOffersPresented",
+         CASE WHEN ttc.task_type = 'device_demo'
+           THEN COALESCE((SELECT COUNT(*)::int FROM demo_offers WHERE response_state = 'accepted'), 0)
+           ELSE NULL END                                                                  AS "demoOffersAccepted",
+         CASE WHEN ttc.task_type = 'device_demo'
+           THEN COALESCE((SELECT COUNT(*)::int FROM demo_offers WHERE response_state = 'rejected'), 0)
+           ELSE NULL END                                                                  AS "demoOffersRejected",
+         CASE WHEN ttc.task_type = 'device_demo'
+           THEN COALESCE((SELECT COUNT(*)::int FROM demo_offers WHERE response_state = 'extension_requested'), 0)
+           ELSE NULL END                                                                  AS "demoOffersExtension",
+         CASE WHEN ttc.task_type = 'device_demo'
+           THEN COALESCE((SELECT COUNT(*)::int FROM demo_offers WHERE response_state = 'pending'), 0)
+           ELSE NULL END                                                                  AS "demoOffersPending"
+       FROM task_type_config ttc
+       LEFT JOIN visit_tasks_in_period vtp ON vtp.task_type = ttc.task_type
+       WHERE ttc.is_active = TRUE
+       GROUP BY ttc.task_type, ttc.task_family, ttc.arabic_label, ttc.display_order
+       ORDER BY ttc.display_order ASC, ttc.task_type ASC`,
+      params,
+    );
+
+    return res.json({ from, to, taskTypes: rows });
+  } catch (err: any) {
+    console.error('[field-visits] GET /task-type-summary error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل تحميل ملخص المهام' });
+  }
+});
+
 router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
 
+    // ── Visit header + live customer snapshot (VDP §1, §2, §7) ──────────────
+    // Customer name/address/contact are read live from `clients` for display
+    // completeness (the stored customer_snapshot is intentionally sparse).
     const { rows: fvRows } = await pool.query(
       `SELECT fv.*,
               c.name AS client_name, c.mobile AS client_mobile,
-              c.candidate_status, c.neighborhood,
-              b.name AS branch_name
+              ${buildClientLifecycleStatusSql('c')} AS candidate_status,
+              c.first_name        AS client_first_name,
+              c.father_name       AS client_father_name,
+              c.last_name         AS client_last_name,
+              c.nickname          AS client_nickname,
+              c.gender            AS client_gender,
+              c.data_quality      AS client_data_quality,
+              c.source_channel    AS client_source_channel,
+              c.notes             AS client_notes,
+              c.contacts          AS client_contacts,
+              c.gps_coordinates   AS client_gps,
+              c.detailed_address  AS client_detailed_address,
+              c.occupation        AS client_occupation,
+              c.spouse_occupation AS client_spouse_occupation,
+              c.rating            AS client_rating,
+              c.referrers         AS client_referrers,
+              c.referrer_type     AS client_referrer_type,
+              c.referrer_name     AS client_referrer_name,
+              c.water_source      AS client_water_source,
+              c.governorate       AS client_governorate_id,
+              c.district          AS client_district_id,
+              c.neighborhood      AS client_neighborhood_id,
+              gg.name AS governorate_name,
+              gd.name AS district_name,
+              gn.name AS neighborhood_name,
+              b.name  AS branch_name,
+              tm.name AS telemarketer_name,
+              sl.value AS cancellation_reason_label
        FROM field_visits fv
        JOIN clients c ON c.id = fv.client_id
-       LEFT JOIN branches b ON b.id = fv.branch_id
+       LEFT JOIN branches b   ON b.id  = fv.branch_id
+       LEFT JOIN hr_users tm  ON tm.id = fv.booked_by_telemarketer_id
+       LEFT JOIN geo_units gg ON gg.id = c.governorate
+       LEFT JOIN geo_units gd ON gd.id = c.district
+       LEFT JOIN geo_units gn ON gn.id = c.neighborhood
+       LEFT JOIN system_lists sl ON sl.id = fv.cancellation_reason_id
        WHERE fv.id = $1`,
       [visitId],
     );
@@ -978,22 +1252,91 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
     if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
+    const fv = fvRows[0];
 
-    const [tasksRes, geoRes, sourceRes] = await Promise.all([
+    const [tasksRes, geoRes, sourceRes, stationRes, sheetRes, surveyRes, clientGeoRes, ownershipRes] = await Promise.all([
+      // Tasks: arabic label + location basis + general result + linked contract.
+      // DEC-007 D40: name-collection columns dropped — list moved to referral_sheets.
       pool.query(
         `SELECT vt.*,
-                vtr.id AS result_id, vtr.final_decision, vtr.closing_notes, vtr.closed_at,
-                vnc.id AS name_coll_id, vnc.proposed_count, vnc.actual_count,
-                vnc.referral_sheet_id, vnc.status AS name_coll_status, vnc.notes AS name_coll_notes
+                ttc.arabic_label, ttc.location_basis,
+                vtr.id AS result_id, vtr.final_decision, vtr.reason_code,
+                vtr.closing_notes, vtr.closed_at,
+                ct.contract_number, ct.device_model_name
          FROM visit_tasks vt
+         LEFT JOIN task_type_config ttc ON ttc.task_type = vt.task_type
          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
-         LEFT JOIN visit_name_collections vnc ON vnc.visit_task_id = vt.id
+         LEFT JOIN contracts ct ON ct.id = vt.contract_id
          WHERE vt.field_visit_id = $1
          ORDER BY vt.sequence_no`,
         [visitId],
       ),
       pool.query('SELECT * FROM visit_geo_logs WHERE visit_id = $1', [visitId]),
       pool.query('SELECT * FROM visit_sources WHERE visit_id = $1', [visitId]),
+      // Station (VDP §3): geo unit of the contract-based task if any, else the
+      // client's neighborhood — returned with its full ancestor hierarchy.
+      pool.query(
+        `WITH RECURSIVE station AS (
+           SELECT COALESCE(
+             (SELECT idev.installation_geo_unit_id
+                FROM visit_tasks vt
+                JOIN task_type_config ttc ON ttc.task_type = vt.task_type
+                JOIN contracts ct ON ct.id = vt.contract_id
+                JOIN installed_devices idev ON idev.id = ct.installed_device_id
+               WHERE vt.field_visit_id = $1
+                 AND ttc.location_basis = 'contract'
+                 AND idev.installation_geo_unit_id IS NOT NULL
+               LIMIT 1),
+             (SELECT neighborhood FROM clients WHERE id = $2)
+           ) AS geo_id
+         ),
+         ancestors AS (
+           SELECT g.id, g.name, g.level, g.parent_id
+             FROM geo_units g WHERE g.id = (SELECT geo_id FROM station)
+           UNION ALL
+           SELECT p.id, p.name, p.level, p.parent_id
+             FROM geo_units p JOIN ancestors a ON p.id = a.parent_id
+         )
+         SELECT id, name, level FROM ancestors ORDER BY level`,
+        [visitId, fv.client_id],
+      ),
+      pool.query(
+        `SELECT id, status, target_candidates, total_candidates, owner_user_id
+           FROM referral_sheets WHERE field_visit_id = $1`,
+        [visitId],
+      ),
+      pool.query(
+        `SELECT vs.id, vs.is_skipped, vs.skip_reason, vs.filled_at,
+                u.name AS filled_by_name
+           FROM visit_surveys vs
+           LEFT JOIN hr_users u ON u.id = vs.filled_by_user_id
+          WHERE vs.field_visit_id = $1`,
+        [visitId],
+      ),
+      // Client address hierarchy (ClientSnapshot §ج): full ancestor path of the
+      // client's own neighborhood — gov(1) → district(2) → subArea(3) → neighborhood(4).
+      pool.query(
+        `WITH RECURSIVE ancestors AS (
+           SELECT g.id, g.name, g.level, g.parent_id
+             FROM geo_units g
+             WHERE g.id = (SELECT neighborhood FROM clients WHERE id = $1)
+           UNION ALL
+           SELECT p.id, p.name, p.level, p.parent_id
+             FROM geo_units p JOIN ancestors a ON p.id = a.parent_id
+         )
+         SELECT id, name, level FROM ancestors ORDER BY level`,
+        [fv.client_id],
+      ),
+      // Ownership (ClientSnapshot §ز): assignees with role display name.
+      pool.query(
+        `SELECT u.name AS user_name, COALESCE(r.display_name, r.name) AS role_display
+           FROM client_assignments ca
+           JOIN hr_users u ON u.id = ca.hr_user_id
+           LEFT JOIN roles r ON r.id = u.role_id
+          WHERE ca.client_id = $1 AND u.is_active = TRUE
+          ORDER BY ca.assigned_at ASC`,
+        [fv.client_id],
+      ),
     ]);
 
     // Fetch direct suggestions per task
@@ -1012,10 +1355,137 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
       suggestByTask.get(key)!.push(s);
     });
 
+    const sourceOpenTaskIds = tasksRes.rows
+      .map((t: any) => Number(t.source_open_task_id))
+      .filter((id: number) => Number.isInteger(id) && id > 0);
+    const { rows: preOfferRows } = sourceOpenTaskIds.length > 0
+      ? await pool.query(
+          `SELECT
+             otpo.open_task_id,
+             otpo.id AS id,
+             otpo.device_model_id AS "deviceModelId",
+             COALESCE(dm.name_ar, dm.name) AS "deviceName",
+             otpo.offer_type AS "offerType",
+             otpo.quantity,
+             otpo.total_amount::float AS "totalAmount",
+             otpo.first_payment_amount::float AS "firstPaymentAmount",
+             otpo.installment_months AS "installmentMonths",
+             otpo.currency,
+             otpo.discount_percentage::float AS "discountPercentage",
+             otpo.applied_device_discount_id AS "appliedDeviceDiscountId",
+             otpo.closed_by_employee_id AS "closedByEmployeeId",
+             otpo.no_closing_reason AS "noClosingReason",
+             otpo.source_customer_pre_offer_id AS "sourceCustomerPreOfferId",
+             otpo.sale_reference_number AS "saleReferenceNumber",
+             linked_spo.response_state AS "customerResponse"
+           FROM open_task_pre_offers otpo
+           LEFT JOIN device_models dm ON dm.id = otpo.device_model_id
+           LEFT JOIN customer_device_pre_offers linked_spo ON linked_spo.id = otpo.source_customer_pre_offer_id
+           WHERE otpo.open_task_id = ANY($1::int[])
+           ORDER BY otpo.id`,
+          [sourceOpenTaskIds],
+        )
+      : { rows: [] as any[] };
+
+    const preOffersByOpenTask = new Map<number, any[]>();
+    preOfferRows.forEach((offer: any) => {
+      const key = Number(offer.open_task_id);
+      if (!preOffersByOpenTask.has(key)) preOffersByOpenTask.set(key, []);
+      preOffersByOpenTask.get(key)!.push(offer);
+    });
+
     const tasks = tasksRes.rows.map((t: any) => ({
       ...t,
       directSuggestions: suggestByTask.get(String(t.id)) ?? [],
+      preOffers: preOffersByOpenTask.get(Number(t.source_open_task_id)) ?? [],
     }));
+
+    // ── Resolve team member names (VDP §4) ─────────────────────────────────
+    // team_snapshot / reassigned_team_snapshot store employee IDs only.
+    const teamIds = new Set<number>();
+    const collectIds = (snap: any) => {
+      if (!snap) return;
+      for (const k of ['supervisorEmployeeId', 'technicianEmployeeId', 'traineeEmployeeId']) {
+        if (snap[k]) teamIds.add(Number(snap[k]));
+      }
+    };
+    collectIds(fv.team_snapshot);
+    collectIds(fv.reassigned_team_snapshot);
+    const empNames = new Map<number, string>();
+    if (teamIds.size > 0) {
+      const { rows: empRows } = await pool.query(
+        'SELECT id, name FROM employees WHERE id = ANY($1::int[])',
+        [[...teamIds]],
+      );
+      empRows.forEach((e: any) => empNames.set(Number(e.id), e.name));
+    }
+    const buildTeam = (snap: any) => {
+      if (!snap) return null;
+      const member = (id: any) =>
+        id ? { id: Number(id), name: empNames.get(Number(id)) ?? `#${id}` } : null;
+      return {
+        supervisor: member(snap.supervisorEmployeeId),
+        technician: member(snap.technicianEmployeeId),
+        trainee: member(snap.traineeEmployeeId),
+      };
+    };
+    const team = {
+      original: buildTeam(fv.team_snapshot),
+      reassigned: buildTeam(fv.reassigned_team_snapshot),
+      reassigned_at: fv.reassigned_at,
+    };
+
+    // ── Standard ClientSnapshot (Level 2) per docs/.../client-snapshot.md ────
+    const geoPath: any[] = clientGeoRes.rows;
+    const byLevel = (lvl: number) => geoPath.find((g: any) => g.level === lvl)?.name ?? null;
+    const assignees = ownershipRes.rows.map((a: any) => ({
+      userName: a.user_name,
+      roleDisplay: a.role_display ?? null,
+    }));
+    // Referrers (ClientSnapshot §ه): prefer the JSONB array; fall back to the
+    // legacy single-referrer flat columns (referrer_type / referrer_name).
+    let referrersArr: any[] = Array.isArray(fv.client_referrers) ? fv.client_referrers : [];
+    if (referrersArr.length === 0 && (fv.client_referrer_name || fv.client_referrer_type)) {
+      referrersArr = [{ type: fv.client_referrer_type ?? null, name: fv.client_referrer_name ?? null }];
+    }
+    // Classification: candidate_status holds OP/FOP once promoted; an unset
+    // status means the client is still a LEAD.
+    const candStatus = String(fv.candidate_status ?? '').toUpperCase();
+    const classification = ['OP', 'FOP'].includes(candStatus) ? candStatus : 'LEAD';
+    const clientSnapshot = {
+      gender: fv.client_gender ?? null,
+      dataQuality: fv.client_data_quality ?? null,
+      firstName: fv.client_first_name ?? null,
+      fatherName: fv.client_father_name ?? null,
+      lastName: fv.client_last_name ?? null,
+      nickname: fv.client_nickname ?? null,
+      fullName: fv.client_name,
+      classification, // LEAD / OP / FOP
+      primaryMobile: fv.client_mobile ?? null,
+      contacts: Array.isArray(fv.client_contacts) ? fv.client_contacts : [],
+      address: {
+        governorate: byLevel(1),
+        district: byLevel(2),
+        subArea: byLevel(3),
+        neighborhood: byLevel(4),
+        detailedAddress: fv.client_detailed_address ?? null,
+        gps: fv.client_gps ?? null,
+        geoPath,
+      },
+      occupation: fv.client_occupation ?? null,
+      spouseOccupation: fv.client_spouse_occupation ?? null,
+      // waterSource intentionally omitted here — it is shown in the appointment
+      // section (معلومات الموعد) to avoid duplicating it in the customer card.
+      committed: fv.client_rating ?? null, // shown only when classification === 'OP'
+      referrers: referrersArr.map((r: any) => ({ type: r?.type ?? null, name: r?.name ?? null })),
+      referrersCount: referrersArr.length,
+      notes: fv.client_notes ?? null,
+      sourceChannel: fv.client_source_channel ?? null,
+      ownership: {
+        assignees,
+        branchName: fv.branch_name ?? null,
+      },
+    };
 
     // Lazily resolve source if missing
     let source = sourceRes.rows[0] ?? null;
@@ -1037,10 +1507,15 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
     }
 
     res.json({
-      ...fvRows[0],
+      ...fv,
       tasks,
       geo: geoRes.rows[0] ?? null,
       source,
+      station: stationRes.rows,
+      team,
+      clientSnapshot,
+      referralSheet: sheetRes.rows[0] ?? null,
+      survey: surveyRes.rows[0] ?? null,
     });
   } catch (err: any) {
     console.error('[field-visits] GET /:id error:', err);
@@ -1560,6 +2035,85 @@ router.post('/:id/complete', requirePermission('field_visits.edit'), async (req,
   } catch (err: any) {
     console.error('[field-visits] POST /:id/complete error:', err);
     res.status(500).json({ error: 'فشل في إتمام الزيارة' });
+  }
+});
+
+// ============================================================================
+// POST /field-visits/:id/close
+// ============================================================================
+// Administrative closure after completion. Once closed, ordinary result edits
+// stop; privileged users can reopen via /:id/reopen if a correction is needed.
+router.post('/:id/close', requirePermission('field_visits.edit'), async (req, res) => {
+  const pgClient = await pool.connect();
+  try {
+    const authContext = getAuthContext(req);
+    const visitId = Number(req.params.id);
+    if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+
+    await pgClient.query('BEGIN');
+
+    const { rows: fvRows } = await pgClient.query(
+      `SELECT id, branch_id, status
+         FROM field_visits
+        WHERE id = $1
+        FOR UPDATE`,
+      [visitId],
+    );
+    if (!fvRows[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    }
+    if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
+    if (fvRows[0].status !== 'completed') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ error: `لا يمكن إقفال الزيارة قبل أن تكون مكتملة (الحالة: ${fvRows[0].status})` });
+    }
+
+    const { rows: guardRows } = await pgClient.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(vtr.id)::int AS documented
+       FROM visit_tasks vt
+       LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id AND vtr.final_decision IS NOT NULL
+       WHERE vt.field_visit_id = $1`,
+      [visitId],
+    );
+    const total = Number(guardRows[0]?.total ?? 0);
+    const documented = Number(guardRows[0]?.documented ?? 0);
+    if (total === 0 || documented !== total) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'لا يمكن الإقفال قبل تسجيل نتيجة كل مهام الزيارة' });
+    }
+
+    await pgClient.query(
+      `UPDATE visit_tasks
+          SET status = 'closed',
+              updated_at = NOW()
+        WHERE field_visit_id = $1`,
+      [visitId],
+    );
+
+    await pgClient.query(
+      `UPDATE field_visits
+          SET status = 'closed',
+              closed_by = $2,
+              closed_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [visitId, authContext.userId ?? null],
+    );
+
+    await pgClient.query('COMMIT');
+    return res.json({ success: true });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[field-visits] POST /:id/close error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل إقفال الزيارة' });
+  } finally {
+    pgClient.release();
   }
 });
 
@@ -2119,6 +2673,14 @@ router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), asyn
               updated_at = NOW()
         WHERE id = $1`,
       [visitId, `[reopen by user #${authContext.userId} at ${new Date().toISOString()}] ${reason}`],
+    );
+    await pool.query(
+      `UPDATE visit_tasks
+          SET status = 'completed',
+              updated_at = NOW()
+        WHERE field_visit_id = $1
+          AND status = 'closed'`,
+      [visitId],
     );
 
     return res.json({ success: true });

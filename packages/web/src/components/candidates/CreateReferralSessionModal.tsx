@@ -33,7 +33,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
 
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
-    const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
     useEffect(() => {
         if (!isOpen) return;
@@ -42,10 +41,9 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         Promise.allSettled([
             api.clients.list(),
             api.employees.list(),
-            api.visits.list(),
             api.contracts.list(),
         ])
-            .then(([clientsRes, employeesRes, visitsRes, contractsRes]) => {
+            .then(([clientsRes, employeesRes, contractsRes]) => {
                 if (!active) return;
                 setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
                 setEmployees(
@@ -53,7 +51,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                         ? employeesRes.value.map(toMediatorEmployee)
                         : [],
                 );
-                setVisits(visitsRes.status === 'fulfilled' ? visitsRes.value : []);
                 setContracts(contractsRes.status === 'fulfilled' ? contractsRes.value : []);
             });
 
@@ -158,8 +155,9 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     };
 
     const getClientLifecycleStage = (client: Client) => {
+        const serverStage = (client as any).lifecycleStage;
+        if (serverStage === 'OP' || serverStage === 'FOP') return serverStage;
         if (contracts.some(contract => contract.customerId === client.id)) return 'OP';
-        if (visits.some(visit => visit.customerId === client.id)) return 'FOP';
         return 'Lead';
     };
 

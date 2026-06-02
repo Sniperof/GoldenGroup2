@@ -1,406 +1,303 @@
-import { useState, useEffect } from 'react';
-import { X, ShoppingCart, CheckCircle2, RotateCcw, XCircle, Loader2, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import type {
+  DeviceModel,
+  Employee,
+  MarketingVisit,
+  MarketingVisitTask,
+  MarketingVisitTaskOutcomeRequest,
+} from '@golden-crm/shared';
 import { api } from '../../lib/api';
-
-// ============================================================
-// DeviceDemoResultModal
-// ============================================================
-// First-iteration result-entry UI for device_demo tasks. Submits to
-//   POST /field-visits/:visitId/tasks/:taskId/result
-// per docs/constitution/features/tasks/device-demo.md (axis 9-13).
-//
-// Covers all 4 outcomes with minimal-but-complete forms:
-//   1. offer_presented (multi-offer with per-offer customer_response)
-//   2. device_sold
-//   3. rescheduled
-//   4. cancelled
-//
-// The full multi-step wizard pattern lives in MarketingVisitOutcomeModal —
-// we intentionally keep this one focused on the new endpoint integration
-// so it can be wired into the standard task detail tab quickly. The fancy
-// wizard can be re-routed onto the same endpoint in a follow-up.
-// ============================================================
-
-type Outcome = '' | 'offer_presented' | 'device_sold' | 'rescheduled' | 'cancelled';
+import MarketingVisitOutcomeModal from '../../components/marketing-visits/MarketingVisitOutcomeModal';
 
 interface Props {
   visitId: number;
   taskId: number;
+  visit?: any | null;
+  task?: any | null;
+  preOffers?: any[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-interface OfferRow {
-  device_model_id: number | '';
-  offer_type: 'cash' | 'installment';
-  quantity: number;
-  total_amount: number | '';
-  currency: string;
-  first_payment_amount: number | '';
-  installment_months: number | '';
-  discount_percentage: number | '';
-  customer_response: 'accepted' | 'rejected' | 'extension_requested';
-  no_closing_reason: string;
+function toNumber(value: any): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-const EMPTY_OFFER: OfferRow = {
-  device_model_id: '',
-  offer_type: 'cash',
-  quantity: 1,
-  total_amount: '',
-  currency: 'SYP',
-  first_payment_amount: '',
-  installment_months: '',
-  discount_percentage: '',
-  customer_response: 'accepted',
-  no_closing_reason: '',
-};
+function normalizePreOffer(offer: any) {
+  return {
+    deviceModelId: Number(offer.deviceModelId ?? offer.device_model_id),
+    offerType: offer.offerType ?? offer.offer_type,
+    quantity: Number(offer.quantity ?? 1),
+    totalAmount: Number(offer.totalAmount ?? offer.total_amount),
+    firstPaymentAmount: offer.firstPaymentAmount ?? offer.first_payment_amount ?? null,
+    installmentMonths: offer.installmentMonths ?? offer.installment_months ?? null,
+    discountPercentage: offer.discountPercentage ?? offer.discount_percentage ?? null,
+    closedByEmployeeId: offer.closedByEmployeeId ?? offer.closed_by_employee_id ?? null,
+    noClosingReason: offer.noClosingReason ?? offer.no_closing_reason ?? null,
+    customerResponse: offer.customerResponse ?? offer.customer_response ?? null,
+    saleReferenceNumber: offer.saleReferenceNumber ?? offer.sale_reference_number ?? null,
+    sourceCustomerPreOfferId: offer.sourceCustomerPreOfferId ?? offer.source_customer_pre_offer_id ?? null,
+  };
+}
 
-const OUTCOMES: Array<{ value: Outcome; label: string; desc: string; Icon: any; cls: string }> = [
-  { value: 'offer_presented', label: 'تقديم عرض', desc: 'عروض متعدّدة مع رد الزبون لكل واحد', Icon: ShoppingCart, cls: 'border-sky-200 hover:bg-sky-50 text-sky-700' },
-  { value: 'device_sold',     label: 'تم البيع',  desc: 'بيع مباشر بدون عروض متعدّدة',         Icon: CheckCircle2, cls: 'border-emerald-200 hover:bg-emerald-50 text-emerald-700' },
-  { value: 'rescheduled',     label: 'إعادة جدولة', desc: 'الزبون طلب موعداً آخر',              Icon: RotateCcw,    cls: 'border-amber-200 hover:bg-amber-50 text-amber-700' },
-  { value: 'cancelled',       label: 'إلغاء',     desc: 'الزيارة لم تتم — لا متابعة',         Icon: XCircle,      cls: 'border-rose-200 hover:bg-rose-50 text-rose-700' },
-];
+function buildWizardTask(taskId: number, task: any | null | undefined, preOffers: any[]): MarketingVisitTask {
+  const normalizedPreOffers = preOffers.map(normalizePreOffer).filter((offer) =>
+    Number.isFinite(offer.deviceModelId) &&
+    offer.deviceModelId > 0 &&
+    ['cash', 'installment'].includes(offer.offerType) &&
+    Number.isFinite(offer.totalAmount) &&
+    offer.totalAmount > 0
+  );
+  const hasSavedOutcome =
+    task?.outcome != null ||
+    task?.latestFinalDecision != null ||
+    task?.final_decision != null ||
+    task?.result != null ||
+    task?.result_id != null;
+  const rawSavedOffers = Array.isArray(task?.offers) && task.offers.length > 0
+    ? task.offers
+    : normalizedPreOffers;
+  const savedOffers = hasSavedOutcome
+    ? rawSavedOffers.map(normalizePreOffer).filter((offer) =>
+        Number.isFinite(offer.deviceModelId) &&
+        offer.deviceModelId > 0 &&
+        ['cash', 'installment'].includes(offer.offerType) &&
+        Number.isFinite(offer.totalAmount) &&
+        offer.totalAmount > 0
+      )
+    : [];
 
-export default function DeviceDemoResultModal({ visitId, taskId, onClose, onSaved }: Props) {
-  const [outcome, setOutcome] = useState<Outcome>('');
+  return {
+    id: String(taskId),
+    visitId: String(task?.marketingVisitId ?? task?.visitId ?? ''),
+    taskType: 'device_demo',
+    status: task?.status === 'completed' ? 'completed' : 'pending',
+    result: task?.result ?? null,
+    offers: savedOffers,
+    createdAt: task?.createdAt ?? new Date().toISOString(),
+    updatedAt: task?.updatedAt ?? new Date().toISOString(),
+    outcome: task?.outcome ?? task?.latestFinalDecision ?? task?.final_decision ?? null,
+    resultNotes: task?.resultNotes ?? task?.closingNotes ?? null,
+    soldDeviceModelId: task?.soldDeviceModelId ?? task?.sold_device_model_id ?? null,
+    closedByEmployeeId: task?.closedByEmployeeId ?? task?.closed_by_employee_id ?? null,
+    cancellationReasonId: task?.cancellationReasonId ?? null,
+    rescheduleReasonId: task?.rescheduleReasonId ?? null,
+    followUpDueDate: task?.followUpDueDate ?? task?.expectedDate ?? null,
+    sourceOpenTaskId: task?.sourceOpenTaskId ?? task?.source_open_task_id ?? task?.id ?? null,
+    preOffers: normalizedPreOffers,
+  } as MarketingVisitTask;
+}
+
+function buildWizardVisit(visitId: number, visit: any | null | undefined, task: any | null | undefined): MarketingVisit {
+  const clientId = toNumber(visit?.client_id ?? visit?.clientId ?? task?.clientId) ?? 0;
+  const requestedDeviceModelId = toNumber(
+    visit?.requestedDeviceModelId ??
+    visit?.requested_device_model_id ??
+    task?.requestedDeviceModelId ??
+    task?.offeredDeviceModelId,
+  );
+
+  return {
+    id: String(visitId),
+    branchId: toNumber(visit?.branch_id ?? visit?.branchId ?? task?.branchId) ?? 0,
+    clientId,
+    visitType: 'marketing' as any,
+    status: visit?.status ?? 'ended',
+    scheduledDate: visit?.scheduled_date ?? visit?.scheduledDate ?? task?.scheduledDate ?? '',
+    scheduledTime: visit?.scheduled_time ?? visit?.scheduledTime ?? task?.scheduledTime ?? '',
+    sourceType: 'telemarketing_appointment',
+    sourceId: String(visit?.origin_id ?? visit?.sourceId ?? ''),
+    contactTargetId: visit?.contact_target_id ?? visit?.contactTargetId ?? task?.contactTargetId ?? null,
+    teamKey: visit?.team_snapshot?.teamKey ?? visit?.teamKey ?? task?.assignedTeamKey ?? null,
+    requestedDeviceModelId,
+    requestedDeviceName:
+      visit?.requestedDeviceName ??
+      visit?.requested_device_name ??
+      task?.requestedDeviceName ??
+      task?.offeredDeviceModelName ??
+      null,
+    waterSource: visit?.water_source ?? visit?.waterSource ?? task?.waterSource ?? null,
+    technicianNotes: visit?.telemarketer_notes ?? visit?.technicianNotes ?? task?.notes ?? null,
+    customerName: visit?.customer_snapshot?.name ?? visit?.client_name ?? visit?.customerName ?? task?.clientName ?? null,
+    customerAddress: visit?.customer_snapshot?.addressText ?? visit?.customerAddress ?? task?.addressText ?? null,
+    customerMobile: visit?.customer_snapshot?.mobile ?? visit?.customerMobile ?? task?.primaryPhone ?? null,
+    teamSnapshot: visit?.team_snapshot ?? visit?.teamSnapshot ?? task?.teamSnapshot ?? null,
+    task: null,
+    tasks: [],
+    createdAt: visit?.created_at ?? visit?.createdAt ?? new Date().toISOString(),
+    updatedAt: visit?.updated_at ?? visit?.updatedAt ?? new Date().toISOString(),
+  };
+}
+
+function mapOutcomePayload(payload: MarketingVisitTaskOutcomeRequest) {
+  if (payload.outcome === 'device_sold' && payload.offers?.length) {
+    const offers = payload.offers.map((offer) => ({
+      device_model_id: Number(offer.deviceModelId),
+      offer_type: offer.offerType,
+      quantity: Number(offer.quantity ?? 1),
+      total_amount: Number(offer.totalAmount),
+      currency: offer.currency ?? 'SYP',
+      first_payment_amount: offer.firstPaymentAmount ?? null,
+      installment_months: offer.installmentMonths ?? null,
+      discount_percentage: offer.discountPercentage ?? null,
+      applied_device_discount_id: offer.appliedDeviceDiscountId ?? null,
+      closed_by_employee_id: offer.closedByEmployeeId ?? null,
+      customer_response: 'accepted',
+      no_closing_reason: offer.noClosingReason ?? null,
+      sale_reference_number: offer.saleReferenceNumber ?? null,
+      source_customer_pre_offer_id: offer.sourceCustomerPreOfferId ?? null,
+    }));
+    const firstOffer = payload.offers[0];
+    return {
+      final_decision: 'offer_presented',
+      closed_by_employee_id:
+        firstOffer.closedByEmployeeId ??
+        payload.closedByEmployeeId ??
+        null,
+      closing_notes: payload.notes ?? null,
+      offers,
+      expected_date: null,
+      expected_time: null,
+    };
+  }
+
+  if (payload.offers?.length) {
+    const offers = (payload.offers ?? []).map((offer) => ({
+      device_model_id: Number(offer.deviceModelId),
+      offer_type: offer.offerType,
+      quantity: Number(offer.quantity ?? 1),
+      total_amount: Number(offer.totalAmount),
+      currency: offer.currency ?? 'SYP',
+      first_payment_amount: offer.firstPaymentAmount ?? null,
+      installment_months: offer.installmentMonths ?? null,
+      discount_percentage: offer.discountPercentage ?? null,
+      applied_device_discount_id: offer.appliedDeviceDiscountId ?? null,
+      closed_by_employee_id: offer.closedByEmployeeId ?? null,
+      customer_response: offer.customerResponse ?? (payload.outcome === 'device_sold' ? 'accepted' : null),
+      no_closing_reason: offer.noClosingReason ?? null,
+      sale_reference_number: offer.saleReferenceNumber ?? null,
+      source_customer_pre_offer_id: offer.sourceCustomerPreOfferId ?? null,
+    }));
+    const firstAccepted = payload.offers.find((offer) => offer.customerResponse === 'accepted');
+    const firstOffer = payload.offers[0];
+    return {
+      final_decision: 'offer_presented',
+      closed_by_employee_id:
+        firstAccepted?.closedByEmployeeId ??
+        firstOffer?.closedByEmployeeId ??
+        payload.closedByEmployeeId ??
+        null,
+      closing_notes: payload.notes ?? null,
+      offers,
+      expected_date:
+        offers.some((offer) => offer.customer_response === 'extension_requested')
+          ? payload.followUpDueDate ?? null
+          : null,
+      expected_time: null,
+    };
+  }
+
+  if (payload.outcome === 'device_sold') {
+    return {
+      final_decision: 'device_sold',
+      sold_device_model_id: payload.soldDeviceModelId,
+      offer_type: payload.offerType ?? 'cash',
+      offer_amount: payload.cashOfferAmount ?? payload.installmentAmount,
+      installment_months: payload.installmentMonths ?? null,
+      discount_percentage: payload.discountPercentage ?? null,
+      closed_by_employee_id: payload.closedByEmployeeId ?? null,
+      closing_notes: payload.notes ?? null,
+    };
+  }
+
+  if (payload.outcome === 'rescheduled') {
+    return {
+      final_decision: 'rescheduled',
+      reason_code_id: payload.rescheduleReasonId,
+      expected_date: payload.followUpDueDate,
+      expected_time: null,
+      closing_notes: payload.notes ?? null,
+    };
+  }
+
+  if (payload.outcome === 'cancelled') {
+    return {
+      final_decision: 'cancelled',
+      reason_code_id: payload.cancellationReasonId,
+      closing_notes: payload.notes ?? null,
+    };
+  }
+
+  return null;
+}
+
+export default function DeviceDemoResultModal({
+  visitId,
+  taskId,
+  visit,
+  task,
+  preOffers = [],
+  onClose,
+  onSaved,
+}: Props) {
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // shared
-  const [closingNotes, setClosingNotes] = useState('');
-  const [closedByEmployeeId, setClosedByEmployeeId] = useState<number | ''>('');
-  const [employees, setEmployees] = useState<Array<{ id: number; name: string }>>([]);
-
-  // offer_presented
-  const [offers, setOffers] = useState<OfferRow[]>([{ ...EMPTY_OFFER }]);
-  const [deviceModels, setDeviceModels] = useState<Array<{ id: number; nameAr: string | null; nameEn: string }>>([]);
-
-  // device_sold
-  const [soldDeviceModelId, setSoldDeviceModelId] = useState<number | ''>('');
-  const [soldOfferType, setSoldOfferType] = useState<'cash' | 'installment'>('cash');
-  const [soldAmount, setSoldAmount] = useState<number | ''>('');
-  const [soldInstallmentMonths, setSoldInstallmentMonths] = useState<number | ''>('');
-
-  // rescheduled
-  const [rescheduleReasonId, setRescheduleReasonId] = useState<number | ''>('');
-  const [rescheduleReasons, setRescheduleReasons] = useState<Array<{ id: number; value: string }>>([]);
-  const [expectedDate, setExpectedDate] = useState('');
-  const [expectedTime, setExpectedTime] = useState('');
-
-  // cancelled
-  const [cancellationReasonId, setCancellationReasonId] = useState<number | ''>('');
-  const [cancellationReasons, setCancellationReasons] = useState<Array<{ id: number; value: string }>>([]);
-
   useEffect(() => {
-    (async () => {
-      try {
-        const [models, closers, rResched, rCancel] = await Promise.all([
-          api.deviceModels.list?.().catch(() => []) ?? [],
-          api.employees.closers?.().catch(() => []) ?? [],
-          api.systemLists.getItemsByCode?.('customer_followup_reasons').catch(() => []) ?? [],
-          api.systemLists.getItemsByCode?.('visit_cancellation_reasons').catch(() => []) ?? [],
-        ]);
-        setDeviceModels(Array.isArray(models) ? models : []);
-        setEmployees(Array.isArray(closers) ? closers : []);
-        setRescheduleReasons(Array.isArray(rResched) ? rResched : []);
-        setCancellationReasons(Array.isArray(rCancel) ? rCancel : []);
-      } catch {
-        // fallback silently — the dropdowns just stay empty
-      }
-    })();
+    let active = true;
+    Promise.all([
+      api.employees.list().catch(() => []),
+      api.deviceModels.list?.().catch(() => []) ?? [],
+    ]).then(([employeeRows, modelRows]) => {
+      if (!active) return;
+      setEmployees(Array.isArray(employeeRows) ? employeeRows : []);
+      setDeviceModels(Array.isArray(modelRows) ? modelRows : []);
+    });
+    return () => { active = false; };
   }, []);
 
-  function buildBody(): any {
-    if (outcome === 'offer_presented') {
-      return {
-        final_decision: 'offer_presented',
-        closed_by_employee_id: closedByEmployeeId || null,
-        closing_notes: closingNotes || null,
-        offers: offers.map(o => ({
-          device_model_id: Number(o.device_model_id),
-          offer_type: o.offer_type,
-          quantity: Number(o.quantity),
-          total_amount: Number(o.total_amount),
-          currency: o.currency,
-          first_payment_amount: o.first_payment_amount === '' ? null : Number(o.first_payment_amount),
-          installment_months: o.installment_months === '' ? null : Number(o.installment_months),
-          discount_percentage: o.discount_percentage === '' ? null : Number(o.discount_percentage),
-          customer_response: o.customer_response,
-          no_closing_reason: o.no_closing_reason.trim() || null,
-        })),
-        expected_date: offers.some(o => o.customer_response === 'extension_requested') ? expectedDate || null : null,
-      };
-    }
-    if (outcome === 'device_sold') {
-      return {
-        final_decision: 'device_sold',
-        sold_device_model_id: Number(soldDeviceModelId),
-        offer_type: soldOfferType,
-        offer_amount: Number(soldAmount),
-        installment_months: soldInstallmentMonths === '' ? null : Number(soldInstallmentMonths),
-        closed_by_employee_id: closedByEmployeeId || null,
-        closing_notes: closingNotes || null,
-      };
-    }
-    if (outcome === 'rescheduled') {
-      return {
-        final_decision: 'rescheduled',
-        reason_code_id: Number(rescheduleReasonId),
-        expected_date: expectedDate,
-        expected_time: expectedTime || null,
-        closing_notes: closingNotes || null,
-      };
-    }
-    if (outcome === 'cancelled') {
-      return {
-        final_decision: 'cancelled',
-        reason_code_id: Number(cancellationReasonId),
-        closing_notes: closingNotes || null,
-      };
-    }
-    return null;
-  }
+  const wizardTask = useMemo(
+    () => buildWizardTask(taskId, task, preOffers),
+    [taskId, task, preOffers],
+  );
+  const wizardVisit = useMemo(() => {
+    const v = buildWizardVisit(visitId, visit, task);
+    return { ...v, task: wizardTask, tasks: [wizardTask] };
+  }, [visitId, visit, task, wizardTask]);
 
-  async function handleSubmit() {
-    const body = buildBody();
-    if (!body) { setError('اختر النتيجة أولاً'); return; }
-    setSaving(true); setError('');
+  const handleSubmit = async (payload: MarketingVisitTaskOutcomeRequest) => {
+    const body = mapOutcomePayload(payload);
+    if (!body) {
+      setError('تعذر تحويل نتيجة المعالج إلى نموذج نتيجة عرض الجهاز الجديد.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
     try {
-      const res = await fetch(`/api/field-visits/${visitId}/tasks/${taskId}/result`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token') ?? ''}`,
-        },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? 'فشل تسجيل النتيجة');
+      await api.fieldVisits.recordTaskResult(visitId, taskId, body);
       onSaved();
-    } catch (e: any) {
-      setError(e?.message ?? 'خطأ غير متوقع');
+    } catch (err: any) {
+      setError(err?.message ?? 'فشل تسجيل النتيجة');
     } finally {
       setSaving(false);
     }
-  }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة عرض الجهاز</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100">
-            <X className="w-5 h-5 text-slate-500" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-6">
-          {/* Step 1 — outcome selection */}
-          <div>
-            <p className="text-xs font-bold text-slate-500 mb-2">ما نتيجة هذه الزيارة؟</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {OUTCOMES.map(o => {
-                const Icon = o.Icon;
-                const isActive = outcome === o.value;
-                return (
-                  <button
-                    key={o.value}
-                    type="button"
-                    onClick={() => setOutcome(o.value)}
-                    className={`text-right border rounded-xl p-3 transition-all ${o.cls} ${
-                      isActive ? 'ring-2 ring-offset-1 ring-current' : ''
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Icon className="w-5 h-5" />
-                      <span className="font-bold">{o.label}</span>
-                    </div>
-                    <p className="text-xs mt-1 opacity-80">{o.desc}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Step 2 — outcome-specific fields */}
-          {outcome === 'offer_presented' && (
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-bold text-slate-500">البائع</label>
-                <select value={closedByEmployeeId} onChange={e => setClosedByEmployeeId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1">
-                  <option value="">— اختر —</option>
-                  {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                </select>
-              </div>
-              <div className="space-y-3">
-                {offers.map((o, i) => (
-                  <div key={i} className="border border-slate-200 rounded-lg p-3 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-slate-600">عرض #{i + 1}</span>
-                      {offers.length > 1 && (
-                        <button type="button" onClick={() => setOffers(offers.filter((_, j) => j !== i))}
-                          className="text-rose-500 hover:text-rose-700">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <select value={o.device_model_id}
-                        onChange={e => setOffers(offers.map((x, j) => j === i ? { ...x, device_model_id: e.target.value ? Number(e.target.value) : '' } : x))}
-                        className="border rounded px-2 py-1">
-                        <option value="">— الجهاز —</option>
-                        {deviceModels.map(m => <option key={m.id} value={m.id}>{m.nameAr ?? m.nameEn}</option>)}
-                      </select>
-                      <select value={o.offer_type}
-                        onChange={e => setOffers(offers.map((x, j) => j === i ? { ...x, offer_type: e.target.value as any } : x))}
-                        className="border rounded px-2 py-1">
-                        <option value="cash">كاش</option>
-                        <option value="installment">تقسيط</option>
-                      </select>
-                      <input type="number" placeholder="المبلغ الكلي" value={o.total_amount}
-                        onChange={e => setOffers(offers.map((x, j) => j === i ? { ...x, total_amount: e.target.value === '' ? '' : Number(e.target.value) } : x))}
-                        className="border rounded px-2 py-1" />
-                      {o.offer_type === 'installment' && (
-                        <input type="number" placeholder="عدد الأشهر" value={o.installment_months}
-                          onChange={e => setOffers(offers.map((x, j) => j === i ? { ...x, installment_months: e.target.value === '' ? '' : Number(e.target.value) } : x))}
-                          className="border rounded px-2 py-1" />
-                      )}
-                      <select value={o.customer_response}
-                        onChange={e => setOffers(offers.map((x, j) => j === i ? { ...x, customer_response: e.target.value as any } : x))}
-                        className="border rounded px-2 py-1 col-span-2">
-                        <option value="accepted">قَبِل</option>
-                        <option value="rejected">رفض</option>
-                        <option value="extension_requested">طلب مهلة</option>
-                      </select>
-                      {o.customer_response === 'rejected' && (
-                        <input type="text" placeholder="سبب الرفض" value={o.no_closing_reason}
-                          onChange={e => setOffers(offers.map((x, j) => j === i ? { ...x, no_closing_reason: e.target.value } : x))}
-                          className="border rounded px-2 py-1 col-span-2" />
-                      )}
-                    </div>
-                  </div>
-                ))}
-                <button type="button" onClick={() => setOffers([...offers, { ...EMPTY_OFFER }])}
-                  className="inline-flex items-center gap-1 text-sm text-sky-600 hover:underline">
-                  <Plus className="w-4 h-4" /> إضافة عرض آخر
-                </button>
-              </div>
-              {offers.some(o => o.customer_response === 'extension_requested') && (
-                <div>
-                  <label className="text-xs font-bold text-slate-500">موعد المتابعة</label>
-                  <input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)}
-                    className="w-full border rounded px-2 py-1 mt-1" />
-                </div>
-              )}
-            </div>
-          )}
-
-          {outcome === 'device_sold' && (
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <label className="text-xs font-bold text-slate-500">الجهاز المباع</label>
-                <select value={soldDeviceModelId} onChange={e => setSoldDeviceModelId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border rounded px-2 py-1 mt-1">
-                  <option value="">— اختر —</option>
-                  {deviceModels.map(m => <option key={m.id} value={m.id}>{m.nameAr ?? m.nameEn}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-500">طريقة الدفع</label>
-                <select value={soldOfferType} onChange={e => setSoldOfferType(e.target.value as any)}
-                  className="w-full border rounded px-2 py-1 mt-1">
-                  <option value="cash">كاش</option>
-                  <option value="installment">تقسيط</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-500">المبلغ الكلي</label>
-                <input type="number" value={soldAmount}
-                  onChange={e => setSoldAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="w-full border rounded px-2 py-1 mt-1" />
-              </div>
-              {soldOfferType === 'installment' && (
-                <div>
-                  <label className="text-xs font-bold text-slate-500">عدد الأشهر</label>
-                  <input type="number" value={soldInstallmentMonths}
-                    onChange={e => setSoldInstallmentMonths(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full border rounded px-2 py-1 mt-1" />
-                </div>
-              )}
-              <div className="col-span-2">
-                <label className="text-xs font-bold text-slate-500">البائع</label>
-                <select value={closedByEmployeeId} onChange={e => setClosedByEmployeeId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border rounded px-2 py-1 mt-1">
-                  <option value="">— اختر —</option>
-                  {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {outcome === 'rescheduled' && (
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="col-span-2">
-                <label className="text-xs font-bold text-slate-500">سبب إعادة الجدولة</label>
-                <select value={rescheduleReasonId} onChange={e => setRescheduleReasonId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border rounded px-2 py-1 mt-1">
-                  <option value="">— اختر —</option>
-                  {rescheduleReasons.map(r => <option key={r.id} value={r.id}>{r.value}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-500">موعد المتابعة</label>
-                <input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)}
-                  className="w-full border rounded px-2 py-1 mt-1" />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-500">الوقت (اختياري)</label>
-                <input type="text" placeholder="مثلاً 14:00-16:00" value={expectedTime}
-                  onChange={e => setExpectedTime(e.target.value)}
-                  className="w-full border rounded px-2 py-1 mt-1" />
-              </div>
-            </div>
-          )}
-
-          {outcome === 'cancelled' && (
-            <div className="space-y-3 text-sm">
-              <div>
-                <label className="text-xs font-bold text-slate-500">سبب الإلغاء</label>
-                <select value={cancellationReasonId} onChange={e => setCancellationReasonId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border rounded px-2 py-1 mt-1">
-                  <option value="">— اختر —</option>
-                  {cancellationReasons.map(r => <option key={r.id} value={r.id}>{r.value}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* shared notes */}
-          {outcome && (
-            <div>
-              <label className="text-xs font-bold text-slate-500">ملاحظات (اختياري)</label>
-              <textarea value={closingNotes} onChange={e => setClosingNotes(e.target.value)}
-                rows={3} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1" />
-            </div>
-          )}
-
-          {error && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 rounded text-sm">{error}</div>
-          )}
-        </div>
-
-        <div className="sticky bottom-0 bg-white border-t border-slate-200 px-6 py-3 flex items-center justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">إلغاء</button>
-          <button onClick={handleSubmit} disabled={!outcome || saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 disabled:opacity-50">
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            حفظ النتيجة
-          </button>
-        </div>
-      </div>
-    </div>
+    <MarketingVisitOutcomeModal
+      isOpen
+      task={wizardTask}
+      visit={wizardVisit}
+      employees={employees}
+      deviceModels={deviceModels}
+      saving={saving}
+      error={error}
+      onClose={onClose}
+      onSubmit={handleSubmit}
+    />
   );
 }

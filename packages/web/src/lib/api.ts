@@ -109,6 +109,7 @@ export const api = {
     list: () => request<any[]>('/employees'),
     schedulePool: () => request<any[]>('/employees/schedule-pool'),
     closers: () => request<any[]>('/employees/closers'),
+    employeeClosers: () => request<any[]>('/employees/closers?target=employee'),
     get: (id: number) => request<any>(`/employees/${id}`),
     create: (data: any) => request<any>('/employees', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -347,13 +348,14 @@ export const api = {
     getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
     submitEmergencyResult: (id: number, data: any) =>
       request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),
-    listDeviceDemo: (params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true' }) => {
+    listDeviceDemo: (params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true'; hideFutureTasks?: 'true' }) => {
       const q = new URLSearchParams({ branchId: String(params.branchId) });
       if (params.status) q.set('status', params.status);
       if (params.visitStatus) q.set('visitStatus', params.visitStatus);
       if (params.scheduledDate) q.set('scheduledDate', params.scheduledDate);
       if (params.scheduled) q.set('scheduled', params.scheduled);
       if (params.hideSnoozed) q.set('hideSnoozed', params.hideSnoozed);
+      if (params.hideFutureTasks) q.set('hideFutureTasks', params.hideFutureTasks);
       return request<any[]>(`/open-tasks/device-demo?${q}`);
     },
     getActivity: (id: number) => request<any[]>(`/open-tasks/${id}/activity`),
@@ -361,6 +363,8 @@ export const api = {
     getDevices: (id: number) => request<any[]>(`/open-tasks/${id}/devices`),
     addDevices: (id: number, data: any) => request<any>(`/open-tasks/${id}/devices`, { method: 'POST', body: JSON.stringify(data) }),
     getCalls: (id: number) => request<any[]>(`/open-tasks/${id}/calls`),
+    /** سياق المهمة: سلسلة محاولات التنفيذ (visit_tasks) تحت هذه المهمة. */
+    getAttempts: (id: number) => request<{ taskStatus: string; attempts: any[] }>(`/open-tasks/${id}/attempts`),
     exclude: (id: number, reason?: string) =>
       request<any>(`/open-tasks/${id}/exclude`, { method: 'POST', body: JSON.stringify({ reason: reason ?? null }) }),
     restore: (id: number) =>
@@ -452,6 +456,8 @@ export const api = {
       request<any>(`/field-visits/${id}/end`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
     complete: (id: number) =>
       request<any>(`/field-visits/${id}/complete`, { method: 'POST' }),
+    close: (id: number) =>
+      request<any>(`/field-visits/${id}/close`, { method: 'POST' }),
     getGeo: (id: number) => request<any>(`/field-visits/${id}/geo`),
     getSource: (id: number) => request<any>(`/field-visits/${id}/source`),
     createNameCollection: (taskId: number, data: { proposed_count: number }) =>
@@ -472,6 +478,11 @@ export const api = {
       `/field-visits/${id}/tasks`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+    recordTaskResult: (visitId: number, taskId: number, data: any) =>
+      request<any>(`/field-visits/${visitId}/tasks/${taskId}/result`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
     // ── DEC-007 D40/D41: referral sheet on the visit ──────────────────────
     getReferralSheet: (id: number) => request<{
       id: number; fieldVisitId: number; targetCandidates: number;
@@ -539,6 +550,67 @@ export const api = {
         tiersAlerted: number[];
       }>;
     }>('/field-visits/escalation-alerts'),
+    /** Executive view: one row per branch with comparison KPIs over a date range. */
+    branchSummary: (params?: { from?: string; to?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.from) qs.append('from', params.from);
+      if (params?.to) qs.append('to', params.to);
+      const query = qs.toString() ? `?${qs.toString()}` : '';
+      return request<{
+        from: string;
+        to: string;
+        branches: Array<{
+          branchId: number;
+          branchName: string | null;
+          total: number;
+          scheduled: number;
+          inProgress: number;
+          ended: number;
+          completed: number;
+          notCompleted: number;
+          cancelled: number;
+          stuckEscalated: number;
+          locationMissing: number;
+          avgDurationMinutes: number;
+          // Device-demo pre-offer outcomes within the period.
+          demoOffersPresented: number;
+          demoOffersAccepted: number;
+          demoOffersRejected: number;
+          demoOffersExtension: number;
+          demoOffersPending: number;
+        }>;
+      }>(`/field-visits/branch-summary${query}`);
+    },
+    /** Task-type analytics: one row per active task_type with universal KPIs +
+     *  type-specific success indicators (currently only device_demo). */
+    taskTypeSummary: (params?: { from?: string; to?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.from) qs.append('from', params.from);
+      if (params?.to) qs.append('to', params.to);
+      const query = qs.toString() ? `?${qs.toString()}` : '';
+      return request<{
+        from: string;
+        to: string;
+        taskTypes: Array<{
+          taskType: string;
+          taskFamily: string;
+          arabicLabel: string;
+          displayOrder: number;
+          totalAttempts: number;
+          completed: number;
+          notCompleted: number;
+          cancelled: number;
+          inProgress: number;
+          pending: number;
+          documented: number;
+          demoOffersPresented: number | null;
+          demoOffersAccepted: number | null;
+          demoOffersRejected: number | null;
+          demoOffersExtension: number | null;
+          demoOffersPending: number | null;
+        }>;
+      }>(`/field-visits/task-type-summary${query}`);
+    },
   },
   marketingVisits: {
     list: (date: string, clientId?: number) => {
