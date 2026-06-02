@@ -37,6 +37,7 @@ type ClientRow = {
     contactTargetId: number | null;
     contactTargetStatus: string | null;
     taskListItemStatus: string | null;
+    taskListOpenTaskId: number | null;
     latestCallOutcome: string | null;
     appointmentDate: string | null;
     appointmentTime: string | null;
@@ -88,6 +89,37 @@ const PHASE_META: Record<Phase, PhaseMeta> = {
 const CT_LABELS: Record<string, string> = {
     new: 'جديدة', queued: 'ضمن القائمة', contacted: 'تم التواصل', booked: 'موعد محجوز', closed: 'مغلقة',
 };
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+    assigned: 'جاهزة للتوليد',
+    in_scheduling: 'مرتبطة بالقائمة',
+    scheduled: 'مجدولة',
+    waiting_execution: 'بانتظار التنفيذ',
+    in_execution: 'قيد التنفيذ',
+    ended: 'منتهية',
+    completed: 'مكتملة',
+    closed: 'مغلقة',
+    open: 'مفتوحة',
+    needs_follow_up: 'تحتاج متابعة',
+};
+
+function getTaskLayerLabel(task: AssignedTask, client: ClientRow, today: string) {
+    if (client.taskListOpenTaskId != null && task.taskId === client.taskListOpenTaskId) {
+        return 'مرتبطة بالـ contact_target';
+    }
+    if (task.excludedForDate === today) return 'مستثناة من التوليد';
+    if (task.status === 'assigned') return client.generatedInTaskList ? 'فرق حي للتوليد القادم' : 'جاهزة للتوليد';
+    return 'مهمة مفتوحة مرتبطة بالزبون';
+}
+
+function getTaskLayerClass(task: AssignedTask, client: ClientRow, today: string) {
+    if (client.taskListOpenTaskId != null && task.taskId === client.taskListOpenTaskId) {
+        return 'border-sky-200 bg-sky-50 text-sky-700';
+    }
+    if (task.excludedForDate === today) return 'border-red-200 bg-red-50 text-red-600';
+    if (task.status === 'assigned') return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-slate-200 bg-slate-50 text-slate-500';
+}
 
 function classificationLabel(s: string | null) {
     if (s === 'OP') return 'OP';
@@ -212,6 +244,23 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                     </div>
                 )}
 
+                <div className={`mx-5 mt-3 rounded-xl border px-3 py-2.5 text-xs ${
+                    client.contactTargetId
+                        ? 'border-sky-200 bg-sky-50 text-sky-700'
+                        : 'border-slate-200 bg-slate-50 text-slate-500'
+                }`}>
+                    <div className="font-bold">
+                        {client.contactTargetId
+                            ? `Contact Target #${client.contactTargetId}`
+                            : 'لا يوجد contact_target مولَّد لهذه الجهة'}
+                    </div>
+                    <div className="mt-0.5">
+                        {client.contactTargetId
+                            ? `حالته: ${CT_LABELS[client.contactTargetStatus ?? ''] || client.contactTargetStatus || 'غير محددة'}`
+                            : 'المعروض هنا يأتي من open_tasks فقط، وليس من قائمة اتصال مولَّدة.'}
+                    </div>
+                </div>
+
                 {/* Editable hint */}
                 {canEdit && editableTasks.length > 0 && (
                     <div className="mx-5 mt-3 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -270,6 +319,9 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                                                 عودة · {task.attemptCount} محاولة
                                             </span>
                                         )}
+                                        <span className={`text-[9px] font-bold border px-1.5 py-0.5 rounded-full ${getTaskLayerClass(task, client, today)}`}>
+                                            {getTaskLayerLabel(task, client, today)}
+                                        </span>
                                     </div>
                                     {task.dueDate && <p className="text-xs text-slate-500 mt-0.5">استحقاق: {task.dueDate}</p>}
                                 </div>
@@ -279,11 +331,7 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                                     : task.status === 'scheduled'     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                     : isExcluded                      ? 'border-red-200 bg-red-50 text-red-600'
                                     :                                   'border-slate-200 bg-slate-50 text-slate-500'}`}>
-                                    {task.status === 'assigned'      ? 'جاهزة'
-                                    : task.status === 'in_scheduling' ? 'قيد الجدولة'
-                                    : task.status === 'scheduled'     ? 'مجدولة'
-                                    : isExcluded                      ? 'مستثناة'
-                                    : task.status}
+                                    {isExcluded ? 'مستثناة' : TASK_STATUS_LABELS[task.status] || task.status}
                                 </span>
                             </button>
                         );
@@ -1038,6 +1086,15 @@ export default function PlanningContactTargets() {
                                                         {client.generatedInTaskList && (
                                                             <span className="text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 ضمن اللقطة
+                                                            </span>
+                                                        )}
+                                                        {client.contactTargetId ? (
+                                                            <span className="text-[9px] font-bold bg-white text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                CT #{client.contactTargetId}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                open_tasks فقط
                                                             </span>
                                                         )}
                                                         {client.generatedInTaskList && client.hasPendingSync && (

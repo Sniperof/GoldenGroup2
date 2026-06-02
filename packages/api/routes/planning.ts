@@ -442,19 +442,21 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
     listItemRows.forEach((r: any) => listItemByClient.set(Number(r.clientId), r));
 
     // ── Step 5: appointments for these clients with this team today ────────
+    // Source: field_visits (canonical post-Phase-4). team identified via team_snapshot->>'teamKey'.
     const { rows: apptRows } = await pool.query(
       `SELECT
-         ta.entity_id   AS "clientId",
-         ta.id          AS "appointmentId",
-         ta.date        AS "appointmentDate",
-         ta.time_slot   AS "appointmentTime"
-       FROM telemarketing_appointments ta
-       WHERE ta.team_key  = $1
-         AND ta.date      = $2
-         AND ta.branch_id = $3
-         AND ta.entity_id = ANY($4::int[])
-         AND ta.entity_type = 'client'
-       ORDER BY ta.created_at DESC`,
+         fv.client_id          AS "clientId",
+         fv.id                 AS "appointmentId",
+         fv.scheduled_date::text AS "appointmentDate",
+         fv.scheduled_time     AS "appointmentTime"
+       FROM field_visits fv
+       WHERE fv.team_snapshot->>'teamKey' = $1
+         AND fv.scheduled_date = $2::date
+         AND fv.branch_id      = $3
+         AND fv.client_id      = ANY($4::int[])
+         AND fv.status         IN ('scheduled','in_progress','ended','completed')
+         AND fv.visit_type     = 'marketing'
+       ORDER BY fv.created_at DESC`,
       [teamKey, date, branchId, clientIds],
     );
     const apptByClient = new Map<number, any>();
@@ -633,17 +635,17 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
             WHERE ot.assigned_team_key = $1
               AND ot.branch_id = $3
               AND ot.status = 'assigned'
-              AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
+              AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
 
            UNION
 
            SELECT ot.client_id
              FROM open_tasks ot
-            WHERE ot.excluded_for_date = $2::date
+            WHERE ot.excluded_for_date = $4::date
               AND ot.branch_id = $3
               AND ot.status IN ('open', 'needs_follow_up', 'assigned')
        ) sub`,
-      [teamKey, date, branchId],
+      [teamKey, date, branchId, date],
     );
     const clientIds = clientIdRows.map((r: any) => Number(r.client_id));
 
@@ -731,19 +733,21 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
     const listItemByClient = new Map<number, any>();
     listItemRows.forEach((r: any) => listItemByClient.set(Number(r.clientId), r));
 
+    // Source: field_visits (canonical post-Phase-4). team identified via team_snapshot->>'teamKey'.
     const { rows: apptRows } = await pool.query(
       `SELECT
-         ta.entity_id AS "clientId",
-         ta.id AS "appointmentId",
-         ta.date AS "appointmentDate",
-         ta.time_slot AS "appointmentTime"
-       FROM telemarketing_appointments ta
-       WHERE ta.team_key = $1
-         AND ta.date = $2
-         AND ta.branch_id = $3
-         AND ta.entity_id = ANY($4::int[])
-         AND ta.entity_type = 'client'
-       ORDER BY ta.created_at DESC`,
+         fv.client_id            AS "clientId",
+         fv.id                   AS "appointmentId",
+         fv.scheduled_date::text AS "appointmentDate",
+         fv.scheduled_time       AS "appointmentTime"
+       FROM field_visits fv
+       WHERE fv.team_snapshot->>'teamKey' = $1
+         AND fv.scheduled_date = $2::date
+         AND fv.branch_id      = $3
+         AND fv.client_id      = ANY($4::int[])
+         AND fv.status         IN ('scheduled','in_progress','ended','completed')
+         AND fv.visit_type     = 'marketing'
+       ORDER BY fv.created_at DESC`,
       [teamKey, date, branchId, clientIds],
     );
     const apptByClient = new Map<number, any>();
@@ -801,6 +805,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
         contactTargetId: meta?.contactTargetId ?? listItem?.contactTargetId ?? null,
         contactTargetStatus: meta?.contactTargetStatus ?? null,
         taskListItemStatus: listItem?.itemStatus ?? null,
+        taskListOpenTaskId: listItem?.openTaskId ?? null,
         latestCallOutcome: listItem?.callOutcome ?? meta?.contactTargetOutcome ?? null,
         appointmentDate: appt?.appointmentDate ?? null,
         appointmentTime: appt?.appointmentTime ?? null,
@@ -834,7 +839,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
           WHERE ot.assigned_team_key = $1
             AND ot.branch_id = $3
             AND ot.status = 'assigned'
-            AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
+            AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
             AND NOT EXISTS (
               SELECT 1
                 FROM telemarketing_task_list_items tli
@@ -845,7 +850,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
                  AND tli.entity_type = 'client'
                  AND tli.entity_id = ot.client_id
             )`,
-        [teamKey, date, branchId],
+        [teamKey, date, branchId, date],
       );
       newEligibleCount = Number(deltaRows[0]?.count ?? 0);
     }

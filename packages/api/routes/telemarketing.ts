@@ -817,7 +817,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
     appointmentParams.push(...accessibleTeamKeys);
   }
 
-  const appointmentsRes = await pool.query(
+  const legacyAppointmentsRes = await pool.query(
     `
       SELECT
         id,
@@ -846,6 +846,92 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
     appointmentParams,
   );
 
+  const fieldVisitAppointmentParams: any[] = [];
+  const fieldVisitAppointmentWhere: string[] = [];
+  let fvParamIdx = 1;
+
+  if (branchId != null) {
+    fieldVisitAppointmentWhere.push(`fv.branch_id = $${fvParamIdx++}`);
+    fieldVisitAppointmentParams.push(branchId);
+  }
+
+  if (dateParam) {
+    fieldVisitAppointmentWhere.push(`fv.scheduled_date = $${fvParamIdx++}`);
+    fieldVisitAppointmentParams.push(dateParam);
+  }
+
+  if (accessibleTeamKeys !== null && accessibleTeamKeys.length > 0) {
+    fieldVisitAppointmentWhere.push(`fv.team_snapshot->>'teamKey' = ANY($${fvParamIdx++}::varchar[])`);
+    fieldVisitAppointmentParams.push(accessibleTeamKeys);
+  }
+
+  const fieldVisitWhere = fieldVisitAppointmentWhere.length > 0
+    ? `WHERE ${fieldVisitAppointmentWhere.join(' AND ')}`
+    : '';
+
+  const fieldVisitAppointmentsRes = await pool.query(
+    `
+      SELECT
+        ('fv_' || fv.id::text) AS id,
+        'client' AS "entityType",
+        fv.client_id AS "entityId",
+        COALESCE(fv.customer_snapshot->>'name', c.name, '') AS "customerName",
+        COALESCE(fv.customer_snapshot->>'addressText', fv.customer_snapshot->>'address', '') AS "customerAddress",
+        COALESCE(fv.customer_snapshot->>'mobile', c.mobile, '') AS "customerMobile",
+        fv.team_snapshot->>'teamKey' AS "teamKey",
+        fv.scheduled_date::text AS date,
+        fv.scheduled_time AS "timeSlot",
+        COALESCE(fv.customer_snapshot->>'occupation', '') AS occupation,
+        COALESCE(fv.customer_snapshot->>'waterSource', '') AS "waterSource",
+        COALESCE(fv.telemarketer_notes, fv.field_notes, '') AS notes,
+        COALESCE(
+          json_agg(DISTINCT vt.task_type) FILTER (WHERE vt.id IS NOT NULL),
+          '[]'::json
+        ) AS "visitTasks",
+        NULL::int AS "requestedDeviceModelId",
+        NULL::varchar AS "requestedDeviceName",
+        fv.created_at AS "createdAt",
+        fv.created_by AS "createdBy",
+        ct.id AS "contactTargetId",
+        MIN(vt.source_open_task_id) AS "openTaskId",
+        fv.origin_id AS "taskListItemId",
+        tl.id AS "taskListId",
+        fv.id::text AS "marketingVisitId"
+      FROM field_visits fv
+      JOIN clients c ON c.id = fv.client_id
+      LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
+      LEFT JOIN contact_targets ct ON ct.latest_visit_id = fv.id
+      LEFT JOIN telemarketing_task_lists tl
+        ON tl.team_key = fv.team_snapshot->>'teamKey'
+       AND tl.date = fv.scheduled_date::text
+       AND tl.branch_id = fv.branch_id
+      ${fieldVisitWhere}
+        ${fieldVisitWhere ? 'AND' : 'WHERE'} fv.origin_type = 'telemarketing'
+        AND fv.visit_type = 'marketing'
+        AND fv.status IN ('scheduled','in_progress','ended','completed')
+      GROUP BY fv.id, c.id, ct.id, tl.id
+      ORDER BY fv.created_at DESC
+    `,
+    fieldVisitAppointmentParams,
+  );
+
+  const appointmentByKey = new Map<string, any>();
+  legacyAppointmentsRes.rows.forEach((row: any) => {
+    appointmentByKey.set(`legacy:${row.id}`, row);
+  });
+  fieldVisitAppointmentsRes.rows.forEach((row: any) => {
+    const duplicateLegacy = legacyAppointmentsRes.rows.find((legacy: any) =>
+      legacy.entityId === row.entityId &&
+      legacy.teamKey === row.teamKey &&
+      legacy.date === row.date &&
+      legacy.timeSlot === row.timeSlot
+    );
+    if (!duplicateLegacy) {
+      appointmentByKey.set(`field_visit:${row.marketingVisitId}`, row);
+    }
+  });
+  const appointmentRows = Array.from(appointmentByKey.values());
+
   // Filter call logs by branch and date-scoped task lists
   // Instead of filtering only by branch+team_key (which returns logs from all dates),
   // join through task_list_id to only include logs belonging to task lists for the selected date.
@@ -873,7 +959,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         // No accessible task lists for this date — return no call logs
         return res.json({
           taskLists: mapTaskListRows(taskListRes.rows),
-          appointments: appointmentsRes.rows,
+          appointments: appointmentRows,
           callLogs: [],
         });
       }
@@ -884,7 +970,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
       if (dateTaskListIds.length === 0) {
         return res.json({
           taskLists: mapTaskListRows(taskListRes.rows),
-          appointments: appointmentsRes.rows,
+          appointments: appointmentRows,
           callLogs: [],
         });
       }
@@ -932,7 +1018,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
 
   res.json({
     taskLists: mapTaskListRows(taskListRes.rows),
-    appointments: appointmentsRes.rows,
+    appointments: appointmentRows,
     callLogs: callLogsRes.rows,
   });
 });
