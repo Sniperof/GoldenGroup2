@@ -49,6 +49,7 @@ async function reconcileContactTargetWorkspace(
            (
              ot.assigned_team_key = $1
              AND ot.status = 'assigned'
+             AND ot.assigned_for_date = $2::date
              AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
            )
            OR (
@@ -121,8 +122,7 @@ async function reconcileContactTargetWorkspace(
               SET contact_target_id = $1,
                   updated_at = NOW()
             WHERE id = $2
-              AND branch_id = $3
-              AND (contact_target_id IS NULL OR contact_target_id = $1)`,
+              AND branch_id = $3`,
           [contactTargetId, taskId, branchId],
         );
       }
@@ -320,15 +320,6 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
     }
 
     const result = await getPlanningMarketingTargets({ date, teamKey, branchId, mode });
-
-    if (mode === 'planning') {
-      await syncAssignedTasks({
-        date,
-        teamKey,
-        branchId,
-        performedBy: req.authContext?.userId ?? null,
-      });
-    }
 
     return res.json(result);
   } catch (err: any) {
@@ -752,6 +743,51 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
  *   "generated row with extra live work" without pretending they are already in
  *   the call list.
  */
+router.post('/contact-targets-dashboard/sync', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const date = typeof req.body?.date === 'string' ? req.body.date : '';
+    const teamKey = typeof req.body?.teamKey === 'string' ? req.body.teamKey : '';
+    const branchId = req.authContext?.actingBranchId ?? null;
+
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
+    if (!/^(team|solo)_\d+$/.test(teamKey)) {
+      return res.status(400).json({ error: 'teamKey must be team_X or solo_X' });
+    }
+    if (branchId == null) {
+      return res.status(400).json({ error: 'A branch context is required' });
+    }
+
+    const sync = await syncAssignedTasks({
+      date,
+      teamKey,
+      branchId,
+      performedBy: req.authContext?.userId ?? null,
+    });
+
+    await reconcileContactTargetWorkspace(date, teamKey, branchId, req.authContext?.userId ?? null);
+
+    return res.json({
+      date,
+      teamKey,
+      counts: {
+        planned: sync.plannedTaskIds.length,
+        eligible: sync.eligibleTaskIds.length,
+        newlyAssigned: sync.newlyAssignedIds.length,
+        released: sync.releasedIds.length,
+      },
+      taskIds: {
+        newlyAssigned: sync.newlyAssignedIds,
+        released: sync.releasedIds,
+      },
+    });
+  } catch (err: any) {
+    console.error('Failed to sync contact targets dashboard:', err);
+    return res.status(500).json({ error: err.message || 'Failed to sync contact targets dashboard' });
+  }
+});
+
 router.get('/contact-targets-dashboard', requirePermission('planning.manage'), async (req, res) => {
   try {
     const date = typeof req.query.date === 'string' ? req.query.date : '';
@@ -767,8 +803,6 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
     if (branchId == null) {
       return res.status(400).json({ error: 'A branch context is required' });
     }
-
-    await reconcileContactTargetWorkspace(date, teamKey, branchId, req.authContext?.userId ?? null);
 
     const { rows: taskListRows } = await pool.query(
       `SELECT id, created_at AS "createdAt" FROM telemarketing_task_lists
@@ -794,10 +828,11 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
 
            SELECT ot.client_id
              FROM open_tasks ot
-            WHERE ot.assigned_team_key = $1
-              AND ot.branch_id = $3
-              AND ot.status = 'assigned'
-              AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
+           WHERE ot.assigned_team_key = $1
+             AND ot.branch_id = $3
+             AND ot.status = 'assigned'
+             AND ot.assigned_for_date = $4::date
+             AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
 
            UNION
 
@@ -1025,6 +1060,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
           WHERE ot.assigned_team_key = $1
             AND ot.branch_id = $3
             AND ot.status = 'assigned'
+            AND ot.assigned_for_date = $4::date
             AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
             AND NOT EXISTS (
               SELECT 1

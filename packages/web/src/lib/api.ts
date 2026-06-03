@@ -414,6 +414,11 @@ export const api = {
       const query = new URLSearchParams({ date, teamKey });
       return request<any>(`/planning/contact-targets-dashboard?${query.toString()}`);
     },
+    syncContactTargetsDashboard: (date: string, teamKey: string) =>
+      request<any>('/planning/contact-targets-dashboard/sync', {
+        method: 'POST',
+        body: JSON.stringify({ date, teamKey }),
+      }),
     marketingTargets: (date: string, teamKey: string, mode: 'planning' | 'assigned' = 'planning') => {
       const query = new URLSearchParams({ date, teamKey, mode });
       return request<any>(`/planning/marketing-targets?${query.toString()}`);

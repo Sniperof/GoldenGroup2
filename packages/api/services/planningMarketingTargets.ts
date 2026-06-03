@@ -243,40 +243,44 @@ function buildOpenTaskEligibilityPredicate(
     ? `${otAlias}.status = 'assigned'`
     : `${otAlias}.status IN ('open', 'needs_follow_up')`;
 
-  // DEC-006 D36: needs_follow_up tasks use a FIXED 1-day pre-window (the customer
-  // committed to expected_date and we schedule the visit one day before). The
-  // task_type_config.planning_window_days applies only to status='open' tasks,
-  // where the window is exploratory for the telemarketer.
-  // Implementation: clamp the window-days to '1 day' when status='needs_follow_up'.
-  // This produces the constitutional "1 day before expected_date" behavior without
-  // adding a new column.
+  if (mode === 'assigned') {
+    return `
+      ${statusClause}
+      AND ${ttcAlias}.is_active = TRUE
+    `;
+  }
+
+  // DEC-006 D36: needs_follow_up tasks are driven by expected_date, not due_date,
+  // and become eligible one day before the promised follow-up date. The configured
+  // planning window applies only to fresh/open tasks.
   return `
     ${statusClause}
     AND ${ttcAlias}.is_active = TRUE
     AND (
-      ${ttcAlias}.scheduling_pattern = 'immediate'
+      (${otAlias}.status = 'open' AND ${ttcAlias}.scheduling_pattern = 'immediate')
       OR (
-        ${ttcAlias}.window_basis = 'due_date'
+        ${otAlias}.status = 'needs_follow_up'
         AND (
-          ${otAlias}.due_date IS NULL
-          OR ${otAlias}.due_date <= CURRENT_DATE + (
-            CASE
-              WHEN ${otAlias}.status = 'needs_follow_up' THEN '1'
-              ELSE ${ttcAlias}.planning_window_days::text
-            END || ' days'
-          )::INTERVAL
+          ${otAlias}.expected_date IS NULL
+          OR ${otAlias}.expected_date <= CURRENT_DATE + INTERVAL '1 day'
         )
       )
       OR (
+        ${otAlias}.status = 'open'
+        AND
+        ${ttcAlias}.window_basis = 'due_date'
+        AND (
+          ${otAlias}.due_date IS NULL
+          OR ${otAlias}.due_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days::text || ' days')::INTERVAL
+        )
+      )
+      OR (
+        ${otAlias}.status = 'open'
+        AND
         ${ttcAlias}.window_basis = 'expected_date'
         AND (
           ${otAlias}.expected_date IS NULL
-          OR ${otAlias}.expected_date <= CURRENT_DATE + (
-            CASE
-              WHEN ${otAlias}.status = 'needs_follow_up' THEN '1'
-              ELSE ${ttcAlias}.planning_window_days::text
-            END || ' days'
-          )::INTERVAL
+          OR ${otAlias}.expected_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days::text || ' days')::INTERVAL
         )
       )
     )
@@ -875,7 +879,7 @@ export async function getPlanningWorkScope(params: {
   //   2) client is personally assigned to a team actor
   // DEC-006 D31: solo teams (EmergencySlot) only carry emergency_maintenance.
   const isSoloTeam = keyMatch[1] === 'solo';
-  const queryParams: any[] = [branchId, companyOwnedIds, actorHrUserIds, date, isSoloTeam];
+  const queryParams: any[] = [branchId, companyOwnedIds, actorHrUserIds, date, isSoloTeam, teamKey];
 
   const { rows: taskRows } = await pool.query(
     `SELECT
@@ -921,9 +925,17 @@ export async function getPlanningWorkScope(params: {
        ) AS "ownerLabel"
      FROM open_tasks ot
      JOIN clients c ON c.id = ot.client_id
+     JOIN task_type_config ttc ON ttc.task_type = ot.task_type
      LEFT JOIN branches b ON b.id = c.branch_id
      WHERE ot.branch_id = $1
-      AND ot.status IN ('open', 'needs_follow_up', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution', 'in_execution', 'ended')
+      AND (
+        ${buildOpenTaskEligibilityPredicate('ot', 'ttc', 'planning')}
+        OR (ot.status = 'assigned' AND ot.assigned_team_key = $6)
+        OR (
+          ot.status IN ('in_scheduling', 'scheduled', 'waiting_execution', 'in_execution', 'ended')
+          AND ot.assigned_team_key = $6
+        )
+      )
       AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
       AND (c.is_active IS NULL OR c.is_active = TRUE)
        AND c.deleted_at IS NULL

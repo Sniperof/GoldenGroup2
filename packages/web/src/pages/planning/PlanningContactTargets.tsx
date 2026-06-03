@@ -412,6 +412,7 @@ export default function PlanningContactTargets() {
     const [sortDir, setSortDir] = useState<SortDir>(parseSortDir(searchParams.get('dir')) || 'asc');
     const [selectedClientIds, setSelectedClientIds] = useState<Set<number>>(new Set());
     const [bulkSaving, setBulkSaving] = useState(false);
+    const [syncingContacts, setSyncingContacts] = useState(false);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -515,6 +516,25 @@ export default function PlanningContactTargets() {
             setMessage({ type: 'error', text: err?.message || 'تعذر توليد قائمة الاتصال' });
         } finally {
             setGenerating(false);
+        }
+    };
+
+    const handleSyncContacts = async () => {
+        setSyncingContacts(true);
+        setMessage(null);
+        try {
+            const result = await api.planning.syncContactTargetsDashboard(date, teamKey);
+            const newlyAssigned = result?.counts?.newlyAssigned ?? 0;
+            const released = result?.counts?.released ?? 0;
+            setMessage({
+                type: 'success',
+                text: `تم تحديث جهات الاتصال — ${newlyAssigned} مهمة جديدة أُدخلت للخطة${released > 0 ? `، و${released} مهمة خرجت من النطاق` : ''}.`,
+            });
+            await loadData();
+        } catch (err: any) {
+            setMessage({ type: 'error', text: err?.message || 'تعذر تحديث جهات الاتصال' });
+        } finally {
+            setSyncingContacts(false);
         }
     };
 
@@ -686,10 +706,10 @@ export default function PlanningContactTargets() {
                             </p>
                         </div>
                         <div className="flex items-center gap-2">
-                            <button type="button" onClick={loadData} disabled={loading}
-                                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm">
-                                <RotateCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-                                تحديث
+                            <button type="button" onClick={handleSyncContacts} disabled={syncingContacts || loading}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors shadow-sm">
+                                {syncingContacts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                                {syncingContacts ? 'جاري التحديث...' : 'تحديث جهات الاتصال'}
                             </button>
                         </div>
                     </div>
