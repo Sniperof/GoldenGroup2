@@ -11,7 +11,7 @@ interface CandidateState {
     addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats' | 'ownerUserId' | 'createdBy'> & { ownerUserId?: number; createdBy?: number }) => Promise<number>;
     closeReferralSheet: (sheetId: number) => Promise<void>;
 
-    addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null }) => Promise<void>;
+    addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null; assignmentUserIds?: number[] }) => Promise<void>;
     qualifyCandidate: (candidateId: number, clientData?: any) => Promise<void>;
     linkCandidateToClient: (candidateId: number, clientId: number) => Promise<void>;
     markJunk: (candidateId: number) => Promise<void>;
@@ -167,6 +167,8 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
         if (clientData) {
             savedClient = await api.clients.create({
                 ...clientData,
+                branchId: clientData.branchId ?? candidate.branchId ?? undefined,
+                assignmentUserIds: clientData.assignmentUserIds ?? candidate.assignments?.map(a => a.userId) ?? undefined,
                 isCandidate: false,
                 candidateStatus: 'Suggested'
             });
@@ -203,6 +205,8 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
                 referralReason: candidate.referralReason,
                 referralSheetId: candidate.referralSheetId,
                 referralAddressText: candidate.addressText,
+                branchId: candidate.branchId ?? undefined,
+                assignmentUserIds: candidate.assignments?.map(a => a.userId) ?? undefined,
                 isCandidate: false,
                 candidateStatus: 'Suggested'
             });

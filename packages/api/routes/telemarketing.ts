@@ -63,7 +63,7 @@ function getLeadPhone(lead: any): string {
 }
 
 function getLeadGeoUnitId(lead: any): number | null {
-  const parsed = Number(lead.neighborhood);
+  const parsed = Number(lead.effectiveZoneId ?? lead.workLocationGeoUnitId ?? lead.neighborhood);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
@@ -160,6 +160,8 @@ async function resolveOrCreateContactTarget(
   lead: any,
   branchId: number,
   supervisorHrUserId: number | null,
+  date: string,
+  teamKey: string,
 ): Promise<number | null> {
   const contactTargetId = Number(lead.contactTargetId);
   if (Number.isInteger(contactTargetId) && contactTargetId > 0) {
@@ -170,24 +172,31 @@ async function resolveOrCreateContactTarget(
   if (!Number.isInteger(entityId) || entityId <= 0) return null;
 
   const geoUnitId = getLeadGeoUnitId(lead);
+  const visitType = typeof lead.contactTargetVisitType === 'string' && lead.contactTargetVisitType
+    ? lead.contactTargetVisitType
+    : 'marketing';
 
   try {
     const { rows } = await client.query(
       `
       INSERT INTO contact_targets (
         branch_id, target_type, target_id, target_stage, visit_type,
-        source_type, source_id, supervisor_hr_user_id, zone_id, status
+        source_type, source_id, supervisor_hr_user_id, zone_id, status,
+        date, team_key, work_location_geo_unit_id
       )
-      VALUES ($1, 'client', $2, 'lead', 'marketing', 'lead', $2, $3, $4, 'new')
-      ON CONFLICT (branch_id, target_type, target_id, visit_type, source_type)
+      VALUES ($1, 'client', $2, 'lead', $5, 'lead', $2, $3, $4, 'new', $6::date, $7, $4)
+      ON CONFLICT (branch_id, target_type, target_id, work_location_geo_unit_id, date)
+      WHERE work_location_geo_unit_id IS NOT NULL
       DO UPDATE SET
         supervisor_hr_user_id = EXCLUDED.supervisor_hr_user_id,
         zone_id = EXCLUDED.zone_id,
+        visit_type = EXCLUDED.visit_type,
         source_id = EXCLUDED.source_id,
+        team_key = EXCLUDED.team_key,
         updated_at = NOW()
       RETURNING id
       `,
-      [branchId, entityId, supervisorHrUserId || null, geoUnitId],
+      [branchId, entityId, supervisorHrUserId || null, geoUnitId, visitType, date, teamKey],
     );
     return rows[0]?.id ?? null;
   } catch {
@@ -1237,7 +1246,8 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
           SELECT
             i.entity_id AS "entityId",
             tl.team_key AS "teamKey",
-            i.contact_target_id AS "contactTargetId"
+            i.contact_target_id AS "contactTargetId",
+            i.open_task_id AS "openTaskId"
           FROM telemarketing_task_list_items i
           JOIN telemarketing_task_lists tl ON tl.id = i.task_list_id
           WHERE tl.date = $1
@@ -1250,9 +1260,16 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
       )
       : { rows: [] };
 
-    const queuedElsewhereByEntityId = new Map<number, string>();
+    const queuedElsewhereByContextKey = new Map<string, string>();
     existingElsewhereByEntityId.rows.forEach((row: any) => {
-      queuedElsewhereByEntityId.set(Number(row.entityId), row.teamKey);
+      const contactTargetId = Number(row.contactTargetId);
+      const openTaskId = Number(row.openTaskId);
+      if (Number.isInteger(contactTargetId) && contactTargetId > 0) {
+        queuedElsewhereByContextKey.set(`ct:${contactTargetId}`, row.teamKey);
+      }
+      if (Number.isInteger(openTaskId) && openTaskId > 0) {
+        queuedElsewhereByContextKey.set(`task:${openTaskId}`, row.teamKey);
+      }
     });
 
     const leadContactTargetIds = leads
@@ -1276,15 +1293,29 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
         [date, branchId, teamKey, leadContactTargetIds],
       );
       ctRows.forEach((row: any) => {
-        if (!queuedElsewhereByEntityId.has(Number(row.entityId))) {
-          queuedElsewhereByEntityId.set(Number(row.entityId), row.teamKey);
+        const contactTargetId = Number(row.contactTargetId);
+        if (Number.isInteger(contactTargetId) && contactTargetId > 0 && !queuedElsewhereByContextKey.has(`ct:${contactTargetId}`)) {
+          queuedElsewhereByContextKey.set(`ct:${contactTargetId}`, row.teamKey);
         }
       });
     }
 
+    const seenLeadKeys = new Set<string>();
     const eligibleLeads = leads.filter((lead: any) => {
       const entityId = Number(lead.id);
-      const existingTeamKey = queuedElsewhereByEntityId.get(entityId);
+      const openTaskId = lead.openTaskId != null ? Number(lead.openTaskId) : null;
+      const leadKey = openTaskId != null ? `task:${openTaskId}` : `client:${entityId}`;
+      if (seenLeadKeys.has(leadKey)) {
+        return false;
+      }
+      seenLeadKeys.add(leadKey);
+
+      const contactTargetId = Number(lead.contactTargetId);
+      const existingTeamKey =
+        (Number.isInteger(contactTargetId) && contactTargetId > 0
+          ? queuedElsewhereByContextKey.get(`ct:${contactTargetId}`)
+          : undefined)
+        ?? (openTaskId != null ? queuedElsewhereByContextKey.get(`task:${openTaskId}`) : undefined);
       if (!existingTeamKey) return true;
       skipped.push({
         entityType: 'client',
@@ -1325,7 +1356,8 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
           entity_id AS "entityId",
           status,
           call_outcome AS "callOutcome",
-          contact_target_id AS "contactTargetId"
+          contact_target_id AS "contactTargetId",
+          open_task_id AS "openTaskId"
         FROM telemarketing_task_list_items
         WHERE task_list_id = $1
           AND entity_type = 'client'
@@ -1333,9 +1365,12 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
       [taskListId],
     );
 
-    const existingByEntityId = new Map<number, any>();
+    const existingByTaskOrEntity = new Map<string, any>();
     existingItems.rows.forEach((item: any) => {
-      existingByEntityId.set(Number(item.entityId), item);
+      const openTaskId = item.openTaskId != null ? Number(item.openTaskId) : null;
+      const entityId = Number(item.entityId);
+      const key = openTaskId != null ? `task:${openTaskId}` : `client:${entityId}`;
+      existingByTaskOrEntity.set(key, item);
     });
 
     let added = 0;
@@ -1344,14 +1379,21 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
 
     for (const lead of eligibleLeads) {
       const entityId = Number(lead.id);
-      const existingItem = existingByEntityId.get(entityId);
-      const itemId = existingItem?.id || `${taskListId}_client_${entityId}`;
+      const openTaskId = lead.openTaskId ?? null;
+      const existingItem = existingByTaskOrEntity.get(
+        openTaskId != null ? `task:${openTaskId}` : `client:${entityId}`,
+      );
+      const itemId = existingItem?.id || (
+        openTaskId != null
+          ? `${taskListId}_task_${openTaskId}`
+          : `${taskListId}_client_${entityId}`
+      );
       const name = getLeadName(lead);
       const phone = getLeadPhone(lead);
       const geoUnitId = getLeadGeoUnitId(lead);
       const addressText = lead.detailedAddress || lead.referralAddressText || null;
 
-      let contactTargetId = await resolveOrCreateContactTarget(pgClient, lead, branchId, supervisorHrUserId);
+      let contactTargetId = await resolveOrCreateContactTarget(pgClient, lead, branchId, supervisorHrUserId, date, teamKey);
 
       if (contactTargetId == null) {
         skipped.push({
@@ -1361,8 +1403,6 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
         });
         continue;
       }
-
-      const openTaskId = lead.openTaskId ?? null;
 
       if (existingItem) {
         await pgClient.query(

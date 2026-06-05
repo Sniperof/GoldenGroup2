@@ -4,12 +4,26 @@ import { ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { usePermissions } from '../../hooks/usePermissions';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 
 interface Props {
     isOpen: boolean;
     onClose: () => void;
     onSheetCreated?: (sheetId: number) => void;
+}
+
+interface BranchOption {
+    id: number;
+    name: string;
+}
+
+interface HrUserOption {
+    id: number;
+    name: string;
+    branchId?: number | null;
+    roleDisplayName?: string | null;
 }
 
 const referralTypes: { value: ReferralType; label: string; icon: any }[] = [
@@ -29,11 +43,19 @@ const channels: { value: ReferralOriginChannel; label: string }[] = [
 export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreated }: Props) {
     const addReferralSheet = useCandidateStore(state => state.addReferralSheet); // Updated hook
     const authUser = useAuthStore(state => state.user);
+    const { hasPermission } = usePermissions();
+    const { branchId: contextBranchId } = useBranchContextStore();
     const currentUserDisplayName = authUser?.name?.trim() || '';
+    const canChooseBranch = authUser?.isSuperAdmin === true;
+    const canChooseAssignedOwner = authUser?.isSuperAdmin === true || hasPermission('admin.roles.view');
 
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
+    const [branches, setBranches] = useState<BranchOption[]>([]);
+    const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
+    const [selectedBranchId, setSelectedBranchId] = useState<number | ''>(contextBranchId ?? authUser?.branchId ?? '');
+    const [selectedResponsibleUserId, setSelectedResponsibleUserId] = useState<number | ''>(authUser?.id ?? '');
     useEffect(() => {
         if (!isOpen) return;
         let active = true;
@@ -42,8 +64,10 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             api.clients.list(),
             api.employees.list(),
             api.contracts.list(),
+            canChooseBranch ? api.branches.list() : Promise.resolve([]),
+            canChooseAssignedOwner ? api.admin.hrUsers.assignable() : Promise.resolve([]),
         ])
-            .then(([clientsRes, employeesRes, contractsRes]) => {
+            .then(([clientsRes, employeesRes, contractsRes, branchesRes, hrUsersRes]) => {
                 if (!active) return;
                 setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
                 setEmployees(
@@ -52,12 +76,27 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                         : [],
                 );
                 setContracts(contractsRes.status === 'fulfilled' ? contractsRes.value : []);
+                setBranches(
+                    branchesRes.status === 'fulfilled'
+                        ? branchesRes.value.map((branch: any) => ({ id: branch.id, name: branch.name }))
+                        : [],
+                );
+                setHrUsers(
+                    hrUsersRes.status === 'fulfilled'
+                        ? hrUsersRes.value.map((user: any) => ({
+                            id: user.id,
+                            name: user.name,
+                            branchId: user.branch_id ?? user.branchId ?? null,
+                            roleDisplayName: user.role_display_name ?? user.roleDisplayName ?? null,
+                        }))
+                        : [],
+                );
             });
 
         return () => {
             active = false;
         };
-    }, [isOpen]);
+    }, [isOpen, canChooseAssignedOwner, canChooseBranch]);
 
     const [referralType, setReferralType] = useState<ReferralType>('Personal');
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
@@ -109,6 +148,12 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             setNameSnapshot(currentUserDisplayName);
         }
     }, [referralType, currentUserDisplayName]);
+
+    const assignableHrUsers = React.useMemo(() => {
+        if (!canChooseAssignedOwner) return [];
+        if (selectedBranchId === '') return hrUsers;
+        return hrUsers.filter(user => user.branchId == null || user.branchId === Number(selectedBranchId));
+    }, [canChooseAssignedOwner, hrUsers, selectedBranchId]);
 
     useEffect(() => {
         if (isOpen && referralType === 'Personal') {
@@ -197,6 +242,15 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             return;
         }
 
+        if (canChooseBranch && !selectedBranchId) {
+            setError('يجب تحديد الفرع لهذه اللائحة.');
+            return;
+        }
+        if (canChooseAssignedOwner && !selectedResponsibleUserId) {
+            setError('يجب تحديد المسؤول عن هذه اللائحة.');
+            return;
+        }
+
         let entityId: number | null = null;
         if (referralType === 'Employee' && employeeFound) {
             entityId = employeeFound.id;
@@ -205,6 +259,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         }
 
         try {
+            const resolvedResponsibleUserId = selectedResponsibleUserId === '' ? (authUser?.id ?? undefined) : Number(selectedResponsibleUserId);
             const newId = await addReferralSheet({
                 referralType,
                 referralOriginChannel: originChannel,
@@ -213,7 +268,9 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                 referralEntityId: entityId,
                 referralDate: new Date(referralDate).toISOString(),
                 referralNotes: notes,
-                ownerUserId: authUser?.id,
+                ownerUserId: resolvedResponsibleUserId,
+                assignedHrUserId: resolvedResponsibleUserId,
+                branchId: selectedBranchId === '' ? (contextBranchId ?? authUser?.branchId ?? undefined) : Number(selectedBranchId),
                 status: 'New',
                 createdBy: authUser?.id
             });
@@ -238,6 +295,8 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         setClientSuggestions([]);
         setSelectedClientId(null);
         setReferralDate(new Date().toISOString().split('T')[0]);
+        setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
+        setSelectedResponsibleUserId(authUser?.id ?? '');
         setNotes('');
         setError('');
     };
@@ -269,6 +328,43 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                     {error && (
                         <div className="p-3 rounded-xl bg-red-50 text-red-600 text-sm font-medium border border-red-100">
                             {error}
+                        </div>
+                    )}
+
+                    {(canChooseBranch || canChooseAssignedOwner) && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl border border-slate-200 bg-slate-50">
+                            {canChooseBranch && (
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">الفرع</label>
+                                    <select
+                                        value={selectedBranchId}
+                                        onChange={(e) => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
+                                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
+                                    >
+                                        <option value="">-- اختر الفرع --</option>
+                                        {branches.map(branch => (
+                                            <option key={branch.id} value={branch.id}>{branch.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            {canChooseAssignedOwner && (
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">المسؤول عن اللائحة</label>
+                                    <select
+                                        value={selectedResponsibleUserId}
+                                        onChange={(e) => setSelectedResponsibleUserId(e.target.value ? Number(e.target.value) : '')}
+                                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
+                                    >
+                                        <option value="">-- اختر المسؤول --</option>
+                                        {assignableHrUsers.map(user => (
+                                            <option key={user.id} value={user.id}>
+                                                {user.name}{user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                         </div>
                     )}
 

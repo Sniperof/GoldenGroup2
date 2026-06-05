@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, Calendar, PlusCircle, X, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus } from 'lucide-react';
+import { UserPlus, Calendar, PlusCircle, X, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from 'lucide-react';
 import { CandidateStatus, ReferralType, ReferralOriginChannel, Client, ContactEntry, Candidate, ContactType, ContactStatus } from '../../lib/types';
 import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { usePermissions } from '../../hooks/usePermissions';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 import {
     CONTACT_STATUS_CONFIG,
@@ -24,6 +26,18 @@ interface AddCandidateModalProps {
     initialDirectMode?: boolean;
     initialData?: Candidate;
     title?: string;
+}
+
+interface BranchOption {
+    id: number;
+    name: string;
+}
+
+interface HrUserOption {
+    id: number;
+    name: string;
+    branchId?: number | null;
+    roleDisplayName?: string | null;
 }
 function simpleUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -67,11 +81,19 @@ const initialCandidateState: {
 
 export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, initialData, title }: AddCandidateModalProps) {
     const authUser = useAuthStore(state => state.user);
+    const { hasPermission } = usePermissions();
+    const { branchId: contextBranchId } = useBranchContextStore();
     const currentUserDisplayName = authUser?.name?.trim() || '';
+    const canChooseBranch = authUser?.isSuperAdmin === true;
+    const canChooseAssignedOwner = authUser?.isSuperAdmin === true || hasPermission('admin.roles.view');
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
+    const [branches, setBranches] = useState<BranchOption[]>([]);
+    const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
+    const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
+    const [selectedResponsibleUserId, setSelectedResponsibleUserId] = useState<number | ''>('');
     useEffect(() => {
         let active = true;
 
@@ -80,13 +102,30 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             api.clients.list(),
             api.contracts.list(),
             api.systemLists.list({ category: 'occupation', activeOnly: true }),
+            canChooseBranch ? api.branches.list() : Promise.resolve([]),
+            canChooseAssignedOwner ? api.admin.hrUsers.assignable() : Promise.resolve([]),
         ])
-            .then(([units, clients, contractsData, occupationList]) => {
+            .then(([units, clients, contractsData, occupationList, branchesData, hrUsersData]) => {
                 if (!active) return;
                 setGeoUnits(units);
                 setAllClients(clients);
                 setContracts(contractsData);
                 setOccupationOptions(occupationList.map((item: any) => item.value));
+                setBranches(
+                    Array.isArray(branchesData)
+                        ? branchesData.map((branch: any) => ({ id: branch.id, name: branch.name }))
+                        : [],
+                );
+                setHrUsers(
+                    Array.isArray(hrUsersData)
+                        ? hrUsersData.map((user: any) => ({
+                            id: user.id,
+                            name: user.name,
+                            branchId: user.branch_id ?? user.branchId ?? null,
+                            roleDisplayName: user.role_display_name ?? user.roleDisplayName ?? null,
+                        }))
+                        : [],
+                );
             })
             .catch((error) => {
                 console.error(error);
@@ -95,12 +134,14 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 setAllClients([]);
                 setContracts([]);
                 setOccupationOptions([]);
+                setBranches([]);
+                setHrUsers([]);
             });
 
         return () => {
             active = false;
         };
-    }, []);
+    }, [canChooseAssignedOwner, canChooseBranch]);
 
     const addCandidate = useCandidateStore((state: any) => state.addCandidate);
     const updateCandidate = useCandidateStore((state: any) => state.updateCandidate);
@@ -163,6 +204,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 } else {
                     setSelectedSheetId(sheetId);
                 }
+                setSelectedBranchId(initialData.branchId ?? authUser?.branchId ?? contextBranchId ?? '');
+                setSelectedResponsibleUserId(initialData.assignments?.[0]?.userId ?? initialData.ownerUserId ?? authUser?.id ?? '');
             } else {
                 setIsDirectMode(initialDirectMode || false);
                 setCandidateData(initialCandidateState);
@@ -175,12 +218,14 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 setClientSearch('');
                 setSelectedClientId(null);
                 setOriginChannel('Acquaintance');
+                setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
+                setSelectedResponsibleUserId(authUser?.id ?? '');
             }
             isInitialSync.current = false;
         } else {
             isInitialSync.current = true;
         }
-    }, [isOpen, initialData, initialDirectMode]);
+    }, [isOpen, initialData, initialDirectMode, authUser?.branchId, authUser?.id, contextBranchId]);
 
     useEffect(() => {
         if (!isOpen || isInitialSync.current || !isDirectMode) return;
@@ -289,6 +334,22 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         [activeSheets, selectedSheetId],
     );
 
+    useEffect(() => {
+        if (!isOpen || isDirectMode || !selectedSheet) return;
+        if (selectedSheet.branchId != null) {
+            setSelectedBranchId(selectedSheet.branchId);
+        }
+        if (selectedSheet.assignedHrUserId != null) {
+            setSelectedResponsibleUserId(selectedSheet.assignedHrUserId);
+        }
+    }, [isDirectMode, isOpen, selectedSheet]);
+
+    const assignableHrUsers = useMemo(() => {
+        if (!canChooseAssignedOwner) return [];
+        if (selectedBranchId === '') return hrUsers;
+        return hrUsers.filter(user => user.branchId == null || user.branchId === Number(selectedBranchId));
+    }, [canChooseAssignedOwner, hrUsers, selectedBranchId]);
+
 
 
     const candidatesList = useCandidateStore((state: any) => state.candidates);
@@ -308,6 +369,14 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         }
         if (candidateData.contacts.length === 0 || !candidateData.contacts.some(c => c.number.trim() && c.isPrimary)) {
             setError('يجب إدخال رقم هاتف واحد أساسي على الأقل.');
+            return false;
+        }
+        if (canChooseBranch && !selectedBranchId) {
+            setError('يجب تحديد الفرع لهذا السجل.');
+            return false;
+        }
+        if (canChooseAssignedOwner && !selectedResponsibleUserId) {
+            setError('يجب تحديد المسؤول عن هذا السجل.');
             return false;
         }
         const invalidContact = candidateData.contacts.find(contact => getContactValidationMessage(contact));
@@ -338,6 +407,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             let resolvedReferralType = referralType;
             let resolvedOriginChannel = originChannel;
             let resolvedReferralNameSnapshot = referralNameSnapshot;
+            const resolvedBranchId = selectedSheet?.branchId ?? (selectedBranchId === '' ? (contextBranchId ?? authUser?.branchId ?? null) : Number(selectedBranchId));
+            const resolvedResponsibleUserId = selectedSheet?.assignedHrUserId ?? (selectedResponsibleUserId === '' ? (authUser?.id ?? null) : Number(selectedResponsibleUserId));
             if (!isDirectMode && selectedSheet) {
                 resolvedReferralType = selectedSheet.referralType;
                 resolvedOriginChannel = selectedSheet.referralOriginChannel;
@@ -349,7 +420,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 entityId = selectedClientId;
             }
 
-            const newC: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null } = {
+            const newC: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null; assignmentUserIds?: number[] } = {
                 firstName,
                 lastName,
                 nickname,
@@ -366,10 +437,16 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 referralReason: isDirectMode ? 'Direct Referral' : 'Part of Sheet',
                 occupation: candidateData.occupation,
                 candidateNotes: candidateData.candidateNotes,
-                ownerUserId: authUser?.id ?? 0,
+                ownerUserId: resolvedResponsibleUserId ?? authUser?.id ?? 0,
+                branchId: resolvedBranchId,
+                assignmentUserIds: resolvedResponsibleUserId ? [resolvedResponsibleUserId] : undefined,
                 createdBy: authUser?.id ?? 0
             };
-            await addCandidate(newC as any);
+            if (initialData?.id) {
+                await updateCandidate(initialData.id, newC as Partial<Candidate> & { assignmentUserIds?: number[] });
+            } else {
+                await addCandidate(newC as any);
+            }
             if (addAnother) {
                 setCandidateData(initialCandidateState);
                 setError('');
@@ -396,6 +473,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         setClientSearch('');
         setClientSuggestions([]);
         setSelectedClientId(null);
+        setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
+        setSelectedResponsibleUserId(authUser?.id ?? '');
         onClose();
     };
 
@@ -448,6 +527,49 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                         {/* SECTION A */}
                         <div className="space-y-4">
                             <div className="mb-2"></div>
+
+                            {(canChooseBranch || canChooseAssignedOwner) && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                                    {canChooseBranch && (
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                                                <Building2 className="w-3.5 h-3.5" />
+                                                الفرع <span className="text-red-500">*</span>
+                                            </label>
+                                            <select
+                                                value={selectedBranchId}
+                                                onChange={(e) => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
+                                                className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
+                                            >
+                                                <option value="">-- اختر الفرع --</option>
+                                                {branches.map(branch => (
+                                                    <option key={branch.id} value={branch.id}>{branch.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                    {canChooseAssignedOwner && (
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                                                <User className="w-3.5 h-3.5" />
+                                                المسؤول عن السجل <span className="text-red-500">*</span>
+                                            </label>
+                                            <select
+                                                value={selectedResponsibleUserId}
+                                                onChange={(e) => setSelectedResponsibleUserId(e.target.value ? Number(e.target.value) : '')}
+                                                className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
+                                            >
+                                                <option value="">-- اختر المسؤول --</option>
+                                                {assignableHrUsers.map(user => (
+                                                    <option key={user.id} value={user.id}>
+                                                        {user.name}{user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {!isDirectMode ? (
                                 /* MODE B: Sheet-based */

@@ -161,6 +161,9 @@ export default function ContractDetail() {
   // DEC-CT-01 follow-up: draft approve / reject workflow.
   const { hasPermission } = usePermissions();
   const [approvalLoading, setApprovalLoading] = useState<'approve' | 'reject' | null>(null);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [closers, setClosers] = useState<any[]>([]);
+  const [approvalCloserId, setApprovalCloserId] = useState<number | ''>('');
 
   useEffect(() => {
     if (data && activateFinalPrice === 0) setActivateFinalPrice(Number(data.finalPrice) || 0);
@@ -173,6 +176,16 @@ export default function ContractDetail() {
       .catch(err => setError(err.message || 'فشل التحميل'))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (data?.status !== 'draft' || !hasPermission('contracts.approve')) return;
+    api.employees.closers()
+      .then((rows) => {
+        setClosers(rows);
+        if (data.closingEmployeeId) setApprovalCloserId(Number(data.closingEmployeeId));
+      })
+      .catch(() => setClosers([]));
+  }, [data?.status, data?.closingEmployeeId, hasPermission]);
 
   const handleCancelContract = async () => {
     if (!window.confirm('هل أنت متأكد من إلغاء هذا العقد؟')) return;
@@ -192,7 +205,22 @@ export default function ContractDetail() {
   // and then refreshes the contract so the UI reflects the new active state.
   const handleApprove = async () => {
     if (!data) return;
-    if (!data.closingEmployeeId) {
+    const selectedCloserId = Number(approvalCloserId);
+    if (Number.isInteger(selectedCloserId) && selectedCloserId > 0) {
+      setApprovalLoading('approve');
+      try {
+        await api.contracts.approve(Number(id), { closingEmployeeId: selectedCloserId });
+        const fresh = await api.contracts.get(Number(id));
+        setData(fresh);
+        setShowApprovalModal(false);
+      } catch (err: any) {
+        alert('فشل اعتماد العقد: ' + (err.message || err));
+      } finally {
+        setApprovalLoading(null);
+      }
+      return;
+    }
+    if (!approvalCloserId) {
       const ok = window.confirm(
         'لا يوجد موظف تسكير محدد على العقد. سيتم تسجيل المستخدم الحالي كموظف تسكير. متابعة؟',
       );
@@ -202,9 +230,10 @@ export default function ContractDetail() {
     }
     setApprovalLoading('approve');
     try {
-      await api.contracts.approve(Number(id));
+      await api.contracts.approve(Number(id), { closingEmployeeId: Number(approvalCloserId) });
       const fresh = await api.contracts.get(Number(id));
       setData(fresh);
+      setShowApprovalModal(false);
     } catch (err: any) {
       alert('فشل اعتماد العقد: ' + (err.message || err));
     } finally {
@@ -355,7 +384,7 @@ export default function ContractDetail() {
               <div className="flex items-center gap-3 shrink-0">
                 <button
                   disabled={approvalLoading !== null}
-                  onClick={handleApprove}
+                  onClick={() => setShowApprovalModal(true)}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-4 py-2 text-xs font-bold transition-colors disabled:opacity-60"
                 >
                   {approvalLoading === 'approve' ? 'جاري الاعتماد...' : '✓ موافقة واعتماد'}
@@ -940,6 +969,57 @@ export default function ContractDetail() {
       </div>
 
       {/* ══ Activation Modal ════════════════════════════════════════════════════ */}
+      {showApprovalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-bold text-slate-800">اعتماد العقد</h3>
+              <button onClick={() => setShowApprovalModal(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">x</button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-500 mb-1 block">موظف التسكير</label>
+                <select
+                  value={approvalCloserId}
+                  onChange={e => setApprovalCloserId(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">اختر موظف التسكير...</option>
+                  {closers.map((closer: any) => (
+                    <option key={closer.id} value={closer.id}>
+                      {closer.name}{closer.roleDisplayName ? ` - ${closer.roleDisplayName}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {closers.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-2">لا يوجد موظفو تسكير متاحون ضمن صلاحيات هذا الفرع.</p>
+                )}
+              </div>
+              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-800 leading-relaxed">
+                عند الاعتماد سيتم تحويل العقد إلى نشط وإنشاء سجل الجهاز ومهمة التوصيل.
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={approvalLoading !== null || !approvalCloserId}
+                  onClick={handleApprove}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2.5 text-sm font-bold transition-colors disabled:opacity-60"
+                >
+                  {approvalLoading === 'approve' ? 'جاري الاعتماد...' : 'موافقة واعتماد'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowApprovalModal(false)}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-2.5 text-sm font-bold transition-colors"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showActivateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">

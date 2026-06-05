@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import FloatingActionButton from '../components/FloatingActionButton';
 import NewEmergencyTicketModal from '../components/NewEmergencyTicketModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
+import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import BranchSwitcher from '../components/BranchSwitcher';
 import {
     LayoutDashboard, Route, Users, BookUser, Globe,
@@ -43,6 +44,8 @@ const recordsChildren = [
 const operationsChildren = [
     { path: '/tasks/group/device-demo',         label: 'مهام عرض الجهاز',        icon: Monitor },
     { path: '/tasks/group/maintenance',         label: 'مهام الصيانة',           icon: Wrench },
+    // Phase 4 — service_requests intake layer (GLOBAL list, §٠.١٦)
+    { path: '/service-requests',                label: 'طلبات الصيانة (جديد)',   icon: Wrench },
     { path: '/tasks/group/collection',          label: 'مهام تحصيل الأقساط',     icon: DollarSign },
     { path: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع', icon: RefreshCw },
     { path: '/tasks/group/gift-delivery',       label: 'مهام تسليم الهدايا',     icon: Gift },
@@ -156,6 +159,12 @@ export default function MainLayout() {
     const toggleCollapse = () => setIsCollapsed(!isCollapsed);
     const [showEmergencyModal, setShowEmergencyModal] = useState(false);
     const [showCandidateModal, setShowCandidateModal] = useState(false);
+    // Phase 5 — service_requests intake. Feature-gated via localStorage so
+    // ops can flip it on per-user during staging without a deploy.
+    const [showServiceRequestModal, setShowServiceRequestModal] = useState(false);
+    const serviceRequestsUiEnabled =
+        typeof window !== 'undefined' &&
+        localStorage.getItem('gc_service_requests_ui') === 'on';
     const [candidateInitialMode, setCandidateInitialMode] = useState(false);
 
     return (
@@ -694,7 +703,16 @@ export default function MainLayout() {
                     setCandidateInitialMode(true);
                     setShowCandidateModal(true);
                 }}
+                onServiceRequestClick={
+                    serviceRequestsUiEnabled ? () => setShowServiceRequestModal(true) : undefined
+                }
             />
+            {showServiceRequestModal && (
+                <NewServiceRequestModal
+                    channel="internal_button"
+                    onClose={() => setShowServiceRequestModal(false)}
+                />
+            )}
 
             {/* Emergency Ticket Modal */}
             <NewEmergencyTicketModal

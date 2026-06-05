@@ -6,7 +6,6 @@ import {
   buildCustomerOwnershipSelectColumns,
   buildCustomerOwnershipSql,
   mapCustomerOwnership,
-  getCompanyOwnedClients,
 } from './customerOwnership.js';
 
 type RouteCompositionInput = {
@@ -439,8 +438,8 @@ export async function getPlanningMarketingTargets(params: {
 
   // ── Load calculation per zone ─────────────────────────────────────────────
   // Effective zone depends on location_basis (§PL-R008 / §PC-G001 resolution):
-  //   'client'   → clients.neighborhood
-  //   'contract' → contracts.installation_geo_unit_id (COALESCE → client neighborhood)
+  //   'client'            → clients.neighborhood
+  //   'device'/'contract' → open_tasks.device_id → installed_devices.installation_geo_unit_id
   //
   // Task eligibility includes BOTH:
   //   1. Waiting tasks (open/needs_follow_up) that pass the N-window check
@@ -454,14 +453,14 @@ export async function getPlanningMarketingTargets(params: {
       FROM (
         SELECT DISTINCT ON (c.id)
           CASE
-            WHEN ttc_eff.location_basis = 'contract' AND ct_loc.installation_geo_unit_id IS NOT NULL
+            WHEN ttc_eff.location_basis IN ('contract', 'device')
               THEN ct_loc.installation_geo_unit_id
             -- clients.neighborhood is already INTEGER; NULL means "no zone".
             ELSE c.neighborhood
           END AS effective_zone
         FROM clients c
         LEFT JOIN LATERAL (
-          SELECT ot_inner.id, ttc_inner.location_basis
+          SELECT ot_inner.id, ot_inner.device_id, ttc_inner.location_basis
           FROM open_tasks ot_inner
           INNER JOIN task_type_config ttc_inner ON ttc_inner.task_type = ot_inner.task_type
           WHERE ot_inner.client_id = c.id
@@ -482,17 +481,16 @@ export async function getPlanningMarketingTargets(params: {
           ORDER BY ot_inner.created_at DESC
           LIMIT 1
         ) ttc_eff ON TRUE
-        -- DEC-005 D27: 'contract' location_basis resolves to the customer's
-        -- installed_device.installation_geo_unit_id (the *device* is the physical
-        -- entity with a location; the contract is the financial entity).
+        -- DEC-005 D27: device-basis tasks resolve through the task's own
+        -- installed_device. Do not fall back to "latest device for customer";
+        -- a customer may own multiple devices in different locations.
         LEFT JOIN LATERAL (
           SELECT inst.installation_geo_unit_id
           FROM installed_devices inst
-          WHERE inst.customer_id = c.id
+          WHERE inst.id = ttc_eff.device_id
             AND inst.installation_geo_unit_id IS NOT NULL
-          ORDER BY inst.created_at DESC
           LIMIT 1
-        ) ct_loc ON ttc_eff.location_basis = 'contract'
+        ) ct_loc ON ttc_eff.location_basis IN ('contract', 'device')
         LEFT JOIN LATERAL (
           -- Phase 4 refactor (Q-C): read from field_visits + visit_tasks instead of
           -- the legacy marketing_visits + marketing_visit_tasks pair. The bridge
@@ -562,6 +560,10 @@ export async function getPlanningMarketingTargets(params: {
         c.governorate,
         c.district,
         c.neighborhood,
+        CASE
+          WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
+          ELSE c.neighborhood
+        END AS "effectiveZoneId",
         c.detailed_address AS "detailedAddress",
         c.gps_coordinates AS "gpsCoordinates",
         c.gender,
@@ -666,7 +668,7 @@ export async function getPlanningMarketingTargets(params: {
         LIMIT 1
       ) other_queued ON TRUE
       LEFT JOIN LATERAL (
-        SELECT ot_inner.id, ot_inner.task_type, ot_inner.task_family, ot_inner.reason,
+        SELECT ot_inner.id, ot_inner.device_id, ot_inner.task_type, ot_inner.task_family, ot_inner.reason,
                ot_inner.status, ot_inner.due_date, ot_inner.priority, ot_inner.notes,
                ttc_inner.location_basis
         FROM open_tasks ot_inner
@@ -689,16 +691,14 @@ export async function getPlanningMarketingTargets(params: {
         ORDER BY ot_inner.created_at DESC
         LIMIT 1
       ) ot ON TRUE
-      -- Resolve the installed-device's installation zone for 'contract'-basis
-      -- tasks. DEC-005 D27: the location belongs to the device, not the contract.
+      -- Resolve the installed-device's installation zone for device-basis tasks.
       LEFT JOIN LATERAL (
         SELECT inst.installation_geo_unit_id
         FROM installed_devices inst
-        WHERE inst.customer_id = c.id
+        WHERE inst.id = ot.device_id
           AND inst.installation_geo_unit_id IS NOT NULL
-        ORDER BY inst.created_at DESC
         LIMIT 1
-      ) ct_zone ON ot.location_basis = 'contract'
+      ) ct_zone ON ot.location_basis IN ('contract', 'device')
       LEFT JOIN LATERAL (
         -- Phase 4 refactor (Q-C): read from field_visits + visit_tasks
         SELECT 1 AS has_unfinished_visit
@@ -717,9 +717,11 @@ export async function getPlanningMarketingTargets(params: {
         AND ${buildTeamOwnedClientScopePredicate('c')}
         AND ot.id IS NOT NULL
         AND unfinished_visit.has_unfinished_visit IS NULL
-        -- Zone filter: use contract installation zone OR client neighborhood based on location_basis
+        -- Zone filter: use the task's actual execution location.
+        -- Device-basis tasks with missing device/location do not silently fall
+        -- back to the client address.
         AND (
-          (ot.location_basis = 'contract' AND ct_zone.installation_geo_unit_id = ANY($2::int[]))
+          (ot.location_basis IN ('contract', 'device') AND ct_zone.installation_geo_unit_id = ANY($2::int[]))
           OR
           (COALESCE(ot.location_basis, 'client') = 'client'
             AND c.neighborhood = ANY($2::int[]))
@@ -871,15 +873,14 @@ export async function getPlanningWorkScope(params: {
   );
   const scopeId: number | null = scopeRows[0]?.id ?? null;
 
-  // Get company-owned client IDs in zone
-  const companyOwnedIds = zoneIds.length > 0 ? await getCompanyOwnedClients(branchId, zoneIds) : [];
-
-  // Build a set of client IDs reachable by this team:
-  //   1) client is company-owned in zone
-  //   2) client is personally assigned to a team actor
+  // Build task scope bottom-up from the task's actual execution location:
+  //   1) client-basis task  -> clients.neighborhood
+  //   2) device-basis task  -> open_tasks.device_id -> installed_devices.installation_geo_unit_id
+  // Ownership is a separate eligibility condition; it must not replace the
+  // task-location check.
   // DEC-006 D31: solo teams (EmergencySlot) only carry emergency_maintenance.
   const isSoloTeam = keyMatch[1] === 'solo';
-  const queryParams: any[] = [branchId, companyOwnedIds, actorHrUserIds, date, isSoloTeam, teamKey];
+  const queryParams: any[] = [branchId, zoneIds, actorHrUserIds, date, isSoloTeam, teamKey];
 
   const { rows: taskRows } = await pool.query(
     `SELECT
@@ -892,6 +893,10 @@ export async function getPlanningWorkScope(params: {
        ot.due_date         AS "dueDate",
        ot.priority,
        ot.notes,
+       CASE
+         WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
+         ELSE c.neighborhood
+       END                 AS "effectiveZoneId",
        c.name              AS "clientName",
        c.mobile            AS "clientMobile",
        c.neighborhood      AS "clientNeighborhood",
@@ -926,6 +931,9 @@ export async function getPlanningWorkScope(params: {
      FROM open_tasks ot
      JOIN clients c ON c.id = ot.client_id
      JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+     LEFT JOIN installed_devices inst
+       ON inst.id = ot.device_id
+      AND ttc.location_basis IN ('contract', 'device')
      LEFT JOIN branches b ON b.id = c.branch_id
      WHERE ot.branch_id = $1
       AND (
@@ -942,7 +950,20 @@ export async function getPlanningWorkScope(params: {
        -- DEC-006 D31: EmergencySlot capability is exclusively emergency_maintenance
        AND ($5::boolean = FALSE OR ot.task_type = 'emergency_maintenance')
        AND (
-         (cardinality($2::int[]) > 0 AND ot.client_id = ANY($2::int[]))
+         (ttc.location_basis IN ('contract', 'device') AND inst.installation_geo_unit_id = ANY($2::int[]))
+         OR
+         (COALESCE(ttc.location_basis, 'client') = 'client' AND c.neighborhood = ANY($2::int[]))
+       )
+       AND (
+         (${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP')
+         OR NOT EXISTS (
+           SELECT 1
+           FROM client_assignments ca5
+           JOIN hr_users u5 ON u5.id = ca5.hr_user_id
+           WHERE ca5.client_id = c.id
+             AND u5.employee_id IS NOT NULL
+             AND u5.is_active = TRUE
+         )
          OR (cardinality($3::int[]) > 0 AND EXISTS (
            SELECT 1 FROM client_assignments ca
            WHERE ca.client_id = ot.client_id
@@ -953,7 +974,11 @@ export async function getPlanningWorkScope(params: {
     queryParams,
   );
 
-  const companyOwnedSet = new Set(companyOwnedIds);
+  const companyOwnedSet = new Set(
+    taskRows
+      .filter((r: any) => r.ownershipType === 'company_branch')
+      .map((r: any) => Number(r.clientId)),
+  );
 
   const tasks: WorkScopeTask[] = taskRows.map((r: any) => ({
     openTaskId: r.openTaskId,
@@ -1055,6 +1080,10 @@ export async function getAssignedLeadsForTeam(params: {
         c.mobile,
         c.contacts,
         c.neighborhood,
+        CASE
+          WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
+          ELSE c.neighborhood
+        END AS "effectiveZoneId",
         c.detailed_address AS "detailedAddress",
         c.referral_address_text AS "referralAddressText",
         c.branch_id        AS "branchId",
@@ -1072,17 +1101,27 @@ export async function getAssignedLeadsForTeam(params: {
         ot.due_date        AS "openTaskDueDate",
         ot.priority        AS "openTaskPriority",
         ot.notes           AS "openTaskNotes",
+        COALESCE(ttc.contact_target_visit_type, 'marketing') AS "contactTargetVisitType",
         ${buildCustomerOwnershipSelectColumns()}
       FROM open_tasks ot
       JOIN clients c ON c.id = ot.client_id
+      JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+      LEFT JOIN installed_devices inst
+        ON inst.id = ot.device_id
+       AND ttc.location_basis IN ('contract', 'device')
       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'NULL' })}
       LEFT JOIN contact_targets ct
         ON ct.branch_id    = c.branch_id
        AND ct.target_type  = 'client'
        AND ct.target_id    = c.id
-       -- DEC-005 D30: target_stage / source_type dropped (or CHECK-pinned to
-       -- 'lead'). The JOIN no longer references them.
-       AND ct.visit_type   = 'marketing'
+       AND ct.date         = $2::date
+       AND ct.team_key     = $1
+       AND ct.work_location_geo_unit_id IS NOT DISTINCT FROM (
+         CASE
+           WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
+           ELSE c.neighborhood
+         END
+       )
       WHERE ot.status            = 'assigned'
         AND ot.assigned_team_key = $1
         AND ot.assigned_for_date = $2

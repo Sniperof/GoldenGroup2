@@ -2,11 +2,31 @@ import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { AlertCircle } from 'lucide-react';
 
-export function Card({ title, icon: Icon, children, className = '' }: { title: string; icon: LucideIcon; children: ReactNode; className?: string }) {
+export type CardAccent = 'indigo' | 'emerald' | 'slate' | 'violet' | 'amber' | 'sky' | 'rose';
+
+const ACCENT_THEME: Record<CardAccent, { bar: string; iconBg: string; iconText: string }> = {
+  indigo:  { bar: 'bg-indigo-500',  iconBg: 'bg-indigo-50',  iconText: 'text-indigo-600' },
+  emerald: { bar: 'bg-emerald-500', iconBg: 'bg-emerald-50', iconText: 'text-emerald-600' },
+  slate:   { bar: 'bg-slate-400',   iconBg: 'bg-slate-100',  iconText: 'text-slate-600' },
+  violet:  { bar: 'bg-violet-500',  iconBg: 'bg-violet-50',  iconText: 'text-violet-600' },
+  amber:   { bar: 'bg-amber-500',   iconBg: 'bg-amber-50',   iconText: 'text-amber-600' },
+  sky:     { bar: 'bg-sky-500',     iconBg: 'bg-sky-50',     iconText: 'text-sky-600' },
+  rose:    { bar: 'bg-rose-500',    iconBg: 'bg-rose-50',    iconText: 'text-rose-600' },
+};
+
+export function Card({ title, icon: Icon, children, className = '', accent }: { title: string; icon: LucideIcon; children: ReactNode; className?: string; accent?: CardAccent }) {
+  const theme = accent ? ACCENT_THEME[accent] : null;
   return (
-    <div className={`bg-white rounded-xl border border-slate-200 overflow-hidden ${className}`}>
-      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-        <Icon className="w-4 h-4 text-slate-400" />
+    <div className={`relative bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm transition-shadow hover:shadow-md ${className}`}>
+      {theme && <span className={`absolute top-0 inset-x-0 h-0.5 ${theme.bar}`} aria-hidden />}
+      <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-bl from-white to-slate-50/40 flex items-center gap-2.5">
+        {theme ? (
+          <span className={`w-7 h-7 rounded-lg ${theme.iconBg} ${theme.iconText} flex items-center justify-center`}>
+            <Icon className="w-3.5 h-3.5" />
+          </span>
+        ) : (
+          <Icon className="w-4 h-4 text-slate-400" />
+        )}
         <h3 className="text-sm font-bold text-slate-700">{title}</h3>
       </div>
       <div className="p-5">{children}</div>

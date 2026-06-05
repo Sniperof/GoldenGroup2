@@ -526,21 +526,27 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
     }
 
     const c = normalizeCandidatePayload(req.body ?? {});
+    const targetBranchId = req.body?.branchId !== undefined
+      ? resolveCandidateTargetBranch(req, req.body?.branchId)
+      : existing.branchId;
+    if (targetBranchId == null) {
+      return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
+    }
     await pool.query(
       `UPDATE candidates SET first_name=$1, last_name=$2, nickname=$3, mobile=$4,
         contacts=$5, address_text=$6, geo_unit_id=$7, owner_user_id=$8, status=$9, referral_sheet_id=$10,
         referral_date=$11, referral_reason=$12, referral_type=$13, referral_origin_channel=$14,
         referral_name_snapshot=$15, referral_entity_id=$16, referral_confirmation_status=$17,
         occupation=$18, candidate_notes=$19, duplicate_flag=$20, duplicate_type=$21,
-        duplicate_reference_id=$22, converted_to_lead_id=$23, created_by=$24
-      WHERE id=$25`,
+        duplicate_reference_id=$22, converted_to_lead_id=$23, created_by=$24, branch_id=$25
+      WHERE id=$26`,
       [c.firstName, c.lastName || null, c.nickname, c.mobile, JSON.stringify(c.contacts || []), c.addressText || '', c.geoUnitId || null,
        c.ownerUserId || null, c.status || 'Suggested', c.referralSheetId || null,
        c.referralDate || null, c.referralReason || null, c.referralType || null,
        c.referralOriginChannel || null, c.referralNameSnapshot || null,
        c.referralEntityId || null, c.referralConfirmationStatus || 'Pending',
        c.occupation || null, c.candidateNotes || null, c.duplicateFlag || false, c.duplicateType || null,
-       c.duplicateReferenceId || null, c.convertedToLeadId || null, c.createdBy || null,
+       c.duplicateReferenceId || null, c.convertedToLeadId || null, c.createdBy || null, targetBranchId,
        candidateId]
     );
 

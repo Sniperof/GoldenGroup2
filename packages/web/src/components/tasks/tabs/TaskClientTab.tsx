@@ -2,7 +2,9 @@ import {
   UserRound, Phone, MapPin, Briefcase, Award, Users2,
   StickyNote, Tag, Map as MapIcon, MessageCircle, Home, Smartphone,
 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, InfoLine, TabAlert } from '../shared';
+import { getGeoUnits, type GeoUnit } from '../../../lib/geoUnitsCache';
 
 // ============================================================
 // TaskClientTab — Standard Snapshot (Level 2)
@@ -85,6 +87,36 @@ function buildMapUrl(gps: any): string | null {
   return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 }
 
+function parseGeoId(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Number(value.trim());
+  return null;
+}
+
+function resolveGeoName(value: unknown, geoMap: Map<number, GeoUnit>): string {
+  if (typeof value === 'string' && value.trim() && !/^\d+$/.test(value.trim())) return value.trim();
+  const id = parseGeoId(value);
+  return id ? geoMap.get(id)?.name ?? '' : '';
+}
+
+function buildAddressShort(neighborhoodValue: unknown, districtValue: unknown, geoMap: Map<number, GeoUnit>): string {
+  const neighborhoodId = parseGeoId(neighborhoodValue);
+  const districtId = parseGeoId(districtValue);
+  const neighborhood = neighborhoodId ? geoMap.get(neighborhoodId) : null;
+  if (neighborhood) {
+    const subArea = neighborhood.parentId ? geoMap.get(neighborhood.parentId) : null;
+    if (subArea) return `${subArea.name} ← ${neighborhood.name}`;
+    return neighborhood.name;
+  }
+  const district = districtId ? geoMap.get(districtId) : null;
+  if (district) {
+    const subArea = Array.from(geoMap.values()).find((unit) => unit.parentId === district.id && unit.level === 3);
+    if (subArea) return `${district.name} ← ${subArea.name}`;
+    return district.name;
+  }
+  return '';
+}
+
 export interface TaskClientTabProps {
   task: any;
   onClientClick: (clientId: number) => void;
@@ -92,6 +124,13 @@ export interface TaskClientTabProps {
 
 export default function TaskClientTab({ task, onClientClick }: TaskClientTabProps) {
   const snap = task.clientSnapshot || {};
+  const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+
+  useEffect(() => {
+    getGeoUnits().then(setGeoUnits).catch(() => setGeoUnits([]));
+  }, []);
+
+  const geoMap = useMemo(() => new Map(geoUnits.map((unit) => [unit.id, unit])), [geoUnits]);
   const fullName = buildFullName(task, snap);
   const nickname = task.clientNickname || snap.nickname || '';
   const classification: string | null = task.clientClassification || null;
@@ -104,10 +143,17 @@ export default function TaskClientTab({ task, onClientClick }: TaskClientTabProp
     : (Array.isArray(snap.contacts) ? snap.contacts : []);
   const contacts = contactsRaw.filter((c: any) => !c?.isPrimary && normalizePhone(c?.number) !== primaryDigits);
 
-  const governorate = snap.address?.governorate || task.clientGovernorate || '';
-  const district    = snap.address?.district    || task.clientDistrict    || '';
-  const subArea     = snap.address?.subArea     || '';
-  const neighborhood = snap.address?.neighborhood || task.clientNeighborhood || '';
+  const governorate = resolveGeoName(snap.address?.governorate || task.clientGovernorate || '', geoMap);
+  const district    = resolveGeoName(snap.address?.district || task.clientDistrict || '', geoMap);
+  const neighborhood = resolveGeoName(snap.address?.neighborhood || task.clientNeighborhood || '', geoMap);
+  const subArea = (() => {
+    const explicit = resolveGeoName(snap.address?.subArea || '', geoMap);
+    if (explicit) return explicit;
+    const neighborhoodId = parseGeoId(snap.address?.neighborhood || task.clientNeighborhood || '');
+    const neighborhoodUnit = neighborhoodId ? geoMap.get(neighborhoodId) : null;
+    return neighborhoodUnit?.parentId ? geoMap.get(neighborhoodUnit.parentId)?.name ?? '' : '';
+  })();
+  const addressShort = buildAddressShort(snap.address?.neighborhood || task.clientNeighborhood || '', snap.address?.district || task.clientDistrict || '', geoMap);
   const detailedAddress = task.clientDetailedAddress || snap.address?.detailed || '';
   const gps  = task.clientGps || snap.address?.gps || null;
   const mapUrl = buildMapUrl(gps);
@@ -203,9 +249,14 @@ export default function TaskClientTab({ task, onClientClick }: TaskClientTabProp
               <div className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 text-slate-400 mt-0.5" />
                 <span className="text-sm text-slate-700">
-                  {[governorate, district, subArea, neighborhood].filter(Boolean).join(' ← ') || '—'}
+                  {addressShort || '—'}
                 </span>
               </div>
+              {([governorate, district, subArea, neighborhood].filter(Boolean).length > 0) && (
+                <p className="text-xs text-slate-500 pr-6">
+                  {[governorate, district, subArea, neighborhood].filter(Boolean).join(' ← ')}
+                </p>
+              )}
               {detailedAddress && (
                 <p className="text-sm text-slate-600 pr-6">{detailedAddress}</p>
               )}

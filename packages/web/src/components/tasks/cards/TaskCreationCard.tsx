@@ -30,7 +30,7 @@ function formatCreationOrigin(task: any): string {
 
 export default function TaskCreationCard({ task }: { task: any }) {
   return (
-    <Card title="بيانات الإنشاء" icon={FileText}>
+    <Card title="بيانات الإنشاء" icon={FileText} accent="slate">
       <div className="space-y-1.5">
         <InfoLine label="تاريخ الإنشاء" value={formatDateTime(task.createdAt)} />
         <InfoLine label="آخر تحديث" value={formatDateTime(task.updatedAt)} />

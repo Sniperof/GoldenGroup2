@@ -49,12 +49,21 @@ function buildWizardTask(taskId: number, task: any | null | undefined, preOffers
     Number.isFinite(offer.totalAmount) &&
     offer.totalAmount > 0
   );
-  const hasSavedOutcome =
+  // When activeVisit exists, the modal opens to record a NEW result for the
+  // currently-live booking. Any latestFinalDecision/outcome on the task
+  // reflects a PRIOR attempt's result and must not be treated as "already
+  // saved" for the active attempt — otherwise the wizard would prefill with
+  // a past decision (e.g. 'rescheduled') and surface stale offers as
+  // "savedOffers". The diagnostic fix: only treat the task as having a
+  // saved outcome when there is no active booking.
+  const isRecordingNewAttempt = task?.activeVisit != null;
+  const hasSavedOutcome = !isRecordingNewAttempt && (
     task?.outcome != null ||
     task?.latestFinalDecision != null ||
     task?.final_decision != null ||
     task?.result != null ||
-    task?.result_id != null;
+    task?.result_id != null
+  );
   const rawSavedOffers = Array.isArray(task?.offers) && task.offers.length > 0
     ? task.offers
     : normalizedPreOffers;
@@ -77,10 +86,20 @@ function buildWizardTask(taskId: number, task: any | null | undefined, preOffers
     offers: savedOffers,
     createdAt: task?.createdAt ?? new Date().toISOString(),
     updatedAt: task?.updatedAt ?? new Date().toISOString(),
-    outcome: task?.outcome ?? task?.latestFinalDecision ?? task?.final_decision ?? null,
-    resultNotes: task?.resultNotes ?? task?.closingNotes ?? null,
-    soldDeviceModelId: task?.soldDeviceModelId ?? task?.sold_device_model_id ?? null,
-    closedByEmployeeId: task?.closedByEmployeeId ?? task?.closed_by_employee_id ?? null,
+    // Outcome/notes/closer fields only carry meaning when we're reading back a
+    // saved attempt. For a new attempt against an active booking these MUST
+    // start blank — leaking from lastAttempt would prefill the wizard with
+    // the previous attempt's data.
+    outcome: isRecordingNewAttempt
+      ? null
+      : (task?.outcome ?? task?.latestFinalDecision ?? task?.final_decision ?? null),
+    resultNotes: isRecordingNewAttempt ? null : (task?.resultNotes ?? task?.closingNotes ?? null),
+    soldDeviceModelId: isRecordingNewAttempt
+      ? null
+      : (task?.soldDeviceModelId ?? task?.sold_device_model_id ?? null),
+    closedByEmployeeId: isRecordingNewAttempt
+      ? null
+      : (task?.closedByEmployeeId ?? task?.closed_by_employee_id ?? null),
     cancellationReasonId: task?.cancellationReasonId ?? null,
     rescheduleReasonId: task?.rescheduleReasonId ?? null,
     followUpDueDate: task?.followUpDueDate ?? task?.expectedDate ?? null,

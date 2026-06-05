@@ -2,9 +2,11 @@ import { useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarClock, CheckCircle2, ChevronLeft, Clock, Footprints, Plus } from 'lucide-react';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
-import { Card, InfoLine, TabAlert, formatDateTime } from '../shared';
+import { Card, InfoLine, TabAlert, formatDate, formatDateTime } from '../shared';
 import type { TaskResultRendererProps } from '../types';
 import DeviceDemoResultModal from '../../../taskTypes/device_demo/DeviceDemoResultModal';
+
+const TERMINAL_STATUSES = new Set(['completed', 'closed', 'cancelled']);
 
 // Arabic labels for the unified final_decision values (device_demo first;
 // other task types extend this map as they migrate to the new model).
@@ -104,24 +106,31 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
   const statusLabel = OPEN_TASK_STATUS_LABELS[task.status as OpenTaskStatus] ?? task.status;
   const [showResultModal, setShowResultModal] = useState(false);
 
-  // Final decision lives on the visit_task_result row, surfaced as latestFinalDecision.
-  // Fall back to outcome/result for legacy rows.
-  const finalDecision: string | null = task.latestFinalDecision ?? task.finalDecision ?? task.outcome ?? task.result ?? null;
-  const shouldShowResultDetails = finalDecision === 'offer_presented';
+  // The open_task has a final result only in terminal states. While the
+  // story is alive, the result of an individual past attempt does NOT count
+  // as the task's final result — that's the diagnostic fix this tab is built
+  // around.
+  const isTerminal = TERMINAL_STATUSES.has(task.status);
+  const lastAttempt = task.lastAttempt ?? null;
+  const lastAttemptDetail = task.lastAttemptDetail ?? null;
+  // Task-level decision: only the last attempt's decision counts as the task's
+  // final result, and only after the open_task has actually closed out.
+  const taskFinalDecision: string | null = isTerminal ? (lastAttempt?.finalDecision ?? null) : null;
+  // Attempt-level decision: always the last attempt's recorded decision, if any.
+  const attemptFinalDecision: string | null = lastAttempt?.finalDecision ?? null;
+
+  const shouldShowResultDetails = attemptFinalDecision === 'offer_presented';
 
   // Result modal is only wired for device_demo today; other task types still
   // surface a read-only result block until they migrate to the new model.
-  const latestAttemptAlreadyHasResult =
-    task.visitTaskResultId != null ||
-    task.latestFinalDecision != null ||
-    task.finalDecision != null;
+  // canRecordResult now relies on activeVisit (a live booking with no result yet).
+  // If activeVisit is null, there's nothing to record a result against.
+  const activeVisit = task.activeVisit ?? null;
   const canRecordResult =
     task.taskType === 'device_demo' &&
-    task.marketingVisitId != null &&
-    task.latestVisitTaskId != null &&
-    (task.visitStatus === 'in_progress' || task.visitStatus === 'ended') &&
-    !latestAttemptAlreadyHasResult &&
-    !['completed', 'closed', 'cancelled'].includes(task.status);
+    activeVisit != null &&
+    (activeVisit.status === 'in_progress' || activeVisit.status === 'ended') &&
+    !isTerminal;
 
   return (
     <>
@@ -142,25 +151,44 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
 
       <Card title="ملخص النتيجة" icon={CheckCircle2}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1.5">
-          <InfoLine label="النتيجة" value={renderFinalDecision(finalDecision)} />
+          <InfoLine
+            label="نتيجة المهمة"
+            value={isTerminal
+              ? renderFinalDecision(taskFinalDecision)
+              : <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">قيد المتابعة</span>}
+          />
           <InfoLine
             label="المحصلة"
-            value={renderDerivedOutcome(finalDecision, task, rendererProps?.preOffers ?? [])}
+            value={renderDerivedOutcome(taskFinalDecision, task, rendererProps?.preOffers ?? [])}
           />
           <InfoLine label="الحالة" value={statusLabel} />
-          <InfoLine label="تاريخ الإتمام" value={task.completedAt ? formatDateTime(task.completedAt) : '—'} />
-          {task.cancellationReason && (
-            <InfoLine
-              label="سبب الإلغاء"
-              value={<span className="text-rose-700">{task.cancellationReason}</span>}
-            />
-          )}
-          {task.noClosingReason && (
-            <InfoLine label="سبب عدم الإغلاق" value={task.noClosingReason} />
-          )}
-          {task.resultNotes && (
-            <div className="md:col-span-2">
-              <InfoLine label="ملاحظات النتيجة" value={task.resultNotes} />
+          <InfoLine
+            label="تاريخ الإتمام"
+            value={isTerminal && lastAttempt?.closedAt ? formatDateTime(lastAttempt.closedAt) : '—'}
+          />
+          {lastAttempt && (
+            <div className="md:col-span-2 mt-2 pt-2 border-t border-slate-100">
+              <InfoLine
+                label="نتيجة آخر محاولة"
+                value={
+                  <span className="inline-flex items-center gap-2 text-xs">
+                    {renderFinalDecision(attemptFinalDecision)}
+                    <span className="text-slate-400">
+                      · {formatDate(lastAttempt.scheduledDate)}
+                      {lastAttempt.scheduledTime ? ` · ${lastAttempt.scheduledTime}` : ''}
+                    </span>
+                  </span>
+                }
+              />
+              {lastAttemptDetail?.reasonCode && (
+                <InfoLine
+                  label="سبب آخر محاولة"
+                  value={<span className="text-rose-700">{lastAttemptDetail.reasonCode}</span>}
+                />
+              )}
+              {lastAttemptDetail?.closingNotes && (
+                <InfoLine label="ملاحظات آخر محاولة" value={lastAttemptDetail.closingNotes} />
+              )}
             </div>
           )}
         </div>
@@ -227,10 +255,10 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
 
       {ResultRenderer && shouldShowResultDetails && <ResultRenderer task={task} {...rendererProps} />}
 
-      {showResultModal && canRecordResult && (
+      {showResultModal && canRecordResult && activeVisit && (
         <DeviceDemoResultModal
-          visitId={Number(task.marketingVisitId)}
-          taskId={Number(task.latestVisitTaskId)}
+          visitId={Number(activeVisit.id)}
+          taskId={Number(activeVisit.visitTaskId)}
           task={task}
           preOffers={rendererProps?.preOffers ?? []}
           onClose={() => setShowResultModal(false)}

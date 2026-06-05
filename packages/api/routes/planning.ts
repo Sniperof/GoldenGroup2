@@ -20,57 +20,73 @@ async function reconcileContactTargetWorkspace(
     await db.query('BEGIN');
 
     const { rows: taskRows } = await db.query(
-      `SELECT
-         ot.id AS "taskId",
-         ot.client_id AS "clientId",
-         ot.status,
-         ot.excluded_for_date::text AS "excludedForDate",
-         c.neighborhood AS "zoneId",
+      `WITH scoped_tasks AS (
+         SELECT
+           ot.id AS "taskId",
+           ot.client_id AS "clientId",
+           ot.status,
+           ot.excluded_for_date::text AS "excludedForDate",
+           COALESCE(ttc.contact_target_visit_type, 'marketing') AS "visitType",
+           CASE
+             WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
+             ELSE c.neighborhood
+           END AS "workLocationGeoUnitId"
+         FROM open_tasks ot
+         JOIN clients c ON c.id = ot.client_id AND c.branch_id = ot.branch_id
+         JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+         LEFT JOIN installed_devices inst
+           ON inst.id = ot.device_id
+          AND ttc.location_basis IN ('contract', 'device')
+         WHERE ot.branch_id = $3
+           AND ot.client_id IS NOT NULL
+           AND (
+             (
+               ot.assigned_team_key = $1
+               AND ot.status = 'assigned'
+               AND ot.assigned_for_date = $2::date
+               AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
+             )
+             OR (
+               ot.excluded_for_date = $2::date
+               AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+             )
+           )
+       )
+       SELECT
+         st.*,
          ct.id AS "contactTargetId",
          ct.status AS "contactTargetStatus",
          ct.closing_reason AS "closingReason"
-       FROM open_tasks ot
-       JOIN clients c ON c.id = ot.client_id AND c.branch_id = ot.branch_id
+       FROM scoped_tasks st
        LEFT JOIN LATERAL (
          SELECT id, status, closing_reason
            FROM contact_targets
-          WHERE branch_id = ot.branch_id
+          WHERE branch_id = $3
             AND target_type = 'client'
-            AND target_id = ot.client_id
-            AND visit_type = 'marketing'
+            AND target_id = st."clientId"
             AND date = $2::date
             AND team_key = $1
+            AND work_location_geo_unit_id IS NOT DISTINCT FROM st."workLocationGeoUnitId"
           ORDER BY id DESC
           LIMIT 1
        ) ct ON true
-       WHERE ot.branch_id = $3
-         AND ot.client_id IS NOT NULL
-         AND (
-           (
-             ot.assigned_team_key = $1
-             AND ot.status = 'assigned'
-             AND ot.assigned_for_date = $2::date
-             AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
-           )
-           OR (
-             ot.excluded_for_date = $2::date
-             AND ot.status IN ('open', 'needs_follow_up', 'assigned')
-           )
-         )
-       ORDER BY ot.client_id, ot.id`,
+       ORDER BY st."clientId", st."workLocationGeoUnitId" NULLS LAST, st."taskId"`,
       [teamKey, date, branchId],
     );
 
-    const tasksByClient = new Map<number, any[]>();
+    const tasksByContactContext = new Map<string, any[]>();
     for (const row of taskRows) {
       const clientId = Number(row.clientId);
       if (!Number.isInteger(clientId) || clientId <= 0) continue;
-      if (!tasksByClient.has(clientId)) tasksByClient.set(clientId, []);
-      tasksByClient.get(clientId)!.push(row);
+      const workLocationKey = row.workLocationGeoUnitId == null ? 'null' : String(row.workLocationGeoUnitId);
+      const key = `${clientId}:${workLocationKey}`;
+      if (!tasksByContactContext.has(key)) tasksByContactContext.set(key, []);
+      tasksByContactContext.get(key)!.push(row);
     }
 
-    for (const [clientId, clientTasks] of tasksByClient) {
+    for (const [, clientTasks] of tasksByContactContext) {
       const first = clientTasks[0];
+      const clientId = Number(first.clientId);
       let contactTargetId = Number(first.contactTargetId);
 
       if (!Number.isInteger(contactTargetId) || contactTargetId <= 0) {
@@ -78,11 +94,11 @@ async function reconcileContactTargetWorkspace(
           `INSERT INTO contact_targets (
              branch_id, target_type, target_id, target_stage, visit_type,
              source_type, source_id, supervisor_hr_user_id, zone_id, status,
-             date, team_key
+             date, team_key, work_location_geo_unit_id
            )
-           VALUES ($1, 'client', $2, 'lead', 'marketing', 'lead', $2, NULL, $3, 'new', $4::date, $5)
+           VALUES ($1, 'client', $2, 'lead', $6, 'lead', $2, NULL, $3, 'new', $4::date, $5, $3)
            RETURNING id`,
-          [branchId, clientId, first.zoneId ?? null, date, teamKey],
+          [branchId, clientId, first.workLocationGeoUnitId ?? null, date, teamKey, first.visitType ?? 'marketing'],
         );
         contactTargetId = Number(rows[0]?.id);
       }
@@ -919,7 +935,11 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
          ot.excluded_reason                       AS "excludedReason",
          ot.last_waiting_status                   AS "lastWaitingStatus",
          ot.attempt_count                         AS "attemptCount",
+         ctot.contact_target_id                   AS "taskContactTargetId",
          ctot.link_status                         AS "contactTargetTaskStatus",
+         task_ct.work_location_geo_unit_id        AS "workLocationGeoUnitId",
+         work_gu.name                             AS "workLocationName",
+         task_ct.status                           AS "taskContactTargetStatus",
          COALESCE(ttc.arabic_label, ot.task_type) AS "taskTypeLabel"
        FROM open_tasks ot
        LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
@@ -928,6 +948,8 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
         AND ctot.branch_id = ot.branch_id
         AND ctot.team_key = $3
         AND ctot.date = $4::date
+       LEFT JOIN contact_targets task_ct ON task_ct.id = ctot.contact_target_id
+       LEFT JOIN geo_units work_gu ON work_gu.id = COALESCE(task_ct.work_location_geo_unit_id, task_ct.zone_id)
        WHERE ot.client_id = ANY($1::int[])
          AND ot.branch_id = $2
          AND ot.status IN ('assigned','in_scheduling','scheduled','waiting_execution',
@@ -954,8 +976,18 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
          AND tli.entity_id = ANY($4::int[])`,
       [teamKey, date, branchId, clientIds],
     );
-    const listItemByClient = new Map<number, any>();
-    listItemRows.forEach((r: any) => listItemByClient.set(Number(r.clientId), r));
+    const listItemByContext = new Map<string, any>();
+    listItemRows.forEach((r: any) => {
+      const contactTargetId = Number(r.contactTargetId);
+      const openTaskId = Number(r.openTaskId);
+      const clientId = Number(r.clientId);
+      const key = Number.isInteger(contactTargetId) && contactTargetId > 0
+        ? `ct:${contactTargetId}`
+        : Number.isInteger(openTaskId) && openTaskId > 0
+          ? `task:${openTaskId}`
+          : `client:${clientId}`;
+      listItemByContext.set(key, r);
+    });
 
     // Source: field_visits (canonical post-Phase-4). team identified via team_snapshot->>'teamKey'.
     const { rows: apptRows } = await pool.query(
@@ -979,11 +1011,15 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       if (!apptByClient.has(Number(r.clientId))) apptByClient.set(Number(r.clientId), r);
     });
 
-    const tasksByClient = new Map<number, any[]>();
+    const tasksByContext = new Map<string, any[]>();
     taskRows.forEach((r: any) => {
-      const id = Number(r.clientId);
-      if (!tasksByClient.has(id)) tasksByClient.set(id, []);
-      tasksByClient.get(id)!.push(r);
+      const contactTargetId = Number(r.taskContactTargetId);
+      const clientId = Number(r.clientId);
+      const key = Number.isInteger(contactTargetId) && contactTargetId > 0
+        ? `ct:${contactTargetId}`
+        : `client:${clientId}`;
+      if (!tasksByContext.has(key)) tasksByContext.set(key, []);
+      tasksByContext.get(key)!.push(r);
     });
 
     function primaryPhone(meta: any): string | null {
@@ -992,10 +1028,20 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       return primary?.number ?? meta?.mobile ?? null;
     }
 
-    const clients = clientIds.map(id => {
+    const contactContexts = Array.from(tasksByContext.entries()).map(([key, tasks]) => ({
+      key,
+      clientId: Number(tasks[0]?.clientId),
+      contactTargetId: Number(tasks[0]?.taskContactTargetId) || null,
+      stationName: tasks[0]?.workLocationName ?? null,
+      contactTargetStatus: tasks[0]?.taskContactTargetStatus ?? null,
+      tasks,
+    }));
+
+    const clients = contactContexts.map(context => {
+      const id = context.clientId;
       const meta = clientMetaById.get(id);
-      const tasks = tasksByClient.get(id) ?? [];
-      const listItem = listItemByClient.get(id) ?? null;
+      const tasks = context.tasks;
+      const listItem = listItemByContext.get(context.key) ?? null;
       const appt = apptByClient.get(id) ?? null;
 
       const assignedTasks = tasks.filter((t: any) => t.status === 'assigned');
@@ -1018,15 +1064,15 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
         clientName: meta?.name ?? '',
         primaryPhone: primaryPhone(meta),
         candidateStatus: meta?.candidateStatus ?? null,
-        stationName: meta?.stationName ?? null,
+        stationName: context.stationName ?? meta?.stationName ?? null,
         tasks,
         assignedCount: assignedTasks.length,
         excludedCount: excludedTasks.length,
         generatedInTaskList,
         hasPendingSync,
         workspaceStatus,
-        contactTargetId: meta?.contactTargetId ?? listItem?.contactTargetId ?? null,
-        contactTargetStatus: meta?.contactTargetStatus ?? null,
+        contactTargetId: context.contactTargetId ?? meta?.contactTargetId ?? listItem?.contactTargetId ?? null,
+        contactTargetStatus: context.contactTargetStatus ?? meta?.contactTargetStatus ?? null,
         taskListItemStatus: listItem?.itemStatus ?? null,
         taskListOpenTaskId: listItem?.openTaskId ?? null,
         latestCallOutcome: listItem?.callOutcome ?? meta?.contactTargetOutcome ?? null,

@@ -410,8 +410,6 @@ export default function PlanningContactTargets() {
     });
     const [sortKey, setSortKey] = useState<SortKey | null>(parseSortKey(searchParams.get('sort')) || 'clientName');
     const [sortDir, setSortDir] = useState<SortDir>(parseSortDir(searchParams.get('dir')) || 'asc');
-    const [selectedClientIds, setSelectedClientIds] = useState<Set<number>>(new Set());
-    const [bulkSaving, setBulkSaving] = useState(false);
     const [syncingContacts, setSyncingContacts] = useState(false);
 
     const loadData = useCallback(async () => {
@@ -427,7 +425,6 @@ export default function PlanningContactTargets() {
     }, [date, teamKey]);
 
     useEffect(() => { loadData(); }, [loadData]);
-    useEffect(() => { setSelectedClientIds(new Set()); }, [data]);
     useEffect(() => {
         const next = new URLSearchParams(searchParams);
         next.set('date', date);
@@ -607,11 +604,6 @@ export default function PlanningContactTargets() {
         });
     }
 
-    const editableClientIds = filteredClients
-        .filter(client => client.tasks.some(task => task.status === 'assigned' || task.excludedForDate === today))
-        .map(client => client.clientId);
-    const selectedVisibleClientIds = editableClientIds.filter(id => selectedClientIds.has(id));
-    const allVisibleSelected = editableClientIds.length > 0 && selectedVisibleClientIds.length === editableClientIds.length;
     const hasActiveFilters =
         searchTerm.trim() !== '' ||
         stationFilter !== 'all' ||
@@ -630,57 +622,6 @@ export default function PlanningContactTargets() {
         { key: 'contacted', count: summary?.contacted ?? 0 },
         { key: 'closed',   count: summary?.closed   ?? 0 },
     ];
-
-    const handleToggleClientSelection = (clientId: number) => {
-        setSelectedClientIds(prev => {
-            const next = new Set(prev);
-            if (next.has(clientId)) next.delete(clientId);
-            else next.add(clientId);
-            return next;
-        });
-    };
-
-    const handleToggleAllVisible = () => {
-        setSelectedClientIds(prev => {
-            const next = new Set(prev);
-            if (allVisibleSelected) {
-                editableClientIds.forEach(id => next.delete(id));
-            } else {
-                editableClientIds.forEach(id => next.add(id));
-            }
-            return next;
-        });
-    };
-
-    const handleBulkExclude = async () => {
-        const taskIds = filteredClients
-            .filter(client => selectedClientIds.has(client.clientId))
-            .flatMap(client => client.tasks.filter(task => task.status === 'assigned').map(task => task.taskId));
-        if (taskIds.length === 0) return;
-        setBulkSaving(true);
-        try {
-            await api.openTasks.bulkExclude(taskIds);
-            setSelectedClientIds(new Set());
-            await loadData();
-        } finally {
-            setBulkSaving(false);
-        }
-    };
-
-    const handleBulkRestore = async () => {
-        const taskIds = filteredClients
-            .filter(client => selectedClientIds.has(client.clientId))
-            .flatMap(client => client.tasks.filter(task => task.excludedForDate === date).map(task => task.taskId));
-        if (taskIds.length === 0) return;
-        setBulkSaving(true);
-        try {
-            await api.openTasks.bulkRestore(taskIds);
-            setSelectedClientIds(new Set());
-            await loadData();
-        } finally {
-            setBulkSaving(false);
-        }
-    };
 
     return (
         <div className="h-full overflow-y-auto bg-slate-50/60 custom-scroll" dir="rtl">
@@ -859,35 +800,6 @@ export default function PlanningContactTargets() {
                     </div>
                 )}
 
-                {!loading && selectedVisibleClientIds.length > 0 && (
-                    <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-sm">
-                        <span className="text-sm font-bold text-indigo-800">تم تحديد {selectedVisibleClientIds.length} جهة</span>
-                        <button
-                            type="button"
-                            onClick={handleBulkExclude}
-                            disabled={bulkSaving}
-                            className="rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white hover:bg-red-500 disabled:opacity-60"
-                        >
-                            استثناء المحدد
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleBulkRestore}
-                            disabled={bulkSaving}
-                            className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
-                        >
-                            استرجاع المحدد
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setSelectedClientIds(new Set())}
-                            className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50"
-                        >
-                            إلغاء التحديد
-                        </button>
-                    </div>
-                )}
-
                 {/* Checkbox legend — only on assigned tab */}
                 {!loading && phaseFilter === 'assigned' && filteredClients.length > 0 && (
                     <div className="flex items-center gap-4 text-xs text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
@@ -952,15 +864,6 @@ export default function PlanningContactTargets() {
                             <table className="w-full min-w-[860px] border-collapse text-sm">
                                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold text-slate-500">
                                     <tr>
-                                        <th className="w-12 px-3 py-3 text-center">
-                                            {editableClientIds.length > 0 ? (
-                                                <button type="button" onClick={handleToggleAllVisible} className="mx-auto">
-                                                    {allVisibleSelected
-                                                        ? <CheckSquare className="h-4 w-4 text-indigo-600" />
-                                                        : <Square className="h-4 w-4 text-slate-400" />}
-                                                </button>
-                                            ) : null}
-                                        </th>
                                         {/* Checkbox col — only interactive on assigned/excluded */}
                                         <th className="w-12 px-3 py-3 text-center">
                                             {phaseFilter === 'assigned'
@@ -1025,9 +928,7 @@ export default function PlanningContactTargets() {
                                         const phase   = getPhase(client, today);
                                         const pm      = PHASE_META[phase];
                                         const isSaving  = savingId === client.clientId;
-                                        const canSelect = client.tasks.some(task => task.status === 'assigned' || task.excludedForDate === today);
-                                        const canToggle = canSelect;
-                                        const isSelected = selectedClientIds.has(client.clientId);
+                                        const canToggle = client.tasks.some(task => task.status === 'assigned' || task.excludedForDate === today);
                                         const outcomeMeta = client.latestCallOutcome ? getOutcomeMeta(client.latestCallOutcome) : null;
                                         const hasRetry = client.tasks.some(t => t.attemptCount > 0 && t.status === 'assigned');
 
@@ -1035,16 +936,6 @@ export default function PlanningContactTargets() {
                                             <tr key={client.clientId}
                                                 onClick={() => setModalClient(client)}
                                                 className={`cursor-pointer transition-colors hover:bg-indigo-50/40 ${pm.row}`}>
-
-                                                <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
-                                                    {canSelect ? (
-                                                        <button type="button" onClick={() => handleToggleClientSelection(client.clientId)} className="mx-auto">
-                                                            {isSelected
-                                                                ? <CheckSquare className="h-4 w-4 text-indigo-600" />
-                                                                : <Square className="h-4 w-4 text-slate-400" />}
-                                                        </button>
-                                                    ) : <span className="text-slate-200">—</span>}
-                                                </td>
 
                                                 {/* Checkbox */}
                                                 <td className="px-3 py-3 text-center"

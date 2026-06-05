@@ -13,6 +13,7 @@ import {
   type CustomerOwnership,
 } from '@golden-crm/shared';
 import { getExpectedDateStatus, getDueDateStatus } from '../../lib/taskDateStatus';
+import { getGeoUnits, type GeoUnit } from '../../lib/geoUnitsCache';
 
 // ============================================================
 // TaskGroupPage — Unified tasks list for all 6 display_groups.
@@ -38,6 +39,7 @@ type GroupConfig = {
   Icon: typeof Monitor;
   accentBg: string;
   accentRing: string;
+  detailHref: string;
 };
 
 const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
@@ -48,6 +50,7 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     Icon: Monitor,
     accentBg: 'bg-indigo-500',
     accentRing: 'shadow-indigo-500/20',
+    detailHref: '/tasks/device-demo',
   },
   'maintenance': {
     label: 'مهام الصيانة',
@@ -56,6 +59,7 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     Icon: Wrench,
     accentBg: 'bg-amber-500',
     accentRing: 'shadow-amber-500/20',
+    detailHref: '/tasks/group/maintenance',
   },
   'collection': {
     label: 'مهام تحصيل الأقساط',
@@ -64,14 +68,16 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     Icon: DollarSign,
     accentBg: 'bg-emerald-500',
     accentRing: 'shadow-emerald-500/20',
+    detailHref: '/tasks/group/collection',
   },
   'after-sale-services': {
     label: 'مهام خدمات ما بعد البيع',
     subtitle: 'تسليم الجهاز، تركيبه، تشغيله، ونقله بين المواقع',
-    taskTypes: ['device_delivery', 'device_installation', 'device_activation', 'device_transfer'],
+    taskTypes: ['device_delivery', 'device_installation', 'device_activation'],
     Icon: RefreshCw,
     accentBg: 'bg-sky-500',
     accentRing: 'shadow-sky-500/20',
+    detailHref: '/tasks/after-sale-services',
   },
   'gift-delivery': {
     label: 'مهام تسليم الهدايا',
@@ -80,6 +86,7 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     Icon: Gift,
     accentBg: 'bg-rose-500',
     accentRing: 'shadow-rose-500/20',
+    detailHref: '/tasks/group/gift-delivery',
   },
   'warranty-services': {
     label: 'مهام خدمات الكفالة',
@@ -88,6 +95,7 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     Icon: ShieldCheck,
     accentBg: 'bg-violet-500',
     accentRing: 'shadow-violet-500/20',
+    detailHref: '/tasks/group/warranty-services',
   },
 };
 
@@ -184,6 +192,21 @@ function compactText(value: unknown): string {
   return '';
 }
 
+function parseGeoId(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Number(value.trim());
+  return null;
+}
+
+function buildCompactGeoAddress(geoUnitId: number | null, geoMap: Map<number, GeoUnit>): string {
+  if (!geoUnitId) return '';
+  const unit = geoMap.get(geoUnitId);
+  if (!unit) return '';
+  const parent = unit.parentId ? geoMap.get(unit.parentId) : null;
+  if (parent) return `${parent.name} ← ${unit.name}`;
+  return unit.name;
+}
+
 function getFullCustomerName(row: any): string {
   const structured = [row.clientFirstName, row.clientFatherName, row.clientLastName]
     .map(compactText)
@@ -196,13 +219,39 @@ function getPrimaryMobile(row: any): string {
   return row.clientMobile || row.clientSnapshot?.mobile || row.customerMobile || '—';
 }
 
-function getLocation(row: any): string {
+function getLocation(row: any, geoMap: Map<number, GeoUnit>): string {
+  const currentDeviceGeoId = parseGeoId(row.currentDeviceGeoUnitId);
+  const currentDeviceGeoLabel = buildCompactGeoAddress(currentDeviceGeoId, geoMap);
+  if (row.taskType === 'device_delivery') {
+    return currentDeviceGeoLabel || '—';
+  }
+  if (row.taskType === 'device_installation') {
+    return currentDeviceGeoLabel || '—';
+  }
+  if (row.taskType === 'device_activation') {
+    return currentDeviceGeoLabel || '—';
+  }
   const snap = row.clientSnapshot?.address;
   const hierarchy = snap
     ? [snap.governorate, snap.district, snap.subArea, snap.neighborhood]
     : [row.clientGovernorate, row.clientDistrict, row.clientNeighborhood];
   const lastTwo = hierarchy.map(compactText).filter(Boolean).slice(-2);
   return lastTwo.length > 0 ? lastTwo.join(' > ') : '—';
+}
+
+function getTaskTypeLabel(taskType: string): string {
+  switch (taskType) {
+    case 'device_demo':
+      return 'عرض جهاز';
+    case 'device_delivery':
+      return 'تسليم جهاز';
+    case 'device_installation':
+      return 'تركيب جهاز';
+    case 'device_activation':
+      return 'تشغيل جهاز';
+    default:
+      return taskType;
+  }
 }
 
 function OwnershipCell({ ownership }: { ownership?: CustomerOwnership | null }) {
@@ -248,6 +297,11 @@ export default function TaskGroupPage() {
   const [hideFutureTasks, setHideFutureTasks] = useState(true);
   const [clientPopupId, setClientPopupId] = useState<number | null>(null);
   const [savingPriorityId, setSavingPriorityId] = useState<number | null>(null);
+  const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+
+  useEffect(() => {
+    getGeoUnits().then(setGeoUnits).catch(() => setGeoUnits([]));
+  }, []);
 
   const handlePriorityChange = useCallback(async (rowId: number, newPriority: string) => {
     setSavingPriorityId(rowId);
@@ -266,22 +320,21 @@ export default function TaskGroupPage() {
     setLoading(true);
     setError(null);
     try {
-      // For now only `device-demo` is wired to an existing endpoint. The other
-      // groups will be unified onto a generic `listByDisplayGroup` endpoint in
-      // the follow-up step once we agree on column set & filters.
+      const params = {
+        branchId,
+        ...(statusFilter ? { status: statusFilter } : {}),
+        ...(visitStatusFilter ? { visitStatus: visitStatusFilter } : {}),
+        ...(dateFilter ? { scheduledDate: dateFilter } : {}),
+        ...(scheduledFilter === 'yes' || scheduledFilter === 'no'
+          ? { scheduled: scheduledFilter as 'yes' | 'no' }
+          : {}),
+        ...(hideSnoozed ? { hideSnoozed: 'true' } : {}),
+        ...(hideFutureTasks ? { hideFutureTasks: 'true' } : {}),
+      };
       if (group === 'device-demo') {
-        const data = await api.openTasks.listDeviceDemo({
-          branchId,
-          ...(statusFilter ? { status: statusFilter } : {}),
-          ...(visitStatusFilter ? { visitStatus: visitStatusFilter } : {}),
-          ...(dateFilter ? { scheduledDate: dateFilter } : {}),
-          ...(scheduledFilter === 'yes' || scheduledFilter === 'no'
-            ? { scheduled: scheduledFilter as 'yes' | 'no' }
-            : {}),
-          ...(hideSnoozed ? { hideSnoozed: 'true' } : {}),
-          ...(hideFutureTasks ? { hideFutureTasks: 'true' } : {}),
-        });
-        setRows(data);
+        setRows(await api.openTasks.listDeviceDemo(params));
+      } else if (group === 'after-sale-services') {
+        setRows(await api.openTasks.listByGroup(group, params));
       } else {
         setRows([]);
       }
@@ -317,7 +370,8 @@ export default function TaskGroupPage() {
   }
 
   const Icon = config.Icon;
-  const notWiredYet = group !== 'device-demo';
+  const notWiredYet = group !== 'device-demo' && group !== 'after-sale-services' && group !== 'maintenance';
+  const geoMap = new Map(geoUnits.map((unit) => [unit.id, unit]));
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
@@ -441,6 +495,7 @@ export default function TaskGroupPage() {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">معرف المهمة</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600">نوع المهمة</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">الفرع</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">اسم الزبون الكامل</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">تصنيف الزبون</th>
@@ -466,8 +521,32 @@ export default function TaskGroupPage() {
                   const phase = (row.phase ?? getTaskPhase(row.taskStatus as OpenTaskStatus)) as keyof typeof OPEN_TASK_PHASE_LABELS;
 
                   return (
-                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`/tasks/device-demo/${row.id}`)}>
-                      <td className="px-4 py-3 text-slate-700 font-mono text-xs">#{row.id}</td>
+                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`${config.detailHref}/${row.id}`)}>
+                      <td className="px-4 py-3 text-slate-700 font-mono text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span>#{row.id}</span>
+                          {row.sourceServiceRequestId != null ? (
+                            <span
+                              title="مُنشأ من service_request — المسار الجديد"
+                              className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200"
+                            >
+                              SR
+                            </span>
+                          ) : (
+                            <span
+                              title="إنشاء قديم (emergency_tickets أو cron)"
+                              className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200"
+                            >
+                              Legacy
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-bold text-slate-700">
+                          {getTaskTypeLabel(row.taskType)}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-slate-600">{getBranchLabel(row)}</td>
                       <td className="px-4 py-3">
                         {row.clientId ? (
@@ -482,7 +561,7 @@ export default function TaskGroupPage() {
                         )}
                       </td>
                       <td className="px-4 py-3"><ClientClassificationCell value={row.clientClassification} /></td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{getLocation(row)}</td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{getLocation(row, geoMap)}</td>
                       <td className="px-4 py-3 text-slate-600" dir="ltr">{mobile}</td>
                       <td className="px-4 py-3"><OwnershipCell ownership={row.ownership} /></td>
                       <td className="px-4 py-3">

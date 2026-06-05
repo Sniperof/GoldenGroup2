@@ -25,6 +25,7 @@ import CustomerCallLog from '../components/customers/CustomerCallLog';
 import PhoneCallLog from '../components/customers/PhoneCallLog';
 import DeviceOfferModal from '../components/clients/DeviceOfferModal';
 import RequestEmergencyModal from '../components/emergency/RequestEmergencyModal';
+import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 
 const referrerTypesAr: Record<string, string> = {
     'Personal': 'شخصي',
@@ -740,6 +741,10 @@ function VisitsTab({ client }: { client: Client }) {
     const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
+    const [serviceRequestModalOpen, setServiceRequestModalOpen] = useState(false);
+    const serviceRequestsUiEnabled =
+        typeof window !== 'undefined' &&
+        localStorage.getItem('gc_service_requests_ui') === 'on';
     const hasActiveDeviceDemo = tasks.some((task) => {
         const taskType = task.taskType ?? task.task_type ?? task.openTaskType;
         return taskType === 'device_demo' && !['completed', 'cancelled', 'closed'].includes(task.status);
@@ -784,8 +789,16 @@ function VisitsTab({ client }: { client: Client }) {
                         onClick={() => setEmergencyModalOpen(true)}
                         className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl shadow-sm hover:bg-rose-500 transition-all flex items-center gap-1.5 text-sm"
                     >
-                        <Zap className="w-4 h-4" /> صيانة طارئة
+                        <Zap className="w-4 h-4" /> صيانة طارئة (Legacy)
                     </button>
+                    {serviceRequestsUiEnabled && (
+                        <button
+                            onClick={() => setServiceRequestModalOpen(true)}
+                            className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl shadow-sm hover:bg-emerald-500 transition-all flex items-center gap-1.5 text-sm"
+                        >
+                            <Zap className="w-4 h-4" /> طلب صيانة جديد
+                        </button>
+                    )}
                     <button
                         onClick={() => setModalOpen(true)}
                         disabled={hasActiveDeviceDemo}
@@ -880,6 +893,15 @@ function VisitsTab({ client }: { client: Client }) {
                         )}
                     </section>
                 </div>
+            )}
+
+            {serviceRequestModalOpen && (
+                <NewServiceRequestModal
+                    channel="client_detail_button"
+                    beneficiaryClientId={client.id}
+                    beneficiaryClientName={client.name}
+                    onClose={() => setServiceRequestModalOpen(false)}
+                />
             )}
 
             {emergencyModalOpen && (

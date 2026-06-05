@@ -1,10 +1,3 @@
-// DEC-CT-09: current holder + installation location (the device's
-// "fixed" address, distinct from possession which is dynamic).
-//
-// The location block follows the geo-units constitution (BR-4):
-// محافظة → منطقة → ناحية → حي → عنوان نصي. The chain is built from
-// `installationGeoUnitId` by walking the parent chain via `GeoPathDisplay`.
-
 import { MapPin } from 'lucide-react';
 import { PossessionHolderChip } from '../../../components/devices/PossessionHolderChip';
 import { GeoPathDisplay } from '../../../components/geo/GeoPathDisplay';
@@ -15,7 +8,36 @@ interface Props {
   currentPossession: any | null;
 }
 
+function PossessionEmpty({ status }: { status?: string }) {
+  const reason = status === 'pending_delivery'
+    ? 'الجهاز بانتظار التسليم، لذلك لا يوجد سجل حيازة مفتوح بعد.'
+    : 'لم يتم فتح سجل حيازة لهذا الجهاز بعد.';
+  return (
+    <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2">
+      <div className="text-xs font-bold text-amber-700">لا يوجد حائز حالي</div>
+      <div className="text-[11px] text-amber-700/80 mt-0.5">{reason}</div>
+    </div>
+  );
+}
+
+function LocationEmpty() {
+  return (
+    <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2">
+      <div className="text-xs font-bold text-amber-700">موقع الجهاز غير مكتمل</div>
+      <div className="text-[11px] text-amber-700/80 mt-0.5">
+        لم تحفظ منطقة أو عنوان أو إحداثيات للجهاز. غالباً يجب تعبئة بيانات الجهاز من مسودة العقد عند الاعتماد أو من نتيجة مهمة التسليم.
+      </div>
+    </div>
+  );
+}
+
 export function CurrentHolderSection({ device, currentPossession }: Props) {
+  const hasLocation = Boolean(
+    device?.installationGeoUnitId
+    || device?.installationAddressText
+    || (device?.installationLat && device?.installationLng)
+  );
+
   return (
     <SectionShell
       id="current-holder"
@@ -32,7 +54,7 @@ export function CurrentHolderSection({ device, currentPossession }: Props) {
               showReason
             />
           ) : (
-            <span className="text-xs text-slate-400 italic">لا يوجد سجل حيازة مفتوح.</span>
+            <PossessionEmpty status={device?.status} />
           )}
           {currentPossession?.startAt && (
             <div className="mt-2 text-[11px] text-slate-500">
@@ -48,12 +70,16 @@ export function CurrentHolderSection({ device, currentPossession }: Props) {
           <div className="text-[11px] text-slate-400 font-bold mb-2 flex items-center gap-1">
             <MapPin className="w-3.5 h-3.5" /> موقع التركيب المرجعي
           </div>
-          <GeoPathDisplay
-            geoUnitId={device?.installationGeoUnitId ?? null}
-            detailedText={device?.installationAddressText ?? null}
-            lat={device?.installationLat ?? null}
-            lng={device?.installationLng ?? null}
-          />
+          {hasLocation ? (
+            <GeoPathDisplay
+              geoUnitId={device?.installationGeoUnitId ?? null}
+              detailedText={device?.installationAddressText ?? null}
+              lat={device?.installationLat ?? null}
+              lng={device?.installationLng ?? null}
+            />
+          ) : (
+            <LocationEmpty />
+          )}
         </div>
       </div>
     </SectionShell>
