@@ -50,9 +50,6 @@ migrations/archive/
 *_before_squash*.sql
 *current_schema_for_baseline*.sql
 
-# local-only constitution docs
-docs/constitution/
-
 packages/*/*.tsbuildinfo
 *.tsbuildinfo
 
