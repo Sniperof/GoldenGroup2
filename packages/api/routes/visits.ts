@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
 
 const router = Router();
 
@@ -132,11 +131,8 @@ router.post('/', async (req, res) => {
       [v.id, v.date, v.customerId, v.employeeId, v.employeeName, v.outcome || 'Pending', v.notes || null]
     );
 
-    // FOP promotion: client has been visited → company ownership, no personal assignments
-    // Guard inside helper prevents demoting an OP client
-    if (v.customerId) {
-      await promoteClientToLifecycleStatus(client, Number(v.customerId), 'FOP');
-    }
+    // FOP is no longer promoted by merely creating a visit.
+    // It is derived from a closed device_demo task whose result is offer_presented.
 
     await client.query('COMMIT');
     res.json(rows[0]);

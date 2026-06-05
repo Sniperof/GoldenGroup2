@@ -139,7 +139,7 @@ router.get('/', requireAuth, async (req, res) => {
  *                 type: boolean
  *               locationBasis:
  *                 type: string
- *                 enum: [client, contract]
+ *                 enum: [client, contract, device]
  *     responses:
  *       200:
  *         description: Updated task type configuration
@@ -230,8 +230,8 @@ router.patch('/:taskType', requirePermission('admin.task_types.manage'), async (
     }
 
     if (locationBasis !== undefined) {
-      if (!['client', 'contract'].includes(locationBasis)) {
-        return res.status(400).json({ error: 'locationBasis must be "client" or "contract"' });
+      if (!['client', 'contract', 'device'].includes(locationBasis)) {
+        return res.status(400).json({ error: 'locationBasis must be "client", "contract", or "device"' });
       }
       params.push(locationBasis);
       updates.push(`location_basis = $${params.length}`);

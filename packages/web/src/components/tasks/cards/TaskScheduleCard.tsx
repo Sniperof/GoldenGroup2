@@ -1,6 +1,6 @@
 import { Calendar } from 'lucide-react';
-import { Card, InfoLine, formatDate } from '../shared';
-import { getDueDateStatus, getExpectedDateStatus } from '../../../lib/taskDateStatus';
+import { Card, InfoLine } from '../shared';
+import { getExpectedDateStatus } from '../../../lib/taskDateStatus';
 
 export interface TaskScheduleCardProps {
   task: any;
@@ -21,31 +21,10 @@ export default function TaskScheduleCard({
   extraRows,
 }: TaskScheduleCardProps) {
   return (
-    <Card title="الجدولة" icon={Calendar}>
+    <Card title="الجدولة" icon={Calendar} accent="emerald">
       <div className="space-y-1.5">
-        <div className="flex items-start justify-between py-1.5 gap-4">
-          <span className="text-xs text-slate-400 font-bold shrink-0">التاريخ المطلوب</span>
-          <div className="flex flex-col items-end gap-1">
-            {task.dueDate ? (
-              (() => {
-                const s = getDueDateStatus(task.dueDate);
-                return (
-                  <>
-                    <span className={`text-sm font-medium ${s?.textClass ?? 'text-slate-800'}`}>{formatDate(task.dueDate)}</span>
-                    {s && (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${s.badgeClass}`}>
-                        {s.label}
-                      </span>
-                    )}
-                  </>
-                );
-              })()
-            ) : (
-              <span className="text-sm text-slate-400">—</span>
-            )}
-          </div>
-        </div>
-
+        {/* dueDate is rendered in the Hero banner; the Schedule card focuses
+            on the editable expected_date and task-type-specific extras. */}
         <div className="flex items-start justify-between py-1.5 gap-4">
           <span className="text-xs text-slate-400 font-bold shrink-0 pt-1.5">التاريخ المتوقع</span>
           <div className="flex flex-col items-end gap-1">

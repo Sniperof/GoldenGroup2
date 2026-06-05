@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import TechStateForm from './result-phases/TechStateForm';
 import MaintenanceActionsForm from './result-phases/MaintenanceActionsForm';
 import CostsForm from './result-phases/CostsForm';
+import EmergencyProblemsSection from './EmergencyProblemsSection';
 
 // ── Phase config ──────────────────────────────────────────────────────────────
 
@@ -98,14 +99,28 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
         />
       )}
       {activePhase === 'actions' && (
-        <MaintenanceActionsForm
-          taskId={taskId}
-          initialData={phases.actions}
-          readOnly={readOnly}
-          onSaved={() => load()}
-          onNext={() => setActive('postState')}
-          onBack={() => setActive('preState')}
-        />
+        <>
+          {/* Phase 6c.1 — Problems list visible only for new-path tasks */}
+          {result?.taskMeta?.sourceServiceRequestId && (
+            <EmergencyProblemsSection
+              taskId={taskId}
+              serviceRequestId={result.taskMeta.sourceServiceRequestId}
+              installedDeviceId={result.taskMeta.installedDeviceId ?? null}
+              problems={result.problems ?? []}
+              derivedOutcome={result.derivedOutcome ?? null}
+              readOnly={readOnly}
+              onChanged={() => load()}
+            />
+          )}
+          <MaintenanceActionsForm
+            taskId={taskId}
+            initialData={phases.actions}
+            readOnly={readOnly}
+            onSaved={() => load()}
+            onNext={() => setActive('postState')}
+            onBack={() => setActive('preState')}
+          />
+        </>
       )}
       {activePhase === 'postState' && (
         <TechStateForm
@@ -126,6 +141,9 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
           readOnly={readOnly}
           onSaved={() => load()}
           onBack={() => setActive('postState')}
+          // Phase 6c.2 — new-path props
+          sourceServiceRequestId={result?.taskMeta?.sourceServiceRequestId ?? null}
+          derivedOutcome={result?.derivedOutcome ?? null}
         />
       )}
     </div>

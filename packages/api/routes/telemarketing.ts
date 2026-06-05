@@ -63,7 +63,7 @@ function getLeadPhone(lead: any): string {
 }
 
 function getLeadGeoUnitId(lead: any): number | null {
-  const parsed = Number(lead.neighborhood);
+  const parsed = Number(lead.effectiveZoneId ?? lead.workLocationGeoUnitId ?? lead.neighborhood);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
@@ -160,6 +160,8 @@ async function resolveOrCreateContactTarget(
   lead: any,
   branchId: number,
   supervisorHrUserId: number | null,
+  date: string,
+  teamKey: string,
 ): Promise<number | null> {
   const contactTargetId = Number(lead.contactTargetId);
   if (Number.isInteger(contactTargetId) && contactTargetId > 0) {
@@ -170,24 +172,31 @@ async function resolveOrCreateContactTarget(
   if (!Number.isInteger(entityId) || entityId <= 0) return null;
 
   const geoUnitId = getLeadGeoUnitId(lead);
+  const visitType = typeof lead.contactTargetVisitType === 'string' && lead.contactTargetVisitType
+    ? lead.contactTargetVisitType
+    : 'marketing';
 
   try {
     const { rows } = await client.query(
       `
       INSERT INTO contact_targets (
         branch_id, target_type, target_id, target_stage, visit_type,
-        source_type, source_id, supervisor_hr_user_id, zone_id, status
+        source_type, source_id, supervisor_hr_user_id, zone_id, status,
+        date, team_key, work_location_geo_unit_id
       )
-      VALUES ($1, 'client', $2, 'lead', 'marketing', 'lead', $2, $3, $4, 'new')
-      ON CONFLICT (branch_id, target_type, target_id, visit_type, source_type)
+      VALUES ($1, 'client', $2, 'lead', $5, 'lead', $2, $3, $4, 'new', $6::date, $7, $4)
+      ON CONFLICT (branch_id, target_type, target_id, work_location_geo_unit_id, date)
+      WHERE work_location_geo_unit_id IS NOT NULL
       DO UPDATE SET
         supervisor_hr_user_id = EXCLUDED.supervisor_hr_user_id,
         zone_id = EXCLUDED.zone_id,
+        visit_type = EXCLUDED.visit_type,
         source_id = EXCLUDED.source_id,
+        team_key = EXCLUDED.team_key,
         updated_at = NOW()
       RETURNING id
       `,
-      [branchId, entityId, supervisorHrUserId || null, geoUnitId],
+      [branchId, entityId, supervisorHrUserId || null, geoUnitId, visitType, date, teamKey],
     );
     return rows[0]?.id ?? null;
   } catch {
@@ -817,7 +826,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
     appointmentParams.push(...accessibleTeamKeys);
   }
 
-  const appointmentsRes = await pool.query(
+  const legacyAppointmentsRes = await pool.query(
     `
       SELECT
         id,
@@ -846,6 +855,92 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
     appointmentParams,
   );
 
+  const fieldVisitAppointmentParams: any[] = [];
+  const fieldVisitAppointmentWhere: string[] = [];
+  let fvParamIdx = 1;
+
+  if (branchId != null) {
+    fieldVisitAppointmentWhere.push(`fv.branch_id = $${fvParamIdx++}`);
+    fieldVisitAppointmentParams.push(branchId);
+  }
+
+  if (dateParam) {
+    fieldVisitAppointmentWhere.push(`fv.scheduled_date = $${fvParamIdx++}`);
+    fieldVisitAppointmentParams.push(dateParam);
+  }
+
+  if (accessibleTeamKeys !== null && accessibleTeamKeys.length > 0) {
+    fieldVisitAppointmentWhere.push(`fv.team_snapshot->>'teamKey' = ANY($${fvParamIdx++}::varchar[])`);
+    fieldVisitAppointmentParams.push(accessibleTeamKeys);
+  }
+
+  const fieldVisitWhere = fieldVisitAppointmentWhere.length > 0
+    ? `WHERE ${fieldVisitAppointmentWhere.join(' AND ')}`
+    : '';
+
+  const fieldVisitAppointmentsRes = await pool.query(
+    `
+      SELECT
+        ('fv_' || fv.id::text) AS id,
+        'client' AS "entityType",
+        fv.client_id AS "entityId",
+        COALESCE(fv.customer_snapshot->>'name', c.name, '') AS "customerName",
+        COALESCE(fv.customer_snapshot->>'addressText', fv.customer_snapshot->>'address', '') AS "customerAddress",
+        COALESCE(fv.customer_snapshot->>'mobile', c.mobile, '') AS "customerMobile",
+        fv.team_snapshot->>'teamKey' AS "teamKey",
+        fv.scheduled_date::text AS date,
+        fv.scheduled_time AS "timeSlot",
+        COALESCE(fv.customer_snapshot->>'occupation', '') AS occupation,
+        COALESCE(fv.customer_snapshot->>'waterSource', '') AS "waterSource",
+        COALESCE(fv.telemarketer_notes, fv.field_notes, '') AS notes,
+        COALESCE(
+          json_agg(DISTINCT vt.task_type) FILTER (WHERE vt.id IS NOT NULL),
+          '[]'::json
+        ) AS "visitTasks",
+        NULL::int AS "requestedDeviceModelId",
+        NULL::varchar AS "requestedDeviceName",
+        fv.created_at AS "createdAt",
+        fv.created_by AS "createdBy",
+        ct.id AS "contactTargetId",
+        MIN(vt.source_open_task_id) AS "openTaskId",
+        fv.origin_id AS "taskListItemId",
+        tl.id AS "taskListId",
+        fv.id::text AS "marketingVisitId"
+      FROM field_visits fv
+      JOIN clients c ON c.id = fv.client_id
+      LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
+      LEFT JOIN contact_targets ct ON ct.latest_visit_id = fv.id
+      LEFT JOIN telemarketing_task_lists tl
+        ON tl.team_key = fv.team_snapshot->>'teamKey'
+       AND tl.date = fv.scheduled_date::text
+       AND tl.branch_id = fv.branch_id
+      ${fieldVisitWhere}
+        ${fieldVisitWhere ? 'AND' : 'WHERE'} fv.origin_type = 'telemarketing'
+        AND fv.visit_type = 'marketing'
+        AND fv.status IN ('scheduled','in_progress','ended','completed')
+      GROUP BY fv.id, c.id, ct.id, tl.id
+      ORDER BY fv.created_at DESC
+    `,
+    fieldVisitAppointmentParams,
+  );
+
+  const appointmentByKey = new Map<string, any>();
+  legacyAppointmentsRes.rows.forEach((row: any) => {
+    appointmentByKey.set(`legacy:${row.id}`, row);
+  });
+  fieldVisitAppointmentsRes.rows.forEach((row: any) => {
+    const duplicateLegacy = legacyAppointmentsRes.rows.find((legacy: any) =>
+      legacy.entityId === row.entityId &&
+      legacy.teamKey === row.teamKey &&
+      legacy.date === row.date &&
+      legacy.timeSlot === row.timeSlot
+    );
+    if (!duplicateLegacy) {
+      appointmentByKey.set(`field_visit:${row.marketingVisitId}`, row);
+    }
+  });
+  const appointmentRows = Array.from(appointmentByKey.values());
+
   // Filter call logs by branch and date-scoped task lists
   // Instead of filtering only by branch+team_key (which returns logs from all dates),
   // join through task_list_id to only include logs belonging to task lists for the selected date.
@@ -873,7 +968,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         // No accessible task lists for this date — return no call logs
         return res.json({
           taskLists: mapTaskListRows(taskListRes.rows),
-          appointments: appointmentsRes.rows,
+          appointments: appointmentRows,
           callLogs: [],
         });
       }
@@ -884,7 +979,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
       if (dateTaskListIds.length === 0) {
         return res.json({
           taskLists: mapTaskListRows(taskListRes.rows),
-          appointments: appointmentsRes.rows,
+          appointments: appointmentRows,
           callLogs: [],
         });
       }
@@ -932,7 +1027,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
 
   res.json({
     taskLists: mapTaskListRows(taskListRes.rows),
-    appointments: appointmentsRes.rows,
+    appointments: appointmentRows,
     callLogs: callLogsRes.rows,
   });
 });
@@ -1151,7 +1246,8 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
           SELECT
             i.entity_id AS "entityId",
             tl.team_key AS "teamKey",
-            i.contact_target_id AS "contactTargetId"
+            i.contact_target_id AS "contactTargetId",
+            i.open_task_id AS "openTaskId"
           FROM telemarketing_task_list_items i
           JOIN telemarketing_task_lists tl ON tl.id = i.task_list_id
           WHERE tl.date = $1
@@ -1164,9 +1260,16 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
       )
       : { rows: [] };
 
-    const queuedElsewhereByEntityId = new Map<number, string>();
+    const queuedElsewhereByContextKey = new Map<string, string>();
     existingElsewhereByEntityId.rows.forEach((row: any) => {
-      queuedElsewhereByEntityId.set(Number(row.entityId), row.teamKey);
+      const contactTargetId = Number(row.contactTargetId);
+      const openTaskId = Number(row.openTaskId);
+      if (Number.isInteger(contactTargetId) && contactTargetId > 0) {
+        queuedElsewhereByContextKey.set(`ct:${contactTargetId}`, row.teamKey);
+      }
+      if (Number.isInteger(openTaskId) && openTaskId > 0) {
+        queuedElsewhereByContextKey.set(`task:${openTaskId}`, row.teamKey);
+      }
     });
 
     const leadContactTargetIds = leads
@@ -1190,15 +1293,29 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
         [date, branchId, teamKey, leadContactTargetIds],
       );
       ctRows.forEach((row: any) => {
-        if (!queuedElsewhereByEntityId.has(Number(row.entityId))) {
-          queuedElsewhereByEntityId.set(Number(row.entityId), row.teamKey);
+        const contactTargetId = Number(row.contactTargetId);
+        if (Number.isInteger(contactTargetId) && contactTargetId > 0 && !queuedElsewhereByContextKey.has(`ct:${contactTargetId}`)) {
+          queuedElsewhereByContextKey.set(`ct:${contactTargetId}`, row.teamKey);
         }
       });
     }
 
+    const seenLeadKeys = new Set<string>();
     const eligibleLeads = leads.filter((lead: any) => {
       const entityId = Number(lead.id);
-      const existingTeamKey = queuedElsewhereByEntityId.get(entityId);
+      const openTaskId = lead.openTaskId != null ? Number(lead.openTaskId) : null;
+      const leadKey = openTaskId != null ? `task:${openTaskId}` : `client:${entityId}`;
+      if (seenLeadKeys.has(leadKey)) {
+        return false;
+      }
+      seenLeadKeys.add(leadKey);
+
+      const contactTargetId = Number(lead.contactTargetId);
+      const existingTeamKey =
+        (Number.isInteger(contactTargetId) && contactTargetId > 0
+          ? queuedElsewhereByContextKey.get(`ct:${contactTargetId}`)
+          : undefined)
+        ?? (openTaskId != null ? queuedElsewhereByContextKey.get(`task:${openTaskId}`) : undefined);
       if (!existingTeamKey) return true;
       skipped.push({
         entityType: 'client',
@@ -1239,7 +1356,8 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
           entity_id AS "entityId",
           status,
           call_outcome AS "callOutcome",
-          contact_target_id AS "contactTargetId"
+          contact_target_id AS "contactTargetId",
+          open_task_id AS "openTaskId"
         FROM telemarketing_task_list_items
         WHERE task_list_id = $1
           AND entity_type = 'client'
@@ -1247,9 +1365,12 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
       [taskListId],
     );
 
-    const existingByEntityId = new Map<number, any>();
+    const existingByTaskOrEntity = new Map<string, any>();
     existingItems.rows.forEach((item: any) => {
-      existingByEntityId.set(Number(item.entityId), item);
+      const openTaskId = item.openTaskId != null ? Number(item.openTaskId) : null;
+      const entityId = Number(item.entityId);
+      const key = openTaskId != null ? `task:${openTaskId}` : `client:${entityId}`;
+      existingByTaskOrEntity.set(key, item);
     });
 
     let added = 0;
@@ -1258,14 +1379,21 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
 
     for (const lead of eligibleLeads) {
       const entityId = Number(lead.id);
-      const existingItem = existingByEntityId.get(entityId);
-      const itemId = existingItem?.id || `${taskListId}_client_${entityId}`;
+      const openTaskId = lead.openTaskId ?? null;
+      const existingItem = existingByTaskOrEntity.get(
+        openTaskId != null ? `task:${openTaskId}` : `client:${entityId}`,
+      );
+      const itemId = existingItem?.id || (
+        openTaskId != null
+          ? `${taskListId}_task_${openTaskId}`
+          : `${taskListId}_client_${entityId}`
+      );
       const name = getLeadName(lead);
       const phone = getLeadPhone(lead);
       const geoUnitId = getLeadGeoUnitId(lead);
       const addressText = lead.detailedAddress || lead.referralAddressText || null;
 
-      let contactTargetId = await resolveOrCreateContactTarget(pgClient, lead, branchId, supervisorHrUserId);
+      let contactTargetId = await resolveOrCreateContactTarget(pgClient, lead, branchId, supervisorHrUserId, date, teamKey);
 
       if (contactTargetId == null) {
         skipped.push({
@@ -1275,8 +1403,6 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
         });
         continue;
       }
-
-      const openTaskId = lead.openTaskId ?? null;
 
       if (existingItem) {
         await pgClient.query(
@@ -1627,11 +1753,22 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
       });
       await returnTasksToWaiting(pool, contactTargetId, calledBy, `إغلاق تلقائي بنتيجة: ${outcome}`);
     } else if (normalised === 'booked_marketing_appointment') {
-      // Booked: update latest_call_outcome but do NOT set status = booked here.
-      // Appointment creation handles the status transition to booked.
-      await updateContactTargetLifecycle(pool, contactTargetId, {
-        latestCallOutcome: outcome,
-      });
+      // The call result itself means the contact happened. The later visit
+      // booking step closes the target with closing_reason='booked' if it
+      // succeeds, but a booking failure must not leave the target as queued.
+      await pool.query(
+        `
+          UPDATE contact_targets
+          SET latest_call_outcome = $1,
+              status = CASE
+                WHEN status IN ('new', 'queued', 'in_call_list') THEN 'contacted'
+                ELSE status
+              END,
+              updated_at = NOW()
+          WHERE id = $2
+        `,
+        [outcome, contactTargetId],
+      );
     } else {
       // All other outcomes (retry, follow-up, phone-quality): keep target active/contacted
       await pool.query(

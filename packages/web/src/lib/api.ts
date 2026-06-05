@@ -109,6 +109,7 @@ export const api = {
     list: () => request<any[]>('/employees'),
     schedulePool: () => request<any[]>('/employees/schedule-pool'),
     closers: () => request<any[]>('/employees/closers'),
+    employeeClosers: () => request<any[]>('/employees/closers?target=employee'),
     get: (id: number) => request<any>(`/employees/${id}`),
     create: (data: any) => request<any>('/employees', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -347,20 +348,33 @@ export const api = {
     getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
     submitEmergencyResult: (id: number, data: any) =>
       request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),
-    listDeviceDemo: (params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true' }) => {
+    listDeviceDemo: (params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true'; hideFutureTasks?: 'true' }) => {
       const q = new URLSearchParams({ branchId: String(params.branchId) });
       if (params.status) q.set('status', params.status);
       if (params.visitStatus) q.set('visitStatus', params.visitStatus);
       if (params.scheduledDate) q.set('scheduledDate', params.scheduledDate);
       if (params.scheduled) q.set('scheduled', params.scheduled);
       if (params.hideSnoozed) q.set('hideSnoozed', params.hideSnoozed);
+      if (params.hideFutureTasks) q.set('hideFutureTasks', params.hideFutureTasks);
       return request<any[]>(`/open-tasks/device-demo?${q}`);
+    },
+    listByGroup: (groupKey: string, params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true'; hideFutureTasks?: 'true' }) => {
+      const q = new URLSearchParams({ branchId: String(params.branchId) });
+      if (params.status) q.set('status', params.status);
+      if (params.visitStatus) q.set('visitStatus', params.visitStatus);
+      if (params.scheduledDate) q.set('scheduledDate', params.scheduledDate);
+      if (params.scheduled) q.set('scheduled', params.scheduled);
+      if (params.hideSnoozed) q.set('hideSnoozed', params.hideSnoozed);
+      if (params.hideFutureTasks) q.set('hideFutureTasks', params.hideFutureTasks);
+      return request<any[]>(`/open-tasks/group/${encodeURIComponent(groupKey)}?${q}`);
     },
     getActivity: (id: number) => request<any[]>(`/open-tasks/${id}/activity`),
     addActivity: (id: number, data: any) => request<any>(`/open-tasks/${id}/activity`, { method: 'POST', body: JSON.stringify(data) }),
     getDevices: (id: number) => request<any[]>(`/open-tasks/${id}/devices`),
     addDevices: (id: number, data: any) => request<any>(`/open-tasks/${id}/devices`, { method: 'POST', body: JSON.stringify(data) }),
     getCalls: (id: number) => request<any[]>(`/open-tasks/${id}/calls`),
+    /** سياق المهمة: سلسلة محاولات التنفيذ (visit_tasks) تحت هذه المهمة. */
+    getAttempts: (id: number) => request<{ taskStatus: string; attempts: any[] }>(`/open-tasks/${id}/attempts`),
     exclude: (id: number, reason?: string) =>
       request<any>(`/open-tasks/${id}/exclude`, { method: 'POST', body: JSON.stringify({ reason: reason ?? null }) }),
     restore: (id: number) =>
@@ -406,6 +420,15 @@ export const api = {
       const query = new URLSearchParams({ date, teamKey });
       return request<any>(`/planning/assigned-tasks?${query.toString()}`);
     },
+    contactTargetsDashboard: (date: string, teamKey: string) => {
+      const query = new URLSearchParams({ date, teamKey });
+      return request<any>(`/planning/contact-targets-dashboard?${query.toString()}`);
+    },
+    syncContactTargetsDashboard: (date: string, teamKey: string) =>
+      request<any>('/planning/contact-targets-dashboard/sync', {
+        method: 'POST',
+        body: JSON.stringify({ date, teamKey }),
+      }),
     marketingTargets: (date: string, teamKey: string, mode: 'planning' | 'assigned' = 'planning') => {
       const query = new URLSearchParams({ date, teamKey, mode });
       return request<any>(`/planning/marketing-targets?${query.toString()}`);
@@ -448,6 +471,8 @@ export const api = {
       request<any>(`/field-visits/${id}/end`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
     complete: (id: number) =>
       request<any>(`/field-visits/${id}/complete`, { method: 'POST' }),
+    close: (id: number) =>
+      request<any>(`/field-visits/${id}/close`, { method: 'POST' }),
     getGeo: (id: number) => request<any>(`/field-visits/${id}/geo`),
     getSource: (id: number) => request<any>(`/field-visits/${id}/source`),
     createNameCollection: (taskId: number, data: { proposed_count: number }) =>
@@ -468,6 +493,11 @@ export const api = {
       `/field-visits/${id}/tasks`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+    recordTaskResult: (visitId: number, taskId: number, data: any) =>
+      request<any>(`/field-visits/${visitId}/tasks/${taskId}/result`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
     // ── DEC-007 D40/D41: referral sheet on the visit ──────────────────────
     getReferralSheet: (id: number) => request<{
       id: number; fieldVisitId: number; targetCandidates: number;
@@ -535,6 +565,67 @@ export const api = {
         tiersAlerted: number[];
       }>;
     }>('/field-visits/escalation-alerts'),
+    /** Executive view: one row per branch with comparison KPIs over a date range. */
+    branchSummary: (params?: { from?: string; to?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.from) qs.append('from', params.from);
+      if (params?.to) qs.append('to', params.to);
+      const query = qs.toString() ? `?${qs.toString()}` : '';
+      return request<{
+        from: string;
+        to: string;
+        branches: Array<{
+          branchId: number;
+          branchName: string | null;
+          total: number;
+          scheduled: number;
+          inProgress: number;
+          ended: number;
+          completed: number;
+          notCompleted: number;
+          cancelled: number;
+          stuckEscalated: number;
+          locationMissing: number;
+          avgDurationMinutes: number;
+          // Device-demo pre-offer outcomes within the period.
+          demoOffersPresented: number;
+          demoOffersAccepted: number;
+          demoOffersRejected: number;
+          demoOffersExtension: number;
+          demoOffersPending: number;
+        }>;
+      }>(`/field-visits/branch-summary${query}`);
+    },
+    /** Task-type analytics: one row per active task_type with universal KPIs +
+     *  type-specific success indicators (currently only device_demo). */
+    taskTypeSummary: (params?: { from?: string; to?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.from) qs.append('from', params.from);
+      if (params?.to) qs.append('to', params.to);
+      const query = qs.toString() ? `?${qs.toString()}` : '';
+      return request<{
+        from: string;
+        to: string;
+        taskTypes: Array<{
+          taskType: string;
+          taskFamily: string;
+          arabicLabel: string;
+          displayOrder: number;
+          totalAttempts: number;
+          completed: number;
+          notCompleted: number;
+          cancelled: number;
+          inProgress: number;
+          pending: number;
+          documented: number;
+          demoOffersPresented: number | null;
+          demoOffersAccepted: number | null;
+          demoOffersRejected: number | null;
+          demoOffersExtension: number | null;
+          demoOffersPending: number | null;
+        }>;
+      }>(`/field-visits/task-type-summary${query}`);
+    },
   },
   marketingVisits: {
     list: (date: string, clientId?: number) => {
@@ -625,5 +716,162 @@ telemarketing: {
     create: (data: any) => request<any>('/departments', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/departments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/departments/${id}`, { method: 'DELETE' }),
+  },
+  // ─────────────────────────────────────────────────────────────────
+  // Service Requests (Phase 3) — intake layer for emergency_maintenance
+  // ─────────────────────────────────────────────────────────────────
+  serviceRequests: {
+    create: (data: any) =>
+      request<any>('/service-requests', { method: 'POST', body: JSON.stringify(data) }),
+    createInternal: (data: any) =>
+      request<any>('/service-requests/internal', { method: 'POST', body: JSON.stringify(data) }),
+    list: (params: Record<string, string | number | boolean | undefined> = {}) => {
+      const qs = Object.entries(params)
+        .filter(([, v]) => v !== undefined && v !== '' && v !== null)
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+        .join('&');
+      return request<{ items: any[]; total: number; limit: number; offset: number }>(
+        `/service-requests${qs ? `?${qs}` : ''}`,
+      );
+    },
+    get: (id: number) =>
+      request<{ request: any; auditLog: any[]; problems: any[] }>(`/service-requests/${id}`),
+    claim: (id: number) =>
+      request<any>(`/service-requests/${id}/claim`, { method: 'POST', body: '{}' }),
+    takeOver: (id: number, reason?: string | null) =>
+      request<any>(`/service-requests/${id}/take-over`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    link: (id: number, data: any) =>
+      request<any>(`/service-requests/${id}/link`, { method: 'POST', body: JSON.stringify(data) }),
+    changeLinkage: (id: number, data: any) =>
+      request<any>(`/service-requests/${id}/change-linkage`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    suggestedMatches: (id: number) =>
+      request<{ clients: any[]; candidates: any[] }>(`/service-requests/${id}/suggested-matches`),
+    requestInfo: (id: number, body: any = {}) =>
+      request<any>(`/service-requests/${id}/request-info`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    resumeReview: (id: number, body: any = {}) =>
+      request<any>(`/service-requests/${id}/resume-review`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    resolveAtIntake: (id: number, body: any) =>
+      request<any>(`/service-requests/${id}/resolve-at-intake`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    escalate: (id: number, reason?: string | null) =>
+      request<any>(`/service-requests/${id}/escalate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    reject: (id: number, body: any) =>
+      request<any>(`/service-requests/${id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    cancel: (id: number, body: any) =>
+      request<any>(`/service-requests/${id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    reopen: (id: number, body: any) =>
+      request<any>(`/service-requests/${id}/reopen`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    /**
+     * Promote returns 409 with { error:'merge_or_split_required',
+     * existingOpenTaskId, installedDeviceId } on EM-UNIQ-01 collision.
+     * Callers should catch and route to the MergeOrSplit modal.
+     */
+    promote: async (id: number, body: any = {}) => {
+      const token = localStorage.getItem('hr_token');
+      const res = await fetch(`${API_BASE}/service-requests/${id}/promote`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data?.error === 'merge_or_split_required') {
+        return { collision: data as { existingOpenTaskId: number; installedDeviceId: number } };
+      }
+      if (!res.ok) throw new Error(data?.message || `API Error ${res.status}`);
+      return { ok: data };
+    },
+    merge: (id: number, existingOpenTaskId: number, note?: string | null) =>
+      request<any>(`/service-requests/${id}/merge`, {
+        method: 'POST',
+        body: JSON.stringify({ existingOpenTaskId, note: note ?? null }),
+      }),
+    archive: (id: number, reason?: string | null) =>
+      request<any>(`/service-requests/${id}/archive`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    unarchive: (id: number, reason?: string | null) =>
+      request<any>(`/service-requests/${id}/unarchive`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    addNote: (id: number, note: string) =>
+      request<any>(`/service-requests/${id}/notes`, {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      }),
+    // Problems
+    addProblem: (id: number, data: any) =>
+      request<any>(`/service-requests/${id}/problems`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    editProblem: (id: number, pid: number, data: any) =>
+      request<any>(`/service-requests/${id}/problems/${pid}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    setProblemStatus: (id: number, pid: number, data: any) =>
+      request<any>(`/service-requests/${id}/problems/${pid}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    recordProblemResolution: (id: number, pid: number, data: any) =>
+      request<any>(`/service-requests/${id}/problems/${pid}/record-resolution`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    deleteProblem: (id: number, pid: number, reason: string) =>
+      request<any>(`/service-requests/${id}/problems/${pid}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ reason }),
+      }),
+    restoreProblem: (id: number, pid: number, reason: string) =>
+      request<any>(`/service-requests/${id}/problems/${pid}/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    overrideProblem: (id: number, pid: number, newStatus: string, reason: string) =>
+      request<any>(`/service-requests/${id}/problems/${pid}/override`, {
+        method: 'POST',
+        body: JSON.stringify({ newStatus, reason }),
+      }),
+  },
+  openTaskProblems: {
+    list: (openTaskId: number) =>
+      request<{ items: any[]; total: number }>(`/open-tasks/${openTaskId}/problems`),
+    derivedOutcome: (openTaskId: number) =>
+      request<{ outcome: string; counts: Record<string, number>; total: number }>(
+        `/open-tasks/${openTaskId}/derived-outcome`,
+      ),
   },
 };

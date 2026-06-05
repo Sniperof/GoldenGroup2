@@ -7,14 +7,37 @@ type BuildCustomerOwnershipSqlArgs = {
   outputAlias?: string;
 };
 
+export function buildClientLifecycleStatusSql(clientAlias: string): string {
+  return `
+    CASE
+      WHEN EXISTS (SELECT 1 FROM contracts lifecycle_ct WHERE lifecycle_ct.customer_id = ${clientAlias}.id)
+        THEN 'OP'
+      WHEN EXISTS (
+        SELECT 1
+          FROM open_tasks lifecycle_ot
+          JOIN visit_tasks lifecycle_vt ON lifecycle_vt.source_open_task_id = lifecycle_ot.id
+          JOIN visit_task_results lifecycle_vtr ON lifecycle_vtr.visit_task_id = lifecycle_vt.id
+         WHERE lifecycle_ot.client_id = ${clientAlias}.id
+           AND lifecycle_ot.task_type = 'device_demo'
+           AND lifecycle_vt.task_type = 'device_demo'
+           AND (lifecycle_ot.status = 'closed' OR lifecycle_vt.status = 'closed')
+           AND lifecycle_vtr.final_decision = 'offer_presented'
+      )
+        THEN 'FOP'
+      ELSE 'LEAD'
+    END
+  `;
+}
+
 export function buildCustomerOwnershipSql(args: BuildCustomerOwnershipSqlArgs): string {
   const { clientAlias, branchNameExpression, outputAlias = 'ownership' } = args;
+  const lifecycleStatusSql = buildClientLifecycleStatusSql(clientAlias);
 
   return `
     LEFT JOIN LATERAL (
       SELECT
         CASE
-          WHEN ${clientAlias}.candidate_status IN ('OP', 'FOP')
+          WHEN (${lifecycleStatusSql}) IN ('OP', 'FOP')
             THEN CASE
               WHEN ${clientAlias}.branch_id IS NOT NULL THEN 'company_branch'
               ELSE 'company_global'
@@ -33,14 +56,14 @@ export function buildCustomerOwnershipSql(args: BuildCustomerOwnershipSqlArgs): 
           END
         END AS "ownerType",
         CASE
-          WHEN ${clientAlias}.candidate_status IN ('OP', 'FOP')
+          WHEN (${lifecycleStatusSql}) IN ('OP', 'FOP')
             THEN COALESCE(${branchNameExpression}, 'الشركة العامة')
           WHEN assignment_summary.eligible_personal_count > 0
             THEN assignment_summary.personal_owner_label
           ELSE COALESCE(${branchNameExpression}, 'الشركة العامة')
         END AS "ownerLabel",
         CASE
-          WHEN ${clientAlias}.candidate_status IN ('OP', 'FOP')
+          WHEN (${lifecycleStatusSql}) IN ('OP', 'FOP')
             THEN '[]'::json
           WHEN assignment_summary.eligible_personal_count > 0
             THEN assignment_summary.personal_assignments
@@ -51,7 +74,7 @@ export function buildCustomerOwnershipSql(args: BuildCustomerOwnershipSqlArgs): 
           ELSE 'global'
         END AS "companyOwnershipScope",
         CASE
-          WHEN ${clientAlias}.candidate_status IN ('OP', 'FOP')
+          WHEN (${lifecycleStatusSql}) IN ('OP', 'FOP')
             THEN 'company_reclaimed_op_fop'
           WHEN assignment_summary.eligible_personal_count > 0
             THEN 'personal_assignment_active'
@@ -151,10 +174,9 @@ export async function getCompanyOwnedClients(branchId: number, zoneIds: number[]
      WHERE c.branch_id = $1
        AND (c.is_active IS NULL OR c.is_active = TRUE)
        AND c.deleted_at IS NULL
-       AND NULLIF(c.neighborhood, '') ~ '^[0-9]+$'
-       AND c.neighborhood::int = ANY($2::int[])
+       AND c.neighborhood = ANY($2::int[])
        AND (
-         c.candidate_status IN ('OP', 'FOP')
+         (${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP')
          OR NOT EXISTS (
            SELECT 1
            FROM client_assignments ca

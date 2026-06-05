@@ -48,20 +48,21 @@ const contractSelect = `
   c.sale_owner_id AS "saleOwnerId",
   c.offer_team_snapshot AS "offerTeamSnapshot",
   c.contract_referrers AS "contractReferrers",
+  c.draft_device_payload AS "draftDevicePayload",
   -- Physical device fields (source: installed_devices)
-  d.serial_number              AS "serialNumber",
-  d.status                     AS "deviceStatus",
-  d.delivery_date              AS "deliveryDate",
-  d.installation_date          AS "installationDate",
-  d.installation_geo_unit_id   AS "installationGeoUnitId",
-  d.installation_address_text  AS "installationAddressText",
-  d.installation_lat           AS "installationLat",
-  d.installation_lng           AS "installationLng",
+  COALESCE(d.serial_number, c.draft_device_payload->>'serialNumber') AS "serialNumber",
+  COALESCE(d.status, c.draft_device_payload->>'deviceStatus') AS "deviceStatus",
+  COALESCE(d.delivery_date, NULLIF(c.draft_device_payload->>'deliveryDate', '')::date) AS "deliveryDate",
+  COALESCE(d.installation_date, NULLIF(c.draft_device_payload->>'installationDate', '')::date) AS "installationDate",
+  COALESCE(d.installation_geo_unit_id, NULLIF(c.draft_device_payload->>'installationGeoUnitId', '')::int) AS "installationGeoUnitId",
+  COALESCE(d.installation_address_text, c.draft_device_payload->>'installationAddressText') AS "installationAddressText",
+  COALESCE(d.installation_lat, NULLIF(c.draft_device_payload->>'installationLat', '')::numeric) AS "installationLat",
+  COALESCE(d.installation_lng, NULLIF(c.draft_device_payload->>'installationLng', '')::numeric) AS "installationLng",
   d.is_golden_warranty         AS "isGoldenWarranty",
   d.golden_warranty_end_date   AS "goldenWarrantyEndDate",
   d.contract_warranty_end_date AS "contractWarrantyEndDate",
-  d.warranty_months            AS "warrantyMonths",
-  d.warranty_visits            AS "warrantyVisits",
+  COALESCE(d.warranty_months, NULLIF(c.draft_device_payload->>'warrantyMonths', '')::int) AS "warrantyMonths",
+  COALESCE(d.warranty_visits, NULLIF(c.draft_device_payload->>'warrantyVisits', '')::int) AS "warrantyVisits",
   (SELECT name FROM hr_users WHERE id = c.closing_employee_id LIMIT 1) AS "closingEmployeeName",
   (SELECT value FROM system_lists WHERE id = c.no_closing_reason_id LIMIT 1) AS "noClosingReasonName",
   (SELECT name FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchName",
@@ -672,16 +673,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const installationGeoUnitId = c.geoSelection?.neighborhoodId || null;
-    const installationAddressText = c.detailedAddress?.trim() || null;
-    const installationLat = c.mapPosition?.[0] ?? null;
-    const installationLng = c.mapPosition?.[1] ?? null;
+    const draftDevicePayload = buildDraftDevicePayload(c);
 
-    const warrantyMonths = Number(c.warrantyMonths) || 0;
-    const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
-    const warrantyMonthsStored = warrantyMonths > 0 ? warrantyMonths : null;
-
-    // Phase 2C: physical device fields go directly to installed_devices, not contracts.
+    // Draft contracts do not have installed_devices rows yet. Keep the entered
+    // physical-device fields on the contract until approval materializes the row.
     const { rows } = await client.query(
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
         source_visit, device_model_id, device_model_name, maintenance_plan,
@@ -694,8 +689,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         buyer_birth_date, buyer_gender,
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number,
         no_closing_reason_id, sale_subtype, created_by,
-        sale_owner_id, offer_team_snapshot, contract_referrers)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
+        sale_owner_id, offer_team_snapshot, contract_referrers, draft_device_payload)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)
       RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
@@ -714,40 +709,25 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        // DEC-CT-11 / DEC-CT-13 — frozen at creation; never updated later via this path.
        c.saleOwnerId || null,
        c.offerTeamSnapshot ? JSON.stringify(c.offerTeamSnapshot) : null,
-       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]']
+       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]',
+       derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null]
     );
     const contractId = rows[0].id;
 
-    // Trigger 191 fires after INSERT and creates the installed_devices row.
-    // Write physical device fields directly to that row.
-    if ((c.contractType || 'sale_contract') === 'sale_contract') {
-      await client.query(
-        `UPDATE installed_devices SET
-          serial_number             = $1,
-          status                    = $2,
-          delivery_date             = $3,
-          installation_date         = $4,
-          installation_geo_unit_id  = $5,
-          installation_address_text = $6,
-          installation_lat          = $7,
-          installation_lng          = $8,
-          warranty_months           = $9,
-          warranty_visits           = $10,
-          contract_warranty_end_date = $11
-        WHERE contract_id = $12`,
-        [c.serialNumber || null, c.deviceStatus || 'pending_delivery',
-         c.deliveryDate || null, c.installationDate || null,
-         installationGeoUnitId, installationAddressText, installationLat, installationLng,
-         warrantyMonthsStored, warrantyVisits, null,
-         contractId]
-      );
+    if ((c.contractType || 'sale_contract') === 'sale_contract' && derivedStatus === 'active') {
+      await applyDevicePayloadToInstalledDevice(client, contractId, draftDevicePayload);
     }
 
     // Contract warranty becomes effective only after the device actually enters
     // service. We keep the legal entitlement at contract time, but the snapshot
     // dates/status are derived from installed_devices.activated_at.
-    if ((c.contractType || 'sale_contract') === 'sale_contract') {
-      await syncContractWarrantySnapshot(client, contractId, warrantyMonthsStored, warrantyVisits);
+    if ((c.contractType || 'sale_contract') === 'sale_contract' && derivedStatus === 'active') {
+      await syncContractWarrantySnapshot(
+        client,
+        contractId,
+        draftDevicePayload.warrantyMonths,
+        draftDevicePayload.warrantyVisits,
+      );
     }
 
     // Re-fetch with JOIN so installed_devices fields are included in the response
@@ -893,17 +873,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const prevStatus: string = existing[0].prevStatus;
   const c = req.body;
   const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
-
-  // Physical device location (for installed_devices)
-  const installationGeoUnitId = c.geoSelection?.neighborhoodId || c.installationGeoUnitId || null;
-  const installationAddressText = c.detailedAddress?.trim() || c.installationAddressText || null;
-  const installationLat = c.mapPosition?.[0] ?? c.installationLat ?? null;
-  const installationLng = c.mapPosition?.[1] ?? c.installationLng ?? null;
-
-  // Warranty payload: dates are derived from device activation, not contract date.
-  const warrantyMonths = Number(c.warrantyMonths) || 0;
-  const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
-  const warrantyMonthsStored = warrantyMonths > 0 ? warrantyMonths : null;
+  const draftDevicePayload = buildDraftDevicePayload(c);
 
   const pgClient = await pool.connect();
   try {
@@ -924,9 +894,9 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
         buyer_birth_date=$25, buyer_gender=$26,
         contract_type=$27, source_open_task_id=$28, source_task_offer_id=$29,
         sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32,
-        sale_owner_id=$33, contract_referrers=$34
+        sale_owner_id=$33, contract_referrers=$34, draft_device_payload=$35
         -- offer_team_snapshot is deliberately NOT updated here: DEC-CT-13 freezes it at creation.
-      WHERE id=$35`,
+      WHERE id=$36`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
@@ -946,35 +916,23 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        c.saleSubtype || 'definitive',
        c.saleOwnerId || null,
        Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]',
+       derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null,
        req.params.id]
     );
 
-    // Write physical device fields directly to installed_devices (Phase 2C)
-    await pgClient.query(
-      `UPDATE installed_devices SET
-        serial_number             = $1,
-        status                    = $2,
-        delivery_date             = $3,
-        installation_date         = $4,
-        installation_geo_unit_id  = $5,
-        installation_address_text = $6,
-        installation_lat          = $7,
-        installation_lng          = $8,
-        warranty_months           = COALESCE($9, warranty_months),
-        warranty_visits           = COALESCE($10, warranty_visits),
-        contract_warranty_end_date = $11
-      WHERE contract_id = $12`,
-      [c.serialNumber || null, c.deviceStatus || 'pending_delivery',
-       c.deliveryDate || null, c.installationDate || null,
-       installationGeoUnitId, installationAddressText, installationLat, installationLng,
-       warrantyMonthsStored, warrantyVisits, null,
-       req.params.id]
-    );
+    if ((c.contractType || 'sale_contract') === 'sale_contract' && derivedStatus === 'active') {
+      await applyDevicePayloadToInstalledDevice(pgClient, Number(req.params.id), draftDevicePayload);
+    }
 
     // Respect DB-side activation/cancellation triggers and only synchronize the
     // warranty snapshot from the device's effective activation state.
-    if ((c.contractType || 'sale_contract') === 'sale_contract') {
-      await syncContractWarrantySnapshot(pgClient, Number(req.params.id), warrantyMonthsStored, warrantyVisits);
+    if ((c.contractType || 'sale_contract') === 'sale_contract' && derivedStatus === 'active') {
+      await syncContractWarrantySnapshot(
+        pgClient,
+        Number(req.params.id),
+        draftDevicePayload.warrantyMonths,
+        draftDevicePayload.warrantyVisits,
+      );
     }
 
     // DEC-CT-15: auto-freeze the legal copy at the draft→active transition.
@@ -1394,7 +1352,7 @@ async function createDeliveryTaskForContract(db: any, contract: any) {
   const dueDate = contract.deliveryDate
     || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const { rows: devIdRows } = await db.query(
-    'SELECT id, branch_id AS "branchId" FROM installed_devices WHERE contract_id = $1 LIMIT 1',
+    'SELECT id, branch_id AS "branchId", installation_address_text AS "installationAddressText" FROM installed_devices WHERE contract_id = $1 LIMIT 1',
     [contract.id],
   );
   const deliveryDeviceId = devIdRows[0]?.id ?? null;
@@ -1402,11 +1360,81 @@ async function createDeliveryTaskForContract(db: any, contract: any) {
   await db.query(
     `INSERT INTO open_tasks (
        client_id, branch_id, task_type, task_family, reason, status, due_date,
-       source, origin, contract_id, device_id
-     ) VALUES ($1, $2, 'device_delivery', 'delivery', 'service_request', 'open', $3,
-               'system', 'manual_entry', $4, $5)`,
-    [contract.customerId, deliveryBranchId, dueDate, contract.id, deliveryDeviceId],
+       source, origin, contract_id, device_id, delivery_address, creation_origin
+     ) VALUES ($1, $2, 'device_delivery', 'delivery', 'sale_delivery', 'open', $3,
+               'system', 'system_trigger', $4, $5, $6, 'system_trigger')`,
+    [contract.customerId, deliveryBranchId, dueDate, contract.id, deliveryDeviceId, devIdRows[0]?.installationAddressText ?? null],
   );
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function buildDraftDevicePayload(c: any) {
+  const warrantyMonths = Number(c.warrantyMonths) || 0;
+  const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
+  const installationGeoUnitId =
+    c.geoSelection?.neighborhoodId
+    || c.installationGeoUnitId
+    || null;
+
+  return {
+    serialNumber: c.serialNumber?.trim?.() || null,
+    deviceStatus: c.deviceStatus || 'pending_delivery',
+    deliveryDate: c.deliveryDate || null,
+    installationDate: c.installationDate || null,
+    installationGeoUnitId: toNullableNumber(installationGeoUnitId),
+    installationAddressText: c.detailedAddress?.trim?.() || c.installationAddressText || null,
+    installationLat: toNullableNumber(c.mapPosition?.[0] ?? c.installationLat),
+    installationLng: toNullableNumber(c.mapPosition?.[1] ?? c.installationLng),
+    warrantyMonths: warrantyMonths > 0 ? warrantyMonths : null,
+    warrantyVisits,
+  };
+}
+
+function hasDevicePayloadValue(payload: any): boolean {
+  return Boolean(payload && Object.values(payload).some(v => v !== null && v !== undefined && v !== ''));
+}
+
+async function applyDevicePayloadToInstalledDevice(dbClient: any, contractId: number | string, payload: any) {
+  if (!hasDevicePayloadValue(payload)) return;
+
+  const result = await dbClient.query(
+    `UPDATE installed_devices SET
+       serial_number              = $1,
+       status                     = $2,
+       delivery_date              = $3,
+       installation_date          = $4,
+       installation_geo_unit_id   = $5,
+       installation_address_text  = $6,
+       installation_lat           = $7,
+       installation_lng           = $8,
+       warranty_months            = $9,
+       warranty_visits            = $10,
+       contract_warranty_end_date = $11
+     WHERE contract_id = $12
+     RETURNING id`,
+    [
+      payload.serialNumber || null,
+      payload.deviceStatus || 'pending_delivery',
+      payload.deliveryDate || null,
+      payload.installationDate || null,
+      payload.installationGeoUnitId || null,
+      payload.installationAddressText || null,
+      payload.installationLat ?? null,
+      payload.installationLng ?? null,
+      payload.warrantyMonths || null,
+      payload.warrantyVisits || null,
+      null,
+      contractId,
+    ],
+  );
+  if (result.rowCount === 0) {
+    throw new Error(`installed_devices row was not materialized for contract ${contractId}`);
+  }
 }
 
 router.post('/:id/approve', requirePermission('contracts.approve'), async (req, res) => {
@@ -1423,7 +1451,8 @@ router.post('/:id/approve', requirePermission('contracts.approve'), async (req, 
     // Pessimistic lock so two approvers can't race.
     const { rows: cur } = await pgClient.query(
       `SELECT id, status, contract_type, customer_id, branch_id, closing_employee_id,
-              delivery_date
+              draft_device_payload AS "draftDevicePayload",
+              NULL::date AS delivery_date
          FROM contracts WHERE id = $1 FOR UPDATE`,
       [contractId],
     );
@@ -1472,12 +1501,28 @@ router.post('/:id/approve', requirePermission('contracts.approve'), async (req, 
       [closerId, contractId],
     );
 
+    if (c.draftDevicePayload) {
+      await applyDevicePayloadToInstalledDevice(pgClient, contractId, c.draftDevicePayload);
+      await syncContractWarrantySnapshot(
+        pgClient,
+        contractId,
+        toNullableNumber(c.draftDevicePayload.warrantyMonths),
+        toNullableNumber(c.draftDevicePayload.warrantyVisits),
+      );
+      await pgClient.query(
+        'UPDATE contracts SET draft_device_payload = NULL WHERE id = $1',
+        [contractId],
+      );
+    }
+
     // Refresh after triggers settle.
     const { rows: after } = await pgClient.query(
       `SELECT c.id, c.contract_type AS "contractType", c.customer_id AS "customerId",
-              c.branch_id AS "branchId", c.delivery_date AS "deliveryDate",
+              c.branch_id AS "branchId", d.delivery_date AS "deliveryDate",
               c.status
-         FROM contracts c WHERE c.id = $1`,
+         FROM contracts c
+         LEFT JOIN installed_devices d ON d.contract_id = c.id
+        WHERE c.id = $1`,
       [contractId],
     );
     const refreshed = after[0];

@@ -77,7 +77,7 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
     setOffers([]);
     Promise.all([
       api.deviceModels.list(),
-      api.employees.closers(),
+      api.employees.employeeClosers(),
       api.systemLists.getItemsByCode('no_closing_reasons'),
     ])
       .then(([models, closerRows, noClosingRows]) => {
@@ -127,6 +127,7 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
     if (offer.offerType === 'installment' && (!positiveNumber(offer.firstPaymentAmount) || !positiveInteger(offer.installmentMonths))) {
       return 'استكمل بيانات التقسيط';
     }
+    if (!offer.closedByEmployeeId && !offer.noClosingReason) return 'اختر موظف التسكير أو سبب عدم التسكير';
     return '';
   }
 
@@ -260,13 +261,28 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
                   )}
 
                   <Field label="موظف التسكير">
-                    <select value={draft.closedByEmployeeId} onChange={e => updateDraft('closedByEmployeeId', e.target.value)} className={INPUT_CLASS}>
+                    <select
+                      value={draft.closedByEmployeeId}
+                      onChange={e => {
+                        updateDraft('closedByEmployeeId', e.target.value);
+                        if (e.target.value) updateDraft('noClosingReason', '');
+                      }}
+                      className={INPUT_CLASS}
+                    >
                       <option value="">اختياري</option>
                       {closers.map(closer => <option key={closer.id} value={closer.id}>{closer.name}</option>)}
                     </select>
                   </Field>
                   <Field label="سبب عدم التسكير">
-                    <select value={draft.noClosingReason} onChange={e => updateDraft('noClosingReason', e.target.value)} className={INPUT_CLASS}>
+                    <select
+                      value={draft.noClosingReason}
+                      onChange={e => {
+                        updateDraft('noClosingReason', e.target.value);
+                        if (e.target.value) updateDraft('closedByEmployeeId', '');
+                      }}
+                      disabled={!!draft.closedByEmployeeId}
+                      className={`${INPUT_CLASS} ${draft.closedByEmployeeId ? 'cursor-not-allowed opacity-50' : ''}`}
+                    >
                       <option value="">بدون سبب</option>
                       {noClosingReasons.map(reason => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
                     </select>

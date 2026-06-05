@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Loader2, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Loader2, ChevronRight, ArrowLeft, AlertTriangle } from 'lucide-react';
 
 import { api, API_BASE } from '../../lib/api';
 import { DeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
@@ -37,6 +37,21 @@ const JUMP_LINKS = [
   { id: 'financial',         label: '٨. المالية' },
   { id: 'tasks',             label: '٩. المهام' },
 ];
+
+const MISSING_LABELS: Record<string, string> = {
+  serialNumber: 'الرقم التسلسلي غير مسجل',
+  branchName: 'اسم الفرع غير متاح',
+  installationLocation: 'موقع الجهاز غير مكتمل',
+  deliveryDate: 'تاريخ التسليم غير مثبت بعد',
+  installationDate: 'تاريخ التركيب غير مثبت بعد',
+  activatedAt: 'تاريخ التشغيل غير مثبت بعد',
+  warrantyTerms: 'شروط الكفالة غير مكتملة',
+};
+
+function missingItems(device: any): string[] {
+  const missing = device?.missingFields ?? {};
+  return Object.keys(missing).map(key => MISSING_LABELS[key] ?? key);
+}
 
 export default function DeviceProfilePage() {
   const { id } = useParams<{ id: string }>();
@@ -138,7 +153,7 @@ export default function DeviceProfilePage() {
         </button>
         <ChevronRight className="w-3 h-3 -scale-x-100" />
         <span className="text-slate-700 font-bold">
-          {device.deviceModelName} #{device.serialNumber || device.id}
+          {device.deviceModelName || `جهاز #${device.id}`} #{device.serialNumber || device.id}
         </span>
       </nav>
 
@@ -146,10 +161,14 @@ export default function DeviceProfilePage() {
       <header className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-xl font-black text-slate-800">{device.deviceModelName}</h1>
+            <h1 className="text-xl font-black text-slate-800">{device.deviceModelName || `جهاز #${device.id}`}</h1>
             <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500">
               <span>الرقم التسلسلي:</span>
-              <span className="font-mono font-bold text-slate-700">{device.serialNumber || 'غير محدد'}</span>
+              {device.serialNumber ? (
+                <span className="font-mono font-bold text-slate-700" dir="ltr">{device.serialNumber}</span>
+              ) : (
+                <span className="font-bold text-amber-700">غير مسجل بعد</span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -170,6 +189,20 @@ export default function DeviceProfilePage() {
           </div>
         </div>
       </header>
+
+      {missingItems(device).length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-black text-amber-800">بيانات الجهاز تحتاج استكمال</div>
+            <div className="text-xs text-amber-700 mt-1 leading-relaxed">
+              هذا الجهاز موجود ومربوط بالعقد، لكن بعض معلوماته التشغيلية لم تحفظ بعد:
+              {' '}
+              <span className="font-bold">{missingItems(device).join('، ')}</span>.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Side rail + sections */}
       <div className="flex gap-6">
@@ -196,7 +229,7 @@ export default function DeviceProfilePage() {
           <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
           <LinkedContractSection contract={contract} apiBase={API_BASE} />
           <FinancialSection contract={contract} customerId={device.customerId ?? null} />
-          <TasksSection tasks={tasks} deviceId={deviceId} />
+          <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} />
         </main>
       </div>
     </div>

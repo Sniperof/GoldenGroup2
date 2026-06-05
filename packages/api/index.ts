@@ -30,6 +30,7 @@ import installedDevicesRouter from './routes/installedDevices.js';
 import sparePartsRouter from './routes/spareParts.js';
 import maintenanceRequestsRouter from './routes/maintenanceRequests.js';
 import emergencyTicketsRouter from './routes/emergencyTickets.js';
+import serviceRequestsRouter from './routes/serviceRequests.js';
 import visitsRouter from './routes/visits.js';
 import schedulesRouter from './routes/schedules.js';
 import routeAssignmentsRouter from './routes/routeAssignments.js';
@@ -111,6 +112,8 @@ app.use('/api/tasks', ...branchOnly, tasksRouter);
 app.use('/api/dues', ...branchOnly, duesRouter);
 app.use('/api/maintenance-requests', ...branchOnly, maintenanceRequestsRouter);
 app.use('/api/emergency-tickets', ...branchOnly, emergencyTicketsRouter);
+// service_requests intake (٠.١٦ — GLOBAL by design, no branch context required)
+app.use('/api/service-requests', requireAuth, serviceRequestsRouter);
 app.use('/api/visits', ...branchOnly, visitsRouter);
 app.use('/api/schedules', ...branchOnly, schedulesRouter);
 app.use('/api/route-assignments', ...branchOnly, routeAssignmentsRouter);

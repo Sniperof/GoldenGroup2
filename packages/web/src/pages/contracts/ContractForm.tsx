@@ -261,9 +261,13 @@ export default function ContractForm() {
                     setSourceTaskId(c.sourceVisit || '');
                     setDeviceModelId(c.deviceModelId || '');
                     setSerialNumber(c.serialNumber || '');
-                    setDetailedAddress(c.detailedAddress || '');
-                    setMapPosition(c.mapPosition || null);
-                    setShowMapPicker(Boolean(c.mapPosition));
+                    setDetailedAddress(c.detailedAddress || c.installationAddressText || '');
+                    const restoredMapPosition = c.mapPosition
+                        || (c.installationLat != null && c.installationLng != null
+                            ? [Number(c.installationLat), Number(c.installationLng)] as [number, number]
+                            : null);
+                    setMapPosition(restoredMapPosition);
+                    setShowMapPicker(Boolean(restoredMapPosition));
                     setClosingEmployeeId(c.closingEmployeeId || '');
                     setInvoiceNotes(c.invoiceNotes || '');
                     setNoClosingReasonId(c.noClosingReasonId || '');
@@ -283,7 +287,7 @@ export default function ContractForm() {
                         govId: String(c.governorateId || ''),
                         regionId: String(c.regionId || ''),
                         subId: String(c.subDistrictId || ''),
-                        neighborhoodId: String(c.neighborhoodId || ''),
+                        neighborhoodId: String(c.neighborhoodId || c.installationGeoUnitId || ''),
                     });
                     if (c.customerId) {
                         const match = mappedCustomers.find((m: any) => m.id === c.customerId);
@@ -444,6 +448,17 @@ export default function ContractForm() {
         setSelectedReferrerIds([]);
     }, [selectedCustomer]);
 
+    const getTaskSourceOpenTaskId = (task: any) =>
+        task?.sourceOpenTaskId ?? task?.source_open_task_id ?? task?.source_open_taskId ?? null;
+
+    const getTaskOffers = (task: any) => {
+        if (!task) return [];
+        if (Array.isArray(task.offers) && task.offers.length > 0) return task.offers;
+        if (Array.isArray(task.preOffers) && task.preOffers.length > 0) return task.preOffers;
+        if (Array.isArray(task.pre_offers) && task.pre_offers.length > 0) return task.pre_offers;
+        return [];
+    };
+
     const getOffersForVisit = (v: any, taskIdentifier?: string | number) => {
         if (!v) return [];
         
@@ -451,32 +466,35 @@ export default function ContractForm() {
         if (taskIdentifier && Array.isArray(v.tasks)) {
             const match = v.tasks.find((t: any) => 
                 String(t.id) === String(taskIdentifier) || 
-                String(t.sourceOpenTaskId) === String(taskIdentifier)
+                String(getTaskSourceOpenTaskId(t)) === String(taskIdentifier)
             );
-            if (match?.offers && match.offers.length > 0) {
-                return match.offers;
+            const matchOffers = getTaskOffers(match);
+            if (matchOffers.length > 0) {
+                return matchOffers;
             }
         }
         
-        let offers = v.task?.offers || [];
+        let offers = getTaskOffers(v.task);
         if (offers.length === 0 && Array.isArray(v.tasks)) {
             const matchingTask = v.tasks.find((t: any) => String(t.id) === String(v.task?.id));
-            if (matchingTask?.offers) {
-                offers = matchingTask.offers;
-            }
+            offers = getTaskOffers(matchingTask);
         }
         
         // Final fallback: if offers still empty, check if any task in v.tasks has offers
         if (offers.length === 0 && Array.isArray(v.tasks)) {
             for (const t of v.tasks) {
-                if (t.offers && t.offers.length > 0) {
-                    offers = t.offers;
+                const taskOffers = getTaskOffers(t);
+                if (taskOffers.length > 0) {
+                    offers = taskOffers;
                     break;
                 }
             }
         }
         return offers;
     };
+
+    const isAcceptedUnlinkedOffer = (offer: any) =>
+        offer?.customerResponse === 'accepted' && offer?.contractId == null;
 
     useEffect(() => {
         if (!selectedCustomer) {
@@ -497,23 +515,13 @@ export default function ContractForm() {
         api.openTasks.listByClient(selectedCustomer.id)
             .then(async (tasksData: any[]) => {
                 const demoTasks = tasksData.filter((t: any) => t.taskType === 'device_demo');
-                const visitIds = demoTasks
-                    .map((t: any) => t.marketingVisitId)
-                    .filter(Boolean) as string[];
-                const detailed = await Promise.all(
-                    visitIds.map((id) => api.marketingVisits.get(id).catch(() => null))
+                const detailedTasks = await Promise.all(
+                    demoTasks.map((task: any) => api.openTasks.get(Number(task.id)).catch(() => task))
                 );
-                const activeDetailed = detailed.filter(Boolean);
-                setDetailedVisits(activeDetailed);
+                setDetailedVisits([]);
 
-                const filteredTasks = demoTasks.filter((ot: any) =>
-                    activeDetailed.some((v: any) => {
-                        const hasMatchingTask = (v.tasks || []).some((t: any) => String(t.sourceOpenTaskId) === String(ot.id)) ||
-                                                String(v.task?.sourceOpenTaskId) === String(ot.id);
-                        if (!hasMatchingTask) return false;
-                        const offers = getOffersForVisit(v, ot.id);
-                        return offers.some((o: any) => o.customerResponse === 'accepted' && o.contractId == null);
-                    })
+                const filteredTasks = detailedTasks.filter((task: any) =>
+                    getTaskOffers(task).some(isAcceptedUnlinkedOffer)
                 );
                 setClientTasks(filteredTasks);
             })
@@ -523,13 +531,16 @@ export default function ContractForm() {
 
     const availableOffers = useMemo(() => {
         if (!selectedTask) return [];
+        const taskOffers = getTaskOffers(selectedTask);
+        if (taskOffers.length > 0) return taskOffers.filter(isAcceptedUnlinkedOffer);
+
         const matchingVisit = detailedVisits.find((v: any) => 
-            (v.tasks || []).some((t: any) => String(t.sourceOpenTaskId) === String(selectedTask.id)) ||
-            String(v.task?.sourceOpenTaskId) === String(selectedTask.id)
+            (v.tasks || []).some((t: any) => String(getTaskSourceOpenTaskId(t)) === String(selectedTask.id)) ||
+            String(getTaskSourceOpenTaskId(v.task)) === String(selectedTask.id)
         );
         if (!matchingVisit) return [];
         const offers = getOffersForVisit(matchingVisit, selectedTask.id);
-        return offers.filter((o: any) => o.customerResponse === 'accepted' && o.contractId == null);
+        return offers.filter(isAcceptedUnlinkedOffer);
     }, [selectedTask, detailedVisits]);
 
     const handleSelectOffer = useCallback((offer: any) => {
@@ -541,13 +552,16 @@ export default function ContractForm() {
         
         // Find matching task and visit for linkage
         const matchingVisit = detailedVisits.find((v: any) => 
-            (v.tasks || []).some((t: any) => String(t.sourceOpenTaskId) === String(selectedTask?.id)) ||
-            String(v.task?.sourceOpenTaskId) === String(selectedTask?.id)
+            (v.tasks || []).some((t: any) => String(getTaskSourceOpenTaskId(t)) === String(selectedTask?.id)) ||
+            String(getTaskSourceOpenTaskId(v.task)) === String(selectedTask?.id)
         );
         if (matchingVisit) {
             setSelectedOfferVisitId(String(matchingVisit.id));
-            const matchingTask = (matchingVisit.tasks || []).find((t: any) => String(t.sourceOpenTaskId) === String(selectedTask?.id)) || matchingVisit.task;
+            const matchingTask = (matchingVisit.tasks || []).find((t: any) => String(getTaskSourceOpenTaskId(t)) === String(selectedTask?.id)) || matchingVisit.task;
             setSelectedOfferTaskId(String(matchingTask?.id));
+        } else if (selectedTask?.lastAttemptDetail?.visitId && selectedTask?.lastAttemptDetail?.visitTaskId) {
+            setSelectedOfferVisitId(String(selectedTask.lastAttemptDetail.visitId));
+            setSelectedOfferTaskId(String(selectedTask.lastAttemptDetail.visitTaskId));
         }
         setSourceOpenTaskId(selectedTask?.id || null);
         setSourceTaskOfferId(offer.id || null);

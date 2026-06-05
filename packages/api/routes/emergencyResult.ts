@@ -13,6 +13,12 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+// Phase 6b — service_request_problems integration (hybrid path)
+import {
+  addProblem,
+  changeProblemStatus,
+} from '../services/serviceRequests/problemsService.js';
+import { computeDerivedOutcome } from '../services/serviceRequests/derivedOutcomeCalc.js';
 
 const router = Router();
 
@@ -284,6 +290,7 @@ async function getTaskMeta(taskId: number) {
     `SELECT ot.id, ot.status, ot.contract_id AS "contractId",
             ot.em_pre_state_id AS "preStateId", ot.em_post_state_id AS "postStateId",
             ot.em_action_id AS "actionId", ot.em_costs_id AS "costsId",
+            ot.source_service_request_id AS "sourceServiceRequestId",
             ot.created_at AS "taskDate",
             c.name AS "clientName", c.mobile AS "clientPhone",
             ctr.contract_number AS "contractRef"
@@ -375,6 +382,37 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
         : null,
     ]);
 
+    // Phase 6b — expose problems + source path so the wizard can dispatch V1/V2.
+    const isNewPath = meta.sourceServiceRequestId != null;
+    let problems: any[] = [];
+    let derivedOutcome: { outcome: string; counts: Record<string, number>; total: number } | null = null;
+    if (isNewPath) {
+      const problemsRes = await pool.query(
+        `SELECT id,
+                service_request_id AS "serviceRequestId",
+                open_task_id AS "openTaskId",
+                installed_device_id AS "installedDeviceId",
+                problem_type_id AS "problemTypeId",
+                details, status,
+                added_during_phase AS "addedDuringPhase",
+                creator_role_snapshot AS "creatorRoleSnapshot",
+                created_by_user_id AS "createdByUserId",
+                created_at AS "createdAt",
+                resolved_at AS "resolvedAt",
+                resolution_recorded_by_user_id AS "resolutionRecordedByUserId",
+                repaired_by_employee_id AS "repairedByEmployeeId",
+                resolution_visit_task_id AS "resolutionVisitTaskId",
+                resolution_notes AS "resolutionNotes",
+                edit_count AS "editCount"
+           FROM service_request_problems
+          WHERE open_task_id = $1 AND deleted_at IS NULL
+          ORDER BY created_at ASC`,
+        [taskId],
+      );
+      problems = problemsRes.rows;
+      derivedOutcome = await computeDerivedOutcome(taskId);
+    }
+
     res.json({
       taskId,
       taskMeta: {
@@ -382,7 +420,10 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
         clientPhone:  meta.clientPhone  ?? null,
         contractRef:  meta.contractRef  ?? null,
         taskDate:     meta.taskDate     ?? null,
+        sourceServiceRequestId: meta.sourceServiceRequestId ?? null,
       },
+      problems,
+      derivedOutcome,
       phases: {
         preState:  preRow  ? mapTechState(preRow)  : null,
         actions:   actionRow ?? null,
@@ -670,17 +711,39 @@ router.put('/:taskId/post-state', requirePermission('marketing_visits.update_res
  *         description: Server error
  */
 router.put('/:taskId/actions', requirePermission('marketing_visits.update_result'), async (req, res) => {
+  const taskId = Number(req.params.taskId);
+  const meta = await getTaskMeta(taskId);
+  if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
+
+  const {
+    actionTypeId,
+    actionsTaken,
+    partsUsed,
+    technicianNotes,
+    // ── Phase 6 (new): service_request_problems integration ──────────────────
+    /** Updates to existing problems on this open_task.
+     *  Each entry: { problemId, status, reason?, repairedByEmployeeId?,
+     *                resolutionRecordedByUserId?, resolutionNotes?,
+     *                resolutionVisitTaskId? }
+     *  Ignored when source_service_request_id IS NULL (legacy path). */
+    problemsStatusUpdates,
+    /** Field-discovery problems added during the visit (٠.١٩.ط).
+     *  Each entry: { installedDeviceId, problemTypeId, details?,
+     *                creatorRoleSnapshot? }
+     *  Ignored when source_service_request_id IS NULL. */
+    newProblems,
+  } = req.body ?? {};
+  const recordedBy = (req.authContext as any)?.userId ?? null;
+  const isNewPath = meta.sourceServiceRequestId != null;
+
+  const db = await pool.connect();
   try {
-    const taskId = Number(req.params.taskId);
-    const meta = await getTaskMeta(taskId);
-    if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
+    await db.query('BEGIN');
 
-    const { actionTypeId, actionsTaken, partsUsed, technicianNotes } = req.body ?? {};
-    const recordedBy = (req.authContext as any)?.userId ?? null;
-
+    // ── Legacy block: emergency_maintenance_actions (unchanged behavior) ────
     let actionId = meta.actionId;
     if (actionId) {
-      await pool.query(
+      await db.query(
         `UPDATE emergency_maintenance_actions
             SET action_type_id = $1, actions_taken = $2, parts_used = $3::jsonb,
                 technician_notes = $4, updated_at = NOW()
@@ -688,17 +751,121 @@ router.put('/:taskId/actions', requirePermission('marketing_visits.update_result
         [actionTypeId ?? null, actionsTaken ?? null, JSON.stringify(partsUsed ?? []), technicianNotes ?? null, actionId],
       );
     } else {
-      const { rows } = await pool.query(
+      const { rows } = await db.query(
         `INSERT INTO emergency_maintenance_actions
            (open_task_id, action_type_id, actions_taken, parts_used, technician_notes, recorded_by)
          VALUES ($1, $2, $3, $4::jsonb, $5, $6) RETURNING id`,
         [taskId, actionTypeId ?? null, actionsTaken ?? null, JSON.stringify(partsUsed ?? []), technicianNotes ?? null, recordedBy],
       );
       actionId = rows[0].id;
-      await pool.query('UPDATE open_tasks SET em_action_id = $1 WHERE id = $2', [actionId, taskId]);
+      await db.query('UPDATE open_tasks SET em_action_id = $1 WHERE id = $2', [actionId, taskId]);
     }
 
-    const { rows } = await pool.query(
+    // ── Phase 6 new-path block: service_request_problems writes ─────────────
+    const newProblemsCreated: Array<{ id: number; status: string }> = [];
+    const problemsUpdated: Array<{ id: number; from: string; to: string }> = [];
+
+    if (isNewPath) {
+      // 1. Add field-discovery problems first so their IDs can be referenced
+      //    by later status updates if the frontend bundles them.
+      if (Array.isArray(newProblems) && newProblems.length > 0) {
+        for (const np of newProblems) {
+          if (!np?.installedDeviceId || !np?.problemTypeId) {
+            await db.query('ROLLBACK');
+            return res.status(400).json({
+              error: 'newProblems entry missing installedDeviceId or problemTypeId',
+            });
+          }
+          const result = await addProblem(
+            {
+              serviceRequestId: meta.sourceServiceRequestId,
+              installedDeviceId: Number(np.installedDeviceId),
+              problemTypeId: Number(np.problemTypeId),
+              details: np.details ?? null,
+              addedDuringPhase: 'field_discovery',
+              createdByUserId: recordedBy ?? 0,
+              creatorRoleSnapshot: np.creatorRoleSnapshot ?? 'technician',
+              actorRole: 'operator',
+            },
+            db,
+          );
+          if (result.ok !== true) {
+            await db.query('ROLLBACK');
+            return res.status(400).json({
+              error: result.code,
+              message: result.message ?? null,
+              phase: 'field_discovery',
+            });
+          }
+          newProblemsCreated.push({ id: result.data.id, status: result.data.status });
+          // Stamp the new problem onto this open_task so it shows up in queries.
+          await db.query(
+            `UPDATE service_request_problems
+                SET open_task_id = $2, updated_at = NOW()
+              WHERE id = $1`,
+            [result.data.id, taskId],
+          );
+        }
+      }
+
+      // 2. Apply status updates to existing/just-created problems.
+      if (Array.isArray(problemsStatusUpdates) && problemsStatusUpdates.length > 0) {
+        for (const u of problemsStatusUpdates) {
+          if (!u?.problemId || !u?.status) {
+            await db.query('ROLLBACK');
+            return res.status(400).json({
+              error: 'problemsStatusUpdates entry missing problemId or status',
+            });
+          }
+          // Sanity-check: the problem must belong to this open_task.
+          const { rows: own } = await db.query<{ open_task_id: number | null }>(
+            `SELECT open_task_id FROM service_request_problems
+              WHERE id = $1 AND deleted_at IS NULL`,
+            [Number(u.problemId)],
+          );
+          if (own.length === 0) {
+            await db.query('ROLLBACK');
+            return res.status(404).json({
+              error: 'problem_not_found',
+              problemId: u.problemId,
+            });
+          }
+          if (own[0].open_task_id !== taskId) {
+            await db.query('ROLLBACK');
+            return res.status(400).json({
+              error: 'problem_not_on_this_open_task',
+              problemId: u.problemId,
+            });
+          }
+          const result = await changeProblemStatus(
+            {
+              problemId: Number(u.problemId),
+              toStatus: u.status,
+              actorUserId: recordedBy ?? 0,
+              actorRole: 'operator',
+              resolutionRecordedByUserId: u.resolutionRecordedByUserId ?? recordedBy ?? null,
+              repairedByEmployeeId: u.repairedByEmployeeId ?? null,
+              resolutionVisitTaskId: u.resolutionVisitTaskId ?? null,
+              resolutionNotes: u.resolutionNotes ?? null,
+              reason: u.reason ?? null,
+            },
+            db,
+          );
+          if (result.ok !== true) {
+            await db.query('ROLLBACK');
+            return res.status(400).json({
+              error: result.code,
+              message: result.message ?? null,
+              problemId: u.problemId,
+            });
+          }
+          problemsUpdated.push({ id: Number(u.problemId), from: result.data.from, to: result.data.to });
+        }
+      }
+    }
+
+    // ── Read back the action row for the response ──────────────────────────
+    const { rows } = await db.query(
       `SELECT ema.id, ema.action_type_id AS "actionTypeId", eat.arabic_label AS "actionTypeLabel",
               ema.actions_taken AS "actionsTaken", ema.parts_used AS "partsUsed",
               ema.technician_notes AS "technicianNotes", ema.updated_at AS "updatedAt"
@@ -706,10 +873,27 @@ router.put('/:taskId/actions', requirePermission('marketing_visits.update_result
          LEFT JOIN emergency_action_types eat ON eat.id = ema.action_type_id
         WHERE ema.id = $1`, [actionId],
     );
-    res.json(rows[0]);
+
+    await db.query('COMMIT');
+
+    // Legacy callers receive the action row at the top level (unchanged shape).
+    // New-path callers receive additional fields they can opt into reading.
+    res.json({
+      ...rows[0],
+      ...(isNewPath
+        ? {
+            newProblemsCreated,
+            problemsUpdated,
+            sourceServiceRequestId: meta.sourceServiceRequestId,
+          }
+        : {}),
+    });
   } catch (err: any) {
+    try { await db.query('ROLLBACK'); } catch { /* ignore */ }
     console.error('[emergency-result] actions error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    db.release();
   }
 });
 
@@ -873,9 +1057,14 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       // Update open_task status
       await db.query('UPDATE open_tasks SET status = $1 WHERE id = $2', [newTaskStatus, taskId]);
 
-      // ── needs_followup: create new emergency task ───────────────────────
+      // ── needs_followup cascade ───────────────────────────────────────────
+      // Phase 6b.3 — Cascade is preserved ONLY for legacy tasks. New-path
+      // tasks (source_service_request_id IS NOT NULL) follow V-R007: the
+      // same open_task stays open and the scheduler attaches a second
+      // visit_task later — no new open_task spawned.
       let followUpTaskId: number | null = null;
-      if (finalDecision === 'needs_followup' && meta.contractId) {
+      const isNewPath = meta.sourceServiceRequestId != null;
+      if (finalDecision === 'needs_followup' && meta.contractId && !isNewPath) {
         const { rows: newTaskRows } = await db.query(
           `INSERT INTO open_tasks
              (client_id, branch_id, contract_id, task_type, task_family, reason,
@@ -903,9 +1092,31 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
         }
       }
 
+      // ── Phase 6b.3 — derived_outcome on new-path tasks ───────────────────
+      // Computed from the problems list (٠.١٩.ح). Returned to the frontend
+      // so CostsForm V2 can render the read-only badge instead of the
+      // DECISIONS picker.
+      let derivedOutcome: {
+        outcome: string;
+        counts: Record<string, number>;
+        total: number;
+      } | null = null;
+      if (isNewPath) {
+        derivedOutcome = await computeDerivedOutcome(taskId, db);
+      }
+
       await db.query('COMMIT');
 
-      const result = { costsId, followUpTaskId, taskStatus: newTaskStatus };
+      const result: Record<string, unknown> = {
+        costsId,
+        followUpTaskId,
+        taskStatus: newTaskStatus,
+      };
+      if (isNewPath) {
+        result.sourceServiceRequestId = meta.sourceServiceRequestId;
+        result.derivedOutcome = derivedOutcome;
+        result.cascadeSkipped = finalDecision === 'needs_followup';
+      }
       return res.json(result);
     } catch (err) {
       await db.query('ROLLBACK');

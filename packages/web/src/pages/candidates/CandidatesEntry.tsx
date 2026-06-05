@@ -154,6 +154,8 @@ export default function CandidatesEntry() {
             referralReason: candidate.referralReason,
             referralSheetId: candidate.referralSheetId,
             referralAddressText: candidate.addressText,
+            branchId: candidate.branchId,
+            assignments: candidate.assignments,
             isCandidate: false,
             candidateStatus: 'Lead'
         };
@@ -440,6 +442,16 @@ export default function CandidatesEntry() {
                                                 </td>
                                                 <td className="px-5 py-2">
                                                     <div className="flex items-center justify-center gap-2">
+                                                        <button
+                                                            onClick={() => {
+                                                                setEditingCandidate(c);
+                                                                setIsAddModalOpen(true);
+                                                            }}
+                                                            className="w-8 h-8 flex items-center justify-center bg-slate-50 text-slate-600 hover:bg-slate-600 hover:text-white rounded-lg border border-slate-200 transition-all"
+                                                            title="تعديل"
+                                                        >
+                                                            <Edit className="w-4 h-4" />
+                                                        </button>
                                                         {(c.status === 'Suggested' || c.status === 'FollowUp') && (
                                                             <button
                                                                 onClick={() => handleOpenQualify(c)}

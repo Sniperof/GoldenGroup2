@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2 } from 'lucide-react';
 import { api } from '../lib/api';
-import type { Client, CustomerOwnership, GeoUnit, Visit, Contract } from '../lib/types';
+import type { Client, CustomerOwnership, GeoUnit, Contract } from '../lib/types';
 import ClientModal from '../components/ClientModal';
 import ClientAvatar from '../components/ClientAvatar';
 import SmartTable from '../components/SmartTable';
@@ -58,7 +58,6 @@ export default function Clients() {
     const canSeeAssignments = clientsViewScope === 'GLOBAL' || clientsViewScope === 'BRANCH';
 
     const [clients, setClients] = useState<Client[]>([]);
-    const [visits, setVisits] = useState<Visit[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
@@ -89,15 +88,13 @@ export default function Clients() {
         const fetchAll = async () => {
             try {
                 setLoading(true);
-                // Use allSettled so a permission failure on visits/contracts
+                // Use allSettled so a permission failure on contracts
                 // does NOT prevent the client list from loading.
-                const [clientsRes, visitsRes, contractsRes] = await Promise.allSettled([
+                const [clientsRes, contractsRes] = await Promise.allSettled([
                     api.clients.list(),
-                    api.visits.list(),
                     api.contracts.list(),
                 ]);
                 if (clientsRes.status === 'fulfilled') setClients(clientsRes.value);
-                if (visitsRes.status === 'fulfilled') setVisits(visitsRes.value);
                 if (contractsRes.status === 'fulfilled') setContracts(contractsRes.value);
             } catch (err) {
                 console.error('Failed to fetch data:', err);
@@ -109,7 +106,7 @@ export default function Clients() {
     }, []);
 
     // Geo units are global reference data — fetched independently so a
-    // permission failure on clients/visits/contracts does NOT blank the map.
+    // permission failure on clients/contracts does NOT blank the map.
     useEffect(() => {
         api.geoUnits.list()
             .then(setGeoUnits)
@@ -117,10 +114,11 @@ export default function Clients() {
     }, []);
 
     const getLifecycleStage = useCallback((client: Client) => {
+        const serverStage = (client as any).lifecycleStage;
+        if (serverStage === 'OP' || serverStage === 'FOP') return serverStage;
         if (contracts.some(c => c.customerId === client.id)) return 'OP';
-        if (visits.some(v => v.customerId === client.id)) return 'FOP';
         return 'Lead';
-    }, [contracts, visits]);
+    }, [contracts]);
 
     // ─── Computed Lists ───
     const mainList = useMemo(() => {

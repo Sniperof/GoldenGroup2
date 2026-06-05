@@ -7,6 +7,7 @@ import { SectionShell } from './SectionShell';
 interface Props {
   tasks: any[];
   deviceId: number;
+  contractId?: number | null;
 }
 
 const STATUS_LABEL: Record<string, { cls: string; label: string }> = {
@@ -22,8 +23,15 @@ function fmt(d?: string | null) {
   try { return new Date(d).toLocaleDateString('ar-SY'); } catch { return d; }
 }
 
-export function TasksSection({ tasks, deviceId }: Props) {
-  const myTasks = (tasks ?? []).filter(t => t.deviceId === deviceId);
+function sameId(a: unknown, b: unknown) {
+  if (a == null || b == null) return false;
+  return Number(a) === Number(b);
+}
+
+export function TasksSection({ tasks, deviceId, contractId }: Props) {
+  const myTasks = (tasks ?? []).filter(t =>
+    sameId(t.deviceId, deviceId) || sameId(t.contractId, contractId)
+  );
 
   return (
     <SectionShell

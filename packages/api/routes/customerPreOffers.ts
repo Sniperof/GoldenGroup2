@@ -85,6 +85,8 @@ router.get(
         po.closed_by_employee_id    AS closed_by_employee_id,
         prep.name                   AS closed_by_employee_name,
         po.no_closing_reason        AS no_closing_reason,
+        COALESCE(po.sale_reference_number, linked_spo.sale_reference_number) AS sale_reference_number,
+        linked_spo.response_state   AS linked_response_state,
 
         vtr.id                      AS visit_task_result_id,
         vtr.final_decision          AS final_decision_code,
@@ -92,20 +94,35 @@ router.get(
         vtr.closed_by               AS visit_closed_by_id,
         visit_closer.name           AS visit_closed_by_name,
         vtddr.offer_amount::float   AS actual_offer_amount,
-        vtddr.contract_id           AS contract_id,
-        c.contract_number           AS contract_number,
-        c.device_model_id           AS contract_device_model_id
+        COALESCE(vtddr.contract_id, linked_contract.id) AS contract_id,
+        COALESCE(c.contract_number, linked_contract.contract_number) AS contract_number,
+        COALESCE(c.device_model_id, linked_contract.device_model_id) AS contract_device_model_id
 
       FROM open_task_pre_offers po
       JOIN open_tasks ot ON ot.id = po.open_task_id
       LEFT JOIN device_models dm ON dm.id = po.device_model_id
       LEFT JOIN employees prep ON prep.id = po.closed_by_employee_id
+      LEFT JOIN customer_device_pre_offers linked_spo ON linked_spo.id = po.source_customer_pre_offer_id
 
       LEFT JOIN latest_visit lv ON lv.open_task_id = ot.id
       LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = lv.visit_task_id
       LEFT JOIN visit_task_device_demo_results vtddr ON vtddr.visit_task_result_id = vtr.id
       LEFT JOIN employees visit_closer ON visit_closer.id = vtr.closed_by
       LEFT JOIN contracts c ON c.id = vtddr.contract_id
+      LEFT JOIN LATERAL (
+        SELECT cx.id, cx.contract_number, cx.device_model_id
+          FROM contracts cx
+         WHERE cx.customer_id = ot.client_id
+           AND (
+             cx.source_task_offer_id = po.id
+             OR (
+               COALESCE(po.sale_reference_number, linked_spo.sale_reference_number) IS NOT NULL
+               AND cx.sale_reference_number = COALESCE(po.sale_reference_number, linked_spo.sale_reference_number)
+             )
+           )
+         ORDER BY cx.id DESC
+         LIMIT 1
+      ) linked_contract ON true
 
       WHERE ot.client_id = $1
         AND ot.task_type = 'device_demo'
@@ -132,6 +149,8 @@ router.get(
         spo.closed_by_employee_id    AS closed_by_employee_id,
         prep.name                    AS closed_by_employee_name,
         spo.no_closing_reason        AS no_closing_reason,
+        spo.sale_reference_number    AS sale_reference_number,
+        spo.response_state           AS linked_response_state,
         NULL::integer                AS visit_task_result_id,
         CASE
           WHEN spo.response_state = 'extension_requested' THEN 'needs_followup'
@@ -167,6 +186,8 @@ router.get(
       // (1) No visit_task_result row → never presented.
       if (r.source_kind === 'standalone' && r.final_decision_code === 'needs_followup') return 'needs_follow_up';
       if (r.source_kind === 'standalone' && ['accepted', 'rejected'].includes(r.final_decision_code)) return r.final_decision_code;
+      if (r.source_kind === 'task' && r.linked_response_state === 'extension_requested') return 'needs_follow_up';
+      if (r.source_kind === 'task' && ['accepted', 'rejected'].includes(r.linked_response_state)) return r.linked_response_state;
       if (!r.visit_task_result_id) return 'not_presented_yet';
 
       // (2) Contract was signed inside this task → branch on the device.
@@ -211,6 +232,7 @@ router.get(
         closedByEmployeeId:      r.closed_by_employee_id,
         closedByEmployeeName:    r.closed_by_employee_name,
         noClosingReason:         r.no_closing_reason,
+        saleReferenceNumber:     r.sale_reference_number,
         outcome: {
           state:                 outcomeState,
           visitTaskResultId:     r.visit_task_result_id,
@@ -283,6 +305,12 @@ router.post(
           await pgClient.query('ROLLBACK');
           return res.status(400).json({ error: 'بيانات أحد العروض غير مكتملة' });
         }
+        const closedByEmployeeId = toPositiveInteger(offer.closedByEmployeeId);
+        const noClosingReason = typeof offer.noClosingReason === 'string' ? offer.noClosingReason.trim() || null : null;
+        if ((closedByEmployeeId == null && noClosingReason == null) || (closedByEmployeeId != null && noClosingReason != null)) {
+          await pgClient.query('ROLLBACK');
+          return res.status(400).json({ error: 'كل عرض يجب أن يحتوي إما على موظف تسكير أو سبب عدم التسكير فقط' });
+        }
         const { rows } = await pgClient.query(
           `INSERT INTO customer_device_pre_offers (
              customer_id, branch_id, device_model_id, offer_type, quantity, total_amount,
@@ -304,8 +332,8 @@ router.post(
             offer.currency ?? 'SYP',
             offer.discountPercentage ?? null,
             offer.appliedDeviceDiscountId ?? null,
-            offer.closedByEmployeeId ?? null,
-            typeof offer.noClosingReason === 'string' ? offer.noClosingReason.trim() || null : null,
+            closedByEmployeeId,
+            noClosingReason,
             req.authContext?.userId ?? null,
           ],
         );

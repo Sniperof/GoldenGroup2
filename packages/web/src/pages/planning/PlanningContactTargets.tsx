@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
     ArrowRight, Calendar, CheckSquare, ChevronRight,
-    Info, Loader2, PhoneCall, RotateCcw, Square,
+    ExternalLink, Info, Loader2, PhoneCall, RotateCcw, Search, Square,
     Target, Users, X, Zap,
 } from 'lucide-react';
 import { api } from '../../lib/api';
@@ -31,9 +31,13 @@ type ClientRow = {
     tasks: AssignedTask[];
     assignedCount: number;
     excludedCount: number;
-    taskPhase: string;
+    generatedInTaskList: boolean;
+    hasPendingSync: boolean;
+    workspaceStatus: Phase;
+    contactTargetId: number | null;
     contactTargetStatus: string | null;
     taskListItemStatus: string | null;
+    taskListOpenTaskId: number | null;
     latestCallOutcome: string | null;
     appointmentDate: string | null;
     appointmentTime: string | null;
@@ -42,47 +46,76 @@ type ClientRow = {
 
 type Summary = {
     assigned: number;
-    inList: number;
-    booked: number;
+    queued: number;
+    contacted: number;
     closed: number;
-    excluded: number;
 };
 
 type DashboardResponse = {
     teamKey: string;
     date: string;
     taskListGenerated: boolean;
+    taskListGeneratedAt: string | null;
+    newEligibleCount: number;
+    generatedCount: number;
+    pendingSyncCount: number;
     clients: ClientRow[];
     summary: Summary;
 };
 
+type SortKey = 'clientId' | 'clientName' | 'primaryPhone' | 'stationName' | 'taskCount' | 'attemptCount' | 'phase' | 'appointmentDate';
+type SortDir = 'asc' | 'desc' | null;
+
 // ─── Phase helpers ────────────────────────────────────────────────────────────
 
-type Phase = 'assigned' | 'in_list' | 'booked' | 'closed' | 'excluded';
+type Phase = 'assigned' | 'queued' | 'contacted' | 'closed';
 
 function getPhase(c: ClientRow, today: string): Phase {
-    if (
-        c.assignedCount === 0 && c.excludedCount > 0 &&
-        !['in_scheduling','scheduled','waiting_execution','in_execution','ended','completed','closed'].includes(c.taskPhase)
-    ) return 'excluded';
-    if (['completed','closed'].includes(c.taskPhase)) return 'closed';
-    if (['scheduled','waiting_execution','in_execution','ended'].includes(c.taskPhase)) return 'booked';
-    if (c.taskPhase === 'in_scheduling') return 'in_list';
-    return 'assigned';
+    return c.workspaceStatus;
 }
 
 type PhaseMeta = { label: string; icon: string; dot: string; badge: string; row: string };
 const PHASE_META: Record<Phase, PhaseMeta> = {
-    assigned: { label: 'جاهزة',        icon: '⏳', dot: 'bg-amber-400',   badge: 'border-amber-200 bg-amber-50 text-amber-700',     row: '' },
-    in_list:  { label: 'في القائمة',   icon: '📋', dot: 'bg-sky-500',     badge: 'border-sky-200 bg-sky-50 text-sky-700',           row: 'bg-sky-50/30' },
-    booked:   { label: 'موعد محجوز',   icon: '📅', dot: 'bg-emerald-500', badge: 'border-emerald-200 bg-emerald-50 text-emerald-700', row: 'bg-emerald-50/20' },
-    closed:   { label: 'مغلقة',        icon: '✓',  dot: 'bg-slate-400',   badge: 'border-slate-200 bg-slate-100 text-slate-500',     row: 'opacity-50' },
-    excluded: { label: 'مستثناة',      icon: '✗',  dot: 'bg-red-400',     badge: 'border-red-200 bg-red-50 text-red-600',           row: 'opacity-50 bg-red-50/20' },
+    assigned:  { label: 'جاهزة الآن',   icon: '⏳', dot: 'bg-amber-400',   badge: 'border-amber-200 bg-amber-50 text-amber-700',       row: '' },
+    queued:    { label: 'ضمن القائمة',  icon: '📋', dot: 'bg-sky-500',     badge: 'border-sky-200 bg-sky-50 text-sky-700',             row: 'bg-sky-50/30' },
+    contacted: { label: 'تم التواصل',   icon: '📞', dot: 'bg-indigo-500',  badge: 'border-indigo-200 bg-indigo-50 text-indigo-700',    row: 'bg-indigo-50/20' },
+    closed:    { label: 'مُغلقة',       icon: '🔒', dot: 'bg-slate-400',   badge: 'border-slate-200 bg-slate-100 text-slate-500',      row: 'opacity-60' },
 };
 
 const CT_LABELS: Record<string, string> = {
-    new: 'جديدة', queued: 'ضمن القائمة', contacted: 'تم التواصل', closed: 'مغلقة',
+    new: 'جديدة', queued: 'ضمن القائمة', contacted: 'تم التواصل', booked: 'موعد محجوز', closed: 'مغلقة',
 };
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+    assigned: 'جاهزة للتوليد',
+    in_scheduling: 'مرتبطة بالقائمة',
+    scheduled: 'مجدولة',
+    waiting_execution: 'بانتظار التنفيذ',
+    in_execution: 'قيد التنفيذ',
+    ended: 'منتهية',
+    completed: 'مكتملة',
+    closed: 'مغلقة',
+    open: 'مفتوحة',
+    needs_follow_up: 'تحتاج متابعة',
+};
+
+function getTaskLayerLabel(task: AssignedTask, client: ClientRow, today: string) {
+    if (client.taskListOpenTaskId != null && task.taskId === client.taskListOpenTaskId) {
+        return 'مرتبطة بالـ contact_target';
+    }
+    if (task.excludedForDate === today) return 'مستثناة من التوليد';
+    if (task.status === 'assigned') return client.generatedInTaskList ? 'فرق حي للتوليد القادم' : 'جاهزة للتوليد';
+    return 'مهمة مفتوحة مرتبطة بالزبون';
+}
+
+function getTaskLayerClass(task: AssignedTask, client: ClientRow, today: string) {
+    if (client.taskListOpenTaskId != null && task.taskId === client.taskListOpenTaskId) {
+        return 'border-sky-200 bg-sky-50 text-sky-700';
+    }
+    if (task.excludedForDate === today) return 'border-red-200 bg-red-50 text-red-600';
+    if (task.status === 'assigned') return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-slate-200 bg-slate-50 text-slate-500';
+}
 
 function classificationLabel(s: string | null) {
     if (s === 'OP') return 'OP';
@@ -95,7 +128,58 @@ function classificationColor(s: string | null) {
     return 'border-sky-200 bg-sky-50 text-sky-700';
 }
 
+function compareValues(a: string | number | null, b: string | number | null, dir: Exclude<SortDir, null>) {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    if (typeof a === 'number' && typeof b === 'number') {
+        return dir === 'asc' ? a - b : b - a;
+    }
+    return dir === 'asc'
+        ? String(a).localeCompare(String(b), 'ar')
+        : String(b).localeCompare(String(a), 'ar');
+}
+
 const getToday = () => new Date().toISOString().split('T')[0];
+
+function parseSortKey(value: string | null): SortKey | null {
+    if (
+        value === 'clientId' ||
+        value === 'clientName' ||
+        value === 'primaryPhone' ||
+        value === 'stationName' ||
+        value === 'taskCount' ||
+        value === 'attemptCount' ||
+        value === 'phase' ||
+        value === 'appointmentDate'
+    ) {
+        return value;
+    }
+    return null;
+}
+
+function parseSortDir(value: string | null): SortDir {
+    if (value === 'asc' || value === 'desc') return value;
+    return null;
+}
+
+function renderSortIndicator(active: boolean, dir: SortDir) {
+    if (!active || !dir) return <span className="text-slate-300">↕</span>;
+    return <span className="text-sky-600">{dir === 'asc' ? '↑' : '↓'}</span>;
+}
+
+function formatGeneratedAt(value: string | null) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat('ar-SY', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    }).format(date);
+}
 
 // ─── Task Modal ───────────────────────────────────────────────────────────────
 
@@ -106,7 +190,6 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
 }) {
     const phase = getPhase(client, today);
     const pm = PHASE_META[phase];
-    const canEdit = phase === 'assigned' || phase === 'excluded';
 
     const [keepSet, setKeepSet] = useState<Set<number>>(() => {
         const s = new Set<number>();
@@ -115,6 +198,7 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
     });
 
     const editableTasks = client.tasks.filter(t => t.status === 'assigned' || t.excludedForDate === today);
+    const canEdit = editableTasks.length > 0;
     const allIds = editableTasks.map(t => t.taskId);
     const allKept = allIds.length > 0 && allIds.every(id => keepSet.has(id));
 
@@ -156,11 +240,32 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                     </div>
                 )}
 
+                <div className={`mx-5 mt-3 rounded-xl border px-3 py-2.5 text-xs ${
+                    client.contactTargetId
+                        ? 'border-sky-200 bg-sky-50 text-sky-700'
+                        : 'border-slate-200 bg-slate-50 text-slate-500'
+                }`}>
+                    <div className="font-bold">
+                        {client.contactTargetId
+                            ? `Contact Target #${client.contactTargetId}`
+                            : 'لا يوجد contact_target مولَّد لهذه الجهة'}
+                    </div>
+                    <div className="mt-0.5">
+                        {client.contactTargetId
+                            ? `حالته: ${CT_LABELS[client.contactTargetStatus ?? ''] || client.contactTargetStatus || 'غير محددة'}`
+                            : 'المعروض هنا يأتي من open_tasks فقط، وليس من قائمة اتصال مولَّدة.'}
+                    </div>
+                </div>
+
                 {/* Editable hint */}
                 {canEdit && editableTasks.length > 0 && (
                     <div className="mx-5 mt-3 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                         <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                        <span>المهام المحددة ستُدرج في قائمة الاتصال عند التوليد — قم بإلغاء التحديد لاستثناء أي مهمة.</span>
+                        <span>
+                            {client.generatedInTaskList
+                                ? 'هذه مهام حية ظهرت بعد توليد القائمة الحالية، وأي تعديل هنا سيؤثر على التوليد القادم فقط.'
+                                : 'المهام المحددة ستُدرج في قائمة الاتصال عند التوليد — قم بإلغاء التحديد لاستثناء أي مهمة.'}
+                        </span>
                     </div>
                 )}
 
@@ -210,6 +315,9 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                                                 عودة · {task.attemptCount} محاولة
                                             </span>
                                         )}
+                                        <span className={`text-[9px] font-bold border px-1.5 py-0.5 rounded-full ${getTaskLayerClass(task, client, today)}`}>
+                                            {getTaskLayerLabel(task, client, today)}
+                                        </span>
                                     </div>
                                     {task.dueDate && <p className="text-xs text-slate-500 mt-0.5">استحقاق: {task.dueDate}</p>}
                                 </div>
@@ -219,11 +327,7 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                                     : task.status === 'scheduled'     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                     : isExcluded                      ? 'border-red-200 bg-red-50 text-red-600'
                                     :                                   'border-slate-200 bg-slate-50 text-slate-500'}`}>
-                                    {task.status === 'assigned'      ? 'جاهزة'
-                                    : task.status === 'in_scheduling' ? 'قيد الجدولة'
-                                    : task.status === 'scheduled'     ? 'مجدولة'
-                                    : isExcluded                      ? 'مستثناة'
-                                    : task.status}
+                                    {isExcluded ? 'مستثناة' : TASK_STATUS_LABELS[task.status] || task.status}
                                 </span>
                             </button>
                         );
@@ -261,7 +365,7 @@ function StatCard({ phase, count, active, onClick }: {
                     active ? 'border-slate-700 bg-slate-800 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                 }`}>
                 <span className="text-xl font-black">{count}</span>
-                <span className="text-[10px] font-bold">الكل</span>
+                <span className="text-[10px] font-bold">المعروض</span>
             </button>
         );
     }
@@ -285,7 +389,7 @@ function StatCard({ phase, count, active, onClick }: {
 export default function PlanningContactTargets() {
     const navigate = useNavigate();
     const { teamKey = '' } = useParams();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const date = searchParams.get('date') || getToday();
     const teamLabel = searchParams.get('label') || teamKey;
     const today = getToday();
@@ -298,12 +402,21 @@ export default function PlanningContactTargets() {
     const [modalClient, setModalClient] = useState<ClientRow | null>(null);
     const [message, setMessage] = useState<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null);
     const [phaseFilter, setPhaseFilter] = useState<Phase | 'all'>('all');
+    const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || '');
+    const [stationFilter, setStationFilter] = useState(searchParams.get('station') || 'all');
+    const [attemptFilter, setAttemptFilter] = useState<'all' | '1' | '3' | '5'>(() => {
+        const value = searchParams.get('attempts');
+        return value === '1' || value === '3' || value === '5' ? value : 'all';
+    });
+    const [sortKey, setSortKey] = useState<SortKey | null>(parseSortKey(searchParams.get('sort')) || 'clientName');
+    const [sortDir, setSortDir] = useState<SortDir>(parseSortDir(searchParams.get('dir')) || 'asc');
+    const [syncingContacts, setSyncingContacts] = useState(false);
 
     const loadData = useCallback(async () => {
         setLoading(true);
         setLoadError(false);
         try {
-            setData(await api.planning.assignedTasks(date, teamKey));
+            setData(await api.planning.contactTargetsDashboard(date, teamKey));
         } catch {
             setLoadError(true);
         } finally {
@@ -312,6 +425,46 @@ export default function PlanningContactTargets() {
     }, [date, teamKey]);
 
     useEffect(() => { loadData(); }, [loadData]);
+    useEffect(() => {
+        const next = new URLSearchParams(searchParams);
+        next.set('date', date);
+        next.set('label', teamLabel);
+
+        if (searchTerm.trim()) next.set('q', searchTerm.trim());
+        else next.delete('q');
+
+        if (stationFilter !== 'all') next.set('station', stationFilter);
+        else next.delete('station');
+
+        if (attemptFilter !== 'all') next.set('attempts', attemptFilter);
+        else next.delete('attempts');
+
+        next.delete('taskTypes');
+
+        if (sortKey && sortDir) {
+            next.set('sort', sortKey);
+            next.set('dir', sortDir);
+        } else {
+            next.delete('sort');
+            next.delete('dir');
+        }
+
+        const current = searchParams.toString();
+        const updated = next.toString();
+        if (current !== updated) {
+            setSearchParams(next, { replace: true });
+        }
+    }, [
+        attemptFilter,
+        date,
+        searchParams,
+        searchTerm,
+        setSearchParams,
+        sortDir,
+        sortKey,
+        stationFilter,
+        teamLabel,
+    ]);
 
     const handleRowToggle = async (client: ClientRow) => {
         setSavingId(client.clientId);
@@ -354,7 +507,7 @@ export default function PlanningContactTargets() {
                 type: skipped > 0 ? 'warning' : 'success',
                 text: `تم توليد قائمة الاتصال وتثبيتها — ${added} مضاف، ${updated} محدَّث${skipped > 0 ? `، ${skipped} مستبعد` : ''}.`,
             });
-            setPhaseFilter('in_list');
+            setPhaseFilter('queued');
             await loadData(); // reload to switch to post-generation mode
         } catch (err: any) {
             setMessage({ type: 'error', text: err?.message || 'تعذر توليد قائمة الاتصال' });
@@ -363,21 +516,111 @@ export default function PlanningContactTargets() {
         }
     };
 
+    const handleSyncContacts = async () => {
+        setSyncingContacts(true);
+        setMessage(null);
+        try {
+            const result = await api.planning.syncContactTargetsDashboard(date, teamKey);
+            const newlyAssigned = result?.counts?.newlyAssigned ?? 0;
+            const released = result?.counts?.released ?? 0;
+            setMessage({
+                type: 'success',
+                text: `تم تحديث جهات الاتصال — ${newlyAssigned} مهمة جديدة أُدخلت للخطة${released > 0 ? `، و${released} مهمة خرجت من النطاق` : ''}.`,
+            });
+            await loadData();
+        } catch (err: any) {
+            setMessage({ type: 'error', text: err?.message || 'تعذر تحديث جهات الاتصال' });
+        } finally {
+            setSyncingContacts(false);
+        }
+    };
+
+    const handleSort = (key: SortKey) => {
+        if (sortKey !== key) {
+            setSortKey(key);
+            setSortDir('asc');
+            return;
+        }
+        if (sortDir === 'asc') {
+            setSortDir('desc');
+            return;
+        }
+        if (sortDir === 'desc') {
+            setSortKey(null);
+            setSortDir(null);
+            return;
+        }
+        setSortDir('asc');
+    };
+
     const allClients       = data?.clients ?? [];
     const summary          = data?.summary;
     const assignedCount    = summary?.assigned ?? 0;
     const taskListGenerated = data?.taskListGenerated ?? false;
+    const taskListGeneratedAt = formatGeneratedAt(data?.taskListGeneratedAt ?? null);
+    const newEligibleCount = data?.newEligibleCount ?? 0;
+    const generatedCount = data?.generatedCount ?? 0;
+    const pendingSyncCount = data?.pendingSyncCount ?? 0;
+    const stationOptions = Array.from(new Set(allClients.map(c => c.stationName).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, 'ar'));
+    let filteredClients = allClients.filter(client => {
+        if (phaseFilter !== 'all' && getPhase(client, today) !== phaseFilter) return false;
+        if (stationFilter !== 'all' && (client.stationName ?? '') !== stationFilter) return false;
+        if (attemptFilter !== 'all' && client.attemptCount < Number(attemptFilter)) return false;
+        if (searchTerm.trim()) {
+            const q = searchTerm.trim().toLowerCase();
+            const haystacks = [
+                String(client.clientId),
+                client.clientName,
+                client.primaryPhone ?? '',
+            ];
+            if (!haystacks.some(value => value.toLowerCase().includes(q))) return false;
+        }
+        return true;
+    });
 
-    const filteredClients = phaseFilter === 'all'
-        ? allClients
-        : allClients.filter(c => getPhase(c, today) === phaseFilter);
+    if (sortKey && sortDir) {
+        filteredClients = [...filteredClients].sort((a, b) => {
+            const phaseA = PHASE_META[getPhase(a, today)].label;
+            const phaseB = PHASE_META[getPhase(b, today)].label;
+            const valueA: string | number | null =
+                sortKey === 'clientId' ? a.clientId :
+                sortKey === 'clientName' ? a.clientName :
+                sortKey === 'primaryPhone' ? a.primaryPhone :
+                sortKey === 'stationName' ? a.stationName :
+                sortKey === 'taskCount' ? a.tasks.length :
+                sortKey === 'attemptCount' ? a.attemptCount :
+                sortKey === 'phase' ? phaseA :
+                a.appointmentDate;
+            const valueB: string | number | null =
+                sortKey === 'clientId' ? b.clientId :
+                sortKey === 'clientName' ? b.clientName :
+                sortKey === 'primaryPhone' ? b.primaryPhone :
+                sortKey === 'stationName' ? b.stationName :
+                sortKey === 'taskCount' ? b.tasks.length :
+                sortKey === 'attemptCount' ? b.attemptCount :
+                sortKey === 'phase' ? phaseB :
+                b.appointmentDate;
+            return compareValues(valueA, valueB, sortDir);
+        });
+    }
+
+    const hasActiveFilters =
+        searchTerm.trim() !== '' ||
+        stationFilter !== 'all' ||
+        attemptFilter !== 'all';
+
+    const clearFilters = () => {
+        setSearchTerm('');
+        setStationFilter('all');
+        setAttemptFilter('all');
+    };
 
     const tabs: { key: Phase | 'all'; count: number }[] = [
         { key: 'all',      count: allClients.length },
         { key: 'assigned', count: assignedCount },
-        { key: 'in_list',  count: summary?.inList   ?? 0 },
+        { key: 'queued',   count: summary?.queued   ?? 0 },
+        { key: 'contacted', count: summary?.contacted ?? 0 },
         { key: 'closed',   count: summary?.closed   ?? 0 },
-        { key: 'excluded', count: summary?.excluded ?? 0 },
     ];
 
     return (
@@ -404,10 +647,10 @@ export default function PlanningContactTargets() {
                             </p>
                         </div>
                         <div className="flex items-center gap-2">
-                            <button type="button" onClick={loadData} disabled={loading}
-                                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm">
-                                <RotateCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-                                تحديث
+                            <button type="button" onClick={handleSyncContacts} disabled={syncingContacts || loading}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors shadow-sm">
+                                {syncingContacts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                                {syncingContacts ? 'جاري التحديث...' : 'تحديث جهات الاتصال'}
                             </button>
                         </div>
                     </div>
@@ -440,23 +683,39 @@ export default function PlanningContactTargets() {
                 {/* ── State banner ──────────────────────────────────────────── */}
                 {!loading && (
                     taskListGenerated ? (
-                        /* POST-GENERATION: list is frozen — show regenerate option */
+                        /* POST-GENERATION: generated snapshot + live delta */
                         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                             <div className="flex items-start gap-3">
                                 <PhoneCall className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
                                 <div>
                                     <p className="font-bold text-emerald-800 text-sm">
-                                        قائمة الاتصال مُولَّدة وثابتة
+                                        أنت الآن على قائمة الاتصال الحالية مع تنبيه للمهام الجديدة
                                     </p>
                                     <p className="text-xs text-emerald-600 mt-0.5">
-                                        الداشبورد يعرض الجهات التي وُلِّدت — أي إسنادات جديدة لن تظهر حتى تضغط "إعادة التوليد".
+                                        {taskListGeneratedAt ? `آخر توليد: ${taskListGeneratedAt} — ` : ''}
+                                        المعروض الأساسي هو جهات الاتصال ضمن القائمة. أي مهام مناسبة تظهر بعد آخر توليد ستظهر كبادجات فرق، ولا تدخل القائمة إلا بعد إعادة التوليد.
                                     </p>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                                        <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-emerald-700">
+                                            {generatedCount} ضمن القائمة
+                                        </span>
+                                        {newEligibleCount > 0 && (
+                                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                                                {newEligibleCount} جهات جديدة منذ آخر توليد
+                                            </span>
+                                        )}
+                                        {pendingSyncCount > 0 && (
+                                            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-indigo-700">
+                                                {pendingSyncCount} جهات لها فرق حي
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                             <button type="button" onClick={handleGenerate} disabled={generating}
                                 className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 shadow-sm whitespace-nowrap transition-colors shrink-0">
                                 {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                                {generating ? 'جاري التوليد...' : 'إعادة التوليد لإضافة جهات جديدة'}
+                                {generating ? 'جاري التوليد...' : newEligibleCount > 0 ? 'إعادة التوليد لإدراج الجدد' : 'إعادة التوليد'}
                             </button>
                         </div>
                     ) : assignedCount > 0 ? (
@@ -473,7 +732,7 @@ export default function PlanningContactTargets() {
                                         {assignedCount} جهة اتصال جاهزة للإدراج
                                     </p>
                                     <p className={`text-xs mt-0.5 ${phaseFilter === 'assigned' ? 'text-amber-600' : 'text-indigo-600'}`}>
-                                        راجع الجدول واستثنِ ما تريد — ثم اضغط "توليد قائمة الاتصال" لتثبيتها في الداشبورد.
+                                        راجع الجدول واستثنِ ما تريد، ثم اضغط "توليد قائمة الاتصال" لإنشاء القائمة الأولى.
                                     </p>
                                 </div>
                             </div>
@@ -490,17 +749,68 @@ export default function PlanningContactTargets() {
                     ) : null
                 )}
 
+                {!loading && allClients.length > 0 && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="relative min-w-[220px] flex-1">
+                                <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    placeholder="بحث بالاسم أو الهاتف أو رقم الزبون"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pr-10 pl-3 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:bg-white"
+                                />
+                            </div>
+
+                            <select
+                                value={stationFilter}
+                                onChange={e => setStationFilter(e.target.value)}
+                                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-sky-400"
+                            >
+                                <option value="all">كل المحطات</option>
+                                {stationOptions.map(station => (
+                                    <option key={station} value={station}>{station}</option>
+                                ))}
+                            </select>
+
+                            <select
+                                value={attemptFilter}
+                                onChange={e => setAttemptFilter(e.target.value as 'all' | '1' | '3' | '5')}
+                                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-sky-400"
+                            >
+                                <option value="all">كل المحاولات</option>
+                                <option value="1">1+ محاولة</option>
+                                <option value="3">3+ محاولات</option>
+                                <option value="5">5+ محاولات</option>
+                            </select>
+                        </div>
+
+                        {hasActiveFilters && (
+                            <div className="flex items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                                <span>النتائج المعروضة: {filteredClients.length} من أصل {allClients.length}</span>
+                                <button
+                                    type="button"
+                                    onClick={clearFilters}
+                                    className="font-bold hover:underline"
+                                >
+                                    مسح الفلاتر
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Checkbox legend — only on assigned tab */}
                 {!loading && phaseFilter === 'assigned' && filteredClients.length > 0 && (
                     <div className="flex items-center gap-4 text-xs text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
                         <Info className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                         <span className="flex items-center gap-1.5">
                             <CheckSquare className="h-3.5 w-3.5 text-emerald-600" />
-                            <strong className="text-slate-700">مُحدَّد</strong> = ستُدرج في القائمة
+                            <strong className="text-slate-700">مُحدَّد</strong> = {taskListGenerated ? 'سيدخل في التوليد القادم' : 'ستُدرج في القائمة'}
                         </span>
                         <span className="flex items-center gap-1.5">
                             <Square className="h-3.5 w-3.5 text-red-400" />
-                            <strong className="text-slate-700">غير مُحدَّد</strong> = مستثناة من التوليد
+                            <strong className="text-slate-700">غير مُحدَّد</strong> = {taskListGenerated ? 'سيبقى خارج التوليد القادم' : 'مستثناة من التوليد'}
                         </span>
                         <span className="text-slate-400">· اضغط على السطر لتفاصيل المهام</span>
                     </div>
@@ -522,10 +832,31 @@ export default function PlanningContactTargets() {
                         <Users className="mx-auto h-10 w-10 text-slate-200" />
                         <p className="text-sm font-bold text-slate-500">لا توجد جهات اتصال لهذا الفريق</p>
                         <p className="text-xs text-slate-400">احفظ نطاق العمل أولاً من صفحة الخطة</p>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/planning/overview')}
+                            className="mt-3 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500"
+                        >
+                            <ArrowRight className="h-4 w-4" />
+                            الذهاب إلى صفحة الخطة
+                        </button>
                     </div>
                 ) : filteredClients.length === 0 ? (
-                    <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center">
-                        <p className="text-sm text-slate-500">لا يوجد عملاء في هذه المرحلة</p>
+                    <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center space-y-3">
+                        <p className="text-sm font-bold text-slate-500">لا توجد نتائج مطابقة في العرض الحالي</p>
+                        <p className="text-xs text-slate-400">
+                            {hasActiveFilters ? 'جرّب تعديل الفلاتر أو مسحها لعرض بقية الجهات.' : 'غيّر المرحلة المختارة أو راجع التوليد الحالي.'}
+                        </p>
+                        {hasActiveFilters && (
+                            <button
+                                type="button"
+                                onClick={clearFilters}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                            >
+                                <RotateCcw className="h-4 w-4" />
+                                مسح الفلاتر
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -536,18 +867,59 @@ export default function PlanningContactTargets() {
                                         {/* Checkbox col — only interactive on assigned/excluded */}
                                         <th className="w-12 px-3 py-3 text-center">
                                             {phaseFilter === 'assigned'
-                                                ? <span className="text-[10px] text-slate-400 font-normal">إدراج</span>
+                                                ? <span className="text-[10px] text-slate-400 font-normal">توليد</span>
                                                 : null}
                                         </th>
-                                        <th className="px-4 py-3 text-right w-16">#</th>
-                                        <th className="px-4 py-3 text-right">الزبون</th>
-                                        <th className="px-4 py-3 text-right w-36">الهاتف</th>
+                                        <th className="px-4 py-3 text-right w-16">
+                                            <button type="button" onClick={() => handleSort('clientId')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                #
+                                                {renderSortIndicator(sortKey === 'clientId', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-right">
+                                            <button type="button" onClick={() => handleSort('clientName')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                الزبون
+                                                {renderSortIndicator(sortKey === 'clientName', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-right w-36">
+                                            <button type="button" onClick={() => handleSort('primaryPhone')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                الهاتف
+                                                {renderSortIndicator(sortKey === 'primaryPhone', sortDir)}
+                                            </button>
+                                        </th>
                                         <th className="px-4 py-3 text-right w-20">التصنيف</th>
-                                        <th className="px-4 py-3 text-right w-28">المحطة</th>
-                                        <th className="px-4 py-3 text-center w-16">مهام</th>
-                                        <th className="px-4 py-3 text-right w-28">المرحلة</th>
+                                        <th className="px-4 py-3 text-right w-28">
+                                            <button type="button" onClick={() => handleSort('stationName')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                المحطة
+                                                {renderSortIndicator(sortKey === 'stationName', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-center w-16">
+                                            <button type="button" onClick={() => handleSort('taskCount')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                مهام
+                                                {renderSortIndicator(sortKey === 'taskCount', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-center w-20">
+                                            <button type="button" onClick={() => handleSort('attemptCount')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                محاولات
+                                                {renderSortIndicator(sortKey === 'attemptCount', sortDir)}
+                                            </button>
+                                        </th>
+                                        <th className="px-4 py-3 text-right w-28">
+                                            <button type="button" onClick={() => handleSort('phase')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                المرحلة
+                                                {renderSortIndicator(sortKey === 'phase', sortDir)}
+                                            </button>
+                                        </th>
                                         <th className="px-4 py-3 text-right w-36">آخر نتيجة</th>
-                                        <th className="px-4 py-3 text-right w-32">الموعد</th>
+                                        <th className="px-4 py-3 text-right w-32">
+                                            <button type="button" onClick={() => handleSort('appointmentDate')} className="inline-flex items-center gap-1 hover:text-slate-700">
+                                                الموعد
+                                                {renderSortIndicator(sortKey === 'appointmentDate', sortDir)}
+                                            </button>
+                                        </th>
                                         <th className="w-8 px-2" />
                                     </tr>
                                 </thead>
@@ -556,7 +928,7 @@ export default function PlanningContactTargets() {
                                         const phase   = getPhase(client, today);
                                         const pm      = PHASE_META[phase];
                                         const isSaving  = savingId === client.clientId;
-                                        const canToggle = phase === 'assigned' || phase === 'excluded';
+                                        const canToggle = client.tasks.some(task => task.status === 'assigned' || task.excludedForDate === today);
                                         const outcomeMeta = client.latestCallOutcome ? getOutcomeMeta(client.latestCallOutcome) : null;
                                         const hasRetry = client.tasks.some(t => t.attemptCount > 0 && t.status === 'assigned');
 
@@ -570,23 +942,61 @@ export default function PlanningContactTargets() {
                                                     onClick={e => { e.stopPropagation(); if (canToggle && !isSaving) handleRowToggle(client); }}>
                                                     {isSaving
                                                         ? <Loader2 className="h-4 w-4 animate-spin text-indigo-500 mx-auto" />
-                                                        : phase === 'excluded'
-                                                            ? <Square className="h-4 w-4 text-red-400 mx-auto hover:text-amber-500 cursor-pointer transition-colors"  />
-                                                            : phase === 'assigned'
-                                                                ? <CheckSquare className="h-4 w-4 text-emerald-600 mx-auto hover:text-red-400 cursor-pointer transition-colors"  />
-                                                                : <span className={`inline-block h-2 w-2 rounded-full ${pm.dot}`} />}
+                                                        : phase === 'assigned'
+                                                            ? <CheckSquare className="h-4 w-4 text-emerald-600 mx-auto hover:text-red-400 cursor-pointer transition-colors"  />
+                                                            : <span className={`inline-block h-2 w-2 rounded-full ${pm.dot}`} />}
                                                 </td>
 
                                                 <td className="px-4 py-3 font-mono text-xs text-slate-400">#{client.clientId}</td>
 
                                                 <td className="px-4 py-3">
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-2 flex-wrap">
                                                         <span className="font-bold text-slate-800">{client.clientName}</span>
                                                         {hasRetry && (
                                                             <span className="text-[9px] font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 عودة
                                                             </span>
                                                         )}
+                                                        {client.generatedInTaskList && (
+                                                            <span className="text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                ضمن القائمة
+                                                            </span>
+                                                        )}
+                                                        {client.contactTargetId ? (
+                                                            <span className="text-[9px] font-bold bg-white text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                CT #{client.contactTargetId}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                open_tasks فقط
+                                                            </span>
+                                                        )}
+                                                        {client.generatedInTaskList && client.hasPendingSync && (
+                                                            <span className="text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                فرق حي
+                                                            </span>
+                                                        )}
+                                                        {!client.generatedInTaskList && taskListGenerated && client.assignedCount > 0 && (
+                                                            <span className="text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                جديد منذ آخر توليد
+                                                            </span>
+                                                        )}
+                                                        {client.excludedCount > 0 && (
+                                                            <span className="text-[9px] font-bold bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                                مستثناة {client.excludedCount}
+                                                            </span>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={e => {
+                                                                e.stopPropagation();
+                                                                navigate(`/clients/${client.clientId}`);
+                                                            }}
+                                                            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-sky-600"
+                                                            title="فتح ملف الزبون"
+                                                        >
+                                                            <ExternalLink className="h-3.5 w-3.5" />
+                                                        </button>
                                                     </div>
                                                 </td>
 
@@ -610,6 +1020,12 @@ export default function PlanningContactTargets() {
                                                         {client.excludedCount > 0 && (
                                                             <span className="text-red-400 text-[9px]">/{client.excludedCount}✗</span>
                                                         )}
+                                                    </span>
+                                                </td>
+
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-bold text-slate-600">
+                                                        {client.attemptCount}
                                                     </span>
                                                 </td>
 

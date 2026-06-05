@@ -86,7 +86,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
     const candidates = useCandidateStore(state => state.candidates);
     const [allClients, setAllClients] = useState<Client[]>([]);
-    const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
     const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
     const [branches, setBranches] = useState<BranchOption[]>([]);
@@ -165,7 +164,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             const [
                 clientsRes,
                 employeesRes,
-                visitsRes,
                 contractsRes,
                 occupationRes,
                 branchesRes,
@@ -173,7 +171,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             ] = await Promise.allSettled([
                 api.clients.list(),
                 api.employees.list(),
-                api.visits.list(),
                 api.contracts.list(),
                 api.systemLists.list({ category: 'occupation', activeOnly: true }),
                 canChooseBranch ? api.branches.list() : Promise.resolve([]),
@@ -190,7 +187,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                     ? employeesRes.value.map(toMediatorEmployee)
                     : [],
             );
-            setVisits(visitsRes.status === 'fulfilled' ? visitsRes.value : []);
             setContracts(contractsRes.status === 'fulfilled' ? contractsRes.value : []);
             setOccupationOptions(
                 occupationRes.status === 'fulfilled'
@@ -264,10 +260,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     };
 
     const getClientLifecycleStage = useCallback((client: Client) => {
+        const serverStage = (client as any).lifecycleStage;
+        if (serverStage === 'OP' || serverStage === 'FOP') return serverStage;
         if (contracts.some(contract => contract.customerId === client.id)) return 'OP';
-        if (visits.some(visit => visit.customerId === client.id)) return 'FOP';
         return 'Lead';
-    }, [contracts, visits]);
+    }, [contracts]);
 
     const handleClientSearch = (text: string) => {
         setClientSearch(text);

@@ -3,8 +3,184 @@ import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
 import { getPlanningMarketingTargets } from '../services/planningMarketingTargets.js';
 import { syncAssignedTasks } from '../services/assignedTasks.js';
+import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
 
 const router = Router();
+
+type ContactTargetWorkspaceStatus = 'assigned' | 'queued' | 'contacted' | 'closed';
+
+async function reconcileContactTargetWorkspace(
+  date: string,
+  teamKey: string,
+  branchId: number,
+  userId: number | null,
+) {
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+
+    const { rows: taskRows } = await db.query(
+      `WITH scoped_tasks AS (
+         SELECT
+           ot.id AS "taskId",
+           ot.client_id AS "clientId",
+           ot.status,
+           ot.excluded_for_date::text AS "excludedForDate",
+           COALESCE(ttc.contact_target_visit_type, 'marketing') AS "visitType",
+           CASE
+             WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
+             ELSE c.neighborhood
+           END AS "workLocationGeoUnitId"
+         FROM open_tasks ot
+         JOIN clients c ON c.id = ot.client_id AND c.branch_id = ot.branch_id
+         JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+         LEFT JOIN installed_devices inst
+           ON inst.id = ot.device_id
+          AND ttc.location_basis IN ('contract', 'device')
+         WHERE ot.branch_id = $3
+           AND ot.client_id IS NOT NULL
+           AND (
+             (
+               ot.assigned_team_key = $1
+               AND ot.status = 'assigned'
+               AND ot.assigned_for_date = $2::date
+               AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
+             )
+             OR (
+               ot.excluded_for_date = $2::date
+               AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+             )
+           )
+       )
+       SELECT
+         st.*,
+         ct.id AS "contactTargetId",
+         ct.status AS "contactTargetStatus",
+         ct.closing_reason AS "closingReason"
+       FROM scoped_tasks st
+       LEFT JOIN LATERAL (
+         SELECT id, status, closing_reason
+           FROM contact_targets
+          WHERE branch_id = $3
+            AND target_type = 'client'
+            AND target_id = st."clientId"
+            AND date = $2::date
+            AND team_key = $1
+            AND work_location_geo_unit_id IS NOT DISTINCT FROM st."workLocationGeoUnitId"
+          ORDER BY id DESC
+          LIMIT 1
+       ) ct ON true
+       ORDER BY st."clientId", st."workLocationGeoUnitId" NULLS LAST, st."taskId"`,
+      [teamKey, date, branchId],
+    );
+
+    const tasksByContactContext = new Map<string, any[]>();
+    for (const row of taskRows) {
+      const clientId = Number(row.clientId);
+      if (!Number.isInteger(clientId) || clientId <= 0) continue;
+      const workLocationKey = row.workLocationGeoUnitId == null ? 'null' : String(row.workLocationGeoUnitId);
+      const key = `${clientId}:${workLocationKey}`;
+      if (!tasksByContactContext.has(key)) tasksByContactContext.set(key, []);
+      tasksByContactContext.get(key)!.push(row);
+    }
+
+    for (const [, clientTasks] of tasksByContactContext) {
+      const first = clientTasks[0];
+      const clientId = Number(first.clientId);
+      let contactTargetId = Number(first.contactTargetId);
+
+      if (!Number.isInteger(contactTargetId) || contactTargetId <= 0) {
+        const { rows } = await db.query(
+          `INSERT INTO contact_targets (
+             branch_id, target_type, target_id, target_stage, visit_type,
+             source_type, source_id, supervisor_hr_user_id, zone_id, status,
+             date, team_key, work_location_geo_unit_id
+           )
+           VALUES ($1, 'client', $2, 'lead', $6, 'lead', $2, NULL, $3, 'new', $4::date, $5, $3)
+           RETURNING id`,
+          [branchId, clientId, first.workLocationGeoUnitId ?? null, date, teamKey, first.visitType ?? 'marketing'],
+        );
+        contactTargetId = Number(rows[0]?.id);
+      }
+
+      if (!Number.isInteger(contactTargetId) || contactTargetId <= 0) continue;
+
+      const activeTasks = clientTasks.filter(task =>
+        task.status === 'assigned' && task.excludedForDate !== date,
+      );
+      const allTasksExcluded = clientTasks.length > 0 && activeTasks.length === 0;
+
+      for (const task of clientTasks) {
+        const taskId = Number(task.taskId);
+        if (!Number.isInteger(taskId) || taskId <= 0) continue;
+        const linkStatus = task.excludedForDate === date
+          ? 'excluded'
+          : allTasksExcluded
+            ? 'closed'
+            : 'ready';
+
+        await db.query(
+          `INSERT INTO contact_target_open_tasks (
+             contact_target_id, open_task_id, branch_id, team_key, date, link_status
+           )
+           VALUES ($1, $2, $3, $4, $5::date, $6)
+           ON CONFLICT (contact_target_id, open_task_id, date)
+           DO UPDATE SET
+             branch_id = EXCLUDED.branch_id,
+             team_key = EXCLUDED.team_key,
+             link_status = EXCLUDED.link_status,
+             updated_at = NOW()`,
+          [contactTargetId, taskId, branchId, teamKey, date, linkStatus],
+        );
+
+        await db.query(
+          `UPDATE open_tasks
+              SET contact_target_id = $1,
+                  updated_at = NOW()
+            WHERE id = $2
+              AND branch_id = $3`,
+          [contactTargetId, taskId, branchId],
+        );
+      }
+
+      if (allTasksExcluded) {
+        await db.query(
+          `UPDATE contact_targets
+              SET status = 'closed',
+                  closing_reason = 'manual_supervisor',
+                  closed_by = COALESCE(closed_by, $2::int),
+                  closed_at = COALESCE(closed_at, NOW()),
+                  updated_at = NOW()
+            WHERE id = $1
+              AND branch_id = $3
+              AND status IN ('new', 'queued', 'in_call_list', 'contacted')`,
+          [contactTargetId, userId, branchId],
+        );
+      } else {
+        await db.query(
+          `UPDATE contact_targets
+              SET status = 'new',
+                  closing_reason = NULL,
+                  closed_by = NULL,
+                  closed_at = NULL,
+                  updated_at = NOW()
+            WHERE id = $1
+              AND branch_id = $2
+              AND status = 'closed'
+              AND closing_reason = 'manual_supervisor'`,
+          [contactTargetId, branchId],
+        );
+      }
+    }
+
+    await db.query('COMMIT');
+  } catch (error) {
+    await db.query('ROLLBACK');
+    throw error;
+  } finally {
+    db.release();
+  }
+}
 
 /**
  * @swagger
@@ -161,15 +337,6 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
 
     const result = await getPlanningMarketingTargets({ date, teamKey, branchId, mode });
 
-    if (mode === 'planning') {
-      await syncAssignedTasks({
-        date,
-        teamKey,
-        branchId,
-        performedBy: req.authContext?.userId ?? null,
-      });
-    }
-
     return res.json(result);
   } catch (err: any) {
     console.error('Failed to calculate planning marketing targets:', err);
@@ -261,6 +428,11 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
  *                   type: string
  *                 taskListGenerated:
  *                   type: boolean
+ *                 taskListGeneratedAt:
+ *                   type: string
+ *                   nullable: true
+ *                 newEligibleCount:
+ *                   type: integer
  *                 clients:
  *                   type: array
  *                   items:
@@ -273,6 +445,8 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
  *                     inList:
  *                       type: integer
  *                     booked:
+ *                       type: integer
+ *                     completed:
  *                       type: integer
  *                     closed:
  *                       type: integer
@@ -307,12 +481,13 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
     //   POST-GENERATION (task list exists) → show ONLY what was generated + excluded
     //     New assignments after generation are invisible until a new generation is triggered.
     const { rows: taskListRows } = await pool.query(
-      `SELECT id FROM telemarketing_task_lists
+      `SELECT id, created_at AS "createdAt" FROM telemarketing_task_lists
         WHERE team_key = $1 AND date = $2 AND branch_id = $3
         LIMIT 1`,
       [teamKey, date, branchId],
     );
     const taskListGenerated = taskListRows.length > 0;
+    const taskListGeneratedAt = taskListRows[0]?.createdAt ?? null;
 
     // ── Step 2: collect relevant client IDs ──────────────────────────────────
     const { rows: clientIdRows } = await pool.query(
@@ -349,7 +524,15 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
     const clientIds = clientIdRows.map((r: any) => Number(r.client_id));
 
     if (clientIds.length === 0) {
-      return res.json({ teamKey, date, taskListGenerated, clients: [], summary: { assigned: 0, inList: 0, booked: 0, closed: 0, excluded: 0 } });
+      return res.json({
+        teamKey,
+        date,
+        taskListGenerated,
+        taskListGeneratedAt,
+        newEligibleCount: 0,
+        clients: [],
+        summary: { assigned: 0, inList: 0, booked: 0, completed: 0, closed: 0, excluded: 0 },
+      });
     }
 
     // ── Step 2: client meta (name, phone, classification, station) ────────
@@ -359,21 +542,20 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
          c.name,
          c.mobile,
          c.contacts,
-         c.candidate_status   AS "candidateStatus",
+         ${buildClientLifecycleStatusSql('c')} AS "candidateStatus",
          gu.name              AS "stationName",
          ct.id                AS "contactTargetId",
          ct.status            AS "contactTargetStatus",
          ct.latest_call_outcome AS "contactTargetOutcome"
        FROM clients c
        LEFT JOIN geo_units gu
-         ON gu.id = NULLIF(c.neighborhood, '')::int
+         ON gu.id = c.neighborhood
        LEFT JOIN contact_targets ct
          ON ct.branch_id    = c.branch_id
         AND ct.target_type  = 'client'
         AND ct.target_id    = c.id
-        AND ct.target_stage = 'lead'
+        -- DEC-005 D30: target_stage / source_type pinned (or dropped).
         AND ct.visit_type   = 'marketing'
-        AND ct.source_type  = 'lead'
        WHERE c.id = ANY($1::int[])`,
       [clientIds],
     );
@@ -427,19 +609,21 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
     listItemRows.forEach((r: any) => listItemByClient.set(Number(r.clientId), r));
 
     // ── Step 5: appointments for these clients with this team today ────────
+    // Source: field_visits (canonical post-Phase-4). team identified via team_snapshot->>'teamKey'.
     const { rows: apptRows } = await pool.query(
       `SELECT
-         ta.entity_id   AS "clientId",
-         ta.id          AS "appointmentId",
-         ta.date        AS "appointmentDate",
-         ta.time_slot   AS "appointmentTime"
-       FROM telemarketing_appointments ta
-       WHERE ta.team_key  = $1
-         AND ta.date      = $2
-         AND ta.branch_id = $3
-         AND ta.entity_id = ANY($4::int[])
-         AND ta.entity_type = 'client'
-       ORDER BY ta.created_at DESC`,
+         fv.client_id          AS "clientId",
+         fv.id                 AS "appointmentId",
+         fv.scheduled_date::text AS "appointmentDate",
+         fv.scheduled_time     AS "appointmentTime"
+       FROM field_visits fv
+       WHERE fv.team_snapshot->>'teamKey' = $1
+         AND fv.scheduled_date = $2::date
+         AND fv.branch_id      = $3
+         AND fv.client_id      = ANY($4::int[])
+         AND fv.status         IN ('scheduled','in_progress','ended','completed')
+         AND fv.visit_type     = 'marketing'
+       ORDER BY fv.created_at DESC`,
       [teamKey, date, branchId, clientIds],
     );
     const apptByClient = new Map<number, any>();
@@ -460,7 +644,8 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
       assigned: 1, open: 1, needs_follow_up: 1,
       in_scheduling: 2,
       scheduled: 3, waiting_execution: 3, in_execution: 3, ended: 3,
-      completed: 4, closed: 4,
+      completed: 4,
+      closed: 5,
     };
 
     function primaryPhone(meta: any): string | null {
@@ -518,19 +703,449 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
       return (b.assignedCount + b.excludedCount) - (a.assignedCount + a.excludedCount);
     });
 
+    let newEligibleCount = 0;
+    if (taskListGenerated) {
+      const { rows: deltaRows } = await pool.query(
+        `SELECT COUNT(DISTINCT ot.client_id)::int AS count
+           FROM open_tasks ot
+          WHERE ot.assigned_team_key = $1
+            AND ot.branch_id = $3
+            AND ot.status = 'assigned'
+            AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM telemarketing_task_list_items tli
+                JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
+               WHERE tl.team_key = $1
+                 AND tl.date = $2
+                 AND tl.branch_id = $3
+                 AND tli.entity_type = 'client'
+                 AND tli.entity_id = ot.client_id
+            )`,
+        [teamKey, date, branchId],
+      );
+      newEligibleCount = Number(deltaRows[0]?.count ?? 0);
+    }
+
     // Summary counters for stats strip
     const summary = {
       assigned:  clients.filter(c => c.taskPhase === 'assigned').length,
       inList:    clients.filter(c => c.taskPhase === 'in_scheduling').length,
       booked:    clients.filter(c => ['scheduled','waiting_execution','in_execution','ended'].includes(c.taskPhase)).length,
-      closed:    clients.filter(c => ['completed','closed'].includes(c.taskPhase)).length,
+      completed: clients.filter(c => c.taskPhase === 'completed').length,
+      closed:    clients.filter(c => c.taskPhase === 'closed').length,
       excluded:  clients.filter(c => c.assignedCount === 0 && c.excludedCount > 0).length,
     };
 
-    return res.json({ teamKey, date, taskListGenerated, clients, summary });
+    return res.json({ teamKey, date, taskListGenerated, taskListGeneratedAt, newEligibleCount, clients, summary });
   } catch (err: any) {
     console.error('Failed to load assigned tasks:', err);
     return res.status(500).json({ error: err.message || 'Failed to load assigned tasks' });
+  }
+});
+
+/**
+ * /api/planning/contact-targets-dashboard:
+ * Daily planning workspace with dual layers:
+ *   - Generated snapshot (contact_targets + today's task list for this team)
+ *   - Live delta after generation (currently assigned / excluded tasks not yet in snapshot)
+ *
+ * PRE-GENERATION:
+ *   Shows the live eligibility set from open_tasks.
+ *
+ * POST-GENERATION:
+ *   Keeps the generated snapshot as the primary status source, but also returns
+ *   live pending tasks so the UI can surface "new since last generation" and
+ *   "generated row with extra live work" without pretending they are already in
+ *   the call list.
+ */
+router.post('/contact-targets-dashboard/sync', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const date = typeof req.body?.date === 'string' ? req.body.date : '';
+    const teamKey = typeof req.body?.teamKey === 'string' ? req.body.teamKey : '';
+    const branchId = req.authContext?.actingBranchId ?? null;
+
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
+    if (!/^(team|solo)_\d+$/.test(teamKey)) {
+      return res.status(400).json({ error: 'teamKey must be team_X or solo_X' });
+    }
+    if (branchId == null) {
+      return res.status(400).json({ error: 'A branch context is required' });
+    }
+
+    const sync = await syncAssignedTasks({
+      date,
+      teamKey,
+      branchId,
+      performedBy: req.authContext?.userId ?? null,
+    });
+
+    await reconcileContactTargetWorkspace(date, teamKey, branchId, req.authContext?.userId ?? null);
+
+    return res.json({
+      date,
+      teamKey,
+      counts: {
+        planned: sync.plannedTaskIds.length,
+        eligible: sync.eligibleTaskIds.length,
+        newlyAssigned: sync.newlyAssignedIds.length,
+        released: sync.releasedIds.length,
+      },
+      taskIds: {
+        newlyAssigned: sync.newlyAssignedIds,
+        released: sync.releasedIds,
+      },
+    });
+  } catch (err: any) {
+    console.error('Failed to sync contact targets dashboard:', err);
+    return res.status(500).json({ error: err.message || 'Failed to sync contact targets dashboard' });
+  }
+});
+
+router.get('/contact-targets-dashboard', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const date = typeof req.query.date === 'string' ? req.query.date : '';
+    const teamKey = typeof req.query.teamKey === 'string' ? req.query.teamKey : '';
+    const branchId = req.authContext?.actingBranchId ?? null;
+
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
+    if (!/^(team|solo)_\d+$/.test(teamKey)) {
+      return res.status(400).json({ error: 'teamKey must be team_X or solo_X' });
+    }
+    if (branchId == null) {
+      return res.status(400).json({ error: 'A branch context is required' });
+    }
+
+    const { rows: taskListRows } = await pool.query(
+      `SELECT id, created_at AS "createdAt" FROM telemarketing_task_lists
+        WHERE team_key = $1 AND date = $2 AND branch_id = $3
+        LIMIT 1`,
+      [teamKey, date, branchId],
+    );
+    const taskListGenerated = taskListRows.length > 0;
+    const taskListGeneratedAt = taskListRows[0]?.createdAt ?? null;
+
+    const { rows: clientIdRows } = await pool.query(
+      `SELECT DISTINCT sub.client_id
+         FROM (
+           SELECT tli.entity_id AS client_id
+             FROM telemarketing_task_list_items tli
+             JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
+            WHERE tl.team_key = $1
+              AND tl.date = $2
+              AND tl.branch_id = $3
+              AND tli.entity_type = 'client'
+
+           UNION
+
+           SELECT ot.client_id
+             FROM open_tasks ot
+           WHERE ot.assigned_team_key = $1
+             AND ot.branch_id = $3
+             AND ot.status = 'assigned'
+             AND ot.assigned_for_date = $4::date
+             AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
+
+           UNION
+
+           SELECT ot.client_id
+             FROM open_tasks ot
+           WHERE ot.excluded_for_date = $4::date
+              AND ot.branch_id = $3
+              AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+
+           UNION
+
+           SELECT ct.target_id AS client_id
+             FROM contact_targets ct
+            WHERE ct.branch_id = $3
+              AND ct.target_type = 'client'
+              AND ct.visit_type = 'marketing'
+              AND ct.date = $4::date
+              AND ct.team_key = $1
+
+           UNION
+
+           SELECT ot.client_id
+             FROM contact_target_open_tasks ctot
+             JOIN open_tasks ot ON ot.id = ctot.open_task_id
+            WHERE ctot.branch_id = $3
+              AND ctot.team_key = $1
+              AND ctot.date = $4::date
+       ) sub`,
+      [teamKey, date, branchId, date],
+    );
+    const clientIds = clientIdRows.map((r: any) => Number(r.client_id));
+
+    if (clientIds.length === 0) {
+      return res.json({
+        teamKey,
+        date,
+        taskListGenerated,
+        taskListGeneratedAt,
+        newEligibleCount: 0,
+        generatedCount: 0,
+        pendingSyncCount: 0,
+        clients: [],
+        summary: { assigned: 0, queued: 0, contacted: 0, closed: 0 },
+      });
+    }
+
+    const { rows: clientRows } = await pool.query(
+      `SELECT
+         c.id,
+         c.name,
+         c.mobile,
+         c.contacts,
+         ${buildClientLifecycleStatusSql('c')} AS "candidateStatus",
+         gu.name AS "stationName",
+         ct.id AS "contactTargetId",
+         ct.status AS "contactTargetStatus",
+         ct.latest_call_outcome AS "contactTargetOutcome"
+       FROM clients c
+       LEFT JOIN geo_units gu
+         ON gu.id = c.neighborhood
+       LEFT JOIN contact_targets ct
+         ON ct.branch_id = c.branch_id
+        AND ct.target_type = 'client'
+        AND ct.target_id = c.id
+        AND ct.visit_type = 'marketing'
+        AND ct.date = $2::date
+        AND ct.team_key = $3
+       WHERE c.id = ANY($1::int[])`,
+      [clientIds, date, teamKey],
+    );
+    const clientMetaById = new Map(clientRows.map((r: any) => [Number(r.id), r]));
+
+    const { rows: taskRows } = await pool.query(
+      `SELECT
+         ot.id                                    AS "taskId",
+         ot.client_id                             AS "clientId",
+         ot.task_type                             AS "taskType",
+         ot.task_family                           AS "taskFamily",
+         ot.status,
+         ot.due_date                              AS "dueDate",
+         ot.expected_date                         AS "expectedDate",
+         ot.priority,
+         ot.excluded_for_date                     AS "excludedForDate",
+         ot.excluded_reason                       AS "excludedReason",
+         ot.last_waiting_status                   AS "lastWaitingStatus",
+         ot.attempt_count                         AS "attemptCount",
+         ctot.contact_target_id                   AS "taskContactTargetId",
+         ctot.link_status                         AS "contactTargetTaskStatus",
+         task_ct.work_location_geo_unit_id        AS "workLocationGeoUnitId",
+         work_gu.name                             AS "workLocationName",
+         task_ct.status                           AS "taskContactTargetStatus",
+         COALESCE(ttc.arabic_label, ot.task_type) AS "taskTypeLabel"
+       FROM open_tasks ot
+       LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+       LEFT JOIN contact_target_open_tasks ctot
+         ON ctot.open_task_id = ot.id
+        AND ctot.branch_id = ot.branch_id
+        AND ctot.team_key = $3
+        AND ctot.date = $4::date
+       LEFT JOIN contact_targets task_ct ON task_ct.id = ctot.contact_target_id
+       LEFT JOIN geo_units work_gu ON work_gu.id = COALESCE(task_ct.work_location_geo_unit_id, task_ct.zone_id)
+       WHERE ot.client_id = ANY($1::int[])
+         AND ot.branch_id = $2
+         AND ot.status IN ('assigned','in_scheduling','scheduled','waiting_execution',
+                           'in_execution','ended','completed','closed',
+                           'open','needs_follow_up')
+       ORDER BY ot.client_id, ot.created_at`,
+      [clientIds, branchId, teamKey, date],
+    );
+
+    const { rows: listItemRows } = await pool.query(
+      `SELECT
+         tli.entity_id AS "clientId",
+         tli.id AS "itemId",
+         tli.status AS "itemStatus",
+         tli.call_outcome AS "callOutcome",
+         tli.open_task_id AS "openTaskId",
+         tli.contact_target_id AS "contactTargetId"
+       FROM telemarketing_task_list_items tli
+       JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
+       WHERE tl.team_key = $1
+         AND tl.date = $2
+         AND tl.branch_id = $3
+         AND tli.entity_type = 'client'
+         AND tli.entity_id = ANY($4::int[])`,
+      [teamKey, date, branchId, clientIds],
+    );
+    const listItemByContext = new Map<string, any>();
+    listItemRows.forEach((r: any) => {
+      const contactTargetId = Number(r.contactTargetId);
+      const openTaskId = Number(r.openTaskId);
+      const clientId = Number(r.clientId);
+      const key = Number.isInteger(contactTargetId) && contactTargetId > 0
+        ? `ct:${contactTargetId}`
+        : Number.isInteger(openTaskId) && openTaskId > 0
+          ? `task:${openTaskId}`
+          : `client:${clientId}`;
+      listItemByContext.set(key, r);
+    });
+
+    // Source: field_visits (canonical post-Phase-4). team identified via team_snapshot->>'teamKey'.
+    const { rows: apptRows } = await pool.query(
+      `SELECT
+         fv.client_id            AS "clientId",
+         fv.id                   AS "appointmentId",
+         fv.scheduled_date::text AS "appointmentDate",
+         fv.scheduled_time       AS "appointmentTime"
+       FROM field_visits fv
+       WHERE fv.team_snapshot->>'teamKey' = $1
+         AND fv.scheduled_date = $2::date
+         AND fv.branch_id      = $3
+         AND fv.client_id      = ANY($4::int[])
+         AND fv.status         IN ('scheduled','in_progress','ended','completed')
+         AND fv.visit_type     = 'marketing'
+       ORDER BY fv.created_at DESC`,
+      [teamKey, date, branchId, clientIds],
+    );
+    const apptByClient = new Map<number, any>();
+    apptRows.forEach((r: any) => {
+      if (!apptByClient.has(Number(r.clientId))) apptByClient.set(Number(r.clientId), r);
+    });
+
+    const tasksByContext = new Map<string, any[]>();
+    taskRows.forEach((r: any) => {
+      const contactTargetId = Number(r.taskContactTargetId);
+      const clientId = Number(r.clientId);
+      const key = Number.isInteger(contactTargetId) && contactTargetId > 0
+        ? `ct:${contactTargetId}`
+        : `client:${clientId}`;
+      if (!tasksByContext.has(key)) tasksByContext.set(key, []);
+      tasksByContext.get(key)!.push(r);
+    });
+
+    function primaryPhone(meta: any): string | null {
+      const contacts = Array.isArray(meta?.contacts) ? meta.contacts : [];
+      const primary = contacts.find((c: any) => c?.isPrimary && c?.number);
+      return primary?.number ?? meta?.mobile ?? null;
+    }
+
+    const contactContexts = Array.from(tasksByContext.entries()).map(([key, tasks]) => ({
+      key,
+      clientId: Number(tasks[0]?.clientId),
+      contactTargetId: Number(tasks[0]?.taskContactTargetId) || null,
+      stationName: tasks[0]?.workLocationName ?? null,
+      contactTargetStatus: tasks[0]?.taskContactTargetStatus ?? null,
+      tasks,
+    }));
+
+    const clients = contactContexts.map(context => {
+      const id = context.clientId;
+      const meta = clientMetaById.get(id);
+      const tasks = context.tasks;
+      const listItem = listItemByContext.get(context.key) ?? null;
+      const appt = apptByClient.get(id) ?? null;
+
+      const assignedTasks = tasks.filter((t: any) => t.status === 'assigned');
+      const excludedTasks = tasks.filter((t: any) => t.excludedForDate === date);
+      const generatedInTaskList = Boolean(listItem);
+      const hasPendingSync = taskListGenerated && assignedTasks.length > 0;
+      const excludedOnly = !generatedInTaskList && assignedTasks.length === 0 && excludedTasks.length > 0;
+
+      let workspaceStatus: ContactTargetWorkspaceStatus = 'assigned';
+      if (meta?.contactTargetStatus === 'closed' || excludedOnly) {
+        workspaceStatus = 'closed';
+      } else if (meta?.contactTargetStatus === 'contacted') {
+        workspaceStatus = 'contacted';
+      } else if (generatedInTaskList || meta?.contactTargetStatus === 'queued' || meta?.contactTargetStatus === 'in_call_list' || appt?.appointmentDate) {
+        workspaceStatus = 'queued';
+      }
+
+      return {
+        clientId: id,
+        clientName: meta?.name ?? '',
+        primaryPhone: primaryPhone(meta),
+        candidateStatus: meta?.candidateStatus ?? null,
+        stationName: context.stationName ?? meta?.stationName ?? null,
+        tasks,
+        assignedCount: assignedTasks.length,
+        excludedCount: excludedTasks.length,
+        generatedInTaskList,
+        hasPendingSync,
+        workspaceStatus,
+        contactTargetId: context.contactTargetId ?? meta?.contactTargetId ?? listItem?.contactTargetId ?? null,
+        contactTargetStatus: context.contactTargetStatus ?? meta?.contactTargetStatus ?? null,
+        taskListItemStatus: listItem?.itemStatus ?? null,
+        taskListOpenTaskId: listItem?.openTaskId ?? null,
+        latestCallOutcome: listItem?.callOutcome ?? meta?.contactTargetOutcome ?? null,
+        appointmentDate: appt?.appointmentDate ?? null,
+        appointmentTime: appt?.appointmentTime ?? null,
+        attemptCount: tasks.reduce((sum: number, task: any) => sum + (Number(task.attemptCount) || 0), 0),
+      };
+    });
+
+    const STATUS_ORDER: Record<string, number> = {
+      assigned: 1,
+      queued: 2,
+      contacted: 3,
+      closed: 4,
+    };
+
+    clients.sort((a, b) => {
+      if (a.generatedInTaskList !== b.generatedInTaskList) return a.generatedInTaskList ? -1 : 1;
+      if (a.hasPendingSync !== b.hasPendingSync) return a.hasPendingSync ? -1 : 1;
+      const pa = STATUS_ORDER[a.workspaceStatus] ?? 0;
+      const pb = STATUS_ORDER[b.workspaceStatus] ?? 0;
+      if (pa !== pb) return pa - pb;
+      return (b.assignedCount + b.excludedCount) - (a.assignedCount + a.excludedCount);
+    });
+
+    let newEligibleCount = 0;
+    if (taskListGenerated) {
+      const { rows: deltaRows } = await pool.query(
+        `SELECT COUNT(DISTINCT ot.client_id)::int AS count
+           FROM open_tasks ot
+          WHERE ot.assigned_team_key = $1
+            AND ot.branch_id = $3
+            AND ot.status = 'assigned'
+            AND ot.assigned_for_date = $4::date
+            AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM telemarketing_task_list_items tli
+                JOIN telemarketing_task_lists tl ON tl.id = tli.task_list_id
+               WHERE tl.team_key = $1
+                 AND tl.date = $2
+                 AND tl.branch_id = $3
+                 AND tli.entity_type = 'client'
+                 AND tli.entity_id = ot.client_id
+            )`,
+        [teamKey, date, branchId, date],
+      );
+      newEligibleCount = Number(deltaRows[0]?.count ?? 0);
+    }
+
+    const generatedCount = clients.filter(client => client.generatedInTaskList).length;
+    const pendingSyncCount = clients.filter(client => client.hasPendingSync).length;
+    const summary = {
+      assigned: clients.filter(client => client.workspaceStatus === 'assigned').length,
+      queued: clients.filter(client => client.workspaceStatus === 'queued').length,
+      contacted: clients.filter(client => client.workspaceStatus === 'contacted').length,
+      closed: clients.filter(client => client.workspaceStatus === 'closed').length,
+    };
+
+    return res.json({
+      teamKey,
+      date,
+      taskListGenerated,
+      taskListGeneratedAt,
+      newEligibleCount,
+      generatedCount,
+      pendingSyncCount,
+      clients,
+      summary,
+    });
+  } catch (err: any) {
+    console.error('Failed to load contact targets dashboard:', err);
+    return res.status(500).json({ error: err.message || 'Failed to load contact targets dashboard' });
   }
 });
 

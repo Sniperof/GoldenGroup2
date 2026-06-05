@@ -95,17 +95,57 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
             throw new Error('هذا الموعد محجوز مسبقاً للفريق في نفس الوقت.');
         }
 
-        const newAppointment: Appointment = {
-            ...appointmentInput,
-            id: simpleUUID(),
-            createdAt: new Date().toISOString(),
-        };
+        let saved: Appointment;
 
-        const payload = selectedTaskEntries && selectedTaskEntries.length > 0
-            ? { ...newAppointment, selectedOpenTasks: selectedTaskEntries }
-            : newAppointment;
+        if (appointmentInput.entityType === 'client') {
+            const selectedOpenTasks = (selectedTaskEntries ?? [])
+                .filter((entry) => entry.openTaskId != null)
+                .map((entry) => ({
+                    openTaskId: entry.openTaskId!,
+                    taskType: entry.taskType,
+                }));
 
-        const saved = await api.telemarketing.createAppointment(payload);
+            if (selectedOpenTasks.length === 0) {
+                throw new Error('لا يمكن حجز موعد دون مهمة مفتوحة مرتبطة.');
+            }
+
+            const result = await api.telemarketing.bookVisit({
+                clientId: appointmentInput.entityId,
+                date: appointmentInput.date,
+                timeSlot: appointmentInput.timeSlot,
+                teamKey: appointmentInput.teamKey,
+                taskListId: appointmentInput.taskListId,
+                taskListItemId: appointmentInput.taskListItemId,
+                selectedOpenTasks,
+                customerSnapshot: {
+                    name: appointmentInput.customerName,
+                    mobile: appointmentInput.customerMobile,
+                    addressText: appointmentInput.customerAddress,
+                    occupation: appointmentInput.occupation,
+                    waterSource: appointmentInput.waterSource,
+                },
+                notes: appointmentInput.notes,
+            });
+
+            saved = {
+                ...appointmentInput,
+                id: `fv_${result.fieldVisitId}`,
+                createdAt: new Date().toISOString(),
+                contactTargetId: result.contactTargetId ?? appointmentInput.contactTargetId,
+                marketingVisitId: String(result.fieldVisitId),
+            };
+        } else {
+            const newAppointment: Appointment = {
+                ...appointmentInput,
+                id: simpleUUID(),
+                createdAt: new Date().toISOString(),
+            };
+            const payload = selectedTaskEntries && selectedTaskEntries.length > 0
+                ? { ...newAppointment, selectedOpenTasks: selectedTaskEntries }
+                : newAppointment;
+            saved = await api.telemarketing.createAppointment(payload);
+        }
+
         set((state) => ({ appointments: [...state.appointments, saved] }));
     },
 

@@ -13,6 +13,7 @@ export interface LoginResult {
     roleDisplayName: string | null;
     isSuperAdmin: boolean;
     branchId: number | null;
+    employeeId: number | null;
   };
   permissions: string[];
   grants: RoleGrant[];
@@ -51,6 +52,7 @@ export async function loginUser(username: string, password: string): Promise<Log
     roleDisplayName: user.role_display_name,
     isSuperAdmin: user.is_super_admin === true,
     branchId: user.branch_id,
+    employeeId: user.employee_id,
   };
 
   const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
@@ -65,6 +67,7 @@ export async function loginUser(username: string, password: string): Promise<Log
       roleDisplayName: user.role_display_name,
       isSuperAdmin: user.is_super_admin === true,
       branchId: user.branch_id,
+      employeeId: user.employee_id,
     },
     permissions,
     grants,

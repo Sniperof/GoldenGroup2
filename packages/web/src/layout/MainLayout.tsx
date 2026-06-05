@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import FloatingActionButton from '../components/FloatingActionButton';
 import NewEmergencyTicketModal from '../components/NewEmergencyTicketModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
+import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import BranchSwitcher from '../components/BranchSwitcher';
 import {
     LayoutDashboard, Route, Users, BookUser, Globe,
@@ -15,7 +16,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell,
+    Bell, Wrench, Gift,
 } from 'lucide-react';
 
 const navItems = [
@@ -33,17 +34,34 @@ const recordsChildren = [
     { path: '/employees', label: 'سجلات الموظفين', icon: Users },
 ];
 
+// ============================================================
+// Operations & Tasks — Unified 6-section structure (2026-06-01)
+// ============================================================
+// Per unified-task-template.md: 6 display_groups, each gets a single
+// sidebar entry pointing to the unified TaskGroupPage. Legacy entries
+// commented out below; their routes still resolve (App.tsx) so deep
+// links from existing detail pages continue to work during transition.
 const operationsChildren = [
-    { path: '/tasks/open', label: 'المهام المفتوحة', icon: ListChecks },
-    { path: '/tasks/device-demo', label: 'عروض الأجهزة', icon: Monitor },
-    { path: '/tasks/today', label: 'مهام اليوم', icon: Calendar },
-    { path: '/tasks/emergency', label: 'طوارئ', icon: AlertTriangle },
-    { path: '/tasks/dues', label: 'مستحقات', icon: DollarSign },
-    { path: '/tasks/periodic', label: 'صيانة دورية', icon: RefreshCw },
-    { path: '/tasks/returns', label: 'إرجاع', icon: RotateCcw },
-    { path: '/tasks/followup', label: 'متابعة', icon: PhoneCall },
+    { path: '/tasks/group/device-demo',         label: 'مهام عرض الجهاز',        icon: Monitor },
+    { path: '/tasks/group/maintenance',         label: 'مهام الصيانة',           icon: Wrench },
+    // Phase 4 — service_requests intake layer (GLOBAL list, §٠.١٦)
+    { path: '/service-requests',                label: 'طلبات الصيانة (جديد)',   icon: Wrench },
+    { path: '/tasks/group/collection',          label: 'مهام تحصيل الأقساط',     icon: DollarSign },
+    { path: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع', icon: RefreshCw },
+    { path: '/tasks/group/gift-delivery',       label: 'مهام تسليم الهدايا',     icon: Gift },
+    { path: '/tasks/group/warranty-services',   label: 'مهام خدمات الكفالة',     icon: ShieldCheck },
     // DEC-006 D37/D38: hub for supervisor alerts (attempt threshold + visit escalation)
-    { path: '/supervisor/alerts', label: 'تنبيهات المشرف', icon: Bell },
+    { path: '/supervisor/alerts',               label: 'تنبيهات المشرف',         icon: Bell },
+
+    // -------- Legacy entries (hidden 2026-06-01) — kept commented for reference --------
+    // { path: '/tasks/open',        label: 'المهام المفتوحة', icon: ListChecks },
+    // { path: '/tasks/device-demo', label: 'عروض الأجهزة',    icon: Monitor },
+    // { path: '/tasks/today',       label: 'مهام اليوم',      icon: Calendar },
+    // { path: '/tasks/emergency',   label: 'طوارئ',           icon: AlertTriangle },
+    // { path: '/tasks/dues',        label: 'مستحقات',         icon: DollarSign },
+    // { path: '/tasks/periodic',    label: 'صيانة دورية',     icon: RefreshCw },
+    // { path: '/tasks/returns',     label: 'إرجاع',           icon: RotateCcw },
+    // { path: '/tasks/followup',    label: 'متابعة',          icon: PhoneCall },
 ];
 
 const planningChildren = [
@@ -141,6 +159,12 @@ export default function MainLayout() {
     const toggleCollapse = () => setIsCollapsed(!isCollapsed);
     const [showEmergencyModal, setShowEmergencyModal] = useState(false);
     const [showCandidateModal, setShowCandidateModal] = useState(false);
+    // Phase 5 — service_requests intake. Feature-gated via localStorage so
+    // ops can flip it on per-user during staging without a deploy.
+    const [showServiceRequestModal, setShowServiceRequestModal] = useState(false);
+    const serviceRequestsUiEnabled =
+        typeof window !== 'undefined' &&
+        localStorage.getItem('gc_service_requests_ui') === 'on';
     const [candidateInitialMode, setCandidateInitialMode] = useState(false);
 
     return (
@@ -679,7 +703,16 @@ export default function MainLayout() {
                     setCandidateInitialMode(true);
                     setShowCandidateModal(true);
                 }}
+                onServiceRequestClick={
+                    serviceRequestsUiEnabled ? () => setShowServiceRequestModal(true) : undefined
+                }
             />
+            {showServiceRequestModal && (
+                <NewServiceRequestModal
+                    channel="internal_button"
+                    onClose={() => setShowServiceRequestModal(false)}
+                />
+            )}
 
             {/* Emergency Ticket Modal */}
             <NewEmergencyTicketModal

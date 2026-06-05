@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { TabAlert } from '../shared';
+import TaskHeroSummary from '../cards/TaskHeroSummary';
 import TaskSummaryCard from '../cards/TaskSummaryCard';
 import TaskScheduleCard from '../cards/TaskScheduleCard';
 import TaskCreationCard from '../cards/TaskCreationCard';
@@ -42,9 +43,14 @@ export default function TaskOverviewTab({
   extraCards,
 }: TaskOverviewTabProps) {
   return (
-    <>
+    <div className="space-y-5">
       <TabAlert title="ملاحظات على بيانات النظرة العامة" items={issues} />
-      <div className="grid grid-cols-1 gap-4">
+
+      {/* Hero: status + priority + attempts + dates — the visual anchor */}
+      <TaskHeroSummary task={task} />
+
+      {/* Two-column responsive grid; cards stack vertically on mobile, 2×2 on md+ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <TaskSummaryCard
           task={task}
           priorityDraft={priorityDraft}
@@ -69,7 +75,8 @@ export default function TaskOverviewTab({
           noteCount={noteCount}
         />
       </div>
+
       {extraCards}
-    </>
+    </div>
   );
 }

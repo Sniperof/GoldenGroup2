@@ -1,10 +1,29 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   PhoneCall, Activity, MessageSquare, RotateCcw, Users, CheckCircle2,
   ShoppingCart, Send, Loader2, Phone, PhoneMissed, Layers,
+  Footprints, CalendarClock, ChevronLeft, Clock,
 } from 'lucide-react';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus, getOutcomeMeta } from '@golden-crm/shared';
 import { Card, EmptyState, TabAlert, formatDateTime } from '../shared';
+
+// سياق المهمة — labels for the execution-attempt chain
+const VISIT_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
+  scheduled:     { label: 'مجدولة',         cls: 'bg-slate-100 text-slate-600' },
+  in_progress:   { label: 'جارية',          cls: 'bg-blue-50 text-blue-700' },
+  ended:         { label: 'انتهت ميدانياً', cls: 'bg-amber-50 text-amber-700' },
+  completed:     { label: 'مكتملة',         cls: 'bg-emerald-50 text-emerald-700' },
+  not_completed: { label: 'لم تتم',         cls: 'bg-rose-50 text-rose-700' },
+  cancelled:     { label: 'ملغاة',          cls: 'bg-slate-100 text-slate-500' },
+  closed:        { label: 'مُقفلة',         cls: 'bg-slate-200 text-slate-700' },
+};
+const FINAL_DECISION_LABELS: Record<string, string> = {
+  offer_presented: 'تقديم عرض',
+  device_sold:     'بيع جهاز',
+  rescheduled:     'إعادة جدولة',
+  cancelled:       'إلغاء',
+};
 
 const CALL_TYPE_LABELS: Record<string, string> = {
   inbound: 'واردة', outbound: 'صادرة', follow_up: 'متابعة', missed: 'فائتة',
@@ -41,10 +60,11 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
 export interface TaskCommunicationTabProps {
   calls: any[];
   activity: any[];
+  attempts?: any[];
   onSubmitNote: (text: string) => Promise<void>;
 }
 
-export default function TaskCommunicationTab({ calls, activity, onSubmitNote }: TaskCommunicationTabProps) {
+export default function TaskCommunicationTab({ calls, activity, attempts = [], onSubmitNote }: TaskCommunicationTabProps) {
   const [noteText, setNoteText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -73,6 +93,62 @@ export default function TaskCommunicationTab({ calls, activity, onSubmitNote }: 
   return (
     <>
       <TabAlert title="ملاحظات على التواصل والمتابعة" items={issues} />
+
+      {/* سياق المهمة — سلسلة محاولات التنفيذ عبر الزيارات */}
+      <Card title="سياق المهمة" icon={Footprints}>
+        {attempts.length > 0 ? (
+          <div className="space-y-2.5">
+            <p className="text-xs text-slate-400 mb-1">
+              كل سطر = محاولة تنفيذ لهذه المهمة ضمن زيارة. النتيجة تُسجّل في الزيارة وتنعكس على حالة المهمة.
+            </p>
+            {attempts.map((at: any, idx: number) => {
+              const vs = VISIT_STATUS_LABELS[at.visitStatus] ?? { label: at.visitStatus, cls: 'bg-slate-100 text-slate-600' };
+              const decision = at.finalDecision
+                ? (FINAL_DECISION_LABELS[at.finalDecision] ?? at.finalDecision)
+                : null;
+              return (
+                <Link
+                  key={at.visitTaskId}
+                  to={`/field-visits/${at.visitId}`}
+                  className="flex items-center gap-3 rounded-xl bg-white border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 p-3 shadow-sm transition-colors group"
+                >
+                  <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 text-xs font-black">
+                    {idx + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-bold text-slate-800">المحاولة {idx + 1}</span>
+                      {at.arabicLabel && <span className="text-[11px] text-slate-400">· {at.arabicLabel}</span>}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${vs.cls}`}>{vs.label}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1 flex-wrap">
+                      {at.scheduledDate && (
+                        <span className="inline-flex items-center gap-1">
+                          <CalendarClock className="w-3 h-3" />
+                          {String(at.scheduledDate).slice(0, 10)}{at.scheduledTime ? ` · ${at.scheduledTime}` : ''}
+                        </span>
+                      )}
+                      {decision ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
+                          <CheckCircle2 className="w-3 h-3" /> {decision}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-amber-600">
+                          <Clock className="w-3 h-3" /> بانتظار النتيجة
+                        </span>
+                      )}
+                    </div>
+                    {at.closingNotes && <p className="text-[11px] text-slate-400 mt-1 truncate">{at.closingNotes}</p>}
+                  </div>
+                  <ChevronLeft className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 shrink-0" />
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState icon={Footprints} title="لا توجد محاولات تنفيذ بعد" description="عند جدولة المهمة ضمن زيارة، تظهر هنا كل محاولة بنتيجتها." />
+        )}
+      </Card>
 
       <Card title="اتصالات التيلماركتر" icon={PhoneCall}>
         {calls.length > 0 ? (

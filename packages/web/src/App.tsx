@@ -33,6 +33,7 @@ import TelemarketerWorkspace from './pages/TelemarketerWorkspace';
 import TeamTasksDetail from './pages/planning/TeamTasksDetail';
 import DeviceDemo from './pages/tasks/DeviceDemo';
 import DeviceDemoDetail from './pages/tasks/DeviceDemoDetail';
+import PostSaleTaskDetail from './pages/tasks/PostSaleTaskDetail';
 import OpenTasks from './pages/OpenTasks';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
@@ -54,6 +55,10 @@ import TaskTypes from './pages/admin/TaskTypes';
 import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
 import VisitsListPage from './pages/visits/VisitsListPage';
 import VisitDetailPage from './pages/visits/VisitDetailPage';
+import TaskGroupPage from './pages/tasks/TaskGroupPage';
+import ServiceRequestsListPage from './pages/service-requests/ServiceRequestsListPage';
+import ServiceRequestDetailPage from './pages/service-requests/ServiceRequestDetailPage';
+import NewServiceRequestPage from './pages/service-requests/NewServiceRequestPage';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -96,7 +101,14 @@ export default function App() {
                         <Route path="/tasks/open" element={<OpenTasks />} />
                         <Route path="/tasks/device-demo" element={<DeviceDemo />} />
                         <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
+                        <Route path="/tasks/after-sale-services/:id" element={<PostSaleTaskDetail />} />
+                        {/* Unified task groups (2026-06-01) — single page, 6 display_groups */}
+                        <Route path="/tasks/group/:group" element={<TaskGroupPage />} />
                         <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
+                        {/* Service Requests intake (٠.١٦ — GLOBAL) */}
+                        <Route path="/service-requests" element={<ServiceRequestsListPage />} />
+                        <Route path="/service-requests/new" element={<NewServiceRequestPage />} />
+                        <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
                         <Route path="/field-visits" element={<VisitsListPage />} />
                         <Route path="/field-visits/:id" element={<VisitDetailPage />} />
                         <Route path="/contracts" element={<ContractList />} />

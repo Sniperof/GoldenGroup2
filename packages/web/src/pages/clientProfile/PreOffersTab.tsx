@@ -265,7 +265,7 @@ export function PreOffersTab({ client }: Props) {
                 <th className="text-right py-3 px-4">المبلغ الكلي</th>
                 <th className="text-right py-3 px-4">تفاصيل القسط</th>
                 <th className="text-right py-3 px-4">الحسم</th>
-                <th className="text-right py-3 px-4">المُحضِّر</th>
+                <th className="text-right py-3 px-4">موظف التسكير</th>
                 <th className="text-right py-3 px-4">تاريخ التحضير</th>
                 <th className="text-right py-3 px-4">النتيجة</th>
                 <th className="text-right py-3 px-4">الإجراء</th>

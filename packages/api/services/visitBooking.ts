@@ -90,7 +90,7 @@ export async function assertD18(
   }
 
   const { rows: scheduleRows } = await db.query(
-    'SELECT id FROM day_schedules WHERE date = $1 LIMIT 1',
+    'SELECT date FROM day_schedules WHERE date = $1 LIMIT 1',
     [params.scheduledDate],
   );
   if (scheduleRows.length === 0) {
@@ -305,7 +305,7 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
         input.scheduledDate,
         input.scheduledTime,
         input.originType,
-        input.originId == null ? null : String(input.originId),
+        Number.isInteger(Number(input.originId)) ? Number(input.originId) : null,
         teamInfo.teamSnapshot ? JSON.stringify(teamInfo.teamSnapshot) : null,
         responsibleHrUserId,
         input.customerSnapshot ? JSON.stringify(input.customerSnapshot) : null,

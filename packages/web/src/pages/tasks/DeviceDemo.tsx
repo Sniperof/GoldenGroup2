@@ -33,26 +33,27 @@ const TASK_STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-slate-200 text-slate-600 border border-slate-300',
 };
 
+// Visit lifecycle per DEC-004 D18: 7 states only — no postponed_by_* and no
+// needs_reschedule. Rescheduling moved to the open_task level via
+// expected_date + last_waiting_status.
 const VISIT_STATUS_LABELS: Record<string, string> = {
   scheduled: 'مجدول',
   in_progress: 'جارٍ',
+  ended: 'منتهية ميدانياً',
   completed: 'مكتمل',
   not_completed: 'لم يكتمل',
-  postponed_by_company: 'مؤجل (شركة)',
-  postponed_by_customer: 'مؤجل (زبون)',
   cancelled: 'ملغى',
-  needs_reschedule: 'يحتاج إعادة جدولة',
+  closed: 'مقفلة',
 };
 
 const VISIT_STATUS_COLORS: Record<string, string> = {
   scheduled: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
   in_progress: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+  ended: 'bg-amber-50 text-amber-700 border border-amber-200',
   completed: 'bg-green-50 text-green-700 border border-green-100',
   not_completed: 'bg-rose-50 text-rose-700 border border-rose-200',
-  postponed_by_company: 'bg-amber-50 text-amber-700 border border-amber-200',
-  postponed_by_customer: 'bg-amber-50 text-amber-700 border border-amber-200',
   cancelled: 'bg-slate-200 text-slate-600 border border-slate-300',
-  needs_reschedule: 'bg-orange-50 text-orange-700 border border-orange-200',
+  closed: 'bg-slate-100 text-slate-700 border border-slate-200',
 };
 
 function formatDate(dateStr: string | null | undefined): string {

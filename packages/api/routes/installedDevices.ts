@@ -12,8 +12,8 @@ const selectFields = `
   d.contract_id       AS "contractId",
   d.customer_id       AS "customerId",
   d.branch_id         AS "branchId",
-  d.device_model_id   AS "deviceModelId",
-  d.device_model_name AS "deviceModelName",
+  COALESCE(d.device_model_id, c.device_model_id) AS "deviceModelId",
+  COALESCE(d.device_model_name, c.device_model_name) AS "deviceModelName",
   d.serial_number     AS "serialNumber",
   d.status,
   d.installation_geo_unit_id  AS "installationGeoUnitId",
@@ -27,11 +27,27 @@ const selectFields = `
   d.contract_warranty_end_date AS "contractWarrantyEndDate",
   d.warranty_months           AS "warrantyMonths",
   d.warranty_visits           AS "warrantyVisits",
+  d.activated_at              AS "activatedAt",
   d.created_at                AS "createdAt",
   d.updated_at                AS "updatedAt",
   c.contract_number           AS "contractNumber",
   c.customer_name             AS "customerName",
-  gu.name                     AS "installationGeoUnitName"
+  b.name                      AS "branchName",
+  gu.name                     AS "installationGeoUnitName",
+  jsonb_strip_nulls(jsonb_build_object(
+    'serialNumber', CASE WHEN d.serial_number IS NULL OR btrim(d.serial_number) = '' THEN 'missing' END,
+    'branchName', CASE WHEN b.name IS NULL THEN 'missing' END,
+    'installationLocation', CASE
+      WHEN d.installation_geo_unit_id IS NULL
+       AND (d.installation_address_text IS NULL OR btrim(d.installation_address_text) = '')
+       AND (d.installation_lat IS NULL OR d.installation_lng IS NULL)
+      THEN 'missing'
+    END,
+    'deliveryDate', CASE WHEN d.delivery_date IS NULL THEN 'pending_or_missing' END,
+    'installationDate', CASE WHEN d.installation_date IS NULL THEN 'pending_or_missing' END,
+    'activatedAt', CASE WHEN d.activated_at IS NULL THEN 'pending_or_missing' END,
+    'warrantyTerms', CASE WHEN d.warranty_months IS NULL AND d.warranty_visits IS NULL THEN 'missing' END
+  )) AS "missingFields"
 `;
 
 // GET /api/installed-devices?customerId=X&branchId=Y
@@ -66,6 +82,7 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
     `SELECT ${selectFields}
      FROM installed_devices d
      JOIN contracts c ON c.id = d.contract_id
+     LEFT JOIN branches b ON b.id = d.branch_id
      LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
      ${where}
      ORDER BY d.created_at DESC`,
@@ -81,6 +98,7 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
     `SELECT ${selectFields}
      FROM installed_devices d
      JOIN contracts c ON c.id = d.contract_id
+     LEFT JOIN branches b ON b.id = d.branch_id
      LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
      WHERE d.id = $1`,
     [req.params.id]

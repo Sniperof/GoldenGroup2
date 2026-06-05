@@ -18,6 +18,7 @@ import {
 import {
   buildCustomerOwnershipSelectColumns,
   buildCustomerOwnershipSql,
+  buildClientLifecycleStatusSql,
   mapCustomerOwnership,
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
@@ -69,6 +70,7 @@ const CLIENT_SELECT = `
     c.is_candidate AS "isCandidate",
     c.target_client AS "targetClient",
     c.candidate_status AS "candidateStatus",
+    ${buildClientLifecycleStatusSql('c')} AS "lifecycleStage",
     -- DEC-005 D29 contact-control fields
     c.do_not_contact AS "doNotContact",
     c.cooldown_until AS "cooldownUntil",

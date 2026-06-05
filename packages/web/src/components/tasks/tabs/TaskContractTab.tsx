@@ -1,6 +1,17 @@
 import { FileText, MapPin, Wrench } from 'lucide-react';
 import { Card, InfoLine, EmptyState, formatDate, formatMoney } from '../shared';
 
+// Common contract status values surfaced inside contract_snapshot.
+const CONTRACT_STATUS_LABELS: Record<string, string> = {
+  draft:     'مسودة',
+  active:    'نشِط',
+  pending:   'قيد المراجعة',
+  completed: 'مكتمل',
+  cancelled: 'ملغى',
+  suspended: 'موقوف',
+  closed:    'مُقفَل',
+};
+
 export interface TaskContractTabProps {
   task: any;
 }
@@ -34,7 +45,9 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
           <InfoLine label="رقم العقد" value={<span className="font-mono">{contract.contractNumber}</span>} />
           <InfoLine label="تاريخ العقد" value={formatDate(contract.contractDate)} />
           <InfoLine label="معرف العقد" value={`#${contract.contractId}`} />
-          {contract.status && <InfoLine label="حالة العقد" value={contract.status} />}
+          {contract.status && (
+            <InfoLine label="حالة العقد" value={CONTRACT_STATUS_LABELS[contract.status] ?? contract.status} />
+          )}
         </div>
       </Card>
 

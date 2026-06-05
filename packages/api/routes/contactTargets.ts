@@ -107,9 +107,8 @@ const marketingTargetSelect = `
   ) latest_appointment ON TRUE
   WHERE ct.branch_id = $1
     AND ct.target_type = 'client'
-    AND ct.target_stage = 'lead'
+    -- DEC-005 D30: target_stage / source_type dropped (or CHECK-pinned to 'lead').
     AND ct.visit_type = 'marketing'
-    AND ct.source_type = 'lead'
     AND c.is_candidate = FALSE
     -- DEC-005 D-customer-filters: cooldown + do_not_contact
     AND c.do_not_contact = FALSE
@@ -306,10 +305,8 @@ router.post('/marketing/sync', async (req, res) => {
         'lead',
         c.id,
         assignment.hr_user_id,
-        CASE
-          WHEN NULLIF(c.neighborhood, '') ~ '^[0-9]+$' THEN c.neighborhood::int
-          ELSE NULL
-        END,
+        -- clients.neighborhood is INTEGER; NULL is fine here.
+        c.neighborhood,
         'new'
       FROM clients c
       LEFT JOIN LATERAL (

@@ -39,9 +39,60 @@ interface Props {
   readOnly?: boolean;
   onSaved: () => void;
   onBack?: () => void;
+  // Phase 6c.2 — new-path props. When sourceServiceRequestId is set,
+  // the manual DECISIONS picker is replaced by a readonly derived_outcome
+  // badge and finalDecision is auto-mapped to a legacy CHECK value.
+  sourceServiceRequestId?: number | null;
+  derivedOutcome?: { outcome: string; counts: Record<string, number>; total: number } | null;
 }
 
-export default function CostsForm({ taskId, initialData, readOnly = false, onSaved, onBack }: Props) {
+/** Maps the §٠.١٩.ح derived outcome to one of the 4 legacy
+ *  emergency_result_costs.final_decision CHECK values. The new wizard
+ *  is meant to surface the richer outcome label; the legacy DB write
+ *  still needs a 4-value enum. */
+const DERIVED_TO_LEGACY: Record<string, DecisionValue> = {
+  fully_resolved: 'resolved',
+  partially_resolved: 'resolved',
+  all_deferred: 'needs_followup',
+  partially_unresolvable: 'unresolved',
+  fully_unresolvable: 'unresolved',
+  all_cancelled: 'cancelled',
+  mixed: 'needs_followup',
+  no_problems: 'resolved',
+};
+
+const DERIVED_LABELS: Record<string, string> = {
+  fully_resolved: 'محلولة بالكامل',
+  partially_resolved: 'محلولة جزئياً',
+  all_deferred: 'كل الأعطال مُؤجَّلة',
+  partially_unresolvable: 'بعض الأعطال غير قابلة',
+  fully_unresolvable: 'كل الأعطال غير قابلة',
+  all_cancelled: 'كل الأعطال مُلغاة',
+  mixed: 'حالة مَختلطة',
+  no_problems: 'لا توجد أعطال',
+};
+
+const DERIVED_COLORS: Record<string, string> = {
+  fully_resolved: 'border-emerald-400 bg-emerald-500 text-white',
+  partially_resolved: 'border-amber-400 bg-amber-500 text-white',
+  all_deferred: 'border-yellow-400 bg-yellow-500 text-white',
+  partially_unresolvable: 'border-orange-400 bg-orange-500 text-white',
+  fully_unresolvable: 'border-red-400 bg-red-500 text-white',
+  all_cancelled: 'border-slate-400 bg-slate-500 text-white',
+  mixed: 'border-violet-400 bg-violet-500 text-white',
+  no_problems: 'border-slate-300 bg-slate-300 text-slate-700',
+};
+
+export default function CostsForm({
+  taskId,
+  initialData,
+  readOnly = false,
+  onSaved,
+  onBack,
+  sourceServiceRequestId = null,
+  derivedOutcome = null,
+}: Props) {
+  const isNewPath = sourceServiceRequestId != null;
 
   // ── Decision ───────────────────────────────────────────────────────────────
   const [finalDecision, setFinalDecision]       = useState<DecisionValue | ''>(initialData?.finalDecision ?? '');
@@ -102,6 +153,16 @@ export default function CostsForm({ taskId, initialData, readOnly = false, onSav
         .catch(() => {});
     }
   }, [taskId]);
+
+  // Phase 6c.2 — On the new path, auto-map derivedOutcome to a legacy
+  // final_decision value so the existing save logic + CHECK constraint
+  // stay happy. Re-runs whenever the outcome changes.
+  useEffect(() => {
+    if (isNewPath && derivedOutcome) {
+      const mapped = DERIVED_TO_LEGACY[derivedOutcome.outcome] ?? 'resolved';
+      setFinalDecision(mapped);
+    }
+  }, [isNewPath, derivedOutcome?.outcome]);
 
   // ── Calculations ───────────────────────────────────────────────────────────
   const transport  = Number(transportFee) || 0;
@@ -195,22 +256,52 @@ export default function CostsForm({ taskId, initialData, readOnly = false, onSav
       <div className="p-5 space-y-5">
 
         {/* ══ القرار النهائي ══ */}
-        <div>
-          <SectionLabel>القرار النهائي <span className="text-red-500 normal-case">*</span></SectionLabel>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {DECISIONS.map(d => (
-              <button key={d.value} type="button" disabled={readOnly}
-                onClick={() => { setFinalDecision(d.value); setDecisionReasonId(''); }}
-                className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-bold transition-all ${
-                  finalDecision === d.value ? `${d.cls} text-white` : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                }`}>
-                {finalDecision === d.value && <CheckCircle2 className="h-4 w-4" />}
-                <span>{d.label}</span>
-                <span className={`text-[9px] font-normal ${finalDecision === d.value ? 'opacity-75' : 'text-slate-400'}`}>{d.description}</span>
-              </button>
-            ))}
+        {isNewPath ? (
+          // Phase 6c.2 — readonly derived_outcome badge (§٠.١٩.ح).
+          // The user no longer picks one of the 4 manual DECISIONS; the
+          // result is computed from the problems list. The legacy
+          // finalDecision is auto-mapped for the DB write below.
+          <div>
+            <SectionLabel>النتيجة المُحسوبة (من لائحة الأعطال)</SectionLabel>
+            {derivedOutcome ? (
+              <div className={`rounded-xl border-2 px-4 py-3 flex items-center justify-between ${DERIVED_COLORS[derivedOutcome.outcome] ?? 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+                <div>
+                  <div className="text-sm font-black">
+                    {DERIVED_LABELS[derivedOutcome.outcome] ?? derivedOutcome.outcome}
+                  </div>
+                  <div className="text-[10px] opacity-80 mt-0.5">
+                    {Object.entries(derivedOutcome.counts).map(([k, n]) => `${k}: ${n}`).join(' • ') || '—'}
+                  </div>
+                </div>
+                <CheckCircle2 className="h-6 w-6 opacity-90" />
+              </div>
+            ) : (
+              <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded p-3">
+                لا توجد أعطال على هذه المهمة بعد.
+              </div>
+            )}
+            <p className="text-[10px] text-slate-500 mt-2">
+              النتيجة محسوبة آلياً من لائحة الأعطال (§٠.١٩.ح). لا يَتمّ اختيار قرار يدوي على المَسار الجديد.
+            </p>
           </div>
-        </div>
+        ) : (
+          <div>
+            <SectionLabel>القرار النهائي <span className="text-red-500 normal-case">*</span></SectionLabel>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {DECISIONS.map(d => (
+                <button key={d.value} type="button" disabled={readOnly}
+                  onClick={() => { setFinalDecision(d.value); setDecisionReasonId(''); }}
+                  className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-bold transition-all ${
+                    finalDecision === d.value ? `${d.cls} text-white` : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}>
+                  {finalDecision === d.value && <CheckCircle2 className="h-4 w-4" />}
+                  <span>{d.label}</span>
+                  <span className={`text-[9px] font-normal ${finalDecision === d.value ? 'opacity-75' : 'text-slate-400'}`}>{d.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ══ سبب القرار ══ */}
         {finalDecision && (
@@ -226,8 +317,8 @@ export default function CostsForm({ taskId, initialData, readOnly = false, onSav
           </div>
         )}
 
-        {/* ══ needs_followup ══ */}
-        {finalDecision === 'needs_followup' && (
+        {/* ══ needs_followup — hidden on new path (no cascade per V-R007) ══ */}
+        {finalDecision === 'needs_followup' && !isNewPath && (
           <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/30 p-4 space-y-3">
             <div className="flex items-center gap-2 text-xs font-bold text-violet-700">
               <Plus className="h-4 w-4" /> ستُنشأ مهمة طوارئ جديدة بعد الحفظ
@@ -438,7 +529,7 @@ export default function CostsForm({ taskId, initialData, readOnly = false, onSav
               </button>
             )}
             <button type="button" onClick={handleSave}
-              disabled={saving || !finalDecision || (finalDecision === 'needs_followup' && !followUpExpectedDate)}
+              disabled={saving || !finalDecision || (finalDecision === 'needs_followup' && !isNewPath && !followUpExpectedDate)}
               className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60 shadow-sm">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               {saving ? 'جاري الحفظ...' : finalDecision === 'needs_followup' ? 'حفظ وإنشاء مهمة متابعة' : 'حفظ وإنهاء'}
