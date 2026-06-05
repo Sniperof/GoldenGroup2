@@ -13,6 +13,8 @@ import { api } from '../../lib/api';
 import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
 import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';
 import DeviceDemoResultModal from '../../taskTypes/device_demo/DeviceDemoResultModal';
+import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
+import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
 import ClientSnapshot from '../../components/ClientSnapshot';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
@@ -610,7 +612,9 @@ export default function VisitDetailPage() {
                             const hasResult = task.result_id != null;
                             const canRecord = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
                             const isDemo = task.task_type === 'device_demo';
-                            const canEditResult = visit.status === 'completed' && hasResult && isDemo;
+                            const isDelivery = task.task_type === 'device_delivery';
+                            const supportsUnifiedResult = isDemo || isDelivery;
+                            const canEditResult = visit.status === 'completed' && hasResult && supportsUnifiedResult;
                             const decisionMeta = getFinalDecisionMeta(task.final_decision);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
                             return (
@@ -672,13 +676,13 @@ export default function VisitDetailPage() {
                                     <div className="mt-3">
                                         {visit.status === 'scheduled' && <span className="text-xs text-slate-400">عرض فقط — لم تبدأ الزيارة</span>}
                                         {visit.status === 'cancelled' && <span className="text-xs text-slate-400">الزيارة ملغاة</span>}
-                                        {canRecord && isDemo && (
+                                        {canRecord && supportsUnifiedResult && (
                                             <button onClick={() => setResultTask(task)}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 transition-colors">
                                                 <ClipboardCheck className="w-3.5 h-3.5" /> تسجيل النتيجة
                                             </button>
                                         )}
-                                        {canRecord && !isDemo && (
+                                        {canRecord && !supportsUnifiedResult && (
                                             <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded inline-flex items-center gap-1">
                                                 <AlertCircle className="w-3 h-3" /> تسجيل نتيجة هذا النوع قيد التطوير
                                             </span>
@@ -761,7 +765,7 @@ export default function VisitDetailPage() {
                         onClose={() => setReferralOpen(false)} onSaved={() => { setReferralOpen(false); load(); }} />
                 </>
             )}
-            {resultTask && (
+            {resultTask?.task_type === 'device_demo' && (
                 <DeviceDemoResultModal
                     key={`${visit.id}:${resultTask.id}`}
                     visitId={visit.id}
@@ -769,6 +773,26 @@ export default function VisitDetailPage() {
                     visit={visit}
                     task={resultTask}
                     preOffers={resultTask.preOffers ?? resultTask.pre_offers ?? []}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'device_delivery' && (
+                <DeviceDeliveryResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'device_installation' && (
+                <DeviceInstallationResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
                     onClose={() => setResultTask(null)}
                     onSaved={() => { setResultTask(null); load(); }}
                 />

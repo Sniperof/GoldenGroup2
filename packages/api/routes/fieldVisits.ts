@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
-import { applyDeviceDemoResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
 import {
   buildClientLifecycleStatusSql,
   buildCustomerOwnershipSql,
@@ -34,6 +34,20 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+async function hasOpenTaskColumn(columnName: string): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT EXISTS (
+       SELECT 1
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'open_tasks'
+          AND column_name = $1
+     ) AS present`,
+    [columnName],
+  );
+  return rows[0]?.present === true;
 }
 
 // Resolve visit source from client ownership + team_snapshot stored on field_visit
@@ -1203,6 +1217,8 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
     const visitId = Number(req.params.id);
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
 
+    const hasDeliveryAddressColumn = await hasOpenTaskColumn('delivery_address');
+
     // ── Visit header + live customer snapshot (VDP §1, §2, §7) ──────────────
     // Customer name/address/contact are read live from `clients` for display
     // completeness (the stored customer_snapshot is intentionally sparse).
@@ -1262,11 +1278,18 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
                 ttc.arabic_label, ttc.location_basis,
                 vtr.id AS result_id, vtr.final_decision, vtr.reason_code,
                 vtr.closing_notes, vtr.closed_at,
+                ot.reason,
+                ${hasDeliveryAddressColumn ? 'ot.delivery_address' : 'idev.installation_address_text'} AS delivery_address,
+                ot.device_id, ot.contract_snapshot AS "contractSnapshot",
+                idev.installation_address_text AS current_device_address,
+                idev.installation_geo_unit_id AS current_device_geo_unit_id,
                 ct.contract_number, ct.device_model_name
          FROM visit_tasks vt
          LEFT JOIN task_type_config ttc ON ttc.task_type = vt.task_type
          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
-         LEFT JOIN contracts ct ON ct.id = vt.contract_id
+         LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN contracts ct ON ct.id = COALESCE(vt.contract_id, ot.contract_id)
          WHERE vt.field_visit_id = $1
          ORDER BY vt.sequence_no`,
         [visitId],
@@ -1281,10 +1304,11 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
              (SELECT idev.installation_geo_unit_id
                 FROM visit_tasks vt
                 JOIN task_type_config ttc ON ttc.task_type = vt.task_type
-                JOIN contracts ct ON ct.id = vt.contract_id
-                JOIN installed_devices idev ON idev.id = ct.installed_device_id
+                LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+                LEFT JOIN contracts ct ON ct.id = COALESCE(vt.contract_id, ot.contract_id)
+                JOIN installed_devices idev ON idev.id = COALESCE(ot.device_id, ct.installed_device_id)
                WHERE vt.field_visit_id = $1
-                 AND ttc.location_basis = 'contract'
+                 AND ttc.location_basis IN ('contract', 'device')
                  AND idev.installation_geo_unit_id IS NOT NULL
                LIMIT 1),
              (SELECT neighborhood FROM clients WHERE id = $2)
@@ -2725,6 +2749,16 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('field_visits.ed
 
     if (taskType === 'device_demo') {
       const result = await applyDeviceDemoResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'device_delivery') {
+      const result = await applyDeviceDeliveryResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'device_installation') {
+      const result = await applyDeviceInstallationResult(taskId, body, authContext.userId);
       return res.json({ success: true, ...result });
     }
 

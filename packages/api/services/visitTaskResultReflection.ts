@@ -34,6 +34,17 @@ export type DeviceDemoFinalDecision =
   | 'rescheduled'
   | 'cancelled';
 
+export type DeviceDeliveryFinalDecision =
+  | 'delivered_successfully'
+  | 'customer_not_available'
+  | 'wrong_address'
+  | 'refused_delivery';
+
+export type DeviceInstallationFinalDecision =
+  | 'installed_successfully'
+  | 'installation_incomplete'
+  | 'refused_installation';
+
 export type CustomerResponse = 'accepted' | 'rejected' | 'extension_requested';
 
 export interface OfferInput {
@@ -103,6 +114,89 @@ export interface ReflectionResult {
   cascadeHints: CascadeHints;
 }
 
+export interface DeviceDeliveryResultBody {
+  final_decision: DeviceDeliveryFinalDecision;
+  reason_code?: string | null;
+  closing_notes?: string | null;
+  serial_number?: string | null;
+  device_model_id?: number | null;
+  delivery_address?: string | null;
+  delivery_geo_unit_id?: number | null;
+  delivery_address_text?: string | null;
+  actual_delivery_date?: string | null;
+  delivered_by_employee_id?: number | null;
+  customer_acknowledged?: boolean | null;
+  delivery_condition?: 'perfect' | 'minor_damage' | 'missing_accessories' | null;
+  delivery_photos?: unknown[] | null;
+  delivery_lat?: number | null;
+  delivery_lng?: number | null;
+  notes?: string | null;
+  expected_date?: string | null;
+  expected_time?: string | null;
+  after_delivery_action?: 'none' | 'create_installation_task' | null;
+  installation_address_same_as_delivery?: boolean | null;
+  installation_address?: string | null;
+  installation_geo_unit_id?: number | null;
+  installation_address_text?: string | null;
+  installation_lat?: number | null;
+  installation_lng?: number | null;
+  installation_required_date?: string | null;
+  update_device_main_address?: boolean | null;
+  new_installation_geo_unit_id?: number | null;
+  new_installation_address_text?: string | null;
+  new_installation_lat?: number | null;
+  new_installation_lng?: number | null;
+}
+
+export interface DeviceDeliveryReflectionResult {
+  visitTaskResultId: number;
+  deviceDeliveryResultId: number;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'delivered' | 'pending_delivery';
+  createdInstallationTaskId: number | null;
+  visitCompleted: boolean;
+}
+
+export interface DeviceInstallationPartInput {
+  source: 'customer_stock' | 'company_stock' | 'external_or_manual';
+  placement_state: 'installed' | 'customer_stock';
+  spare_part_id?: number | null;
+  part_name?: string | null;
+  part_code?: string | null;
+  maintenance_type?: string | null;
+  quantity?: number | null;
+  unit_price?: number | null;
+  customer_stock_origin?: string | null;
+  notes?: string | null;
+}
+
+export interface DeviceInstallationResultBody {
+  final_decision: DeviceInstallationFinalDecision;
+  closing_notes?: string | null;
+  notes?: string | null;
+  installation_incomplete_reason_id?: number | null;
+  installation_refusal_reason_id?: number | null;
+  expected_date?: string | null;
+  activation_due_date?: string | null;
+  final_installation_geo_unit_id?: number | null;
+  final_installation_address_text?: string | null;
+  final_installation_lat?: number | null;
+  final_installation_lng?: number | null;
+  customer_acknowledged?: boolean | null;
+  receiver_name?: string | null;
+  receiver_signature?: string | null;
+  parts?: DeviceInstallationPartInput[] | null;
+}
+
+export interface DeviceInstallationReflectionResult {
+  visitTaskResultId: number;
+  deviceInstallationResultId: number;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'installed' | 'delivered';
+  createdActivationTaskId: number | null;
+  visitCompleted: boolean;
+}
+
 class ResultValidationError extends Error {
   status = 400;
   constructor(msg: string) {
@@ -117,6 +211,183 @@ class ResultValidationError extends Error {
 
 function isPositiveNumber(v: any): boolean {
   return typeof v === 'number' && Number.isFinite(v) && v > 0;
+}
+
+function isPositiveInteger(v: any): boolean {
+  return Number.isInteger(Number(v)) && Number(v) > 0;
+}
+
+function optionalText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function optionalDate(value: unknown): string | null {
+  const text = optionalText(value);
+  return text ? text.slice(0, 10) : null;
+}
+
+function optionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function mapDeliveryReasonToPossessionReason(
+  reason: string | null | undefined,
+): 'sale_delivery' | 'temporary_swap' | 'transfer' {
+  if (reason === 'sale_delivery') return 'sale_delivery';
+  if (reason === 'temporary_swap_delivery') return 'temporary_swap';
+  return 'transfer';
+}
+
+function assertDeliveryShape(body: DeviceDeliveryResultBody, openTask: any): {
+  decision: DeviceDeliveryFinalDecision;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'delivered' | 'pending_delivery';
+  deliveryAddress: string;
+  afterDeliveryAction: 'none' | 'create_installation_task';
+} {
+  const decision = body.final_decision;
+  if (!['delivered_successfully', 'customer_not_available', 'wrong_address', 'refused_delivery'].includes(decision)) {
+    throw new ResultValidationError(`final_decision ط؛ظٹط± طµط§ظ„ط­: ${decision}`);
+  }
+
+  const deliveryAddressText = optionalText(body.delivery_address_text);
+  const deliveryAddress =
+    optionalText(body.delivery_address)
+    ?? deliveryAddressText
+    ?? optionalText(openTask.delivery_address);
+  if (!deliveryAddress) {
+    throw new ResultValidationError('delivery_address ظ…ط·ظ„ظˆط¨ ظ„ظ…ظ‡ظ…ط© طھط³ظ„ظٹظ… ط§ظ„ط¬ظ‡ط§ط²');
+  }
+
+  const afterDeliveryAction = body.after_delivery_action ?? 'none';
+  if (!['none', 'create_installation_task'].includes(afterDeliveryAction)) {
+    throw new ResultValidationError('after_delivery_action ط؛ظٹط± طµط§ظ„ط­');
+  }
+  if (decision !== 'delivered_successfully' && afterDeliveryAction !== 'none') {
+    throw new ResultValidationError('after_delivery_action ظٹط³ظ…ط­ ظپظ‚ط· ط¹ظ†ط¯ delivered_successfully');
+  }
+  if (afterDeliveryAction === 'create_installation_task') {
+    if (!optionalDate(body.installation_required_date)) {
+      throw new ResultValidationError('installation_required_date ظ…ط·ظ„ظˆط¨ ط¹ظ†ط¯ ط¥ظ†ط´ط§ط، ظ…ظ‡ظ…ط© طھط±ظƒظٹط¨');
+    }
+    const sameAddress = body.installation_address_same_as_delivery === true;
+    if (!sameAddress && !optionalText(body.installation_address) && !optionalText(body.installation_address_text)) {
+      throw new ResultValidationError('installation_address ظ…ط·ظ„ظˆط¨ ط¥ط°ط§ ظƒط§ظ† ط¹ظ†ظˆط§ظ† ط§ظ„طھط±ظƒظٹط¨ ظ…ط®طھظ„ظپط§ظ‹');
+    }
+  }
+
+  if (body.update_device_main_address === true) {
+    if (openTask.reason !== 'post_maintenance_return') {
+      throw new ResultValidationError('update_device_main_address ظ…ط³ظ…ظˆط­ ظپظ‚ط· ظ„ط³ط¨ط¨ post_maintenance_return');
+    }
+    if (decision !== 'delivered_successfully') {
+      throw new ResultValidationError('update_device_main_address ظٹطھط·ظ„ط¨ طھط³ظ„ظٹظ…ط§ظ‹ ظ†ط§ط¬ط­ط§ظ‹');
+    }
+    if (!isPositiveInteger(body.new_installation_geo_unit_id) || !optionalText(body.new_installation_address_text)) {
+      throw new ResultValidationError('ط¨ظٹط§ظ†ط§طھ ط¹ظ†ظˆط§ظ† ط§ظ„ط¬ظ‡ط§ط² ط§ظ„ط¬ط¯ظٹط¯ ط¥ظ„ط²ط§ظ…ظٹط©');
+    }
+  }
+
+  if ((decision === 'customer_not_available' || decision === 'wrong_address') && !optionalDate(body.expected_date)) {
+    throw new ResultValidationError('expected_date مطلوب عند إعادة المتابعة');
+  }
+
+  if (decision === 'delivered_successfully') {
+    return {
+      decision,
+      openTaskNewStatus: 'completed',
+      deviceNewStatus: 'delivered',
+      deliveryAddress,
+      afterDeliveryAction,
+    };
+  }
+  if (decision === 'refused_delivery') {
+    return {
+      decision,
+      openTaskNewStatus: 'cancelled',
+      deviceNewStatus: 'pending_delivery',
+      deliveryAddress,
+      afterDeliveryAction,
+    };
+  }
+  return {
+    decision,
+    openTaskNewStatus: 'needs_follow_up',
+    deviceNewStatus: 'pending_delivery',
+    deliveryAddress,
+    afterDeliveryAction,
+  };
+}
+
+function assertInstallationShape(body: DeviceInstallationResultBody): {
+  decision: DeviceInstallationFinalDecision;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'installed' | 'delivered';
+} {
+  const decision = body.final_decision;
+  if (!['installed_successfully', 'installation_incomplete', 'refused_installation'].includes(decision)) {
+    throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+  }
+
+  if (decision === 'installed_successfully') {
+    if (!optionalDate(body.activation_due_date)) {
+      throw new ResultValidationError('activation_due_date مطلوب عند نجاح التركيب');
+    }
+    if (!isPositiveInteger(body.final_installation_geo_unit_id) || !optionalText(body.final_installation_address_text)) {
+      throw new ResultValidationError('موقع التركيب النهائي يتطلب منطقة وعنوانا تفصيليا');
+    }
+    if (body.customer_acknowledged !== true) {
+      throw new ResultValidationError('إقرار الزبون مطلوب عند نجاح التركيب');
+    }
+    if (!optionalText(body.receiver_name)) {
+      throw new ResultValidationError('اسم المستلم مطلوب عند نجاح التركيب');
+    }
+    if (!optionalText(body.receiver_signature)) {
+      throw new ResultValidationError('توقيع المستلم مطلوب عند نجاح التركيب');
+    }
+    return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'installed' };
+  }
+
+  if (decision === 'installation_incomplete') {
+    if (!isPositiveInteger(body.installation_incomplete_reason_id)) {
+      throw new ResultValidationError('سبب عدم اكتمال التركيب مطلوب');
+    }
+    if (!optionalDate(body.expected_date)) {
+      throw new ResultValidationError('expected_date مطلوب عند عدم اكتمال التركيب');
+    }
+    return { decision, openTaskNewStatus: 'needs_follow_up', deviceNewStatus: 'delivered' };
+  }
+
+  if (!isPositiveInteger(body.installation_refusal_reason_id)) {
+    throw new ResultValidationError('سبب رفض التركيب مطلوب');
+  }
+  return { decision, openTaskNewStatus: 'cancelled', deviceNewStatus: 'delivered' };
+}
+
+function normalizeInstallationParts(parts: unknown): DeviceInstallationPartInput[] {
+  if (!Array.isArray(parts)) return [];
+  return parts
+    .map((raw: any) => ({
+      source: raw?.source,
+      placement_state: raw?.placement_state ?? 'installed',
+      spare_part_id: isPositiveInteger(raw?.spare_part_id) ? Number(raw.spare_part_id) : null,
+      part_name: optionalText(raw?.part_name),
+      part_code: optionalText(raw?.part_code),
+      maintenance_type: optionalText(raw?.maintenance_type),
+      quantity: Number(raw?.quantity) > 0 ? Number(raw.quantity) : 1,
+      unit_price: optionalNumber(raw?.unit_price),
+      customer_stock_origin: optionalText(raw?.customer_stock_origin),
+      notes: optionalText(raw?.notes),
+    }))
+    .filter((part) => (
+      ['customer_stock', 'company_stock', 'external_or_manual'].includes(String(part.source))
+      && ['installed', 'customer_stock'].includes(String(part.placement_state))
+      && (!!part.spare_part_id || !!part.part_name)
+    )) as DeviceInstallationPartInput[];
 }
 
 function assertOfferShape(o: OfferInput, idx: number): void {
@@ -575,6 +846,600 @@ export async function applyDeviceDemoResult(
       openTaskExpectedDate,
       visitCompleted: completion.completed,
       cascadeHints,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+export async function applyDeviceDeliveryResult(
+  visitTaskId: number,
+  body: DeviceDeliveryResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<DeviceDeliveryReflectionResult> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status, fv.scheduled_date AS visit_date, fv.client_id, fv.branch_id,
+              ot.id AS open_task_id, ot.contract_id, ot.device_id, ot.reason,
+              ot.delivery_address, ot.priority, ot.notes
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+        WHERE vt.id = $1
+        LIMIT 1`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task ط؛ظٹط± ظ…ط±ط¨ظˆط· ط¨ظ…ظ‡ظ…ط© ظ…ظپطھظˆط­ط©');
+
+    const vt = vtRows[0];
+    if (vt.task_type !== 'device_delivery') {
+      throw new ResultValidationError(`ظ†ظˆط¹ ط§ظ„ظ…ظ‡ظ…ط© "${vt.task_type}" â€” ظ‡ط°ط§ ط§ظ„ظ€ service ظ„ظ€ device_delivery ظپظ‚ط·`);
+    }
+    if (!isPositiveInteger(vt.device_id)) {
+      throw new ResultValidationError('device_delivery ظٹط¬ط¨ ط£ظ† طھط±طھط¨ط· ط¨ظ€ installed_device');
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`ظ„ط§ ظٹظ…ظƒظ† طھط³ط¬ظٹظ„ ط§ظ„ظ†طھظٹط¬ط© â€” ط§ظ„ط²ظٹط§ط±ط© ظپظٹ ط­ط§ظ„ط© "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`ط§ظ„ظ…ظ‡ظ…ط© ظپظٹ ط­ط§ظ„ط© "${vt.status}" ظˆظ„ط§ طھظ‚ط¨ظ„ طھط³ط¬ظٹظ„ ظ†طھظٹط¬ط© ط¬ط¯ظٹط¯ط©`);
+    }
+
+    const shape = assertDeliveryShape(body, vt);
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = EXCLUDED.closing_notes,
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [
+        visitTaskId,
+        shape.decision,
+        optionalText(body.reason_code),
+        body.closing_notes ?? body.notes ?? null,
+        performedByUserId,
+      ],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    const { rows: deliveryRows } = await db.query(
+      `INSERT INTO visit_task_device_delivery_results
+         (visit_task_result_id, serial_number, device_model_id, delivery_address,
+          delivery_geo_unit_id, delivery_address_text,
+          actual_delivery_date, delivered_by_employee_id, customer_acknowledged,
+          delivery_photos, delivery_condition, outcome, delivery_lat, delivery_lng,
+          notes, after_delivery_action, installation_address_same_as_delivery,
+          installation_address, installation_geo_unit_id, installation_address_text,
+          installation_lat, installation_lng,
+          installation_required_date, update_device_main_address,
+          new_installation_geo_unit_id, new_installation_address_text,
+          new_installation_lat, new_installation_lng, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::date,$24,$25,$26,$27,$28,NOW(),NOW())
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+          serial_number = EXCLUDED.serial_number,
+          device_model_id = EXCLUDED.device_model_id,
+          delivery_address = EXCLUDED.delivery_address,
+          delivery_geo_unit_id = EXCLUDED.delivery_geo_unit_id,
+          delivery_address_text = EXCLUDED.delivery_address_text,
+          actual_delivery_date = EXCLUDED.actual_delivery_date,
+          delivered_by_employee_id = EXCLUDED.delivered_by_employee_id,
+          customer_acknowledged = EXCLUDED.customer_acknowledged,
+          delivery_photos = EXCLUDED.delivery_photos,
+          delivery_condition = EXCLUDED.delivery_condition,
+          outcome = EXCLUDED.outcome,
+          delivery_lat = EXCLUDED.delivery_lat,
+          delivery_lng = EXCLUDED.delivery_lng,
+          notes = EXCLUDED.notes,
+          after_delivery_action = EXCLUDED.after_delivery_action,
+          installation_address_same_as_delivery = EXCLUDED.installation_address_same_as_delivery,
+          installation_address = EXCLUDED.installation_address,
+          installation_geo_unit_id = EXCLUDED.installation_geo_unit_id,
+          installation_address_text = EXCLUDED.installation_address_text,
+          installation_lat = EXCLUDED.installation_lat,
+          installation_lng = EXCLUDED.installation_lng,
+          installation_required_date = EXCLUDED.installation_required_date,
+          update_device_main_address = EXCLUDED.update_device_main_address,
+          new_installation_geo_unit_id = EXCLUDED.new_installation_geo_unit_id,
+          new_installation_address_text = EXCLUDED.new_installation_address_text,
+          new_installation_lat = EXCLUDED.new_installation_lat,
+          new_installation_lng = EXCLUDED.new_installation_lng,
+          updated_at = NOW()
+       RETURNING id`,
+      [
+        visitTaskResultId,
+        optionalText(body.serial_number),
+        isPositiveInteger(body.device_model_id) ? Number(body.device_model_id) : null,
+        shape.deliveryAddress,
+        isPositiveInteger(body.delivery_geo_unit_id) ? Number(body.delivery_geo_unit_id) : null,
+        optionalText(body.delivery_address_text),
+        optionalDate(body.actual_delivery_date) ?? optionalDate(vt.visit_date) ?? new Date().toISOString().slice(0, 10),
+        isPositiveInteger(body.delivered_by_employee_id) ? Number(body.delivered_by_employee_id) : null,
+        body.customer_acknowledged === true,
+        JSON.stringify(Array.isArray(body.delivery_photos) ? body.delivery_photos : []),
+        body.delivery_condition ?? null,
+        shape.decision,
+        optionalNumber(body.delivery_lat),
+        optionalNumber(body.delivery_lng),
+        body.notes ?? body.closing_notes ?? null,
+        shape.afterDeliveryAction,
+        body.installation_address_same_as_delivery ?? null,
+        optionalText(body.installation_address),
+        isPositiveInteger(body.installation_geo_unit_id) ? Number(body.installation_geo_unit_id) : null,
+        optionalText(body.installation_address_text),
+        optionalNumber(body.installation_lat),
+        optionalNumber(body.installation_lng),
+        optionalDate(body.installation_required_date),
+        body.update_device_main_address === true,
+        isPositiveInteger(body.new_installation_geo_unit_id) ? Number(body.new_installation_geo_unit_id) : null,
+        optionalText(body.new_installation_address_text),
+        optionalNumber(body.new_installation_lat),
+        optionalNumber(body.new_installation_lng),
+      ],
+    );
+    const deviceDeliveryResultId = Number(deliveryRows[0].id);
+
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [shape.openTaskNewStatus === 'cancelled' ? 'cancelled' : 'completed', visitTaskId],
+    );
+
+    if (shape.openTaskNewStatus === 'cancelled') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [vt.open_task_id, body.closing_notes ?? body.notes ?? 'refused_delivery'],
+      );
+    } else if (shape.openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                expected_time = COALESCE($3, expected_time),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [vt.open_task_id, optionalDate(body.expected_date), body.expected_time ?? null],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [vt.open_task_id],
+      );
+    }
+
+    await db.query(
+      `UPDATE installed_devices
+          SET status = $1::varchar,
+              delivery_date = CASE WHEN $4::boolean THEN COALESCE($3::date, delivery_date) ELSE delivery_date END,
+              updated_at = NOW()
+        WHERE id = $2::int`,
+      [
+        shape.deviceNewStatus,
+        Number(vt.device_id),
+        optionalDate(body.actual_delivery_date) ?? optionalDate(vt.visit_date),
+        shape.deviceNewStatus === 'delivered',
+      ],
+    );
+
+    if (shape.deviceNewStatus === 'delivered') {
+      const { rows: customerRows } = await db.query(
+        'SELECT customer_id FROM installed_devices WHERE id = $1',
+        [Number(vt.device_id)],
+      );
+      const customerId = customerRows[0]?.customer_id ?? null;
+      if (customerId) {
+        const possessionReason = mapDeliveryReasonToPossessionReason(vt.reason ?? null);
+        await db.query(
+          `UPDATE device_possession_log
+              SET end_at = NOW()
+            WHERE device_id = $1 AND end_at IS NULL`,
+          [Number(vt.device_id)],
+        );
+        await db.query(
+          `INSERT INTO device_possession_log
+             (device_id, holder_type, holder_id, reason, notes)
+           VALUES ($1, 'customer', $2, $3,
+                   'Logged automatically from canonical device_delivery result')`,
+          [Number(vt.device_id), customerId, possessionReason],
+        );
+      }
+    }
+
+    if (body.update_device_main_address === true) {
+      await db.query(
+        `UPDATE installed_devices
+            SET installation_geo_unit_id = $2,
+                installation_address_text = $3,
+                installation_lat = $4,
+                installation_lng = $5,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [
+          Number(vt.device_id),
+          Number(body.new_installation_geo_unit_id),
+          optionalText(body.new_installation_address_text),
+          optionalNumber(body.new_installation_lat),
+          optionalNumber(body.new_installation_lng),
+        ],
+      );
+    }
+
+    if (
+      shape.afterDeliveryAction === 'create_installation_task'
+      && isPositiveInteger(body.installation_geo_unit_id)
+      && optionalText(body.installation_address_text)
+    ) {
+      await db.query(
+        `UPDATE installed_devices
+            SET installation_geo_unit_id = $2,
+                installation_address_text = $3,
+                installation_lat = $4,
+                installation_lng = $5,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [
+          Number(vt.device_id),
+          Number(body.installation_geo_unit_id),
+          optionalText(body.installation_address_text),
+          optionalNumber(body.installation_lat),
+          optionalNumber(body.installation_lng),
+        ],
+      );
+    }
+
+    let createdInstallationTaskId: number | null = null;
+    if (shape.afterDeliveryAction === 'create_installation_task') {
+      const installationAddress = body.installation_address_same_as_delivery === true
+        ? shape.deliveryAddress
+        : (optionalText(body.installation_address) ?? optionalText(body.installation_address_text));
+      const { rows: installRows } = await db.query(
+        `INSERT INTO open_tasks (
+           client_id, branch_id, task_type, task_family, reason, status,
+           due_date, priority, source, notes, created_by, origin,
+           contract_id, device_id, creation_origin, delivery_address,
+           source_context_type, source_context_id
+         ) VALUES ($1, $2, 'device_installation', 'delivery', 'service_request', 'open',
+           $3::date, $4, 'system', $5, $6, 'device_delivery_result',
+           $7, $8, 'cascading_during_visit', $9, 'device_delivery', $10)
+         RETURNING id`,
+        [
+          Number(vt.client_id),
+          Number(vt.branch_id),
+          optionalDate(body.installation_required_date),
+          vt.priority ?? null,
+          'Created from device_delivery after_delivery_action=create_installation_task',
+          performedByUserId,
+          vt.contract_id ?? null,
+          Number(vt.device_id),
+          installationAddress,
+          Number(vt.open_task_id),
+        ],
+      );
+      createdInstallationTaskId = Number(installRows[0].id);
+    }
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+
+    if (!useExternal) await db.query('COMMIT');
+
+    return {
+      visitTaskResultId,
+      deviceDeliveryResultId,
+      openTaskNewStatus: shape.openTaskNewStatus,
+      deviceNewStatus: shape.deviceNewStatus,
+      createdInstallationTaskId,
+      visitCompleted: completion.completed,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+export async function applyDeviceInstallationResult(
+  visitTaskId: number,
+  body: DeviceInstallationResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<DeviceInstallationReflectionResult> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status, fv.scheduled_date AS visit_date, fv.client_id, fv.branch_id,
+              ot.id AS open_task_id, ot.contract_id, ot.device_id, ot.priority, ot.delivery_address,
+              idev.installation_address_text AS current_installation_address_text
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         JOIN installed_devices idev ON idev.id = ot.device_id
+        WHERE vt.id = $1
+        LIMIT 1`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة مفتوحة');
+
+    const vt = vtRows[0];
+    if (vt.task_type !== 'device_installation') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بتركيب الجهاز فقط`);
+    }
+    if (!isPositiveInteger(vt.device_id)) {
+      throw new ResultValidationError('device_installation يجب أن يرتبط بجهاز مثبت');
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+
+    const shape = assertInstallationShape(body);
+    const notes = body.closing_notes ?? body.notes ?? null;
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = EXCLUDED.closing_notes,
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [
+        visitTaskId,
+        shape.decision,
+        shape.decision === 'installation_incomplete'
+          ? String(body.installation_incomplete_reason_id)
+          : shape.decision === 'refused_installation'
+            ? String(body.installation_refusal_reason_id)
+            : null,
+        notes,
+        performedByUserId,
+      ],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    let createdActivationTaskId: number | null = null;
+    const finalAddressText = optionalText(body.final_installation_address_text);
+    const finalGeoUnitId = isPositiveInteger(body.final_installation_geo_unit_id)
+      ? Number(body.final_installation_geo_unit_id)
+      : null;
+    const installationDate = optionalDate(vt.visit_date) ?? new Date().toISOString().slice(0, 10);
+    const parts = shape.decision === 'installed_successfully'
+      ? normalizeInstallationParts(body.parts)
+      : [];
+
+    if (shape.decision === 'installed_successfully') {
+      await db.query(
+        `UPDATE installed_devices
+            SET status = 'installed',
+                installation_date = COALESCE($2::date, installation_date),
+                installation_geo_unit_id = $3,
+                installation_address_text = $4,
+                installation_lat = $5,
+                installation_lng = $6,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [
+          Number(vt.device_id),
+          installationDate,
+          finalGeoUnitId,
+          finalAddressText,
+          optionalNumber(body.final_installation_lat),
+          optionalNumber(body.final_installation_lng),
+        ],
+      );
+
+      const { rows: activeActivationRows } = await db.query(
+        `SELECT id
+           FROM open_tasks
+          WHERE device_id = $1
+            AND task_type = 'device_activation'
+            AND status NOT IN ('completed', 'closed', 'cancelled')
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        [Number(vt.device_id)],
+      );
+      if (activeActivationRows.length > 0) {
+        createdActivationTaskId = Number(activeActivationRows[0].id);
+      } else {
+        const { rows: activationRows } = await db.query(
+          `INSERT INTO open_tasks (
+             client_id, branch_id, task_type, task_family, reason, status,
+             due_date, priority, source, notes, created_by, origin,
+             contract_id, device_id, creation_origin, delivery_address,
+             source_context_type, source_context_id
+           ) VALUES ($1, $2, 'device_activation', 'delivery', 'service_request', 'open',
+             $3::date, $4, 'system', $5, $6, 'device_installation_result',
+             $7, $8, 'cascading_during_visit', $9, 'device_installation', $10)
+           RETURNING id`,
+          [
+            Number(vt.client_id),
+            Number(vt.branch_id),
+            optionalDate(body.activation_due_date),
+            vt.priority ?? null,
+            'Created from device_installation result',
+            performedByUserId,
+            vt.contract_id ?? null,
+            Number(vt.device_id),
+            finalAddressText ?? vt.current_installation_address_text ?? vt.delivery_address ?? null,
+            Number(vt.open_task_id),
+          ],
+        );
+        createdActivationTaskId = Number(activationRows[0].id);
+      }
+
+      await db.query('DELETE FROM device_installed_parts WHERE open_task_id = $1', [Number(vt.open_task_id)]);
+      for (const part of parts.filter((p) => p.placement_state === 'installed')) {
+        await db.query(
+          `INSERT INTO device_installed_parts
+             (device_id, open_task_id, spare_part_id, part_name_snapshot, part_code_snapshot,
+              maintenance_type, unit_price, quantity, line_total, event_type, event_date, notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'installed',$10::date,$11)`,
+          [
+            Number(vt.device_id),
+            Number(vt.open_task_id),
+            part.spare_part_id ?? null,
+            part.part_name ?? `Part #${part.spare_part_id}`,
+            part.part_code ?? null,
+            part.maintenance_type ?? null,
+            part.source === 'customer_stock' ? 0 : part.unit_price,
+            part.quantity ?? 1,
+            (part.source === 'customer_stock' ? 0 : (part.unit_price ?? 0)) * (part.quantity ?? 1),
+            installationDate,
+            part.notes ?? null,
+          ],
+        );
+      }
+    }
+
+    const { rows: installationRows } = await db.query(
+      `INSERT INTO visit_task_device_installation_results
+         (visit_task_result_id, outcome,
+          installation_incomplete_reason_id, installation_refusal_reason_id,
+          activation_due_date, customer_acknowledged, receiver_name, receiver_signature,
+          final_installation_geo_unit_id, final_installation_address_text,
+          final_installation_lat, final_installation_lng,
+          created_activation_task_id, installation_parts, technical_notes,
+          installed_by_employee_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5::date,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,NOW(),NOW())
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+          outcome = EXCLUDED.outcome,
+          installation_incomplete_reason_id = EXCLUDED.installation_incomplete_reason_id,
+          installation_refusal_reason_id = EXCLUDED.installation_refusal_reason_id,
+          activation_due_date = EXCLUDED.activation_due_date,
+          customer_acknowledged = EXCLUDED.customer_acknowledged,
+          receiver_name = EXCLUDED.receiver_name,
+          receiver_signature = EXCLUDED.receiver_signature,
+          final_installation_geo_unit_id = EXCLUDED.final_installation_geo_unit_id,
+          final_installation_address_text = EXCLUDED.final_installation_address_text,
+          final_installation_lat = EXCLUDED.final_installation_lat,
+          final_installation_lng = EXCLUDED.final_installation_lng,
+          created_activation_task_id = EXCLUDED.created_activation_task_id,
+          installation_parts = EXCLUDED.installation_parts,
+          technical_notes = EXCLUDED.technical_notes,
+          installed_by_employee_id = EXCLUDED.installed_by_employee_id,
+          updated_at = NOW()
+       RETURNING id`,
+      [
+        visitTaskResultId,
+        shape.decision,
+        isPositiveInteger(body.installation_incomplete_reason_id) ? Number(body.installation_incomplete_reason_id) : null,
+        isPositiveInteger(body.installation_refusal_reason_id) ? Number(body.installation_refusal_reason_id) : null,
+        optionalDate(body.activation_due_date),
+        shape.decision === 'installed_successfully' ? body.customer_acknowledged === true : null,
+        shape.decision === 'installed_successfully' ? optionalText(body.receiver_name) : null,
+        shape.decision === 'installed_successfully' ? optionalText(body.receiver_signature) : null,
+        shape.decision === 'installed_successfully' ? finalGeoUnitId : null,
+        shape.decision === 'installed_successfully' ? finalAddressText : null,
+        shape.decision === 'installed_successfully' ? optionalNumber(body.final_installation_lat) : null,
+        shape.decision === 'installed_successfully' ? optionalNumber(body.final_installation_lng) : null,
+        createdActivationTaskId,
+        JSON.stringify(parts),
+        notes,
+        performedByUserId,
+      ],
+    );
+    const deviceInstallationResultId = Number(installationRows[0].id);
+
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [shape.openTaskNewStatus === 'cancelled' ? 'cancelled' : 'completed', visitTaskId],
+    );
+
+    if (shape.openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                expected_time = NULL,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), optionalDate(body.expected_date)],
+      );
+    } else if (shape.openTaskNewStatus === 'cancelled') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), notes ?? 'refused_installation'],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id)],
+      );
+    }
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+
+    if (!useExternal) await db.query('COMMIT');
+
+    return {
+      visitTaskResultId,
+      deviceInstallationResultId,
+      openTaskNewStatus: shape.openTaskNewStatus,
+      deviceNewStatus: shape.deviceNewStatus,
+      createdActivationTaskId,
+      visitCompleted: completion.completed,
     };
   } catch (err) {
     if (!useExternal) await db.query('ROLLBACK');
