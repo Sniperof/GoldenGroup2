@@ -1,3 +1,40 @@
+-- Keep older staging databases compatible with the current payment API/schema.
+ALTER TABLE public.contract_payment_entries
+    ADD COLUMN IF NOT EXISTS entry_type VARCHAR(20) NOT NULL DEFAULT 'collection',
+    ADD COLUMN IF NOT EXISTS installment_id INTEGER;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'contract_payment_entries_entry_type_check'
+          AND conrelid = 'public.contract_payment_entries'::regclass
+    ) THEN
+        ALTER TABLE public.contract_payment_entries
+            ADD CONSTRAINT contract_payment_entries_entry_type_check
+            CHECK (entry_type IN ('collection', 'refund'));
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'contract_payment_entries_installment_id_fkey'
+          AND conrelid = 'public.contract_payment_entries'::regclass
+    ) THEN
+        ALTER TABLE public.contract_payment_entries
+            ADD CONSTRAINT contract_payment_entries_installment_id_fkey
+            FOREIGN KEY (installment_id)
+            REFERENCES public.contract_installments(id)
+            ON DELETE SET NULL;
+    END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_contract_payments_installment
+    ON public.contract_payment_entries(installment_id)
+    WHERE installment_id IS NOT NULL;
+
 INSERT INTO public.client_ledger_entries (
     client_id,
     entry_date,
