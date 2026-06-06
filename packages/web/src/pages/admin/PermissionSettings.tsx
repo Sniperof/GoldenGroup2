@@ -13,10 +13,57 @@ import {
 type ScopeKey = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
 
 const SCOPE_LABELS: Record<ScopeKey, string> = {
-  GLOBAL: 'عام',
-  BRANCH: 'فرع',
-  ASSIGNED: 'مُعيَّن',
+  GLOBAL: 'كل الفروع',
+  BRANCH: 'فرع المستخدم',
+  ASSIGNED: 'السجلات المسندة',
 };
+
+const SCOPE_DESCRIPTIONS: Record<ScopeKey, string> = {
+  GLOBAL: 'كل الفروع',
+  BRANCH: 'فرع المستخدم',
+  ASSIGNED: 'السجلات المسندة للمستخدم',
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  view_list: 'عرض القائمة',
+  view_detail: 'عرض التفاصيل',
+  view_eligible: 'عرض المؤهلين',
+  view_audit_logs: 'عرض سجل التغييرات',
+  view_history: 'عرض السجل',
+  create: 'إنشاء',
+  add_trainees: 'إضافة متدربين',
+  edit: 'تعديل',
+  delete: 'حذف',
+  edit_notes: 'تعديل الملاحظات',
+  change_status: 'تغيير الحالة',
+  change_stage: 'تغيير المرحلة',
+  record_decision: 'تسجيل قرار',
+  record_result: 'تسجيل نتيجة',
+  record_attendance: 'تسجيل حضور',
+  hire: 'تعيين',
+  schedule: 'جدولة',
+  appear: 'الظهور',
+  escalate: 'تصعيد',
+  archive: 'أرشفة',
+  start: 'بدء',
+  complete: 'إتمام',
+  view: 'عرض',
+  manage: 'إدارة',
+  generate: 'توليد',
+  book: 'حجز',
+  update_result: 'تسجيل نتيجة',
+  can_be_assigned: 'قابل للإسناد',
+  conduct: 'إجراء',
+  be_trainer: 'التدريب كمدرب',
+  review: 'مراجعة',
+  reject: 'رفض',
+  promote: 'ترحيل',
+  reopen_closed: 'إعادة فتح',
+};
+
+function isLegacyPermission(perm: Permission): boolean {
+  return perm.key.startsWith('referral_sheets.') || perm.module === 'referral_sheets';
+}
 
 const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
   jobs:         { label: 'إدارة التوظيف',              icon: <Briefcase className="w-4 h-4" />,    color: 'text-sky-600 bg-sky-50' },
@@ -32,6 +79,36 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   branches:     { label: 'الفروع',                      icon: <Users className="w-4 h-4" />,        color: 'text-fuchsia-600 bg-fuchsia-50' },
   settings:     { label: 'إعدادات النظام',              icon: <Settings className="w-4 h-4" />,     color: 'text-slate-600 bg-slate-100' },
   admin:        { label: 'إدارة النظام والصلاحيات',     icon: <Settings className="w-4 h-4" />,     color: 'text-rose-600 bg-rose-50' },
+  users:        { label: 'المستخدمون',                   icon: <Users className="w-4 h-4" />,        color: 'text-indigo-600 bg-indigo-50' },
+  departments:  { label: 'الأقسام',                      icon: <ListChecks className="w-4 h-4" />,   color: 'text-slate-600 bg-slate-100' },
+  marketing_visits: { label: 'الزيارات التسويقية',       icon: <Calendar className="w-4 h-4" />,     color: 'text-emerald-600 bg-emerald-50' },
+  telemarketing: { label: 'التيلماركتنغ',                icon: <AlertCircle className="w-4 h-4" />,  color: 'text-pink-600 bg-pink-50' },
+  field_visits: { label: 'الزيارات الميدانية',           icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
+  open_tasks:   { label: 'المهام المفتوحة',              icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
+  service_requests: { label: 'طلبات الخدمة والصيانة',    icon: <FileText className="w-4 h-4" />,     color: 'text-cyan-600 bg-cyan-50' },
+};
+
+const SUB_MODULE_LABELS: Record<string, string> = {
+  vacancies: 'الشواغر الوظيفية',
+  applications: 'طلبات التوظيف',
+  interviews: 'المقابلات',
+  training: 'الدورات التدريبية',
+  candidates: 'الأسماء المقترحة',
+  name_lists: 'لوائح الأسماء',
+  roles: 'الأدوار والصلاحيات',
+  system_lists: 'القوائم النظامية',
+  branch_assignments: 'فروع المستخدمين المسموحة',
+  management: 'الإدارة',
+  system: 'النظام',
+  geography: 'المناطق الجغرافية',
+  visits: 'الزيارات',
+  tasks: 'المهام',
+  targets: 'الأهداف',
+  lists: 'قوائم الاتصال',
+  calls: 'المكالمات',
+  appointments: 'المواعيد',
+  schedule: 'جدولة الفرق',
+  service_requests: 'طلبات الخدمة والصيانة',
 };
 
 const PERM_LABELS: Record<string, string> = {
@@ -109,7 +186,26 @@ const PERM_LABELS: Record<string, string> = {
 };
 
 function getPermLabel(perm: Permission): string {
-  return PERM_LABELS[perm.key] ?? perm.displayName ?? perm.key;
+  const known = PERM_LABELS[perm.key];
+  if (known) return known;
+  if (perm.displayName && perm.displayName !== perm.key) return perm.displayName;
+  const action = ACTION_LABELS[(perm as any).action ?? ''] ?? 'إجراء مخصص';
+  const sub = SUB_MODULE_LABELS[(perm as any).subModule ?? (perm as any).sub_module ?? ''] ?? 'مجموعة صلاحيات';
+  return `${action} - ${sub}`;
+}
+
+function getPermissionContextLabel(perm: Permission): string {
+  const module = getModuleConfig(perm.module ?? '').label;
+  const sub = SUB_MODULE_LABELS[(perm as any).subModule ?? (perm as any).sub_module ?? ''] ?? 'مجموعة صلاحيات';
+  return `${module} / ${sub}`;
+}
+
+function getModuleConfig(module: string) {
+  return MODULE_CONFIG[module] ?? {
+    label: 'إدارة عمل الفرع',
+    icon: <Calendar className="w-4 h-4" />,
+    color: 'text-teal-600 bg-teal-50',
+  };
 }
 
 export default function PermissionSettings() {
@@ -140,6 +236,7 @@ export default function PermissionSettings() {
   const grouped = useMemo(() => {
     const map: Record<string, Permission[]> = {};
     for (const p of permissions) {
+      if (isLegacyPermission(p)) continue;
       const mod = p.module ?? 'other';
       if (!map[mod]) map[mod] = [];
       map[mod].push(p);
@@ -226,9 +323,9 @@ export default function PermissionSettings() {
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <p className="text-xs font-semibold text-slate-600 mb-3">شرح النطاقات</p>
           <div className="flex flex-wrap gap-4 text-xs text-slate-600">
-            <span><strong className="text-sky-600">GLOBAL (عام)</strong> — الصلاحية تسري على كل الفروع. مطلوب دائماً ولا يمكن إزالته.</span>
-            <span><strong className="text-violet-600">BRANCH (فرع)</strong> — الصلاحية تقتصر على الفرع المُعيَّن للمستخدم.</span>
-            <span><strong className="text-amber-600">ASSIGNED (مُعيَّن)</strong> — الصلاحية تقتصر على السجلات المُسنَدة للمستخدم مباشرة.</span>
+            <span><strong className="text-sky-600">كل الفروع</strong> — الصلاحية تسري على كل الفروع. مطلوب دائماً ولا يمكن إزالته.</span>
+            <span><strong className="text-violet-600">فرع المستخدم</strong> — الصلاحية تقتصر على الفرع المُعيَّن للمستخدم.</span>
+            <span><strong className="text-amber-600">السجلات المسندة</strong> — الصلاحية تقتصر على السجلات المُسنَدة للمستخدم مباشرة.</span>
           </div>
         </div>
 
@@ -247,20 +344,16 @@ export default function PermissionSettings() {
         {/* Scope column header */}
         <div className="hidden md:flex items-center gap-2 px-5 py-2">
           <div className="flex-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">الصلاحية</div>
-          <div className="flex items-center gap-6 shrink-0 ml-2 text-[11px] font-bold text-slate-500">
+          <div className="flex items-center gap-3 shrink-0 ml-2 text-[11px] font-bold text-slate-500">
             {(['GLOBAL', 'BRANCH', 'ASSIGNED'] as ScopeKey[]).map(s => (
-              <span key={s} className="w-16 text-center">{SCOPE_LABELS[s]}</span>
+              <span key={s} className="w-24 text-center leading-tight">{SCOPE_LABELS[s]}</span>
             ))}
           </div>
         </div>
 
         {/* Permissions grouped by module */}
         {Object.entries(grouped).map(([module, perms]) => {
-          const modCfg = MODULE_CONFIG[module] ?? {
-            label: module,
-            icon: <ListChecks className="w-4 h-4" />,
-            color: 'text-slate-600 bg-slate-100',
-          };
+          const modCfg = getModuleConfig(module);
 
           return (
             <div key={module} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -286,14 +379,14 @@ export default function PermissionSettings() {
                           <p className="text-sm font-semibold text-slate-700 truncate">
                             {getPermLabel(perm)}
                           </p>
-                          <p className="text-[11px] text-slate-400 font-mono">{perm.key}</p>
+                          <p className="text-[11px] text-slate-400">{getPermissionContextLabel(perm)}</p>
                         </div>
-                        <div className="flex items-center gap-6 shrink-0">
+                        <div className="flex items-center gap-3 shrink-0">
                           {(['GLOBAL', 'BRANCH', 'ASSIGNED'] as ScopeKey[]).map(scope => {
                             const isChecked = scopes.has(scope);
                             const isDisabled = scope === 'GLOBAL';
                             return (
-                              <div key={scope} className="w-16 flex flex-col items-center gap-1">
+                              <div key={scope} className="w-24 flex flex-col items-center gap-1">
                                 <button
                                   type="button"
                                   disabled={isDisabled}
@@ -305,7 +398,7 @@ export default function PermissionSettings() {
                                         ? 'bg-sky-500 border-sky-500 hover:bg-sky-600 hover:border-sky-600'
                                         : 'bg-white border-slate-300 hover:border-sky-400'
                                   }`}
-                                  title={isDisabled ? 'GLOBAL مطلوب دائماً' : `تبديل ${scope}`}
+                                  title={isDisabled ? 'النطاق العام مطلوب دائماً' : `تبديل نطاق ${SCOPE_DESCRIPTIONS[scope]}`}
                                 >
                                   {isChecked && (
                                     <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>

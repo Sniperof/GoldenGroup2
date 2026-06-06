@@ -18,6 +18,7 @@ const selectFields = `
   referral_origin_channel AS "referralOriginChannel", referral_notes AS "referralNotes",
   referral_date AS "referralDate", owner_user_id AS "ownerUserId", status,
   assigned_hr_user_id AS "assignedHrUserId",
+  field_visit_id AS "fieldVisitId",
   total_candidates AS "totalCandidates", target_candidates AS "targetCandidates",
   quality_percentage AS "qualityPercentage", conversion_percentage AS "conversionPercentage",
   created_at AS "createdAt", created_by AS "createdBy",
@@ -30,7 +31,8 @@ const selectFieldsList = `
   rs.referral_origin_channel AS "referralOriginChannel", rs.referral_notes AS "referralNotes",
   rs.referral_date AS "referralDate", rs.owner_user_id AS "ownerUserId", rs.status,
   rs.assigned_hr_user_id AS "assignedHrUserId",
-  hu.name AS "assignedHrUserName",
+  rs.field_visit_id AS "fieldVisitId",
+  COALESCE(hu.name, team_hu.name, owner_hu.name) AS "assignedHrUserName",
   rs.total_candidates AS "totalCandidates", rs.target_candidates AS "targetCandidates",
   rs.quality_percentage AS "qualityPercentage",
   rs.conversion_percentage AS "conversionPercentage",
@@ -48,6 +50,18 @@ type ReferralSheetSubject = {
 type AssignedHrUserCheckResult =
   | { ok: true; assignedHrUserId: number | null }
   | { ok: false; error: string };
+
+function canManageReferralSheetAssignment(authContext: ReturnType<typeof getRequiredAuthContext>, branchId: number | null): boolean {
+  if (authContext.isSuperAdmin) return true;
+  const grant =
+    authContext.grants.find(item => item.permission === 'candidates.name_lists.edit') ??
+    authContext.grants.find(item => item.permission === 'referral_sheets.edit');
+  if (grant?.scope === 'GLOBAL') return true;
+  if (grant?.scope === 'BRANCH' && branchId != null) {
+    return authContext.allowedBranchIds.includes(branchId);
+  }
+  return false;
+}
 
 function mapRow(r: any) {
   return {
@@ -287,6 +301,9 @@ router.get('/', requirePermission('candidates.name_lists.view_list', 'referral_s
       `SELECT ${selectFieldsList}
        FROM referral_sheets rs
        LEFT JOIN hr_users hu ON hu.id = rs.assigned_hr_user_id
+       LEFT JOIN field_visits fv ON fv.id = rs.field_visit_id
+       LEFT JOIN hr_users team_hu ON team_hu.id = fv.team_responsible_user_id
+       LEFT JOIN hr_users owner_hu ON owner_hu.id = rs.owner_user_id
        LEFT JOIN branches b ON b.id = rs.branch_id
        ${where}
        ORDER BY rs.id DESC`,
@@ -353,7 +370,8 @@ router.post('/', requirePermission('candidates.name_lists.create', 'referral_she
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
-    const requestedAssignedHrUserId = req.body?.assignedHrUserId;
+    const canManageAssignment = canManageReferralSheetAssignment(authContext, targetBranchId);
+    const requestedAssignedHrUserId = canManageAssignment ? req.body?.assignedHrUserId : authContext.userId;
     const assignedHrUserCheck = requestedAssignedHrUserId == null || requestedAssignedHrUserId === ''
       ? { ok: true as const, assignedHrUserId: authContext.userId }
       : await assertAssignedHrUserExists(requestedAssignedHrUserId);
@@ -371,6 +389,7 @@ router.post('/', requirePermission('candidates.name_lists.create', 'referral_she
 
     const s = enforcePersonalReferralSheet(req.body ?? {}, { name: req.user?.name || '' });
     const targetCandidates = Number.isInteger(req.body?.targetCandidates) ? req.body.targetCandidates : 0;
+    const referralDate = s.referralDate || new Date().toISOString();
     const { rows } = await pool.query(
       `INSERT INTO referral_sheets (referral_type, referral_entity_id, referral_name_snapshot,
         referral_address_text, referral_origin_channel, referral_notes, referral_date,
@@ -380,7 +399,7 @@ router.post('/', requirePermission('candidates.name_lists.create', 'referral_she
       RETURNING ${selectFields}, target_candidates AS "targetCandidates"`,
       [s.referralType, s.referralEntityId || null, s.referralNameSnapshot || '',
        s.referralAddressText || '', s.referralOriginChannel || null, s.referralNotes || null,
-       s.referralDate || null, s.ownerUserId ?? authContext.userId, s.status || 'New',
+       referralDate, canManageAssignment ? (s.ownerUserId ?? authContext.userId) : authContext.userId, s.status || 'New',
        assignedHrUserCheck.assignedHrUserId,
        s.stats?.totalCandidates || 0, targetCandidates,
        s.stats?.qualityPercentage || 0,
@@ -465,19 +484,20 @@ router.put('/:id', requirePermission('candidates.name_lists.edit', 'referral_she
       return res.status(404).json({ error: 'Referral sheet not found' });
     }
 
-    const assignedHrUserCheck = req.body?.assignedHrUserId !== undefined
-      ? await assertAssignedHrUserExists(req.body.assignedHrUserId)
-      : { ok: true as const, assignedHrUserId: current.assignedHrUserId };
-    if ('error' in assignedHrUserCheck) {
-      return res.status(400).json({ error: assignedHrUserCheck.error });
-    }
-
     const requestedBranchId = req.body?.branchId;
     const resolvedBranchId = requestedBranchId !== undefined
       ? resolveReferralSheetTargetBranch(req, requestedBranchId)
       : current.branchId;
     if (resolvedBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
+    }
+
+    const canManageAssignment = canManageReferralSheetAssignment(authContext, resolvedBranchId);
+    const assignedHrUserCheck = canManageAssignment && req.body?.assignedHrUserId !== undefined
+      ? await assertAssignedHrUserExists(req.body.assignedHrUserId)
+      : { ok: true as const, assignedHrUserId: current.assignedHrUserId };
+    if ('error' in assignedHrUserCheck) {
+      return res.status(400).json({ error: assignedHrUserCheck.error });
     }
 
     const targetAccess = canEditReferralSheet(authContext, {
@@ -497,7 +517,7 @@ router.put('/:id', requirePermission('candidates.name_lists.edit', 'referral_she
       referralOriginChannel: s.referralOriginChannel ?? current.referralOriginChannel,
       referralNotes: s.referralNotes ?? current.referralNotes,
       referralDate: s.referralDate ?? current.referralDate,
-      ownerUserId: s.ownerUserId ?? current.ownerUserId,
+      ownerUserId: canManageAssignment ? (s.ownerUserId ?? current.ownerUserId) : current.ownerUserId,
       assignedHrUserId: assignedHrUserCheck.assignedHrUserId ?? null,
       status: s.status ?? current.status,
       totalCandidates: s.stats?.totalCandidates ?? current.totalCandidates,

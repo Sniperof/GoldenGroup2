@@ -864,7 +864,6 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
              FROM contact_targets ct
             WHERE ct.branch_id = $3
               AND ct.target_type = 'client'
-              AND ct.visit_type = 'marketing'
               AND ct.date = $4::date
               AND ct.team_key = $1
 
@@ -905,7 +904,8 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
          gu.name AS "stationName",
          ct.id AS "contactTargetId",
          ct.status AS "contactTargetStatus",
-         ct.latest_call_outcome AS "contactTargetOutcome"
+         ct.latest_call_outcome AS "contactTargetOutcome",
+         ct_work_gu.name AS "contactTargetWorkLocationName"
        FROM clients c
        LEFT JOIN geo_units gu
          ON gu.id = c.neighborhood
@@ -913,13 +913,23 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
          ON ct.branch_id = c.branch_id
         AND ct.target_type = 'client'
         AND ct.target_id = c.id
-        AND ct.visit_type = 'marketing'
         AND ct.date = $2::date
         AND ct.team_key = $3
+       LEFT JOIN geo_units ct_work_gu
+         ON ct_work_gu.id = COALESCE(ct.work_location_geo_unit_id, ct.zone_id)
        WHERE c.id = ANY($1::int[])`,
       [clientIds, date, teamKey],
     );
-    const clientMetaById = new Map(clientRows.map((r: any) => [Number(r.id), r]));
+    const clientMetaById = new Map<number, any>();
+    const contactTargetMetaByContext = new Map<string, any>();
+    clientRows.forEach((r: any) => {
+      const clientId = Number(r.id);
+      if (!clientMetaById.has(clientId)) clientMetaById.set(clientId, r);
+      const contactTargetId = Number(r.contactTargetId);
+      if (Number.isInteger(contactTargetId) && contactTargetId > 0) {
+        contactTargetMetaByContext.set(`ct:${contactTargetId}`, r);
+      }
+    });
 
     const { rows: taskRows } = await pool.query(
       `SELECT
@@ -935,8 +945,19 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
          ot.excluded_reason                       AS "excludedReason",
          ot.last_waiting_status                   AS "lastWaitingStatus",
          ot.attempt_count                         AS "attemptCount",
-         ctot.contact_target_id                   AS "taskContactTargetId",
-         ctot.link_status                         AS "contactTargetTaskStatus",
+         COALESCE(ctot.contact_target_id, task_tli.contact_target_id)
+                                                   AS "taskContactTargetId",
+         COALESCE(
+           ctot.link_status,
+           CASE
+             WHEN task_tli.contact_target_id IS NULL THEN NULL
+             WHEN task_ct.status = 'closed' THEN 'closed'
+             WHEN task_tli.status IN ('booked', 'closed', 'completed') THEN 'closed'
+             WHEN task_tli.status = 'excluded' THEN 'excluded'
+             WHEN task_tli.status IN ('queued', 'in_call_list') THEN 'queued'
+             ELSE 'ready'
+           END
+         )                                        AS "contactTargetTaskStatus",
          task_ct.work_location_geo_unit_id        AS "workLocationGeoUnitId",
          work_gu.name                             AS "workLocationName",
          task_ct.status                           AS "taskContactTargetStatus",
@@ -948,15 +969,48 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
         AND ctot.branch_id = ot.branch_id
         AND ctot.team_key = $3
         AND ctot.date = $4::date
-       LEFT JOIN contact_targets task_ct ON task_ct.id = ctot.contact_target_id
+       LEFT JOIN telemarketing_task_lists task_tl
+         ON task_tl.team_key = $3
+        AND task_tl.date = $5
+        AND task_tl.branch_id = ot.branch_id
+       LEFT JOIN telemarketing_task_list_items task_tli
+         ON task_tli.task_list_id = task_tl.id
+        AND task_tli.entity_type = 'client'
+        AND task_tli.entity_id = ot.client_id
+        AND task_tli.open_task_id = ot.id
+       LEFT JOIN contact_targets task_ct
+         ON task_ct.id = COALESCE(ctot.contact_target_id, task_tli.contact_target_id)
        LEFT JOIN geo_units work_gu ON work_gu.id = COALESCE(task_ct.work_location_geo_unit_id, task_ct.zone_id)
        WHERE ot.client_id = ANY($1::int[])
          AND ot.branch_id = $2
          AND ot.status IN ('assigned','in_scheduling','scheduled','waiting_execution',
-                           'in_execution','ended','completed','closed',
-                           'open','needs_follow_up')
+                           'in_execution','open','needs_follow_up')
+         AND (
+           ctot.contact_target_id IS NOT NULL
+           OR task_tli.contact_target_id IS NOT NULL
+           OR (
+             ot.assigned_team_key = $3
+             AND ot.assigned_for_date = $4::date
+           )
+           OR (
+             ot.excluded_for_date = $4::date
+             AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+           )
+         )
+         AND COALESCE(
+           ctot.link_status,
+           CASE
+             WHEN task_tli.contact_target_id IS NULL THEN NULL
+             WHEN task_ct.status = 'closed' THEN 'closed'
+             WHEN task_tli.status IN ('booked', 'closed', 'completed') THEN 'closed'
+             WHEN task_tli.status = 'excluded' THEN 'excluded'
+             WHEN task_tli.status IN ('queued', 'in_call_list') THEN 'queued'
+             ELSE 'ready'
+           END,
+           'ready'
+         ) <> 'closed'
        ORDER BY ot.client_id, ot.created_at`,
-      [clientIds, branchId, teamKey, date],
+      [clientIds, branchId, teamKey, date, date],
     );
 
     const { rows: listItemRows } = await pool.query(
@@ -1021,6 +1075,9 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       if (!tasksByContext.has(key)) tasksByContext.set(key, []);
       tasksByContext.get(key)!.push(r);
     });
+    contactTargetMetaByContext.forEach((_meta, key) => {
+      if (!tasksByContext.has(key)) tasksByContext.set(key, []);
+    });
 
     function primaryPhone(meta: any): string | null {
       const contacts = Array.isArray(meta?.contacts) ? meta.contacts : [];
@@ -1028,14 +1085,18 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       return primary?.number ?? meta?.mobile ?? null;
     }
 
-    const contactContexts = Array.from(tasksByContext.entries()).map(([key, tasks]) => ({
-      key,
-      clientId: Number(tasks[0]?.clientId),
-      contactTargetId: Number(tasks[0]?.taskContactTargetId) || null,
-      stationName: tasks[0]?.workLocationName ?? null,
-      contactTargetStatus: tasks[0]?.taskContactTargetStatus ?? null,
-      tasks,
-    }));
+    const contactContexts = Array.from(tasksByContext.entries()).map(([key, tasks]) => {
+      const targetMeta = contactTargetMetaByContext.get(key) ?? null;
+      return {
+        key,
+        clientId: Number(tasks[0]?.clientId ?? targetMeta?.id),
+        contactTargetId: Number(tasks[0]?.taskContactTargetId ?? targetMeta?.contactTargetId) || null,
+        stationName: tasks[0]?.workLocationName ?? targetMeta?.contactTargetWorkLocationName ?? targetMeta?.stationName ?? null,
+        contactTargetStatus: tasks[0]?.taskContactTargetStatus ?? targetMeta?.contactTargetStatus ?? null,
+        contactTargetOutcome: targetMeta?.contactTargetOutcome ?? null,
+        tasks,
+      };
+    });
 
     const clients = contactContexts.map(context => {
       const id = context.clientId;
@@ -1043,6 +1104,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       const tasks = context.tasks;
       const listItem = listItemByContext.get(context.key) ?? null;
       const appt = apptByClient.get(id) ?? null;
+      const contactTargetStatus = context.contactTargetStatus ?? meta?.contactTargetStatus ?? null;
 
       const assignedTasks = tasks.filter((t: any) => t.status === 'assigned');
       const excludedTasks = tasks.filter((t: any) => t.excludedForDate === date);
@@ -1051,11 +1113,11 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       const excludedOnly = !generatedInTaskList && assignedTasks.length === 0 && excludedTasks.length > 0;
 
       let workspaceStatus: ContactTargetWorkspaceStatus = 'assigned';
-      if (meta?.contactTargetStatus === 'closed' || excludedOnly) {
+      if (contactTargetStatus === 'closed' || excludedOnly) {
         workspaceStatus = 'closed';
-      } else if (meta?.contactTargetStatus === 'contacted') {
+      } else if (contactTargetStatus === 'contacted') {
         workspaceStatus = 'contacted';
-      } else if (generatedInTaskList || meta?.contactTargetStatus === 'queued' || meta?.contactTargetStatus === 'in_call_list' || appt?.appointmentDate) {
+      } else if (generatedInTaskList || contactTargetStatus === 'queued' || contactTargetStatus === 'in_call_list' || appt?.appointmentDate) {
         workspaceStatus = 'queued';
       }
 
@@ -1072,10 +1134,10 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
         hasPendingSync,
         workspaceStatus,
         contactTargetId: context.contactTargetId ?? meta?.contactTargetId ?? listItem?.contactTargetId ?? null,
-        contactTargetStatus: context.contactTargetStatus ?? meta?.contactTargetStatus ?? null,
+        contactTargetStatus,
         taskListItemStatus: listItem?.itemStatus ?? null,
         taskListOpenTaskId: listItem?.openTaskId ?? null,
-        latestCallOutcome: listItem?.callOutcome ?? meta?.contactTargetOutcome ?? null,
+        latestCallOutcome: listItem?.callOutcome ?? context.contactTargetOutcome ?? meta?.contactTargetOutcome ?? null,
         appointmentDate: appt?.appointmentDate ?? null,
         appointmentTime: appt?.appointmentTime ?? null,
         attemptCount: tasks.reduce((sum: number, task: any) => sum + (Number(task.attemptCount) || 0), 0),

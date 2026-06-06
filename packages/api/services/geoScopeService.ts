@@ -78,6 +78,46 @@ export function filterGeoUnitsByScope(units: GeoUnitRow[], scope: GeoScope | nul
   return units.filter(unit => scope.visibleGeoIds.has(unit.id));
 }
 
+/**
+ * Server-side guard: returns true if the given geo_unit_id is within the
+ * user's branch coverage (or if scope is null — super-admin / global perms).
+ * Use in write endpoints (clients/contracts/devices) to enforce that an
+ * actor cannot create records outside their branch coverage even by
+ * bypassing the UI dropdown filters.
+ *
+ * branchTargetId — when provided, scope is computed for THAT branch instead
+ * of the actor's acting branch. This is needed when a super-admin or
+ * cross-branch operator is creating a record on behalf of a specific branch.
+ */
+export async function assertGeoUnitInScope(
+  authContext: AuthContext,
+  geoUnitId: number | string | null | undefined,
+  permission: 'geo.view' | 'geo.manage' = 'geo.view',
+  branchTargetId?: number | null,
+): Promise<{ allowed: boolean; reason?: string }> {
+  const id = Number(geoUnitId);
+  if (!Number.isInteger(id) || id <= 0) return { allowed: true }; // no geo set — caller decides if required
+  // If we're enforcing for a specific target branch (not the actor's acting
+  // branch), build a synthetic scope just for that branch.
+  if (branchTargetId != null) {
+    const units = await listAllGeoUnits();
+    const coveredGeoIds = await loadBranchCoveredGeoIds(branchTargetId);
+    const serviceGeoIds = buildServiceGeoIds(coveredGeoIds, units);
+    if (serviceGeoIds.size === 0) return { allowed: true }; // branch has no coverage configured — don't block
+    if (!serviceGeoIds.has(id)) {
+      return { allowed: false, reason: 'geo_unit_outside_branch_coverage' };
+    }
+    return { allowed: true };
+  }
+  const scope = await resolveGeoScope(authContext, permission);
+  if (!scope) return { allowed: true }; // global access
+  if (scope.serviceGeoIds.size === 0) return { allowed: true }; // no coverage configured — don't block
+  if (!scope.serviceGeoIds.has(id)) {
+    return { allowed: false, reason: 'geo_unit_outside_branch_coverage' };
+  }
+  return { allowed: true };
+}
+
 export function areRoutePointsInsideScope(
   points: Array<{ geoUnitId: number | string | null | undefined }>,
   scope: GeoScope | null,

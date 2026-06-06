@@ -196,6 +196,17 @@ export async function promote(
     }
 
     // 6. INSERT open_task.
+    // Map service_request priority (Critical/High/Normal/Low) to the
+    // open_tasks CHECK domain (high/medium/low/NULL).
+    const priorityMap: Record<string, 'high' | 'medium' | 'low' | null> = {
+      Critical: 'high',
+      High: 'high',
+      Normal: 'medium',
+      Low: 'low',
+    };
+    const openTaskPriority = sr.priority ? priorityMap[sr.priority] ?? null : null;
+    // maintenance.md §٧ — emergency task due_date defaults to NOW + 48h
+    // (2 days from promotion). Stored as DATE.
     const { rows: taskRows } = await tx.client.query<{ id: number }>(
       `INSERT INTO open_tasks (
          client_id, branch_id, contract_id,
@@ -203,21 +214,23 @@ export async function promote(
          status, source, creation_origin,
          priority, notes, created_by,
          device_id,
-         source_service_request_id
+         source_service_request_id,
+         due_date
        ) VALUES (
          $1, $2, $3,
          'emergency_maintenance', 'emergency', 'service_request',
          'open', 'service_request', 'emergency_request',
          $4, $5, $6,
          $7,
-         $8
+         $8,
+         (CURRENT_DATE + INTERVAL '2 days')::date
        )
        RETURNING id`,
       [
         clientId,
         branchId,
         sr.contract_id,
-        sr.priority,
+        openTaskPriority,
         sr.problem_description,
         input.operatorUserId,
         installedDeviceId,
@@ -232,6 +245,7 @@ export async function promote(
       newOpenTaskId,
       clientId,
       sr.contract_id ?? null,
+      installedDeviceId ?? null,
     );
 
     // 8. INSERT open_task_emergency_payload (P-MAINT-10).

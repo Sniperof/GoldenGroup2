@@ -10,7 +10,6 @@ import type { GeoSelection } from './GeoSmartSearch';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
-import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../lib/employeeMediatorLookup';
 import {
@@ -79,10 +78,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [activeTab, setActiveTab] = useState<Tab>('identity');
     const [formData, setFormData] = useState<Partial<Client>>({});
     const authUser = useAuthStore(state => state.user);
-    const { hasPermission } = usePermissions();
+    const getPermissionScope = useAuthStore(state => state.getPermissionScope);
     const { branchId: contextBranchId } = useBranchContextStore();
     const canChooseBranch = authUser?.isSuperAdmin === true;
-    const canChooseAssignedOwner = authUser?.isSuperAdmin === true || hasPermission('admin.roles.view');
+    const editClientScope = getPermissionScope('clients.edit');
+    const canChooseAssignedOwner =
+        authUser?.isSuperAdmin === true ||
+        editClientScope === 'GLOBAL' ||
+        editClientScope === 'BRANCH';
 
     const candidates = useCandidateStore(state => state.candidates);
     const [allClients, setAllClients] = useState<Client[]>([]);
@@ -515,6 +518,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     // fl = "field locked": returns true when fromCandidate and the value is non-empty (came from candidate)
     const fl = (val: string | undefined | null): boolean =>
         Boolean(fromCandidate && val !== '' && val !== null && val !== undefined);
+    const firstNameLocked = fl(initialData?.firstName);
+    const lastNameLocked = fl(initialData?.lastName);
+    const nicknameLocked = fl(initialData?.nickname);
+    const detailedAddressLocked = fl(initialData?.detailedAddress);
+    const occupationLocked = fl(initialData?.occupation);
 
     const candidateGeoNeedsUpgrade = Boolean(fromCandidate && (geoSelection.govId || geoSelection.regionId) && !(geoSelection.subId || geoSelection.neighborhoodId));
 
@@ -618,7 +626,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             dataQuality: (dataQuality as any) || undefined,
             notes: notes.trim() || undefined,
             branchId: selectedBranchId === '' ? undefined : Number(selectedBranchId),
-            assignmentUserIds: assignmentUserIds.length > 0 ? assignmentUserIds : undefined,
+            assignmentUserIds: canChooseAssignedOwner && assignmentUserIds.length > 0 ? assignmentUserIds : undefined,
             ...(isEditMode ? { rating } : {}),
         } as Client);
     };
@@ -788,13 +796,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
                                                 الاسم الأول <span className="text-red-500">*</span>
-                                                {fl(firstName) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                                {firstNameLocked && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                             </label>
                                             <input
                                                 value={firstName}
-                                                onChange={e => !fl(firstName) && setFirstName(e.target.value)}
-                                                readOnly={fl(firstName)}
-                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${fl(firstName) ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                                onChange={e => !firstNameLocked && setFirstName(e.target.value)}
+                                                readOnly={firstNameLocked}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${firstNameLocked ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
                                                 placeholder="مثال: أحمد"
                                             />
                                         </div>
@@ -805,26 +813,26 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
                                                 الكنية (العائلة) <span className="text-red-500">*</span>
-                                                {fl(lastName) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                                {lastNameLocked && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                             </label>
                                             <input
                                                 value={lastName}
-                                                onChange={e => !fl(lastName) && setLastName(e.target.value)}
-                                                readOnly={fl(lastName)}
-                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${fl(lastName) ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                                onChange={e => !lastNameLocked && setLastName(e.target.value)}
+                                                readOnly={lastNameLocked}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${lastNameLocked ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
                                                 placeholder="مثال: زيتون"
                                             />
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
                                                 اللقب
-                                                {fl(nickname) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                                {nicknameLocked && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                             </label>
                                             <input
                                                 value={nickname}
-                                                onChange={e => !fl(nickname) && setNickname(e.target.value)}
-                                                readOnly={fl(nickname)}
-                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${fl(nickname) ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                                onChange={e => !nicknameLocked && setNickname(e.target.value)}
+                                                readOnly={nicknameLocked}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${nicknameLocked ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
                                                 placeholder="مثال: أبو أيوب"
                                             />
                                         </div>
@@ -1097,13 +1105,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                     <div className="space-y-1">
                                         <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
                                             العنوان التفصيلي
-                                            {fl(formData.detailedAddress) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                            {detailedAddressLocked && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                         </label>
                                         <textarea
                                             value={formData.detailedAddress || ''}
-                                            onChange={e => !fl(formData.detailedAddress) && updateForm('detailedAddress', e.target.value)}
-                                            readOnly={fl(formData.detailedAddress)}
-                                            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none min-h-[60px] resize-none ${fl(formData.detailedAddress) ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                            onChange={e => !detailedAddressLocked && updateForm('detailedAddress', e.target.value)}
+                                            readOnly={detailedAddressLocked}
+                                            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none min-h-[60px] resize-none ${detailedAddressLocked ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
                                         />
                                     </div>
 
@@ -1455,13 +1463,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             <div className="space-y-1">
                                                 <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
                                                     مهنة الزبون
-                                                    {fl(occupation) && <Lock className="w-2.5 h-2.5 text-amber-500" />}
+                                                    {occupationLocked && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                                 </label>
                                                 <select
                                                     value={occupation}
-                                                    onChange={e => !fl(occupation) && setOccupation(e.target.value)}
-                                                    disabled={fl(occupation)}
-                                                    className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${fl(occupation) ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'bg-white border-gray-200 focus:border-sky-500'}`}
+                                                    onChange={e => !occupationLocked && setOccupation(e.target.value)}
+                                                    disabled={occupationLocked}
+                                                    className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${occupationLocked ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'bg-white border-gray-200 focus:border-sky-500'}`}
                                                 >
                                                     <option value="">اختر المهنة</option>
                                                     {occupationOptions.map((option) => (

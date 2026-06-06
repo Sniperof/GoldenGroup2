@@ -169,6 +169,8 @@ export const api = {
     list: () => request<any[]>('/candidates'),
     create: (data: any) => request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    linkToClient: (id: number, clientId: number) =>
+      request<any>(`/candidates/${id}/link-client`, { method: 'POST', body: JSON.stringify({ clientId }) }),
     delete: (id: number) => request<any>(`/candidates/${id}`, { method: 'DELETE' }),
   },
   referralSheets: {
@@ -255,6 +257,7 @@ export const api = {
     },
     get: (id: number) => request<any>(`/installed-devices/${id}`),
     update: (id: number, data: any) => request<any>(`/installed-devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    problems: (id: number) => request<any[]>(`/installed-devices/${id}/problems`),
   },
   // DEC-CT-09: device possession ledger.
   // Backend route is mounted at /api/devices/:deviceId/possession.
@@ -322,7 +325,13 @@ export const api = {
       timeSlot?: string;
       teamKey: string;
       notes?: string | null;
-    }) => request<{ fieldVisitId: number; visitTaskIds: number[] }>(
+      taskListId?: string;
+      taskListItemId?: string;
+      taskListItemIds?: string[];
+      contactTargetId?: number | null;
+      selectedOpenTasks?: Array<{ openTaskId: number; taskType: string }>;
+      customerSnapshot?: Record<string, unknown> | null;
+    }) => request<{ fieldVisitId: number; visitTaskIds: number[]; contactTargetId: number | null }>(
       `/open-tasks/${id}/schedule-from-expected`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
@@ -663,7 +672,7 @@ export const api = {
       telemarketerEmployeeIds?: number[];
     }) => request<any>(`/marketing-visits/${visitId}/team`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
-telemarketing: {
+  telemarketing: {
     snapshot: (date?: string) => {
       const qs = date ? `?date=${encodeURIComponent(date)}` : '';
       return request<{ taskLists: any[]; appointments: any[]; callLogs: any[] }>(`/telemarketing/snapshot${qs}`);
@@ -672,6 +681,19 @@ telemarketing: {
     generateTaskListFromPlan: (data: { date: string; teamKey: string }) => request<any>('/telemarketing/task-lists/generate-from-plan', { method: 'POST', body: JSON.stringify(data) }),
     updateTaskListItem: (taskListId: string, itemId: string, data: any) => request<any>(`/telemarketing/task-lists/${taskListId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     createCallLog: (data: any) => request<any>('/telemarketing/call-logs', { method: 'POST', body: JSON.stringify(data) }),
+    claimContactTarget: (contactTargetId: number) => request<{
+      lockedByHrUserId: number | null;
+      lockedByHrUserName: string | null;
+      lockedAt: string | null;
+    }>(`/telemarketing/contact-targets/${contactTargetId}/claim`, { method: 'POST' }),
+    customerTargetsToday: (customerId: number, date?: string) => {
+      const qs = date ? `?date=${encodeURIComponent(date)}` : '';
+      return request<{
+        customerId: number;
+        date: string;
+        items: any[];
+      }>(`/telemarketing/customer/${customerId}/all-targets-today${qs}`);
+    },
     /** @deprecated since DEC-003 D2 — use bookVisit. Kept for callers not yet migrated. */
     createAppointment: (data: any) => request<any>('/telemarketing/appointments', { method: 'POST', body: JSON.stringify(data) }),
     /** DEC-003 D2 canonical booking endpoint — creates field_visit directly. */

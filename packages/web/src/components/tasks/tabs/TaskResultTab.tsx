@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { CalendarClock, CheckCircle2, ChevronLeft, Clock, Footprints, Plus } from 'lucide-react';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
 import { Card, InfoLine, TabAlert, formatDate, formatDateTime } from '../shared';
-import type { TaskResultRendererProps } from '../types';
+import type { TaskResultModalProps, TaskResultRendererProps } from '../types';
 import DeviceDemoResultModal from '../../../taskTypes/device_demo/DeviceDemoResultModal';
 
 const TERMINAL_STATUSES = new Set(['completed', 'closed', 'cancelled']);
@@ -20,6 +20,17 @@ const FINAL_DECISION_LABELS: Record<string, { label: string; cls: string }> = {
   accepted:        { label: 'مقبول (قديم)',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   rejected:        { label: 'مرفوض (قديم)',   cls: 'bg-rose-50 text-rose-700 border-rose-200' },
   needs_followup:  { label: 'متابعة (قديم)',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  delivered_successfully: { label: 'تم التسليم', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  customer_not_available: { label: 'الزبون غير متوفر', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  wrong_address: { label: 'عنوان خاطئ', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
+  refused_delivery: { label: 'رفض التسليم', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  installed_successfully: { label: 'تم التركيب', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  installation_incomplete: { label: 'التركيب غير مكتمل', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  refused_installation: { label: 'رفض التركيب', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  // emergency_maintenance lifecycle outcomes
+  resolved: { label: 'تَم الإصلاح', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  unresolved: { label: 'لم يُحَلّ بالكامل', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  needs_follow_up: { label: 'بحاجة مُتابعة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
 };
 
 const VISIT_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
@@ -98,11 +109,15 @@ export interface TaskResultTabProps {
   attempts?: any[];
   /** Custom result renderer provided by the task type (e.g. device demo pre-offers table). */
   ResultRenderer?: ComponentType<TaskResultRendererProps>;
+  /** Custom modal used to record the task result. */
+  ResultModal?: ComponentType<TaskResultModalProps>;
+  /** Explicit gate for task types backed by a custom modal. */
+  canRecordResultFor?: (task: any) => boolean;
   /** Extra data forwarded to the custom renderer */
   rendererProps?: Partial<TaskResultRendererProps>;
 }
 
-export default function TaskResultTab({ task, hasResult, attempts = [], ResultRenderer, rendererProps }: TaskResultTabProps) {
+export default function TaskResultTab({ task, hasResult, attempts = [], ResultRenderer, ResultModal, canRecordResultFor, rendererProps }: TaskResultTabProps) {
   const statusLabel = OPEN_TASK_STATUS_LABELS[task.status as OpenTaskStatus] ?? task.status;
   const [showResultModal, setShowResultModal] = useState(false);
 
@@ -121,13 +136,12 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
 
   const shouldShowResultDetails = attemptFinalDecision === 'offer_presented';
 
-  // Result modal is only wired for device_demo today; other task types still
-  // surface a read-only result block until they migrate to the new model.
-  // canRecordResult now relies on activeVisit (a live booking with no result yet).
+  // canRecordResult relies on activeVisit (a live booking with no result yet).
   // If activeVisit is null, there's nothing to record a result against.
   const activeVisit = task.activeVisit ?? null;
+  const hasSupportedCustomResult = ResultModal != null && (canRecordResultFor ? canRecordResultFor(task) : true);
   const canRecordResult =
-    task.taskType === 'device_demo' &&
+    (task.taskType === 'device_demo' || hasSupportedCustomResult) &&
     activeVisit != null &&
     (activeVisit.status === 'in_progress' || activeVisit.status === 'ended') &&
     !isTerminal;
@@ -256,19 +270,33 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
       {ResultRenderer && shouldShowResultDetails && <ResultRenderer task={task} {...rendererProps} />}
 
       {showResultModal && canRecordResult && activeVisit && (
-        <DeviceDemoResultModal
-          visitId={Number(activeVisit.id)}
-          taskId={Number(activeVisit.visitTaskId)}
-          task={task}
-          preOffers={rendererProps?.preOffers ?? []}
-          onClose={() => setShowResultModal(false)}
-          onSaved={() => {
-            setShowResultModal(false);
-            // Trigger reload by reloading the page — simplest and most reliable
-            // until we add a refresh callback through TaskDetailLayout.
-            window.location.reload();
-          }}
-        />
+        ResultModal ? (
+          <ResultModal
+            visitId={Number(activeVisit.id)}
+            taskId={Number(activeVisit.visitTaskId)}
+            task={task}
+            preOffers={rendererProps?.preOffers ?? []}
+            onClose={() => setShowResultModal(false)}
+            onSaved={() => {
+              setShowResultModal(false);
+              window.location.reload();
+            }}
+          />
+        ) : (
+          <DeviceDemoResultModal
+            visitId={Number(activeVisit.id)}
+            taskId={Number(activeVisit.visitTaskId)}
+            task={task}
+            preOffers={rendererProps?.preOffers ?? []}
+            onClose={() => setShowResultModal(false)}
+            onSaved={() => {
+              setShowResultModal(false);
+              // Trigger reload by reloading the page — simplest and most reliable
+              // until we add a refresh callback through TaskDetailLayout.
+              window.location.reload();
+            }}
+          />
+        )
       )}
     </>
   );

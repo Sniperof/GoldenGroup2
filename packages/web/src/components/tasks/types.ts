@@ -21,6 +21,15 @@ export interface TaskResultRendererProps {
   preOffers?: any[];
 }
 
+export interface TaskResultModalProps {
+  visitId: number;
+  taskId: number;
+  task: any;
+  preOffers?: any[];
+  onClose: () => void;
+  onSaved: () => void;
+}
+
 /**
  * Definition of an extra tab contributed by a task type.
  */
@@ -42,6 +51,10 @@ export interface TaskTypeExtension {
   extraTabs?: ExtraTabDef[];
   /** Renderer for the Result tab content. If omitted, only base summary is shown. */
   ResultRenderer?: ComponentType<TaskResultRendererProps>;
+  /** Modal used to record the result for task types that support execution outcomes. */
+  ResultModal?: ComponentType<TaskResultModalProps>;
+  /** Explicit gate for showing the result-recording action when a ResultModal is provided. */
+  canRecordResultFor?: (task: any) => boolean;
   /** Action buttons rendered at the end of the tab bar (e.g. receipt button). Only shown when hasResult is true. */
   tabBarActions?: (data: TaskDetailData) => ReactNode;
 }

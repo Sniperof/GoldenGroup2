@@ -30,6 +30,7 @@ export default function CandidatesEntry() {
     const canViewNameLists = hasAnyPermission('candidates.name_lists.view_list', 'referral_sheets.view_list');
     const canCreateNameLists = hasAnyPermission('candidates.name_lists.create', 'referral_sheets.create');
     const canCreateCandidates = hasPermission('candidates.create');
+    const canEditCandidates = hasPermission('candidates.edit');
 
     // UI State
     const [activeTab, setActiveTab] = useState<'candidates' | 'sheets'>('candidates');
@@ -63,7 +64,6 @@ export default function CandidatesEntry() {
     const qualifyCandidate = useCandidateStore(state => state.qualifyCandidate);
     const linkCandidateToClient = useCandidateStore(state => state.linkCandidateToClient);
     const markJunk = useCandidateStore(state => state.markJunk);
-    const markForFollowUp = useCandidateStore(state => state.markForFollowUp);
 
     // New Qualification & Client Modals
     const [isQualifyModalOpen, setIsQualifyModalOpen] = useState(false);
@@ -330,12 +330,12 @@ export default function CandidatesEntry() {
                             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                                 <tr className="text-slate-600 font-bold text-xs uppercase tracking-wider">
                                     <th className="px-5 h-12">ID</th>
+                                    <th className="px-5 h-12">تاريخ الإضافة</th>
                                     <th className="px-5 h-12">الاسم المقترح</th>
                                     <th className="px-5 h-12">أرقام التواصل</th>
                                     <th className="px-5 h-12">العنوان</th>
                                     <th className="px-5 h-12">اسم الوسيط</th>
                                     <th className="px-5 h-12">نوع الترشيح</th>
-                                    <th className="px-5 h-12">أضيف بواسطة</th>
                                     <th className="px-5 h-12">المسؤولون</th>
                                     <th className="px-5 h-12">الفرع</th>
                                     <th className="px-5 h-12">الحالة</th>
@@ -358,6 +358,9 @@ export default function CandidatesEntry() {
                                         return (
                                             <tr key={c.id} className="hover:bg-slate-50 transition-colors h-12 group">
                                                 <td className="px-5 py-2 font-mono text-xs text-slate-500">#{c.id}</td>
+                                                <td className="px-5 py-2 text-xs text-slate-600 whitespace-nowrap">
+                                                    {c.createdAt ? new Date(c.createdAt).toLocaleDateString('ar-SY') : '--'}
+                                                </td>
                                                 <td className="px-5 py-2">
                                                     <div className="font-bold text-slate-800">{nameStr}</div>
                                                 </td>
@@ -396,18 +399,6 @@ export default function CandidatesEntry() {
                                                     )}
                                                 </td>
                                                 <td className="px-5 py-2 text-xs">
-                                                    {c.createdByUserName ? (
-                                                        <div className="leading-5">
-                                                            <div className="font-bold text-slate-700">{c.createdByUserName}</div>
-                                                            {c.createdByRoleDisplayName && (
-                                                                <div className="text-slate-400">{c.createdByRoleDisplayName}</div>
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-slate-400">--</span>
-                                                    )}
-                                                </td>
-                                                <td className="px-5 py-2 text-xs">
                                                     {(() => {
                                                         const list = c.assignments || [];
                                                         if (list.length === 0) return <span className="text-slate-400">--</span>;
@@ -442,17 +433,19 @@ export default function CandidatesEntry() {
                                                 </td>
                                                 <td className="px-5 py-2">
                                                     <div className="flex items-center justify-center gap-2">
-                                                        <button
-                                                            onClick={() => {
-                                                                setEditingCandidate(c);
-                                                                setIsAddModalOpen(true);
-                                                            }}
-                                                            className="w-8 h-8 flex items-center justify-center bg-slate-50 text-slate-600 hover:bg-slate-600 hover:text-white rounded-lg border border-slate-200 transition-all"
-                                                            title="تعديل"
-                                                        >
-                                                            <Edit className="w-4 h-4" />
-                                                        </button>
-                                                        {(c.status === 'Suggested' || c.status === 'FollowUp') && (
+                                                        {canEditCandidates && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingCandidate(c);
+                                                                    setIsAddModalOpen(true);
+                                                                }}
+                                                                className="w-8 h-8 flex items-center justify-center bg-slate-50 text-slate-600 hover:bg-slate-600 hover:text-white rounded-lg border border-slate-200 transition-all"
+                                                                title="تعديل"
+                                                            >
+                                                                <Edit className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                        {canEditCandidates && (c.status === 'Suggested' || c.status === 'FollowUp') && (
                                                             <button
                                                                 onClick={() => handleOpenQualify(c)}
                                                                 className="w-8 h-8 flex items-center justify-center bg-sky-50 text-sky-600 hover:bg-sky-600 hover:text-white rounded-lg border border-sky-100 transition-all"
@@ -577,7 +570,21 @@ export default function CandidatesEntry() {
                                                     </div>
                                                     <div>
                                                         <div className="font-bold text-slate-800 group-hover:text-amber-700 transition-colors">{sheet.referralNameSnapshot}</div>
-                                                        <div className="text-[10px] text-slate-400">{getReferralTypeLabel(sheet.referralType)}</div>
+                                                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                            <span className="text-[10px] text-slate-400">{getReferralTypeLabel(sheet.referralType)}</span>
+                                                            {sheet.fieldVisitId ? (
+                                                                <Link
+                                                                    to={`/field-visits/${sheet.fieldVisitId}`}
+                                                                    className="inline-flex items-center gap-1 rounded-md border border-sky-100 bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700 hover:border-sky-200 hover:bg-sky-100"
+                                                                >
+                                                                    من زيارة #{sheet.fieldVisitId}
+                                                                </Link>
+                                                            ) : (
+                                                                <span className="inline-flex items-center rounded-md border border-slate-100 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
+                                                                    يدوي
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </td>
@@ -599,7 +606,23 @@ export default function CandidatesEntry() {
                                                     <span className="text-slate-400">--</span>
                                                 )}
                                             </td>
-                                            <td className="px-5 py-2 text-center font-bold text-slate-700">{sheet.stats?.totalCandidates || 0}</td>
+                                            <td className="px-5 py-2 text-center font-bold text-slate-700">
+                                                {sheet.fieldVisitId && (sheet.stats?.targetCandidates ?? 0) > 0 ? (
+                                                    <span>
+                                                        <span className={
+                                                            (sheet.stats?.totalCandidates || 0) >= (sheet.stats?.targetCandidates ?? 0)
+                                                                ? 'text-emerald-600'
+                                                                : 'text-amber-600'
+                                                        }>
+                                                            {sheet.stats?.totalCandidates || 0}
+                                                        </span>
+                                                        <span className="mx-1 font-normal text-slate-400">/</span>
+                                                        <span className="text-slate-500">{sheet.stats.targetCandidates}</span>
+                                                    </span>
+                                                ) : (
+                                                    sheet.stats?.totalCandidates || 0
+                                                )}
+                                            </td>
                                             <td className="px-5 py-2 text-center">
                                                 <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-100 font-bold text-[10px]">{sheet.stats?.qualityPercentage || 0}%</span>
                                             </td>
@@ -662,12 +685,11 @@ export default function CandidatesEntry() {
             <ReferralSheetDetailsModal sheetId={sheetDetailsId} isOpen={sheetDetailsId !== null} onClose={() => setSheetDetailsId(null)} />
 
             <QualificationModal
-                isOpen={isQualifyModalOpen}
+                isOpen={canEditCandidates && isQualifyModalOpen}
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}
                 onJunk={(id) => { markJunk(id); setIsQualifyModalOpen(false); }}
-                onFollowUp={(id) => { markForFollowUp(id); setIsQualifyModalOpen(false); }}
                 onLink={(candidateId, client) => {
                     linkCandidateToClient(candidateId, client.id);
                     setIsQualifyModalOpen(false);

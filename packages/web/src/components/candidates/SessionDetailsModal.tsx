@@ -6,6 +6,7 @@ import ClientModal from '../ClientModal';
 import { Candidate, Client, GeoUnit } from '../../lib/types';
 import { api } from '../../lib/api';
 import { formatGeoUnitLastLevels } from '../GeoSmartSearch';
+import { usePermissions } from '../../hooks/usePermissions';
 
 interface Props {
     isOpen: boolean;
@@ -14,19 +15,21 @@ interface Props {
 }
 
 export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: Props) {
+    const { hasAnyPermission, hasPermission } = usePermissions();
     const referralSheets = useCandidateStore(state => state.referralSheets);
     const closeReferralSheet = useCandidateStore(state => state.closeReferralSheet);
     const candidates = useCandidateStore(state => state.candidates);
     const qualifyCandidate = useCandidateStore(state => state.qualifyCandidate);
     const linkCandidateToClient = useCandidateStore(state => state.linkCandidateToClient);
     const markJunk = useCandidateStore(state => state.markJunk);
-    const markForFollowUp = useCandidateStore(state => state.markForFollowUp);
 
     const [isQualifyModalOpen, setIsQualifyModalOpen] = useState(false);
     const [activeCandidateForQualify, setActiveCandidateForQualify] = useState<Candidate | null>(null);
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
     const [clientInitialData, setClientInitialData] = useState<Client | null>(null);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+    const canEditCandidates = hasPermission('candidates.edit');
+    const canEditNameLists = hasAnyPermission('candidates.name_lists.edit', 'referral_sheets.edit');
 
     useEffect(() => {
         if (!isOpen) return;
@@ -227,7 +230,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                         </td>
                                         {/* الإجراءات */}
                                         <td className="px-4 py-3 text-center">
-                                            {(c.status === 'Suggested' || c.status === 'FollowUp') && (
+                                            {canEditCandidates && (c.status === 'Suggested' || c.status === 'FollowUp') && (
                                                 <button
                                                     onClick={() => handleOpenQualify(c)}
                                                     className="flex flex-col mx-auto items-center justify-center w-9 h-9 bg-sky-50 text-sky-600 hover:bg-sky-500 hover:text-white rounded-xl border border-sky-100 hover:border-sky-500 shadow-sm transition-all"
@@ -253,7 +256,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                 </div>
 
                 <div className="mt-6 flex justify-end shrink-0">
-                    {sheet.status !== 'Completed' && (
+                    {canEditNameLists && sheet.status !== 'Completed' && (
                         <button
                             onClick={() => { closeReferralSheet(sheet.id); onClose(); }}
                             className="px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-900 transition-colors"
@@ -265,12 +268,11 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
             </div>
 
             <QualificationModal
-                isOpen={isQualifyModalOpen}
+                isOpen={canEditCandidates && isQualifyModalOpen}
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}
                 onJunk={(id) => { markJunk(id); setIsQualifyModalOpen(false); }}
-                onFollowUp={(id) => { markForFollowUp(id); setIsQualifyModalOpen(false); }}
                 onLink={(candidateId, client) => {
                     linkCandidateToClient(candidateId, client.id);
                     setIsQualifyModalOpen(false);

@@ -3,6 +3,7 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
+import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -109,6 +110,51 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
   res.json(rows[0]);
 });
 
+// GET /api/installed-devices/:id/problems — full diagnosed-problems history
+// for this device (across all service_requests / open_tasks). Read-only.
+router.get('/:id/problems', requirePermission('contracts.view_list'), async (req, res) => {
+  const authContext = req.authContext!;
+  const deviceId = Number(req.params.id);
+  const { rows: devRows } = await pool.query(
+    `SELECT branch_id AS "branchId" FROM installed_devices WHERE id = $1`,
+    [deviceId],
+  );
+  if (!devRows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
+  const access = authorize(authContext, { permission: 'contracts.view_list', branchId: devRows[0].branchId });
+  if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
+
+  const { rows } = await pool.query(
+    `SELECT
+       p.id,
+       p.service_request_id          AS "serviceRequestId",
+       sr.public_ref_number          AS "serviceRequestRef",
+       p.open_task_id                AS "openTaskId",
+       p.problem_type_id             AS "problemTypeId",
+       sl.value                      AS "problemTypeLabel",
+       p.details,
+       p.status,
+       p.added_during_phase          AS "addedDuringPhase",
+       p.created_at                  AS "createdAt",
+       p.created_by_user_id          AS "createdByUserId",
+       creator.name                  AS "createdByName",
+       p.resolved_at                 AS "resolvedAt",
+       p.resolution_visit_task_id    AS "resolutionVisitTaskId",
+       p.repaired_by_employee_id     AS "repairedByEmployeeId",
+       repaired.name                 AS "repairedByEmployeeName",
+       p.resolution_notes            AS "resolutionNotes"
+       FROM service_request_problems p
+       LEFT JOIN system_lists sl ON sl.id = p.problem_type_id
+       LEFT JOIN service_requests sr ON sr.id = p.service_request_id
+       LEFT JOIN hr_users creator ON creator.id = p.created_by_user_id
+       LEFT JOIN employees repaired ON repaired.id = p.repaired_by_employee_id
+       WHERE p.installed_device_id = $1
+         AND p.deleted_at IS NULL
+       ORDER BY p.created_at DESC`,
+    [deviceId],
+  );
+  res.json(rows);
+});
+
 // PATCH /api/installed-devices/:id  — update physical device fields only
 router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const authContext = req.authContext!;
@@ -131,6 +177,22 @@ router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
     const { rows: branchRows } = await pool.query('SELECT status FROM branches WHERE id = $1', [targetBranchId]);
     if (!branchRows[0]) return res.status(400).json({ error: 'الفرع المستهدف غير موجود' });
     if (branchRows[0].status === 'inactive') return res.status(400).json({ error: 'لا يمكن نقل الجهاز إلى فرع موقوف' });
+  }
+
+  // Geo-coverage enforcement — if the patch moves installation_geo_unit_id,
+  // it must land inside the (possibly new) target branch's coverage.
+  const newGeoUnitId = req.body.installationGeoUnitId ?? req.body.installation_geo_unit_id ?? null;
+  if (newGeoUnitId) {
+    const effectiveBranchId = requestedTargetBranchId !== undefined && requestedTargetBranchId !== null && requestedTargetBranchId !== ''
+      ? Number(requestedTargetBranchId)
+      : existingRows[0].branchId;
+    const geoCheck = await assertGeoUnitInScope(authContext, newGeoUnitId, 'geo.view', effectiveBranchId);
+    if (!geoCheck.allowed) {
+      return res.status(403).json({
+        error: 'موقع تَركيب الجهاز خارج نِطاق تَغطية الفَرع',
+        code: geoCheck.reason,
+      });
+    }
   }
 
   const allowed = [

@@ -4,7 +4,6 @@ import { ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
-import { usePermissions } from '../../hooks/usePermissions';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 
@@ -43,11 +42,15 @@ const channels: { value: ReferralOriginChannel; label: string }[] = [
 export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreated }: Props) {
     const addReferralSheet = useCandidateStore(state => state.addReferralSheet); // Updated hook
     const authUser = useAuthStore(state => state.user);
-    const { hasPermission } = usePermissions();
+    const getPermissionScope = useAuthStore(state => state.getPermissionScope);
     const { branchId: contextBranchId } = useBranchContextStore();
     const currentUserDisplayName = authUser?.name?.trim() || '';
     const canChooseBranch = authUser?.isSuperAdmin === true;
-    const canChooseAssignedOwner = authUser?.isSuperAdmin === true || hasPermission('admin.roles.view');
+    const editNameListScope = getPermissionScope('candidates.name_lists.edit');
+    const canChooseAssignedOwner =
+        authUser?.isSuperAdmin === true ||
+        editNameListScope === 'GLOBAL' ||
+        editNameListScope === 'BRANCH';
 
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
@@ -101,7 +104,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const [referralType, setReferralType] = useState<ReferralType>('Personal');
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
     const [nameSnapshot, setNameSnapshot] = useState(currentUserDisplayName);
-    const [referralDate, setReferralDate] = useState(new Date().toISOString().split('T')[0]);
     const [notes, setNotes] = useState('');
     const [error, setError] = useState('');
 
@@ -229,8 +231,8 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     };
 
     const handleSave = async () => {
-        if (!nameSnapshot.trim() || !referralDate) {
-            setError('الرجاء تعبئة جميع الحقول الإلزامية (اسم الوسيط، وتاريخ الورقة).');
+        if (!nameSnapshot.trim()) {
+            setError('الرجاء تعبئة جميع الحقول الإلزامية.');
             return;
         }
         if (referralType === 'Employee' && !employeeFound) {
@@ -260,16 +262,17 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
 
         try {
             const resolvedResponsibleUserId = selectedResponsibleUserId === '' ? (authUser?.id ?? undefined) : Number(selectedResponsibleUserId);
+            const assignmentOwnerId = canChooseAssignedOwner ? resolvedResponsibleUserId : (authUser?.id ?? undefined);
             const newId = await addReferralSheet({
                 referralType,
                 referralOriginChannel: originChannel,
                 referralNameSnapshot: nameSnapshot,
                 referralAddressText: '',
                 referralEntityId: entityId,
-                referralDate: new Date(referralDate).toISOString(),
+                referralDate: new Date().toISOString(),
                 referralNotes: notes,
-                ownerUserId: resolvedResponsibleUserId,
-                assignedHrUserId: resolvedResponsibleUserId,
+                ownerUserId: assignmentOwnerId,
+                assignedHrUserId: assignmentOwnerId,
                 branchId: selectedBranchId === '' ? (contextBranchId ?? authUser?.branchId ?? undefined) : Number(selectedBranchId),
                 status: 'New',
                 createdBy: authUser?.id
@@ -294,7 +297,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         setClientSearch('');
         setClientSuggestions([]);
         setSelectedClientId(null);
-        setReferralDate(new Date().toISOString().split('T')[0]);
         setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
         setSelectedResponsibleUserId(authUser?.id ?? '');
         setNotes('');
@@ -478,16 +480,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             />
                         </div>
                     )}
-
-                    <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">تاريخ الورقة <span className="text-red-500">*</span></label>
-                        <input
-                            type="date"
-                            value={referralDate}
-                            onChange={(e) => setReferralDate(e.target.value)}
-                            className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm"
-                        />
-                    </div>
 
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">ملاحظات عامة</label>

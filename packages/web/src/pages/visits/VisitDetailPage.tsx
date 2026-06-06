@@ -15,6 +15,7 @@ import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal'
 import DeviceDemoResultModal from '../../taskTypes/device_demo/DeviceDemoResultModal';
 import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
 import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
+import EmergencyResultModal from '../../taskTypes/emergency_maintenance/EmergencyResultModal';
 import ClientSnapshot from '../../components/ClientSnapshot';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
@@ -68,6 +69,17 @@ const FINAL_DECISION_LABELS: Record<string, { label: string; cls: string }> = {
     accepted: { label: 'مقبول (قديم)', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     rejected: { label: 'مرفوض (قديم)', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
     needs_followup: { label: 'متابعة (قديم)', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    delivered_successfully: { label: 'تم التسليم', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    customer_not_available: { label: 'الزبون غير متوفر', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    wrong_address: { label: 'عنوان خاطئ', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
+    refused_delivery: { label: 'رفض التسليم', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+    installed_successfully: { label: 'تم التركيب', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    installation_incomplete: { label: 'التركيب غير مكتمل', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    refused_installation: { label: 'رفض التركيب', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+    // emergency_maintenance lifecycle outcomes
+    resolved: { label: 'تَم الإصلاح', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    unresolved: { label: 'لم يُحَلّ بالكامل', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+    needs_follow_up: { label: 'بحاجة مُتابعة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
 };
 
 function getFinalDecisionMeta(value?: string | null) {
@@ -610,10 +622,16 @@ export default function VisitDetailPage() {
                         {tasks.map((task: any) => {
                             const ts = TASK_STATUS_LABELS[task.status] ?? { label: task.status, color: 'text-slate-500', bg: 'bg-slate-100' };
                             const hasResult = task.result_id != null;
-                            const canRecord = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
+                            // Visit must be officially ended (with GPS/duration on visit_geo_logs)
+                            // before any task result can be recorded — otherwise actual_end_time
+                            // is never captured.
+                            const canRecord = visit.status === 'ended' && !hasResult;
+                            const needsEndFirst = visit.status === 'in_progress' && !hasResult;
                             const isDemo = task.task_type === 'device_demo';
                             const isDelivery = task.task_type === 'device_delivery';
-                            const supportsUnifiedResult = isDemo || isDelivery;
+                            const isInstallation = task.task_type === 'device_installation';
+                            const isEmergency = task.task_type === 'emergency_maintenance';
+                            const supportsUnifiedResult = isDemo || isDelivery || isInstallation || isEmergency;
                             const canEditResult = visit.status === 'completed' && hasResult && supportsUnifiedResult;
                             const decisionMeta = getFinalDecisionMeta(task.final_decision);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
@@ -676,6 +694,11 @@ export default function VisitDetailPage() {
                                     <div className="mt-3">
                                         {visit.status === 'scheduled' && <span className="text-xs text-slate-400">عرض فقط — لم تبدأ الزيارة</span>}
                                         {visit.status === 'cancelled' && <span className="text-xs text-slate-400">الزيارة ملغاة</span>}
+                                        {needsEndFirst && (
+                                            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded inline-flex items-center gap-1">
+                                                <AlertCircle className="w-3 h-3" /> يَلزم إنهاء الزيارة أولاً (لتسجيل وقت الانتهاء و GPS) قبل تسجيل النتيجة
+                                            </span>
+                                        )}
                                         {canRecord && supportsUnifiedResult && (
                                             <button onClick={() => setResultTask(task)}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 transition-colors">
@@ -793,6 +816,19 @@ export default function VisitDetailPage() {
                     visitId={visit.id}
                     taskId={resultTask.id}
                     task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'emergency_maintenance' && (
+                <EmergencyResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    taskId={resultTask.source_open_task_id ?? resultTask.open_task_id ?? resultTask.id}
+                    visitId={visit.id}
+                    visitTaskId={resultTask.id}
+                    contractId={resultTask.contract_id ?? null}
+                    visitTechnicianEmployeeId={primaryTeam?.technician?.id ?? backupTeam?.technician?.id ?? null}
+                    visitTechnicianName={primaryTeam?.technician?.name ?? backupTeam?.technician?.name ?? null}
                     onClose={() => setResultTask(null)}
                     onSaved={() => { setResultTask(null); load(); }}
                 />

@@ -10,6 +10,8 @@ import {
   getCandidateListAccessPlan,
   canViewCandidate,
 } from '../policies/candidatePolicy.js';
+import { canViewClient } from '../policies/clientPolicy.js';
+import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
 import {
   getCanonicalContactNumber,
   normalizeContactsForWrite,
@@ -72,6 +74,42 @@ type CandidateSubject = {
   assignedUserIds: number[];
 };
 
+type LinkableCandidate = {
+  id: number;
+  branchId: number | null;
+  createdBy: number | null;
+  mobile: string | null;
+  referralType: string | null;
+  referralOriginChannel: string | null;
+  referralNameSnapshot: string | null;
+  referralEntityId: number | null;
+  referralDate: string | null;
+  referralReason: string | null;
+  referralSheetId: number | null;
+  addressText: string | null;
+};
+
+type LinkableClient = {
+  id: number;
+  branchId: number | null;
+  assignedUserIds: number[];
+  lifecycleStage: 'LEAD' | 'FOP' | 'OP';
+};
+
+type Queryable = {
+  query: (text: string, params?: any[]) => Promise<{ rows: any[] }>;
+};
+
+function canManageCandidateAssignments(authContext: ReturnType<typeof getRequiredAuthContext>, branchId: number | null): boolean {
+  if (authContext.isSuperAdmin) return true;
+  const grant = authContext.grants.find(item => item.permission === 'candidates.edit');
+  if (grant?.scope === 'GLOBAL') return true;
+  if (grant?.scope === 'BRANCH' && branchId != null) {
+    return authContext.allowedBranchIds.includes(branchId);
+  }
+  return false;
+}
+
 async function insertCandidateAssignments(
   candidateId: number,
   userIds: number[],
@@ -100,6 +138,18 @@ function normalizeCandidatePayload<T extends Record<string, any>>(payload: T): T
     contacts,
     mobile: contacts.length > 0 ? getCanonicalContactNumber(contacts) : normalizePhone(payload.mobile),
   };
+}
+
+function phoneNormalizationSql(expression: string): string {
+  const digits = `regexp_replace(COALESCE(${expression}, ''), '\\D', '', 'g')`;
+  return `
+    CASE
+      WHEN ${digits} ~ '^009639\\d{8}$' THEN '0' || right(${digits}, 9)
+      WHEN ${digits} ~ '^9639\\d{8}$' THEN '0' || right(${digits}, 9)
+      WHEN ${digits} ~ '^9\\d{8}$' THEN '0' || ${digits}
+      ELSE ${digits}
+    END
+  `;
 }
 
 function getRequiredAuthContext(req: any) {
@@ -155,6 +205,131 @@ async function loadCandidateSubject(candidateId: string | number): Promise<Candi
   );
 
   return rows[0] ?? null;
+}
+
+async function loadLinkableCandidate(candidateId: string | number): Promise<LinkableCandidate | null> {
+  const { rows } = await pool.query(
+    `SELECT
+       id,
+       branch_id AS "branchId",
+       created_by AS "createdBy",
+       mobile,
+       referral_type AS "referralType",
+       referral_origin_channel AS "referralOriginChannel",
+       referral_name_snapshot AS "referralNameSnapshot",
+       referral_entity_id AS "referralEntityId",
+       referral_date AS "referralDate",
+       referral_reason AS "referralReason",
+       referral_sheet_id AS "referralSheetId",
+       address_text AS "addressText"
+     FROM candidates
+    WHERE id = $1`,
+    [candidateId],
+  );
+
+  return rows[0] ?? null;
+}
+
+async function clientHasMatchingPhone(clientId: number, mobile: string | null): Promise<boolean> {
+  const normalizedMobile = normalizePhone(mobile);
+  if (!normalizedMobile) return false;
+
+  const { rows } = await pool.query(
+    `SELECT 1
+      FROM clients c
+     WHERE c.id = $1
+       AND (
+          ${phoneNormalizationSql('c.mobile')} = $2
+          OR EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) AS contact
+             WHERE ${phoneNormalizationSql(`contact->>'number'`)} = $2
+          )
+        )
+      LIMIT 1`,
+    [clientId, normalizedMobile],
+  );
+
+  return rows.length > 0;
+}
+
+async function loadLinkableClient(clientId: string | number): Promise<LinkableClient | null> {
+  const { rows } = await pool.query(
+    `SELECT
+       c.id,
+       c.branch_id AS "branchId",
+       (${buildClientLifecycleStatusSql('c')}) AS "lifecycleStage",
+       COALESCE(
+         (SELECT array_agg(hr_user_id)
+            FROM client_assignments
+           WHERE client_id = c.id),
+         '{}'::int[]
+       ) AS "assignedUserIds"
+     FROM clients c
+    WHERE c.id = $1
+      AND c.is_candidate = FALSE
+      AND c.deleted_at IS NULL`,
+    [clientId],
+  );
+
+  return rows[0] ?? null;
+}
+
+async function resolveCandidateSupervisorAssignmentIds(candidateId: number, fallbackUserId: number | null): Promise<number[]> {
+  const { rows: supervisorRows } = await pool.query(
+    `SELECT DISTINCT u.id
+       FROM candidate_assignments ca
+       JOIN hr_users u ON u.id = ca.hr_user_id
+       LEFT JOIN roles r ON r.id = u.role_id
+      WHERE ca.candidate_id = $1
+        AND u.is_active = TRUE
+        AND (
+          r.team_slot_type = 'SUPERVISOR'
+          OR upper(COALESCE(r.name, u.role, '')) LIKE '%SUPERVISOR%'
+        )`,
+    [candidateId],
+  );
+
+  const supervisorIds = supervisorRows.map((row: any) => Number(row.id)).filter(Number.isFinite);
+  if (supervisorIds.length > 0) {
+    return supervisorIds;
+  }
+
+  const { rows: assignmentRows } = await pool.query(
+    `SELECT DISTINCT u.id
+       FROM candidate_assignments ca
+       JOIN hr_users u ON u.id = ca.hr_user_id
+      WHERE ca.candidate_id = $1
+        AND u.is_active = TRUE`,
+    [candidateId],
+  );
+  const assignmentIds = assignmentRows.map((row: any) => Number(row.id)).filter(Number.isFinite);
+  if (assignmentIds.length > 0) {
+    return assignmentIds;
+  }
+
+  return fallbackUserId != null ? [fallbackUserId] : [];
+}
+
+async function insertLinkedClientAssignments(
+  db: Queryable,
+  clientId: number,
+  userIds: number[],
+  assignedBy: number,
+): Promise<void> {
+  const uniqueUserIds = Array.from(new Set(userIds.filter(id => Number.isInteger(id) && id > 0)));
+  if (uniqueUserIds.length === 0) return;
+
+  const values = uniqueUserIds
+    .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`)
+    .join(', ');
+  const params = uniqueUserIds.flatMap(uid => [clientId, uid, assignedBy]);
+  await db.query(
+    `INSERT INTO client_assignments (client_id, hr_user_id, assigned_by)
+     VALUES ${values}
+     ON CONFLICT (client_id, hr_user_id) DO NOTHING`,
+    params,
+  );
 }
 
 /**
@@ -406,8 +581,9 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     const c = normalizeCandidatePayload(req.body ?? {});
 
     // Resolve owner_user_id for the legacy column (single owner still stored)
+    const canManageAssignments = canManageCandidateAssignments(authContext, targetBranchId);
     const requestedOwnerUserId = Number(req.body?.ownerUserId);
-    const ownerUserId = authContext.isSuperAdmin && Number.isInteger(requestedOwnerUserId) && requestedOwnerUserId > 0
+    const ownerUserId = canManageAssignments && Number.isInteger(requestedOwnerUserId) && requestedOwnerUserId > 0
       ? requestedOwnerUserId
       : authContext.userId;
 
@@ -432,7 +608,7 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     const candidateId = rows[0].id;
 
     // Build assignment list: always include creator; merge any explicitly provided IDs
-    const rawUserIds: number[] = Array.isArray(req.body?.assignmentUserIds)
+    const rawUserIds: number[] = canManageAssignments && Array.isArray(req.body?.assignmentUserIds)
       ? (req.body.assignmentUserIds as any[]).map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
       : [];
     const assignmentUserIds = rawUserIds.includes(authContext.userId)
@@ -454,6 +630,131 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     res.json(full[0]);
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/link-client', requirePermission('candidates.edit'), async (req, res) => {
+  const db = await pool.connect();
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const candidateId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    const clientId = Number(req.body?.clientId);
+    if (!Number.isInteger(candidateId) || candidateId <= 0 || !Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'معرّف الاسم المقترح أو الزبون غير صالح' });
+    }
+
+    const candidateSubject = await loadCandidateSubject(candidateId);
+    if (!candidateSubject) {
+      return res.status(404).json({ message: 'الاسم المقترح غير موجود' });
+    }
+
+    const editAccess = canEditCandidate(authContext, candidateSubject);
+    if (!editAccess.allowed) {
+      return forbidCandidateAccess(res, editAccess.reason);
+    }
+
+    const client = await loadLinkableClient(clientId);
+    if (!client) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const candidate = await loadLinkableCandidate(candidateId);
+    if (!candidate) {
+      return res.status(404).json({ message: 'الاسم المقترح غير موجود' });
+    }
+
+    const viewClientAccess = canViewClient(authContext, {
+      branchId: client.branchId,
+      assignedUserIds: client.assignedUserIds,
+    });
+    if (!viewClientAccess.allowed) {
+      const samePhone = await clientHasMatchingPhone(clientId, candidate.mobile);
+      if (!samePhone) {
+        return res.status(403).json({ error: 'غير مسموح بربط هذا الزبون' });
+      }
+    }
+
+    const newReferrer = {
+      id: `candidate-${candidate.id}`,
+      sourceCandidateId: candidate.id,
+      referrerType: candidate.referralType,
+      referralEntityId: candidate.referralEntityId,
+      referrerName: candidate.referralNameSnapshot,
+      sourceChannel: candidate.referralOriginChannel,
+      referralDate: candidate.referralDate,
+      referralReason: candidate.referralReason,
+      referralSheetId: candidate.referralSheetId,
+      referralAddressText: candidate.addressText,
+    };
+
+    const supervisorIds = client.lifecycleStage === 'LEAD'
+      ? await resolveCandidateSupervisorAssignmentIds(candidateId, candidate.createdBy ?? authContext.userId)
+      : [];
+
+    await db.query('BEGIN');
+
+    await db.query(
+      `UPDATE clients
+          SET referrers = CASE
+                WHEN EXISTS (
+                  SELECT 1
+                    FROM jsonb_array_elements(COALESCE(referrers, '[]'::jsonb)) AS existing_referrer
+                   WHERE existing_referrer->>'sourceCandidateId' = $2::text
+                )
+                THEN COALESCE(referrers, '[]'::jsonb)
+                ELSE COALESCE(referrers, '[]'::jsonb) || $3::jsonb
+              END,
+              referrer_name = COALESCE(referrer_name, $4),
+              referrer_type = COALESCE(referrer_type, $5),
+              source_channel = COALESCE(source_channel, $6),
+              referral_entity_id = COALESCE(referral_entity_id, $7),
+              referral_date = COALESCE(referral_date, $8),
+              referral_reason = COALESCE(referral_reason, $9),
+              referral_sheet_id = COALESCE(referral_sheet_id, $10),
+              referral_address_text = COALESCE(referral_address_text, $11)
+        WHERE id = $1`,
+      [
+        clientId,
+        String(candidate.id),
+        JSON.stringify([newReferrer]),
+        newReferrer.referrerName,
+        newReferrer.referrerType,
+        newReferrer.sourceChannel,
+        newReferrer.referralEntityId,
+        newReferrer.referralDate,
+        newReferrer.referralReason,
+        newReferrer.referralSheetId,
+        newReferrer.referralAddressText,
+      ],
+    );
+
+    if (client.lifecycleStage === 'LEAD') {
+      await insertLinkedClientAssignments(db, clientId, supervisorIds, authContext.userId);
+    }
+
+    await db.query(
+      `UPDATE candidates
+          SET status = 'Qualified',
+              converted_to_lead_id = $2,
+              duplicate_flag = TRUE
+        WHERE id = $1`,
+      [candidateId, clientId],
+    );
+
+    await db.query('COMMIT');
+
+    res.json({
+      success: true,
+      clientId,
+      candidateId,
+      lifecycleStage: client.lifecycleStage,
+      addedAssignmentUserIds: client.lifecycleStage === 'LEAD' ? supervisorIds : [],
+    });
+  } catch (err: any) {
+    await db.query('ROLLBACK').catch(() => undefined);
+    res.status(err.status || 500).json({ error: err.message });
+  } finally {
+    db.release();
   }
 });
 
@@ -532,16 +833,21 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
+    const canManageAssignments = canManageCandidateAssignments(authContext, targetBranchId);
+    const requestedOwnerUserId = Number(req.body?.ownerUserId);
+    const ownerUserId = canManageAssignments && Number.isInteger(requestedOwnerUserId) && requestedOwnerUserId > 0
+      ? requestedOwnerUserId
+      : null;
     await pool.query(
       `UPDATE candidates SET first_name=$1, last_name=$2, nickname=$3, mobile=$4,
-        contacts=$5, address_text=$6, geo_unit_id=$7, owner_user_id=$8, status=$9, referral_sheet_id=$10,
+        contacts=$5, address_text=$6, geo_unit_id=$7, owner_user_id=COALESCE($8, owner_user_id), status=$9, referral_sheet_id=$10,
         referral_date=$11, referral_reason=$12, referral_type=$13, referral_origin_channel=$14,
         referral_name_snapshot=$15, referral_entity_id=$16, referral_confirmation_status=$17,
         occupation=$18, candidate_notes=$19, duplicate_flag=$20, duplicate_type=$21,
         duplicate_reference_id=$22, converted_to_lead_id=$23, created_by=$24, branch_id=$25
       WHERE id=$26`,
       [c.firstName, c.lastName || null, c.nickname, c.mobile, JSON.stringify(c.contacts || []), c.addressText || '', c.geoUnitId || null,
-       c.ownerUserId || null, c.status || 'Suggested', c.referralSheetId || null,
+       ownerUserId, c.status || 'Suggested', c.referralSheetId || null,
        c.referralDate || null, c.referralReason || null, c.referralType || null,
        c.referralOriginChannel || null, c.referralNameSnapshot || null,
        c.referralEntityId || null, c.referralConfirmationStatus || 'Pending',
@@ -551,7 +857,7 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
     );
 
     // Optionally replace assignments if caller provided a new list
-    if (Array.isArray(req.body?.assignmentUserIds)) {
+    if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
       const rawUserIds: number[] = (req.body.assignmentUserIds as any[])
         .map(Number)
         .filter((n: number) => Number.isFinite(n) && n > 0);

@@ -1,16 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    X, Search, AlertCircle, ArrowRight, Trash2, Clock, CheckCircle2,
+    X, Search, AlertCircle, ArrowRight, Trash2, CheckCircle2,
     Loader2, ShieldAlert, Phone, MapPin, Building2, User,
 } from 'lucide-react';
-import { Candidate, Client, GeoUnit } from '../../lib/types';
+import { Candidate, Client, ClientSmartMatchResponse, GeoUnit } from '../../lib/types';
 import { api } from '../../lib/api';
 
-type SmartMatchResult =
-    | { status: 'NO_MATCH'; normalizedPhone: string; message: string }
-    | { status: 'MATCH_VISIBLE'; client: { id: number; name: string; phone: string; branchName: string | null } }
-    | { status: 'MATCH_RESTRICTED'; message: string };
+type SmartMatchResult = ClientSmartMatchResponse;
+type SmartMatchClient = Extract<SmartMatchResult, { client: unknown }>['client'];
 
 interface QualificationModalProps {
     isOpen: boolean;
@@ -19,7 +17,6 @@ interface QualificationModalProps {
     onQualified: (candidate: Candidate) => void;
     onJunk: (id: number) => void;
     onLink: (candidateId: number, client: Client) => void;
-    onFollowUp?: (id: number) => void;
 }
 
 // ─── Address resolution helper ───────────────────────────────────────────────
@@ -86,7 +83,7 @@ function LinkConfirmOverlay({
                         <div>
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">الاسم</p>
                             <p className="text-sm font-bold text-slate-800">
-                                {client.firstName} {client.lastName}
+                                {client.name || `${client.firstName || ''} ${client.lastName || ''}`.trim() || `#${client.id}`}
                                 {client.nickname && (
                                     <span className="text-slate-400 font-normal"> ({client.nickname})</span>
                                 )}
@@ -172,7 +169,7 @@ function LinkConfirmOverlay({
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 export default function QualificationModal({
-    isOpen, onClose, candidate, onQualified, onJunk, onLink, onFollowUp,
+    isOpen, onClose, candidate, onQualified, onJunk, onLink,
 }: QualificationModalProps) {
     const [step, setStep] = useState<1 | 2>(1);
 
@@ -268,6 +265,22 @@ export default function QualificationModal({
                 alert('تعذر تحميل بيانات الزبون — حاول مرة أخرى.');
             }
         }
+    };
+
+    const requestRestrictedLink = (client: SmartMatchClient) => {
+        setPendingLinkClient({
+            id: client.id,
+            name: client.name,
+            mobile: client.phone,
+            branchName: client.branchName,
+            contacts: [{
+                id: `restricted-${client.id}`,
+                type: 'mobile',
+                number: client.phone,
+                isPrimary: true,
+                status: 'active',
+            }],
+        } as Client);
     };
 
     const confirmLink = () => {
@@ -391,6 +404,43 @@ export default function QualificationModal({
                                     )}
 
                                     {!autoCheckLoading && autoCheckResult?.status === 'MATCH_RESTRICTED' && (
+                                        <div className="space-y-2">
+                                            <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-100">
+                                                <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                                                <div>
+                                                    <p className="text-sm font-bold text-amber-900">
+                                                        الرقم موجود — تفاصيل السجل خارج نطاق عرضك
+                                                    </p>
+                                                    <p className="text-xs text-amber-700 mt-0.5">
+                                                        يمكنك ربط الاسم المقترح بهذا الزبون المطابق دون فتح كامل بياناته.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => requestRestrictedLink(autoCheckResult.client)}
+                                                className="w-full text-right py-3 px-4 rounded-xl border border-amber-100 bg-amber-50/60 hover:bg-amber-50 hover:border-amber-200 transition-all flex items-center justify-between group"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold text-xs group-hover:bg-amber-200 transition-colors">
+                                                        {autoCheckResult.client.id}
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-sm font-bold text-slate-800">
+                                                            {autoCheckResult.client.name}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500">
+                                                            {autoCheckResult.client.branchName || '--'} · {autoCheckResult.client.phone}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold group-hover:bg-amber-200 transition-colors">
+                                                    ربط وتأكيد
+                                                </span>
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {!autoCheckLoading && autoCheckResult?.status === 'MATCH_RESTRICTED' && false && (
                                         <div className="flex items-start gap-3 p-4 rounded-2xl bg-red-50 border border-red-100">
                                             <ShieldAlert className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                                             <div>
@@ -546,18 +596,6 @@ export default function QualificationModal({
                                         </div>
                                     </button>
 
-                                    <button
-                                        onClick={() => { if (onFollowUp) onFollowUp(candidate.id); handleClose(); }}
-                                        className="flex items-center gap-4 p-4 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 transition-all text-right group"
-                                    >
-                                        <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-500 flex items-center justify-center shrink-0">
-                                            <Clock className="w-5 h-5" />
-                                        </div>
-                                        <div>
-                                            <div className="text-sm font-bold text-slate-800">مراجعة لاحقاً</div>
-                                            <div className="text-xs text-slate-500 mt-0.5">تغيير الحالة إلى "متابعة" لجمع معلومات إضافية</div>
-                                        </div>
-                                    </button>
                                 </div>
                             </div>
                         )}

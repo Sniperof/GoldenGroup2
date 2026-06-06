@@ -26,6 +26,11 @@ import {
 } from '../services/customerOwnership.js';
 import { getSystemSettingNumber } from '../services/systemSettings.js';
 import { bookVisit, BookingError } from '../services/visitBooking.js';
+import {
+  claimContactTarget,
+  ContactTargetLockError,
+  markContactTargetFirstContact,
+} from '../services/contactTargetLocks.js';
 
 // DEC-005 D29: outcomes that auto-activate cooldown on the client. After
 // DEC-006 D39 the 4 "not interested" variants are unified into not_interested.
@@ -328,7 +333,7 @@ async function returnTasksToWaiting(
   // Activity log
   for (const row of taskRows) {
     await db.query(
-      `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, notes)
+      `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, reason)
        VALUES ($1, 'status_change', $2, NULL, 'in_scheduling', $3, $4)`,
       [row.id, performedBy, row.restore_status, eventNote],
     );
@@ -552,10 +557,14 @@ const mapTaskListRows = (rows: any[]) => {
         status: row.itemStatus,
         callOutcome: row.callOutcome,
         contactTargetId: row.contactTargetId ?? null,
+        lockedByHrUserId: row.lockedByHrUserId ?? null,
+        lockedByHrUserName: row.lockedByHrUserName ?? null,
         openTaskId: row.itemOpenTaskId ?? null,
         openTaskReason: row.itemOpenTaskReason ?? null,
         openTaskType: row.itemOpenTaskType ?? null,
         openTaskStatus: row.itemOpenTaskStatus ?? null,
+        openTaskExpectedDate: row.itemOpenTaskExpectedDate ?? null,
+        openTaskExpectedTime: row.itemOpenTaskExpectedTime ?? null,
         ownership: row.entityType === 'client' ? mapCustomerOwnership(row) : null,
       });
     }
@@ -784,14 +793,20 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         i.status AS "itemStatus",
         i.call_outcome AS "callOutcome",
         i.contact_target_id AS "contactTargetId",
+        ct.locked_by_hr_user_id AS "lockedByHrUserId",
+        lock_hu.name AS "lockedByHrUserName",
         ot.id AS "itemOpenTaskId",
         ot.reason AS "itemOpenTaskReason",
         ot.task_type AS "itemOpenTaskType",
         ot.status AS "itemOpenTaskStatus",
+        ot.expected_date::text AS "itemOpenTaskExpectedDate",
+        ot.expected_time AS "itemOpenTaskExpectedTime",
         ${buildCustomerOwnershipSelectColumns()}
       FROM telemarketing_task_lists tl
       LEFT JOIN telemarketing_task_list_items i ON i.task_list_id = tl.id
       LEFT JOIN open_tasks ot ON ot.id = i.open_task_id
+      LEFT JOIN contact_targets ct ON ct.id = i.contact_target_id
+      LEFT JOIN hr_users lock_hu ON lock_hu.id = ct.locked_by_hr_user_id
       LEFT JOIN clients c ON i.entity_type = 'client' AND c.id = i.entity_id
       LEFT JOIN branches b ON b.id = c.branch_id
       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'b.name' })}
@@ -1437,6 +1452,40 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
       }
 
       if (openTaskId != null) {
+        const linkStatus = existingItem?.status != null && ['booked', 'closed', 'completed'].includes(String(existingItem.status))
+          ? 'closed'
+          : existingItem?.status === 'excluded'
+            ? 'excluded'
+            : existingItem?.status != null && ['queued', 'in_call_list'].includes(String(existingItem.status))
+              ? 'queued'
+              : 'ready';
+
+        await pgClient.query(
+          `
+            INSERT INTO contact_target_open_tasks (
+              contact_target_id, open_task_id, branch_id, team_key, date, link_status
+            )
+            VALUES ($1, $2, $3, $4, $5::date, $6)
+            ON CONFLICT (contact_target_id, open_task_id, date)
+            DO UPDATE SET
+              branch_id = EXCLUDED.branch_id,
+              team_key = EXCLUDED.team_key,
+              link_status = EXCLUDED.link_status,
+              updated_at = NOW()
+          `,
+          [contactTargetId, openTaskId, branchId, teamKey, date, linkStatus],
+        );
+
+        await pgClient.query(
+          `UPDATE open_tasks
+              SET contact_target_id = $1,
+                  updated_at = NOW()
+            WHERE id = $2
+              AND branch_id = $3
+              AND contact_target_id IS DISTINCT FROM $1`,
+          [contactTargetId, openTaskId, branchId],
+        );
+
         const tlUpdateResult = await pgClient.query(
           `UPDATE open_tasks SET status = 'in_scheduling', updated_at = NOW() WHERE id = $1 AND status = 'assigned'`,
           [openTaskId],
@@ -1603,6 +1652,115 @@ router.patch(
   },
 );
 
+router.post('/contact-targets/:id/claim', requirePermission('telemarketing.calls.create'), async (req, res) => {
+  try {
+    const contactTargetId = Number(req.params.id);
+    const callerId = getCallerId(req);
+    if (!Number.isInteger(contactTargetId) || contactTargetId <= 0) {
+      return res.status(400).json({ error: 'contactTargetId غير صالح' });
+    }
+    if (callerId == null) {
+      return res.status(401).json({ error: 'لا يمكن تحديد المستخدم الحالي' });
+    }
+
+    await claimContactTarget(pool, contactTargetId, callerId);
+
+    const { rows } = await pool.query(
+      `SELECT ct.locked_by_hr_user_id AS "lockedByHrUserId",
+              hu.name AS "lockedByHrUserName",
+              ct.locked_at AS "lockedAt"
+         FROM contact_targets ct
+         LEFT JOIN hr_users hu ON hu.id = ct.locked_by_hr_user_id
+        WHERE ct.id = $1`,
+      [contactTargetId],
+    );
+
+    return res.json(rows[0] ?? { lockedByHrUserId: callerId, lockedByHrUserName: null, lockedAt: null });
+  } catch (err: any) {
+    if (err instanceof ContactTargetLockError) {
+      return res.status(err.statusCode).json({ error: err.message, ownerName: err.ownerName });
+    }
+    console.error('[telemarketing] contact-target claim failed:', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل قفل جهة الاتصال' });
+  }
+});
+
+router.get('/customer/:customerId/all-targets-today', requirePermission('telemarketing.lists.view'), async (req, res) => {
+  try {
+    const customerId = Number(req.params.customerId);
+    const branchId = getBranchId(req);
+    const dateParam = typeof req.query.date === 'string' && req.query.date
+      ? String(req.query.date).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return res.status(400).json({ error: 'customerId غير صالح' });
+    }
+    if (branchId == null) {
+      return res.status(400).json({ error: 'Branch context required' });
+    }
+
+    const { rows } = await pool.query(
+      `
+        SELECT
+          ct.id,
+          ct.target_id AS "customerId",
+          ct.team_key AS "teamKey",
+          ct.date::text AS date,
+          ct.status,
+          ct.visit_type AS "visitType",
+          ct.latest_call_outcome AS "latestCallOutcome",
+          ct.latest_visit_id AS "latestVisitId",
+          ct.closing_reason AS "closingReason",
+          ct.closed_at AS "closedAt",
+          ct.work_location_geo_unit_id AS "workLocationGeoUnitId",
+          gu.name AS "workLocationName",
+          ct.locked_by_hr_user_id AS "lockedByHrUserId",
+          lock_hu.name AS "lockedByHrUserName",
+          ct.first_contacted_by_hr_user_id AS "firstContactedByHrUserId",
+          first_hu.name AS "firstContactedByHrUserName",
+          fv.status AS "visitStatus",
+          fv.scheduled_date::text AS "visitDate",
+          fv.scheduled_time AS "visitTime",
+          COALESCE(task_counts.task_count, 0)::int AS "taskCount",
+          latest_call.outcome AS "latestTelemarketingOutcome",
+          latest_call.timestamp AS "latestCallAt"
+        FROM contact_targets ct
+        LEFT JOIN geo_units gu ON gu.id = ct.work_location_geo_unit_id
+        LEFT JOIN hr_users lock_hu ON lock_hu.id = ct.locked_by_hr_user_id
+        LEFT JOIN hr_users first_hu ON first_hu.id = ct.first_contacted_by_hr_user_id
+        LEFT JOIN field_visits fv ON fv.id = ct.latest_visit_id
+        LEFT JOIN LATERAL (
+          SELECT COUNT(DISTINCT ctot.open_task_id) AS task_count
+            FROM contact_target_open_tasks ctot
+           WHERE ctot.contact_target_id = ct.id
+        ) task_counts ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT tcl.outcome, tcl.timestamp
+            FROM telemarketing_call_logs tcl
+           WHERE tcl.contact_target_id = ct.id
+           ORDER BY tcl.timestamp DESC
+           LIMIT 1
+        ) latest_call ON TRUE
+        WHERE ct.branch_id = $1
+          AND ct.target_type = 'client'
+          AND ct.target_id = $2
+          AND ct.date = $3::date
+        ORDER BY
+          CASE WHEN ct.status = 'closed' THEN 1 ELSE 0 END,
+          ct.team_key NULLS LAST,
+          ct.id
+      `,
+      [branchId, customerId, dateParam],
+    );
+
+    return res.json({ customerId, date: dateParam, items: rows });
+  } catch (err: any) {
+    console.error('[telemarketing] all-targets-today failed:', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل تحميل وعي جهات الاتصال' });
+  }
+});
+
 /**
  * @swagger
  * /api/telemarketing/call-logs:
@@ -1694,6 +1852,15 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
   }
   contactTargetId = taskListItem.contact_target_id ?? null;
 
+  try {
+    await claimContactTarget(pool, contactTargetId, calledBy);
+  } catch (err: any) {
+    if (err instanceof ContactTargetLockError) {
+      return res.status(err.statusCode).json({ error: err.message, ownerName: err.ownerName });
+    }
+    throw err;
+  }
+
   const { rows } = await pool.query(
     `
       INSERT INTO telemarketing_call_logs (
@@ -1738,6 +1905,7 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
   // Update contact_targets lifecycle based on call outcome
   if (contactTargetId != null) {
     const outcome: string = log.outcome;
+    await markContactTargetFirstContact(pool, contactTargetId, calledBy);
 
     // Normalise legacy codes for lifecycle decisions
     const normalised = normaliseOutcomeCode(outcome);
@@ -1909,6 +2077,15 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
           taskType: String(t.taskType ?? 'device_demo'),
         }))
       : [];
+
+    try {
+      await claimContactTarget(pool, contactTargetId, performedByUserId);
+    } catch (err: any) {
+      if (err instanceof ContactTargetLockError) {
+        return res.status(err.statusCode).json({ error: err.message, ownerName: err.ownerName });
+      }
+      throw err;
+    }
 
     const result = await bookVisit({
       branchId,
@@ -2240,7 +2417,7 @@ router.post('/appointments', requirePermission('telemarketing.appointments.book'
         );
         if (priorStatus && priorStatus !== 'in_scheduling') {
           await pgClient.query(
-            `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, notes)
+            `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, reason)
              VALUES ($1, 'lifecycle_skip', $2, NULL, $3, 'scheduled', $4)`,
             [
               task.openTaskId,
@@ -2375,6 +2552,14 @@ router.post(
       if (!item) return res.status(404).json({ error: 'العنصر غير موجود' });
 
       const contactTargetId: number | null = item.contact_target_id ?? null;
+      try {
+        await claimContactTarget(pool, contactTargetId, performedBy);
+      } catch (err: any) {
+        if (err instanceof ContactTargetLockError) {
+          return res.status(err.statusCode).json({ error: err.message, ownerName: err.ownerName });
+        }
+        throw err;
+      }
 
       const pgClient = await pool.connect();
       try {
@@ -2383,7 +2568,7 @@ router.post(
         // 1. Mark task_list_item as manually closed
         await pgClient.query(
           `UPDATE telemarketing_task_list_items
-              SET status = 'called', call_outcome = 'manual_close', updated_at = NOW()
+              SET status = 'called', call_outcome = 'manual_close'
             WHERE task_list_id = $1 AND id = $2`,
           [taskListId, itemId],
         );
@@ -2394,6 +2579,15 @@ router.post(
             latestCallOutcome: 'manual_close',
             status: 'closed',
           });
+          await pgClient.query(
+            `UPDATE contact_targets
+                SET closing_reason = 'manual_telemarketer',
+                    closed_by = $1,
+                    closed_at = COALESCE(closed_at, NOW()),
+                    updated_at = NOW()
+              WHERE id = $2`,
+            [performedBy, contactTargetId],
+          );
 
           // 3. Return associated tasks to waiting
           await returnTasksToWaiting(

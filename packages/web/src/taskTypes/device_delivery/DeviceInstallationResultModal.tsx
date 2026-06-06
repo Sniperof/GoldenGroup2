@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Clock, Loader2, MapPin, Plus, Trash2, Wrench
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
+import PaymentEntriesList, { newEntry, type PaymentEntry } from '../../components/emergency/PaymentEntriesList';
 
 type InstallationDecision = 'installed_successfully' | 'installation_incomplete' | 'refused_installation';
 
@@ -25,6 +26,18 @@ type InstallationPartDraft = {
   customer_stock_id: string;
   customer_stock_origin: string;
   notes: string;
+};
+
+const PART_TYPE_LABELS: Record<string, string> = {
+  Periodic: 'قطع الصيانة الدورية',
+  Emergency: 'قطع الصيانة الطارئة',
+  Accessory: 'إكسسوارات',
+};
+
+const STOCK_ITEM_TYPE_BY_MAINTENANCE_TYPE: Record<string, string[]> = {
+  Periodic: ['periodic_part'],
+  Emergency: ['emergency_part'],
+  Accessory: ['accessory', 'accessory_part'],
 };
 
 const emptyGeoSelection: GeoSelection = { govId: '', regionId: '', subId: '', neighborhoodId: '' };
@@ -127,6 +140,16 @@ function emptyPart(): InstallationPartDraft {
   };
 }
 
+function paymentEntrySyp(entry: PaymentEntry): number {
+  const amount = Number(entry.amountValue) || 0;
+  if (entry.method === 'barter') return amount;
+  return entry.currency === 'usd' ? amount * (Number(entry.exchangeRate) || 0) : amount;
+}
+
+function formatSyp(value: number): string {
+  return `${Math.round(value).toLocaleString('ar-SY')} ل.س`;
+}
+
 export default function DeviceInstallationResultModal({
   visitId,
   taskId,
@@ -165,6 +188,9 @@ export default function DeviceInstallationResultModal({
   const [spareParts, setSpareParts] = useState<any[]>([]);
   const [customerStock, setCustomerStock] = useState<any[]>([]);
   const [parts, setParts] = useState<InstallationPartDraft[]>([]);
+  const [paymentType, setPaymentType] = useState<'cash' | 'installment' | ''>('cash');
+  const [paymentEntries, setPaymentEntries] = useState<PaymentEntry[]>([newEntry()]);
+  const [invoiceNotes, setInvoiceNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -182,6 +208,69 @@ export default function DeviceInstallationResultModal({
   }, [task]);
 
   const activeGeoUnits = useMemo(() => geoUnits.filter((unit) => unit?.status !== 'inactive'), [geoUnits]);
+  const billableParts = useMemo(
+    () => parts.filter((part) => part.source !== 'customer_stock' && (Number(part.unit_price) || 0) > 0),
+    [parts],
+  );
+  const partsTotal = useMemo(
+    () => billableParts.reduce((sum, part) => sum + (Number(part.unit_price) || 0) * (Number(part.quantity) || 1), 0),
+    [billableParts],
+  );
+  const totalPaidSyp = useMemo(
+    () => paymentEntries.reduce((sum, entry) => sum + paymentEntrySyp(entry), 0),
+    [paymentEntries],
+  );
+  const paymentGap = totalPaidSyp - partsTotal;
+
+  function printReceipt() {
+    const rows = parts.map((part) => {
+      const qty = Number(part.quantity) || 1;
+      const unit = part.source === 'customer_stock' ? 0 : Number(part.unit_price) || 0;
+      const total = unit * qty;
+      const sourceLabel = part.source === 'customer_stock' ? 'مدفوعة مسبقا / مخزون الزبون'
+        : part.source === 'company_stock' ? 'مخزون الشركة' : 'إدخال يدوي';
+      const placementLabel = part.placement_state === 'installed' ? 'مركبة' : 'مسلمة للمخزون';
+      return `<tr><td>${part.part_name || '-'}</td><td>${PART_TYPE_LABELS[part.maintenance_type] || '-'}</td><td>${sourceLabel}</td><td>${placementLabel}</td><td>${qty}</td><td>${formatSyp(unit)}</td><td>${formatSyp(total)}</td></tr>`;
+    }).join('');
+    const paymentRows = paymentEntries
+      .filter((entry) => entry.method && Number(entry.amountValue) > 0)
+      .map((entry, index) => {
+        const method = entry.method === 'hand' ? 'يد'
+          : entry.method === 'transfer' ? 'حوالة'
+            : entry.method === 'barter' ? 'مقايضة' : '-';
+        const detail = entry.method === 'barter'
+          ? entry.barterDescription || '-'
+          : entry.currency === 'usd'
+            ? `${entry.amountValue} $ × ${entry.exchangeRate || '-'}`
+            : `${entry.amountValue} ل.س`;
+        return `<tr><td>الدفعة ${index + 1}</td><td>${method}</td><td>${detail}</td><td>${formatSyp(paymentEntrySyp(entry))}</td></tr>`;
+      }).join('');
+    const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>وصل تركيب جهاز</title><style>
+      body{font-family:Arial,Tahoma,sans-serif;margin:28px;color:#0f172a} h1{font-size:22px;margin:0 0 6px} .muted{color:#64748b;font-size:12px}
+      .box{border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:14px} table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+      th,td{border:1px solid #e2e8f0;padding:8px;text-align:right} th{background:#f8fafc;color:#475569}.total{font-weight:800;font-size:15px}
+      .sign{display:flex;gap:36px;margin-top:28px}.sign div{flex:1;border-top:1px solid #cbd5e1;padding-top:8px;color:#475569}
+      @media print{button{display:none}}
+    </style></head><body>
+      <button onclick="window.print()">طباعة</button>
+      <h1>وصل تركيب جهاز</h1>
+      <div class="muted">المهمة #${taskId} · ${new Date().toLocaleString('ar-SY')}</div>
+      <div class="box"><strong>الزبون:</strong> ${task?.clientName || task?.client_name || '-'}<br><strong>العقد/الجهاز:</strong> ${task?.contractNumber || task?.contract_number || '-'} ${task?.deviceModelName || task?.device_model_name || ''}</div>
+      <div class="box"><strong>القطع</strong><table><thead><tr><th>القطعة</th><th>النوع</th><th>المصدر</th><th>المصير</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows || '<tr><td colspan="7">لا توجد قطع</td></tr>'}</tbody></table></div>
+      <div class="box"><strong>الدفع</strong><table><thead><tr><th>البند</th><th>الطريقة</th><th>التفاصيل</th><th>القيمة</th></tr></thead><tbody>${paymentRows || '<tr><td colspan="4">لا توجد دفعات مسجلة</td></tr>'}</tbody></table></div>
+      <div class="box total">الإجمالي: ${formatSyp(partsTotal)}<br>المدفوع: ${formatSyp(totalPaidSyp)}<br>المتبقي: ${formatSyp(Math.max(0, partsTotal - totalPaidSyp))}</div>
+      ${invoiceNotes ? `<div class="box"><strong>ملاحظات الفاتورة:</strong><br>${invoiceNotes}</div>` : ''}
+      <div class="sign"><div>توقيع المستلم</div><div>توقيع الفني</div></div>
+    </body></html>`;
+    const receiptWindow = window.open('', '_blank');
+    if (!receiptWindow) {
+      setError('تعذر فتح نافذة الوصل. تحقق من إعدادات المتصفح.');
+      return;
+    }
+    receiptWindow.document.write(html);
+    receiptWindow.document.close();
+    receiptWindow.focus();
+  }
 
   async function submit() {
     setError(null);
@@ -229,6 +318,23 @@ export default function DeviceInstallationResultModal({
         customer_acknowledged: decision === 'installed_successfully' ? customerAcknowledged : null,
         receiver_name: decision === 'installed_successfully' ? receiverName.trim() : null,
         receiver_signature: decision === 'installed_successfully' ? receiverSignature.trim() : null,
+        installation_payment: decision === 'installed_successfully' ? {
+          payment_type: paymentType || null,
+          invoice_notes: invoiceNotes.trim() || null,
+          total_parts_amount: partsTotal,
+          total_paid_syp: totalPaidSyp,
+          payment_entries: paymentEntries
+            .filter((entry) => entry.method && Number(entry.amountValue) > 0)
+            .map((entry) => ({
+              method: entry.method,
+              amount_value: Number(entry.amountValue) || 0,
+              currency: entry.currency,
+              exchange_rate: entry.exchangeRate ? Number(entry.exchangeRate) : null,
+              transfer_company_id: entry.transferCompanyId ? Number(entry.transferCompanyId) : null,
+              barter_description: entry.barterDescription || null,
+              amount_syp: paymentEntrySyp(entry),
+            })),
+        } : null,
         parts: decision === 'installed_successfully'
           ? parts.map((part) => ({
               source: part.source,
@@ -342,6 +448,15 @@ export default function DeviceInstallationResultModal({
                       const updatePart = (patch: Partial<InstallationPartDraft>) => {
                         setParts((prev) => prev.map((item, i) => i === index ? { ...item, ...patch } : item));
                       };
+                      const filteredSpareParts = part.maintenance_type
+                        ? spareParts.filter((sp) => sp.maintenanceType === part.maintenance_type)
+                        : [];
+                      const allowedCustomerItemTypes = part.maintenance_type
+                        ? STOCK_ITEM_TYPE_BY_MAINTENANCE_TYPE[part.maintenance_type] ?? []
+                        : [];
+                      const filteredCustomerStock = part.maintenance_type
+                        ? customerStock.filter((stock) => allowedCustomerItemTypes.includes(stock.itemType))
+                        : [];
                       return (
                         <div key={index} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                           <div className="mb-3 flex items-center justify-between">
@@ -357,7 +472,19 @@ export default function DeviceInstallationResultModal({
                           <div className="grid gap-3 md:grid-cols-3">
                             <label className="space-y-1.5">
                               <span className="text-xs font-bold text-slate-500">المصدر</span>
-                              <select value={part.source} onChange={(e) => updatePart({ source: e.target.value as InstallationPartDraft['source'], unit_price: e.target.value === 'customer_stock' ? '0' : part.unit_price })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                              <select
+                                value={part.source}
+                                onChange={(e) => updatePart({
+                                  source: e.target.value as InstallationPartDraft['source'],
+                                  spare_part_id: '',
+                                  customer_stock_id: '',
+                                  part_name: '',
+                                  part_code: '',
+                                  unit_price: e.target.value === 'customer_stock' ? '0' : part.unit_price,
+                                  customer_stock_origin: '',
+                                })}
+                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
                                 <option value="company_stock">مخزون الشركة</option>
                                 <option value="customer_stock">مخزون الزبون</option>
                                 <option value="external_or_manual">إدخال يدوي</option>
@@ -372,11 +499,23 @@ export default function DeviceInstallationResultModal({
                             </label>
                             <label className="space-y-1.5">
                               <span className="text-xs font-bold text-slate-500">نوع القطعة</span>
-                              <select value={part.maintenance_type} onChange={(e) => updatePart({ maintenance_type: e.target.value })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                              <select
+                                value={part.maintenance_type}
+                                onChange={(e) => updatePart({
+                                  maintenance_type: e.target.value,
+                                  spare_part_id: '',
+                                  customer_stock_id: '',
+                                  part_name: '',
+                                  part_code: '',
+                                  unit_price: part.source === 'customer_stock' ? '0' : part.unit_price,
+                                  customer_stock_origin: '',
+                                })}
+                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
                                 <option value="">اختر النوع</option>
-                                <option value="Periodic">قطع الصيانة الدورية</option>
-                                <option value="Emergency">قطع الصيانة الطارئة</option>
-                                <option value="Accessory">إكسسوارات</option>
+                                <option value="Periodic">{PART_TYPE_LABELS.Periodic}</option>
+                                <option value="Emergency">{PART_TYPE_LABELS.Emergency}</option>
+                                <option value="Accessory">{PART_TYPE_LABELS.Accessory}</option>
                               </select>
                             </label>
                           </div>
@@ -385,7 +524,8 @@ export default function DeviceInstallationResultModal({
                               <label className="space-y-1.5 md:col-span-2">
                                 <span className="text-xs font-bold text-slate-500">قطعة من مخزون الزبون</span>
                                 <select
-                              value={part.customer_stock_id}
+                                  value={part.customer_stock_id}
+                                  disabled={!part.maintenance_type}
                                   onChange={(e) => {
                                     const selected = customerStock.find((stock) => String(stock.stockId) === e.target.value);
                                     updatePart({
@@ -403,10 +543,10 @@ export default function DeviceInstallationResultModal({
                                         : '',
                                     });
                                   }}
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                                 >
-                                  <option value="">اختر من مخزون الزبون</option>
-                                  {customerStock.map((stock) => (
+                                  <option value="">{part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}</option>
+                                  {filteredCustomerStock.map((stock) => (
                                     <option key={stock.stockId} value={stock.stockId}>
                                       {stock.itemName} - المتوفر {stock.quantityAvailable}
                                     </option>
@@ -418,6 +558,7 @@ export default function DeviceInstallationResultModal({
                                 <span className="text-xs font-bold text-slate-500">القطعة</span>
                                 <select
                                   value={part.spare_part_id}
+                                  disabled={!part.maintenance_type}
                                   onChange={(e) => {
                                     const selected = spareParts.find((sp) => String(sp.id) === e.target.value);
                                     updatePart({
@@ -428,10 +569,10 @@ export default function DeviceInstallationResultModal({
                                       unit_price: selected?.basePrice != null ? String(selected.basePrice) : part.unit_price,
                                     });
                                   }}
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                                 >
-                                  <option value="">اختر قطعة</option>
-                                  {spareParts.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                                  <option value="">{part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}</option>
+                                  {filteredSpareParts.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
                                 </select>
                               </label>
                             ) : (
@@ -462,6 +603,69 @@ export default function DeviceInstallationResultModal({
                     })}
                   </div>
                 )}
+              </div>
+
+              <div className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-800">الدفع والوصل</div>
+                    <div className="text-xs text-slate-500">خاص بالقطع المباعة أثناء التركيب. قطع مخزون الزبون تظهر بقيمة معدومة لأنها مدفوعة مسبقا.</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={printReceipt}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50"
+                  >
+                    طباعة وصل
+                  </button>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-bold text-slate-500">نوع الدفع</span>
+                    <select
+                      value={paymentType}
+                      onChange={(e) => setPaymentType(e.target.value as 'cash' | 'installment' | '')}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">غير محدد</option>
+                      <option value="cash">كاش</option>
+                      <option value="installment">تقسيط</option>
+                    </select>
+                  </label>
+                  <div className="rounded-lg border border-white bg-white px-3 py-2">
+                    <div className="flex justify-between text-xs font-bold text-slate-500">
+                      <span>إجمالي القطع</span>
+                      <span>{formatSyp(partsTotal)}</span>
+                    </div>
+                    <div className="mt-1 flex justify-between text-xs font-bold text-slate-500">
+                      <span>المدفوع</span>
+                      <span>{formatSyp(totalPaidSyp)}</span>
+                    </div>
+                    <div className={`mt-1 flex justify-between border-t pt-1 text-sm font-black ${paymentGap >= 0 ? 'border-emerald-100 text-emerald-700' : 'border-amber-100 text-amber-700'}`}>
+                      <span>{paymentGap >= 0 ? 'مغطى' : 'المتبقي'}</span>
+                      <span>{paymentGap >= 0 ? formatSyp(paymentGap) : formatSyp(Math.abs(paymentGap))}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <PaymentEntriesList
+                  entries={paymentEntries}
+                  onChange={setPaymentEntries}
+                  grandTotal={partsTotal}
+                  label={paymentType === 'installment' ? 'الدفعة الأولى' : 'الدفعات الجزئية'}
+                />
+
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-bold text-slate-500">ملاحظات الفاتورة</span>
+                  <textarea
+                    value={invoiceNotes}
+                    onChange={(e) => setInvoiceNotes(e.target.value)}
+                    rows={2}
+                    className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                    placeholder="تفاصيل الدفع أو ملاحظة على الوصل..."
+                  />
+                </label>
               </div>
             </>
           )}

@@ -19,6 +19,7 @@ import {
   changeProblemStatus,
 } from '../services/serviceRequests/problemsService.js';
 import { computeDerivedOutcome } from '../services/serviceRequests/derivedOutcomeCalc.js';
+import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 
 const router = Router();
 
@@ -291,6 +292,8 @@ async function getTaskMeta(taskId: number) {
             ot.em_pre_state_id AS "preStateId", ot.em_post_state_id AS "postStateId",
             ot.em_action_id AS "actionId", ot.em_costs_id AS "costsId",
             ot.source_service_request_id AS "sourceServiceRequestId",
+            ot.device_id AS "installedDeviceId",
+            ot.team_snapshot AS "teamSnapshot",
             ot.created_at AS "taskDate",
             c.name AS "clientName", c.mobile AS "clientPhone",
             ctr.contract_number AS "contractRef"
@@ -403,6 +406,7 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
                 repaired_by_employee_id AS "repairedByEmployeeId",
                 resolution_visit_task_id AS "resolutionVisitTaskId",
                 resolution_notes AS "resolutionNotes",
+                no_resolve_reason AS "noResolveReason",
                 edit_count AS "editCount"
            FROM service_request_problems
           WHERE open_task_id = $1 AND deleted_at IS NULL
@@ -421,6 +425,16 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
         contractRef:  meta.contractRef  ?? null,
         taskDate:     meta.taskDate     ?? null,
         sourceServiceRequestId: meta.sourceServiceRequestId ?? null,
+        installedDeviceId:      meta.installedDeviceId ?? null,
+        // Technician derived from team_snapshot (one technician per team).
+        // Field is exposed flat so the wizard can auto-fill repaired_by.
+        technicianEmployeeId:
+          meta.teamSnapshot?.technician?.id
+            ?? meta.teamSnapshot?.technicianEmployeeId
+            ?? null,
+        technicianName:
+          meta.teamSnapshot?.technician?.name
+            ?? null,
       },
       problems,
       derivedOutcome,
@@ -1057,6 +1071,29 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       // Update open_task status
       await db.query('UPDATE open_tasks SET status = $1 WHERE id = $2', [newTaskStatus, taskId]);
 
+      // Mirror the final decision onto visit_task_results so the visit
+      // page sees "النتيجة مسجلة" and checkAndCompleteVisit's guard passes.
+      // (Reflection service doesn't cover emergency_maintenance yet.)
+      const { rows: vtRows } = await db.query<{ id: number }>(
+        `SELECT id FROM visit_tasks WHERE source_open_task_id = $1 LIMIT 1`,
+        [taskId],
+      );
+      const visitTaskId = vtRows[0]?.id ?? null;
+      if (visitTaskId) {
+        await db.query(
+          `INSERT INTO visit_task_results
+             (visit_task_id, final_decision, closing_notes, closed_at, closed_by)
+           VALUES ($1, $2, $3, NOW(), $4)
+           ON CONFLICT (visit_task_id) DO UPDATE
+              SET final_decision = EXCLUDED.final_decision,
+                  closing_notes  = COALESCE(EXCLUDED.closing_notes, visit_task_results.closing_notes),
+                  closed_at      = NOW(),
+                  closed_by      = EXCLUDED.closed_by,
+                  updated_at     = NOW()`,
+          [visitTaskId, finalDecision, closingNotes ?? null, recordedBy],
+        );
+      }
+
       // ── needs_followup cascade ───────────────────────────────────────────
       // Phase 6b.3 — Cascade is preserved ONLY for legacy tasks. New-path
       // tasks (source_service_request_id IS NOT NULL) follow V-R007: the
@@ -1107,10 +1144,28 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
 
       await db.query('COMMIT');
 
+      // Auto-complete the visit when all linked visit_tasks have results.
+      // Mirrors the unified result endpoint's behavior for device_demo etc.
+      let visitCompletion: unknown = null;
+      try {
+        const { rows: vtRows } = await pool.query<{ field_visit_id: number | null }>(
+          `SELECT field_visit_id FROM visit_tasks WHERE source_open_task_id = $1 LIMIT 1`,
+          [taskId],
+        );
+        const visitId = vtRows[0]?.field_visit_id ?? null;
+        if (visitId) {
+          visitCompletion = await checkAndCompleteVisit(visitId, recordedBy ?? null);
+        }
+      } catch (e) {
+        // Non-blocking — result is saved either way.
+        console.warn('[emergency-result] checkAndCompleteVisit failed:', e);
+      }
+
       const result: Record<string, unknown> = {
         costsId,
         followUpTaskId,
         taskStatus: newTaskStatus,
+        visitCompletion,
       };
       if (isNewPath) {
         result.sourceServiceRequestId = meta.sourceServiceRequestId;

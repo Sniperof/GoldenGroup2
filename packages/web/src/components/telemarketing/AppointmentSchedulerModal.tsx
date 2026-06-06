@@ -11,6 +11,8 @@ export interface CustomerOpenTask {
     openTaskType: string | null;
     openTaskReason: string | null;
     openTaskStatus: string | null;
+    openTaskExpectedDate?: string | null;
+    openTaskExpectedTime?: string | null;
 }
 
 export interface SelectedTaskEntry {
@@ -24,6 +26,8 @@ interface AppointmentSchedulerModalProps {
     onClose: () => void;
     customerName: string;
     defaultDate: string;
+    initialDate?: string;
+    defaultTime?: string;
     /** All open tasks belonging to this customer in the current task list */
     customerOpenTasks: CustomerOpenTask[];
     entityDetails: any;
@@ -67,6 +71,8 @@ export default function AppointmentSchedulerModal({
     onClose,
     customerName,
     defaultDate,
+    initialDate,
+    defaultTime,
     customerOpenTasks,
     entityDetails,
     onSave,
@@ -80,12 +86,12 @@ export default function AppointmentSchedulerModal({
     // Reset fields when opening — default date is tomorrow.
     useEffect(() => {
         if (isOpen) {
-            setVisitDate(getTomorrow());
-            setVisitTime('');
+            setVisitDate(initialDate || getTomorrow());
+            setVisitTime(defaultTime || '');
             setWaterSource(entityDetails?.waterSource || '');
             setTechnicianNotes('');
         }
-    }, [isOpen, entityDetails, customerOpenTasks]);
+    }, [isOpen, entityDetails, customerOpenTasks, initialDate, defaultTime]);
 
     if (!isOpen) return null;
 

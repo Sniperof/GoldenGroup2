@@ -360,7 +360,7 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
       if (priorStatus && priorStatus !== 'in_scheduling') {
         await db.query(
           `INSERT INTO task_activity_log
-             (task_id, event_type, performed_by, role, old_value, new_value, notes)
+             (task_id, event_type, performed_by, role, old_value, new_value, reason)
            VALUES ($1, 'lifecycle_skip', $2, NULL, $3, 'scheduled', $4)`,
           [
             sel.openTaskId,

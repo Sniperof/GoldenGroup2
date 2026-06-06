@@ -3,6 +3,7 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { resolveActingBranch } from '../services/authorizationService.js';
+import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import {
   canCreateClient,
   canDeleteClient,
@@ -182,6 +183,7 @@ type SmartMatchResponse =
         name: string;
         phone: string;
         branchName: string | null;
+        assignedUserName: string | null;
       };
     }
   | {
@@ -191,6 +193,13 @@ type SmartMatchResponse =
       normalizedPhone: string;
       reason: 'OUT_OF_SCOPE';
       message: string;
+      client: {
+        id: number;
+        name: string;
+        phone: string;
+        branchName: string | null;
+        assignedUserName: string | null;
+      };
     };
 
 type ClientContactInput = {
@@ -267,6 +276,7 @@ async function findDuplicateClientByPhone(
   branchId: number | null;
   branchName: string | null;
   assignedUserIds: number[];
+  assignedUserName: string | null;
 } | null> {
   if (!normalizedPhone) {
     return null;
@@ -285,7 +295,15 @@ async function findDuplicateClientByPhone(
              FROM client_assignments
             WHERE client_id = c.id),
           '{}'::int[]
-        ) AS "assignedUserIds"
+        ) AS "assignedUserIds",
+        (
+          SELECT u.name
+            FROM client_assignments ca
+            JOIN hr_users u ON u.id = ca.hr_user_id
+           WHERE ca.client_id = c.id
+           ORDER BY ca.assigned_at, ca.id
+           LIMIT 1
+        ) AS "assignedUserName"
       FROM clients c
       LEFT JOIN branches b ON b.id = c.branch_id
       WHERE c.is_candidate = FALSE
@@ -331,6 +349,13 @@ function buildSmartMatchResponse(authContext: any, duplicate: Awaited<ReturnType
       normalizedPhone,
       reason: 'OUT_OF_SCOPE',
       message: RESTRICTED_SMART_MATCH_MESSAGE,
+      client: {
+        id: duplicate.id,
+        name: duplicate.name,
+        phone: duplicate.phone,
+        branchName: duplicate.branchName,
+        assignedUserName: duplicate.assignedUserName,
+      },
     };
   }
 
@@ -344,6 +369,7 @@ function buildSmartMatchResponse(authContext: any, duplicate: Awaited<ReturnType
       name: duplicate.name,
       phone: duplicate.phone,
       branchName: duplicate.branchName,
+      assignedUserName: duplicate.assignedUserName,
     },
   };
 }
@@ -373,6 +399,16 @@ function resolveClientTargetBranch(req: any, requestedBranchId?: number | string
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
   });
+}
+
+function canManageClientAssignments(authContext: ReturnType<typeof getRequiredAuthContext>, branchId: number | null): boolean {
+  if (authContext.isSuperAdmin) return true;
+  const grant = authContext.grants.find(item => item.permission === 'clients.edit');
+  if (grant?.scope === 'GLOBAL') return true;
+  if (grant?.scope === 'BRANCH' && branchId != null) {
+    return authContext.allowedBranchIds.includes(branchId);
+  }
+  return false;
 }
 
 function resolveClientListBranchFilter(req: any): number | null {
@@ -903,8 +939,9 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
 
     // Resolve the list of users this client will be assigned to.
     // Non-super-admin is always included in their own assignments (self-assign).
+    const canManageAssignments = canManageClientAssignments(authContext, targetBranchId);
     const resolvedAssignees = await resolveAssignmentUserIds(
-      req.body?.assignmentUserIds,
+      canManageAssignments ? req.body?.assignmentUserIds : undefined,
       authContext.userId,
       authContext.isSuperAdmin,
     );
@@ -933,6 +970,21 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         error: 'DUPLICATE_CLIENT_PHONE',
         ...buildSmartMatchResponse(authContext, duplicate, c.mobile),
       });
+    }
+
+    // Geo-coverage enforcement — neighborhood is the deepest geo unit on a
+    // client; serviceGeoIds includes all descendants of branch coverage so
+    // checking the leaf is sufficient. Enforce against the TARGET branch
+    // (not the actor's acting branch) so cross-branch creates respect the
+    // target branch's coverage.
+    if (c.neighborhood) {
+      const geoCheck = await assertGeoUnitInScope(authContext, c.neighborhood, 'geo.view', targetBranchId);
+      if (!geoCheck.allowed) {
+        return res.status(403).json({
+          error: 'العَنوان الجغرافي للزبون خارج نِطاق تَغطية الفَرع المُستهدف',
+          code: geoCheck.reason,
+        });
+      }
     }
 
     const { rows: [inserted] } = await pool.query(
@@ -1069,6 +1121,18 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     }
 
+    // Geo-coverage enforcement on edit — guard against moving the client's
+    // address into a geo unit outside the owning branch's coverage.
+    if (c.neighborhood) {
+      const geoCheck = await assertGeoUnitInScope(authContext, c.neighborhood, 'geo.view', existing?.branch_id ?? null);
+      if (!geoCheck.allowed) {
+        return res.status(403).json({
+          error: 'العَنوان الجغرافي للزبون خارج نِطاق تَغطية فَرع الزبون',
+          code: geoCheck.reason,
+        });
+      }
+    }
+
     const duplicate = await findDuplicateClientByPhone(c.mobile, Number(clientId));
     if (duplicate) {
       return res.status(409).json({
@@ -1093,7 +1157,12 @@ router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
 
     // Resolve assignment changes only if the caller explicitly provided a new list
     let newAssigneeIds: number[] | null = null;
-    if (Array.isArray(req.body?.assignmentUserIds)) {
+    const assignmentBranchId = newBranchId == null || newBranchId === '' ? null : Number(newBranchId);
+    const canManageAssignments = canManageClientAssignments(
+      authContext,
+      Number.isInteger(assignmentBranchId) ? assignmentBranchId : null,
+    );
+    if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
       const resolved = await resolveAssignmentUserIds(
         req.body.assignmentUserIds,
         authContext.userId,

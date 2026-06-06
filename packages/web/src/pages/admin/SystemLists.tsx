@@ -7,6 +7,8 @@ import {
   ToggleLeft, ToggleRight, Search, ChevronLeft, GraduationCap,
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
   Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu, Phone,
+  Wrench, ClipboardList, DollarSign, MapPin, Bug, Package,
+  RotateCcw, Ban, Truck, Clock, Percent, Star, Snowflake, Receipt,
 } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
@@ -174,6 +176,256 @@ const CATEGORIES: CategoryMeta[] = [
     usedIn: [
       { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
       { label: 'إدخال طلب يدوي', route: 'الوظائف ← الطلبات ← إدخال يدوي', icon: <FileText className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم الزيارات والاستطلاع
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'area_evaluation_options',
+    label: 'تقييم المنطقة (استطلاع الزيارة)',
+    description: 'مستويات تقييم المنطقة جغرافياً/سكانياً التي يَختارها الفني عند تَعبئة استطلاع الزيارة الميدانية. تُغذِّي تَقارير جَودة الانتشار.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال استطلاع الزيارة', route: 'الزيارات ← تفاصيل الزيارة ← الاستطلاع', icon: <Star className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'survey_skip_reasons',
+    label: 'أسباب تَخطّي استطلاع الزيارة',
+    description: 'القيم المعتمدة عند اختيار "تَخطّي الاستطلاع" — تَضمن وجود سَبب مُهيكَل بَدَل نَص حُر، ضَرورية لإكمال إغلاق الزيارة (DEC-007 D44).',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال استطلاع الزيارة — تَخطّي', route: 'الزيارات ← تفاصيل الزيارة ← تَخطّي الاستطلاع', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'location_missing_reasons',
+    label: 'أسباب غياب GPS عند بَدء/إنهاء الزيارة',
+    description: 'الأسباب المُعتَمَدة عندما يَكون GPS غير مُتوفِّر لحظة بَدء أو إنهاء الزيارة الميدانية. شَرط إجباري في endpoint البَدء/الإنهاء.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'بَدء/إنهاء الزيارة', route: 'الزيارات ← تفاصيل الزيارة ← بدء/إنهاء', icon: <MapPin className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'visit_cancellation_reasons',
+    label: 'أسباب إلغاء الزيارة / المهمة',
+    description: 'الأسباب المعتمدة عند إلغاء زيارة تَسويق أو مَهمة صيانة طارئة ميدانياً. تَنعكس على open_task بحالة "ملغاة" و تُحفظ في `cancellation_reason`.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة الزيارة التسويقية — إلغاء', route: 'الزيارات ← نتيجة المهمة', icon: <Ban className="w-3 h-3" /> },
+      { label: 'مودال نتيجة الصيانة الطارئة — إلغاء', route: 'الزيارات ← مهمة صيانة', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'visit_not_completed_reasons',
+    label: 'أسباب عدم اكتمال الزيارة',
+    description: 'أسباب عَدم إكمال زيارة بَدأت ميدانياً لكنها لم تَنتهِ بنَجاح. تُخَزَّن على `field_visits.not_completed_reason`.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إنهاء الزيارة بدون إكمال', route: 'الزيارات ← تفاصيل الزيارة ← إنهاء', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'visit_task_reasons',
+    label: 'أسباب إضافة مهمة للزيارة',
+    description: 'الأسباب المُعتَمَدة عند إضافة مَهمة جَديدة لزيارة قائمة (خارج المَخطَّط الأصلي).',
+    impact: 'low',
+    usedIn: [
+      { label: 'إضافة مهمة لزيارة قائمة', route: 'الزيارات ← تفاصيل الزيارة ← إضافة مهمة', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'customer_followup_reasons',
+    label: 'أسباب إعادة جَدوَلَة المهمة',
+    description: 'الأسباب المعتمدة عند طَلب إعادة جَدوَلَة مَهَمَّة (الزبون غير مُتوفِّر، قطعة ناقصة، ...). تَنقُل المهمة لحالة "بحاجة مُتابعة" مع تاريخ مُتوقَّع جَديد.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة الزيارة التسويقية — إعادة جَدوَلَة', route: 'الزيارات ← نتيجة المهمة', icon: <ClipboardList className="w-3 h-3" /> },
+      { label: 'مودال نتيجة الصيانة الطارئة — إعادة جَدوَلَة', route: 'الزيارات ← مهمة صيانة', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم الصيانة الطارئة
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'diagnosis_problem_types',
+    label: 'أنواع الأعطال (التَشخيص)',
+    description: 'القاموس المعتمد لأنواع الأعطال على الأَجهزة. يَستخدمه طلبات الصيانة عند إضافة الأعطال + الفني عند اكتشاف عَطل ميدانياً.',
+    impact: 'high',
+    usedIn: [
+      { label: 'طلب صيانة جَديد — لائحة الأعطال', route: 'طلبات الصيانة ← تفاصيل الطلب', icon: <Bug className="w-3 h-3" /> },
+      { label: 'مودال الصيانة الطارئة — اكتشاف ميداني', route: 'الزيارات ← مهمة صيانة', icon: <Bug className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_resolved_reason',
+    label: 'أسباب الحَل (نَتيجة الصيانة)',
+    description: 'أسباب تَوصيف الحَل في تَكاليف الصيانة الطارئة عند `final_decision = resolved`.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — مرحلة التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_unresolved_reason',
+    label: 'أسباب عَدم الحَل (نَتيجة الصيانة)',
+    description: 'أسباب تَوصيف عَدم الحَل في تَكاليف الصيانة الطارئة عند `final_decision = unresolved`.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — مرحلة التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_followup_reason',
+    label: 'أسباب طَلب المُتابعة (نَتيجة الصيانة)',
+    description: 'أسباب اختيار "بحاجة مُتابعة" كنَتيجة في تَكاليف الصيانة الطارئة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — مرحلة التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_cancelled_reason',
+    label: 'أسباب الإلغاء (نَتيجة الصيانة)',
+    description: 'أسباب اختيار "إلغاء" كنَتيجة في تَكاليف الصيانة الطارئة من شاشة المرحلة 4 (مُختلفة عن إلغاء الزيارة).',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — مرحلة التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_unresolved_reasons',
+    label: 'أسباب عَدم الحَل (طلب الصيانة)',
+    description: 'أسباب تَوضيح عَدم الحَل المُسَجَّلة على لائحة الأعطال داخل طلب الصيانة (قبل الترقية لمهمة).',
+    impact: 'low',
+    usedIn: [
+      { label: 'طلب الصيانة ← لائحة الأعطال', route: 'طلبات الصيانة ← تفاصيل الطلب', icon: <Bug className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_partial_reasons',
+    label: 'أسباب الحَل الجُزئي (طلب الصيانة)',
+    description: 'أسباب تَوضيح الحَل الجُزئي على الأعطال داخل طلب الصيانة.',
+    impact: 'low',
+    usedIn: [
+      { label: 'طلب الصيانة ← لائحة الأعطال', route: 'طلبات الصيانة ← تفاصيل الطلب', icon: <Bug className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'reopen_reasons',
+    label: 'أسباب إعادة فَتح طلب الصيانة',
+    description: 'الأسباب المعتمدة عند إعادة فَتح طلب صيانة مُغلَق. تُسَجَّل في سجل التَدقيق.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'طلب الصيانة ← إعادة فَتح', route: 'طلبات الصيانة ← تفاصيل الطلب ← إجراءات', icon: <RotateCcw className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_uniqueness_override_reasons',
+    label: 'أسباب تَجاوز قَيد فَريد لمَهمة الطوارئ',
+    description: 'الأسباب المعتمدة عند تَجاوز قَيد "مَهمة طوارئ نَشِطة واحدة لكل جهاز" (EM-UNIQ-01). يَتَطَلَّب صَلاحية audit-admin.',
+    impact: 'high',
+    usedIn: [
+      { label: 'ترقية طلب صيانة لمَهمة طوارئ', route: 'طلبات الصيانة ← الترقية', icon: <ShieldCheck className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'part_no_retrieval_reason',
+    label: 'أسباب عَدم استرجاع القطعة المُستَبدَلة',
+    description: 'الأسباب المعتمدة عند استبدال قطعة بدون استرجاع القطعة القديمة من الزبون (تَلِفت كاملاً، رَفض الزبون، ...).',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — القطع المُستَبدَلة', route: 'الزيارات ← مهمة صيانة ← المرحلة 2', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم العقود والبيع والمَدفوعات
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'contract_sale_source',
+    label: 'مَصادر البيع (للعقود)',
+    description: 'القَناة التي أَتى منها البيع (إحالة، مَعرض، حَملة...). يُسَجَّل على `contracts.sale_source` لتَحليل قَنوات البيع.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نَموذج إنشاء/تَعديل عَقد', route: 'العقود ← نَموذج العَقد', icon: <Receipt className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'discount_reason',
+    label: 'أسباب الحَسم',
+    description: 'أسباب تَبرير حَسم نِسبة من تَكلفة الصيانة. تُسَجَّل في تَكاليف الصيانة الطارئة جَنباً مع نَسبة الحَسم.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Percent className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'transfer_company',
+    label: 'شَركات التَحويل المالي',
+    description: 'قائمة شَركات التَحويل المعتمدة (الهرم، الفؤاد، ويسترن...) المُختارة عند تَحصيل دَفعة بطريق "تَحويل". تَظهر في تَكاليف الصيانة وفي تَركيب الجهاز.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — دَفعات', route: 'الزيارات ← مهمة صيانة', icon: <Truck className="w-3 h-3" /> },
+      { label: 'مودال نتيجة التَركيب — دَفعات', route: 'الزيارات ← مهمة تَركيب', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'no_closing_reasons',
+    label: 'أسباب عَدم إغلاق العَرض',
+    description: 'الأسباب التي تَمنع إغلاق عَرض جهاز مَفتوح للزبون (الزبون مُتَردِّد، مَشغول، يَحتاج وَقت...).',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عَرض جهاز للزبون', route: 'الزبائن ← الأَجهزة المَعروضة', icon: <Tag className="w-3 h-3" /> },
+      { label: 'عَرض مُسَتقِل من شاشة الزبون', route: 'الزبائن ← عَرض جهاز', icon: <Tag className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم التَركيب
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'installation_incomplete_reason',
+    label: 'أسباب عَدم اكتمال التَركيب',
+    description: 'الأسباب المعتمدة عند تَسجيل نَتيجة "تَركيب غير مُكتَمل" — يَتَطَلَّب زيارة لاحقة لإكمال التَركيب.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التَركيب', route: 'الزيارات ← مهمة تَركيب', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'installation_refusal_reason',
+    label: 'أسباب رَفض التَركيب',
+    description: 'الأسباب التي يُقَدِّمها الزبون عند رَفضه تَركيب الجهاز ميدانياً. تُسَجَّل على نَتيجة المَهمة وتَنعكس على حالة الجهاز.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة التَركيب', route: 'الزيارات ← مهمة تَركيب', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم التَواصل وإدارة جهات الاتصال
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'not_interested_reasons',
+    label: 'أسباب عَدم اهتمام الزبون',
+    description: 'الأسباب التَفصيلية لاختيار "غير مُهتَمّ" في مودال نتيجة التَواصل (سَعر، حاجة، ...). فَرعية من قائمة "أسباب رَفض الجَدولة".',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة التَواصل — غير مهتم', route: 'التيلماركتر ← تَسجيل نتيجة', icon: <Phone className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'cooldown_manual_reasons',
+    label: 'أسباب تَجميد الزبون يَدوياً',
+    description: 'الأسباب المعتمدة عند تَجميد جهة اتصال (cooldown) يَدوياً لفَترة مُحَدَّدة — يَمنع التَواصل مَعها مُؤقَّتاً.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'بَطاقة التَحَكُّم بالتَواصل', route: 'الزبائن ← تفاصيل الزبون ← Cooldown', icon: <Snowflake className="w-3 h-3" /> },
     ],
   },
 ];

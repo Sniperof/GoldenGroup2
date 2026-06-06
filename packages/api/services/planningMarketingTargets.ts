@@ -561,7 +561,7 @@ export async function getPlanningMarketingTargets(params: {
         c.district,
         c.neighborhood,
         CASE
-          WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
+          WHEN ot.location_basis IN ('contract', 'device') THEN ct_zone.installation_geo_unit_id
           ELSE c.neighborhood
         END AS "effectiveZoneId",
         c.detailed_address AS "detailedAddress",

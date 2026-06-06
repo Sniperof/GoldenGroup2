@@ -226,51 +226,7 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
     },
 
     linkCandidateToClient: async (candidateId, clientId) => {
-        const state = get();
-        const candidate = state.candidates.find(c => c.id === candidateId);
-
-        if (candidate) {
-            const clients = await api.clients.list();
-            const client = clients.find((c: any) => c.id === clientId);
-
-            if (client) {
-                const existingReferrers = client.referrers || [];
-
-                const newReferrer = {
-                    id: Date.now().toString(),
-                    referrerType: candidate.referralType,
-                    referralEntityId: candidate.referralEntityId,
-                    referrerName: candidate.referralNameSnapshot,
-                    sourceChannel: candidate.referralOriginChannel,
-                    referralDate: candidate.referralDate,
-                    referralReason: candidate.referralReason,
-                    referralSheetId: candidate.referralSheetId
-                };
-
-                const updateData: any = {
-                    referrers: [...existingReferrers, newReferrer]
-                };
-
-                if (!client.referrerName) {
-                    updateData.referrerName = newReferrer.referrerName;
-                    updateData.referrerType = newReferrer.referrerType;
-                    updateData.sourceChannel = newReferrer.sourceChannel;
-                    updateData.referralEntityId = newReferrer.referralEntityId;
-                    updateData.referralDate = newReferrer.referralDate;
-                    updateData.referralReason = newReferrer.referralReason;
-                    updateData.referralSheetId = newReferrer.referralSheetId;
-                }
-
-                await api.clients.update(clientId, updateData);
-            }
-        }
-
-        await api.candidates.update(candidateId, {
-            ...(candidate || {}),
-            status: 'Qualified',
-            convertedToLeadId: clientId,
-            duplicateFlag: true
-        });
+        await api.candidates.linkToClient(candidateId, clientId);
 
         await get().fetchData();
 

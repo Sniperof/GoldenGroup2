@@ -89,6 +89,7 @@ export async function addProblem(
       ? 'resolved_at_intake'
       : 'reported';
 
+    const resolvedAtIntake = initialStatus === 'resolved_at_intake';
     const { rows } = await tx.client.query<{ id: number }>(
       `INSERT INTO service_request_problems (
          service_request_id, installed_device_id, problem_type_id,
@@ -96,11 +97,10 @@ export async function addProblem(
          created_by_user_id, added_during_phase, creator_role_snapshot,
          resolved_at, resolution_recorded_by_user_id
        ) VALUES (
-         $1, $2, $3,
-         $4, $5,
-         $6, $7, $8,
-         CASE WHEN $5 = 'resolved_at_intake' THEN NOW() ELSE NULL END,
-         CASE WHEN $5 = 'resolved_at_intake' THEN $6 ELSE NULL END
+         $1::int, $2::int, $3::int,
+         $4::text, $5::text,
+         $6::int, $7::text, $8::text,
+         $9::timestamptz, $10::int
        )
        RETURNING id`,
       [
@@ -112,6 +112,8 @@ export async function addProblem(
         input.createdByUserId,
         input.addedDuringPhase,
         input.creatorRoleSnapshot,
+        resolvedAtIntake ? new Date() : null,
+        resolvedAtIntake ? input.createdByUserId : null,
       ],
     );
     const problemId = rows[0].id;
@@ -275,7 +277,7 @@ export async function editProblem(
 // ============================================================
 
 const STATUS_TRANSITIONS: Record<ProblemStatus, ProblemStatus[]> = {
-  reported: ['confirmed', 'resolved_at_intake', 'deferred', 'cancelled'],
+  reported: ['confirmed', 'resolved', 'resolved_at_intake', 'deferred', 'unresolvable_field', 'cancelled'],
   confirmed: ['resolved', 'deferred', 'unresolvable_field', 'cancelled'],
   resolved_at_intake: [], // terminal at intake
   resolved: [], // EM-PROB-02 — override-only
@@ -296,6 +298,9 @@ export interface ChangeProblemStatusInput {
   repairTeamSnapshot?: Record<string, unknown> | null;
   resolutionNotes?: string | null;
   reason?: string | null;
+  /** Structured reason for deferred/unresolvable_field. Allowed:
+   *  awaiting_parts | customer_busy | needs_lab | other */
+  noResolveReason?: string | null;
 }
 
 export async function changeProblemStatus(
@@ -347,6 +352,18 @@ export async function changeProblemStatus(
     const setParts: string[] = ['status = $2', 'updated_at = NOW()'];
     const params: unknown[] = [input.problemId, input.toStatus];
     let idx = 3;
+
+    // Defer/unresolvable_field — capture no_resolve_reason if provided
+    if (input.toStatus === 'deferred' || input.toStatus === 'unresolvable_field') {
+      if (input.noResolveReason != null) {
+        setParts.push(`no_resolve_reason = $${idx++}`);
+        params.push(input.noResolveReason);
+      }
+    }
+    // Clear no_resolve_reason when moving back to active states
+    if (input.toStatus === 'resolved' || input.toStatus === 'resolved_at_intake' || input.toStatus === 'confirmed') {
+      setParts.push('no_resolve_reason = NULL');
+    }
 
     if (input.toStatus === 'resolved' || input.toStatus === 'resolved_at_intake') {
       setParts.push('resolved_at = NOW()');
