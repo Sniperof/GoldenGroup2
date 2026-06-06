@@ -7,6 +7,15 @@
 -- without re-resolving the live device (which may have moved/changed).
 -- ============================================================
 
+-- Older staging databases predate the activation timestamp now used by the
+-- installed-device API, warranty lifecycle, and task snapshots.
+ALTER TABLE public.installed_devices
+  ADD COLUMN IF NOT EXISTS activated_at TIMESTAMP WITH TIME ZONE;
+
+CREATE INDEX IF NOT EXISTS idx_installed_devices_activated_at
+  ON public.installed_devices(activated_at)
+  WHERE activated_at IS NOT NULL;
+
 ALTER TABLE public.open_tasks
   ADD COLUMN IF NOT EXISTS device_snapshot JSONB;
 
