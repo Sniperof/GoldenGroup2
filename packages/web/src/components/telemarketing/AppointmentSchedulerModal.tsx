@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Calendar, Clock, Droplets, FileText, CheckCircle2, X, Loader2 } from 'lucide-react';
-import { WORKING_HOURS } from '../../lib/types';
+import { api } from '../../lib/api';
 import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
 import type { OpenTaskType } from '@golden-crm/shared';
 
@@ -38,14 +38,6 @@ interface AppointmentSchedulerModalProps {
     }) => Promise<void>;
 }
 
-const WATER_SOURCE_OPTIONS = [
-    { value: 'الاسالة الحكومية', label: 'الاسالة الحكومية' },
-    { value: 'شراء قناني معبأة (RO)', label: 'شراء قناني معبأة (RO)' },
-    { value: 'ماء بئر / جوفي', label: 'ماء بئر / جوفي' },
-    { value: 'تناكر / حوضيات', label: 'تناكر / حوضيات' },
-    { value: 'غير معروف', label: 'غير معروف' },
-];
-
 function getTaskLabel(type: string | null): string {
     if (!type) return 'مهمة غير محددة';
     return (OPEN_TASK_TYPE_LABELS as Record<string, string>)[type as OpenTaskType] || type;
@@ -71,19 +63,36 @@ export default function AppointmentSchedulerModal({
     entityDetails,
     onSave,
 }: AppointmentSchedulerModalProps) {
-    const [visitDate, setVisitDate] = useState(getTomorrow());
+    const [visitDate, setVisitDate] = useState(getToday());
     const [visitTime, setVisitTime] = useState('');
     const [waterSource, setWaterSource] = useState('');
     const [technicianNotes, setTechnicianNotes] = useState('');
     const [saving, setSaving] = useState(false);
+    const [waterSourceOptions, setWaterSourceOptions] = useState<string[]>([]);
 
-    // Reset fields when opening — default date is tomorrow.
+    // Reset fields when opening — default date is today.
     useEffect(() => {
         if (isOpen) {
-            setVisitDate(getTomorrow());
+            setVisitDate(getToday());
             setVisitTime('');
             setWaterSource(entityDetails?.waterSource || '');
             setTechnicianNotes('');
+
+            let active = true;
+            const fetchWaterSources = async () => {
+                try {
+                    const res = await api.systemLists.list({ category: 'water_source', activeOnly: true });
+                    if (!active) return;
+                    setWaterSourceOptions(res.map((item: any) => item.value));
+                } catch {
+                    if (active) setWaterSourceOptions([]);
+                }
+            };
+            fetchWaterSources();
+
+            return () => {
+                active = false;
+            };
         }
     }, [isOpen, entityDetails, customerOpenTasks]);
 
@@ -173,8 +182,8 @@ export default function AppointmentSchedulerModal({
                                 type="time"
                                 value={visitTime}
                                 onChange={e => setVisitTime(e.target.value)}
-                                min={`${WORKING_HOURS.start.toString().padStart(2, '0')}:00`}
-                                max={`${WORKING_HOURS.end.toString().padStart(2, '0')}:00`}
+                                min="08:00"
+                                max="18:00"
                                 className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
                                 dir="ltr"
                             />
@@ -217,8 +226,8 @@ export default function AppointmentSchedulerModal({
                                 className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                             >
                                 <option value="">-- اختر مصدر المياه --</option>
-                                {WATER_SOURCE_OPTIONS.map(opt => (
-                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                {waterSourceOptions.map(option => (
+                                    <option key={option} value={option}>{option}</option>
                                 ))}
                             </select>
                         </div>
