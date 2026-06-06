@@ -42,7 +42,7 @@ const formatDateArabic = (dateStr: string) => parseDateKey(dateStr).toLocaleDate
 
 /** A customer is the contact unit. They may have multiple open tasks. */
 interface CustomerGroup {
-    key: string;          // `${entityType}:${entityId}`
+    key: string;          // contact-target scoped when available, otherwise `${entityType}:${entityId}`
     entityType: 'candidate' | 'client';
     entityId: number;
     name: string;
@@ -50,6 +50,8 @@ interface CustomerGroup {
     addressText: string;
     geoUnitId: number | null;
     contactTargetId: number | undefined;
+    lockedByHrUserId?: number | null;
+    lockedByHrUserName?: string | null;
     /** The first item is used as the primary item for call-log linkage. */
     primaryItem: TaskListItem;
     /** All task list items for this customer. */
@@ -61,10 +63,34 @@ interface CustomerGroup {
     callOutcome?: string;
 }
 
+interface CrossTeamTarget {
+    id: number;
+    customerId: number;
+    teamKey: string | null;
+    date: string;
+    status: string;
+    visitType: string | null;
+    latestCallOutcome: string | null;
+    latestVisitId: number | null;
+    closingReason: string | null;
+    closedAt: string | null;
+    workLocationGeoUnitId: number | null;
+    workLocationName: string | null;
+    lockedByHrUserId: number | null;
+    lockedByHrUserName: string | null;
+    firstContactedByHrUserName: string | null;
+    visitStatus: string | null;
+    visitDate: string | null;
+    visitTime: string | null;
+    taskCount: number;
+    latestTelemarketingOutcome: string | null;
+    latestCallAt: string | null;
+}
+
 function groupByCustomer(items: TaskListItem[]): CustomerGroup[] {
     const map = new Map<string, CustomerGroup>();
     for (const item of items) {
-        const key = `${item.entityType}:${item.entityId}`;
+        const key = item.contactTargetId ? `ct:${item.contactTargetId}` : `${item.entityType}:${item.entityId}`;
         if (!map.has(key)) {
             map.set(key, {
                 key,
@@ -75,6 +101,8 @@ function groupByCustomer(items: TaskListItem[]): CustomerGroup[] {
                 addressText: item.addressText,
                 geoUnitId: item.geoUnitId,
                 contactTargetId: item.contactTargetId,
+                lockedByHrUserId: item.lockedByHrUserId ?? null,
+                lockedByHrUserName: item.lockedByHrUserName ?? null,
                 primaryItem: item,
                 allItems: [],
                 openTasks: [],
@@ -91,6 +119,8 @@ function groupByCustomer(items: TaskListItem[]): CustomerGroup[] {
                 openTaskType: item.openTaskType,
                 openTaskReason: item.openTaskReason,
                 openTaskStatus: item.openTaskStatus,
+                openTaskExpectedDate: item.openTaskExpectedDate ?? null,
+                openTaskExpectedTime: item.openTaskExpectedTime ?? null,
             });
         }
         // Status: booked > called > pending
@@ -157,8 +187,28 @@ const getOutcomeDisplay = (code: string): { label: string; color: string; bg: st
 
 const getInitials = (name: string) => name.trim().split(' ').map(n => n[0]).slice(0, 2).join('') || 'U';
 
+const SOURCE_CHANNEL_LABELS: Record<string, string> = {
+    Acquaintance: 'معرفة شخصية',
+    PhoneCall: 'اتصال هاتفي',
+    SocialMedia: 'تواصل اجتماعي',
+    Campaign: 'حملة',
+    App: 'تطبيق',
+};
+
+const RATING_LABELS: Record<string, string> = {
+    Committed: 'ملتزم',
+    NotCommitted: 'غير ملتزم',
+    Undefined: 'غير مصنف',
+};
+
 const getAppointmentForCustomer = (cg: CustomerGroup, appointments: Appointment[], teamKey: string, date: string): Appointment | undefined =>
-    appointments.find(a => a.entityType === cg.entityType && a.entityId === cg.entityId && a.teamKey === teamKey && a.date === date);
+    appointments.find(a =>
+        a.entityType === cg.entityType &&
+        a.entityId === cg.entityId &&
+        a.teamKey === teamKey &&
+        a.date === date &&
+        (cg.contactTargetId ? a.contactTargetId === cg.contactTargetId : true),
+    );
 
 const getOpenTaskDetailPath = (taskType: string | null | undefined, taskId: number | null | undefined) => {
     if (!taskId) return null;
@@ -194,8 +244,9 @@ const OwnershipBadge = ({ ownership }: { ownership?: CustomerOwnership | null })
 export default function TelemarketerWorkspace() {
     const candidates = useCandidateStore(state => state.candidates);
     const { clients, loadClients, updateClient } = useClientStore();
-    const { taskLists, appointments, callLogs, loadData, addCallLog, addAppointment, updateTaskListItemStatus, getTaskList, getAppointmentsForTeamDate } = useTelemarketingStore();
+    const { taskLists, appointments, callLogs, loadData, addCallLog, addAppointment, addDirectAppointment, updateTaskListItemStatus, getTaskList, getAppointmentsForTeamDate } = useTelemarketingStore();
     const canBook = useAuthStore(state => state.hasPermission('telemarketing.appointments.book'));
+    const authUser = useAuthStore(state => state.user);
     const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
     const [taskTypeOptions, setTaskTypeOptions] = useState<{ taskType: string; arabicLabel: string }[]>([]);
     useEffect(() => {
@@ -286,6 +337,48 @@ export default function TelemarketerWorkspace() {
 
     const getCustomerAppointment = useCallback((cg: CustomerGroup) => getAppointmentForCustomer(cg, teamAppointments, selectedTeamKey, date), [teamAppointments, selectedTeamKey, date]);
 
+    useEffect(() => {
+        const clientIds = Array.from(new Set(
+            customerGroups
+                .filter(cg => cg.entityType === 'client')
+                .map(cg => cg.entityId),
+        ));
+        if (clientIds.length === 0) {
+            setCrossTeamTargetsByClient({});
+            setCrossTeamLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        const loadCrossTeamTargets = (showLoading: boolean) => {
+            if (showLoading) setCrossTeamLoading(true);
+            Promise.all(
+                clientIds.map(clientId =>
+                    api.telemarketing.customerTargetsToday(clientId, date)
+                        .then(result => [clientId, result.items || []] as const)
+                        .catch(() => [clientId, []] as const),
+                ),
+            ).then(entries => {
+                if (cancelled) return;
+                const next: Record<number, CrossTeamTarget[]> = {};
+                entries.forEach(([clientId, items]) => {
+                    next[clientId] = items;
+                });
+                setCrossTeamTargetsByClient(next);
+            }).finally(() => {
+                if (!cancelled && showLoading) setCrossTeamLoading(false);
+            });
+        };
+
+        loadCrossTeamTargets(true);
+        const timer = window.setInterval(() => loadCrossTeamTargets(false), 30000);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [customerGroups, date]);
+
     const counts = useMemo(() => {
         const cgLogs = (cg: CustomerGroup) =>
             callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
@@ -329,6 +422,7 @@ export default function TelemarketerWorkspace() {
     const [activeTab, setActiveTab] = useState<'journey' | 'contracts' | 'visits' | 'openTasks'>('journey');
     const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
     const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+    const [appointmentMode, setAppointmentMode] = useState<'call_result' | 'direct'>('call_result');
     const [isClientEditModalOpen, setIsClientEditModalOpen] = useState(false);
     const [callLogSaveError, setCallLogSaveError] = useState<string | null>(null);
     const [openTaskDetails, setOpenTaskDetails] = useState<Record<number, OpenTask>>({});
@@ -351,9 +445,28 @@ export default function TelemarketerWorkspace() {
     // Message reply modal — used when updating outcome of a previously sent message
     const [isMessageReplyOpen, setIsMessageReplyOpen] = useState(false);
     const [messageReplyContactId, setMessageReplyContactId] = useState<string>('');
+    const [crossTeamTargetsByClient, setCrossTeamTargetsByClient] = useState<Record<number, CrossTeamTarget[]>>({});
+    const [crossTeamLoading, setCrossTeamLoading] = useState(false);
 
     const selectedCustomer = useMemo(() => filteredGroups.find(cg => cg.key === selectedCustomerKey) || null, [filteredGroups, selectedCustomerKey]);
     const selectedAppointment = useMemo(() => selectedCustomer ? getCustomerAppointment(selectedCustomer) : null, [selectedCustomer, getCustomerAppointment]);
+    const selectedCrossTeamTargets = useMemo(() => {
+        if (!selectedCustomer || selectedCustomer.entityType !== 'client') return [];
+        return crossTeamTargetsByClient[selectedCustomer.entityId] || [];
+    }, [selectedCustomer, crossTeamTargetsByClient]);
+    const selectedOtherTargets = useMemo(() => {
+        if (!selectedCustomer) return [];
+        return selectedCrossTeamTargets.filter(target => target.id !== selectedCustomer.contactTargetId);
+    }, [selectedCustomer, selectedCrossTeamTargets]);
+    const getOtherTeamsCount = useCallback((cg: CustomerGroup) => {
+        if (cg.entityType !== 'client') return 0;
+        const items = crossTeamTargetsByClient[cg.entityId] || [];
+        return new Set(
+            items
+                .filter(item => item.id !== cg.contactTargetId && item.teamKey && item.teamKey !== selectedTeamKey)
+                .map(item => item.teamKey as string),
+        ).size;
+    }, [crossTeamTargetsByClient, selectedTeamKey]);
     /** True when the appointment has been booked (controls "جدولة زيارة" button). */
     const isBookedForSelected = useMemo(() => {
         if (!selectedCustomer) return false;
@@ -365,11 +478,89 @@ export default function TelemarketerWorkspace() {
         return isContactTargetClosed(selectedCustomer, !!selectedAppointment);
     }, [selectedCustomer, selectedAppointment]);
 
+    const isLockedByOtherForSelected = useMemo(() => {
+        if (!selectedCustomer?.lockedByHrUserId || !authUser?.id) return false;
+        return selectedCustomer.lockedByHrUserId !== authUser.id;
+    }, [selectedCustomer, authUser]);
+
+    const directBookingTask = useMemo(() => {
+        if (!selectedCustomer) return null;
+        return selectedCustomer.openTasks.find(task =>
+            task.openTaskId != null &&
+            !!task.openTaskExpectedDate &&
+            ['needs_follow_up', 'assigned', 'in_scheduling'].includes(task.openTaskStatus || ''),
+        ) || null;
+    }, [selectedCustomer]);
+
+    const claimSelectedContactTarget = useCallback(async (): Promise<boolean> => {
+        if (!selectedCustomer?.contactTargetId) return true;
+        try {
+            setCallLogSaveError(null);
+            await api.telemarketing.claimContactTarget(selectedCustomer.contactTargetId);
+            return true;
+        } catch (err: any) {
+            setCallLogSaveError(err?.message || 'جهة الاتصال مقفلة حاليا باسم تيلماركتر آخر');
+            await loadData(date);
+            return false;
+        }
+    }, [selectedCustomer, loadData, date]);
+
+    const canDirectBookSelected = !!canBook && !!selectedCustomer && !isBookedForSelected && !isLockedByOtherForSelected && !!directBookingTask;
+
     const entityDetails = useMemo(() => {
         if (!selectedCustomer) return null;
         if (selectedCustomer.entityType === 'candidate') return candidates.find(c => c.id === selectedCustomer.entityId);
         return clients.find(c => c.id === selectedCustomer.entityId);
     }, [selectedCustomer, candidates, clients]);
+
+    const selectedContacts = useMemo(() => {
+        if (!entityDetails) return [];
+        return getEntityContacts(entityDetails as any).filter(contact => contact.number);
+    }, [entityDetails]);
+
+    const primarySelectedContact = useMemo(() => {
+        return selectedContacts.find(contact => contact.isPrimary) || selectedContacts[0] || null;
+    }, [selectedContacts]);
+
+    const secondarySelectedContacts = useMemo(() => {
+        if (!primarySelectedContact) return selectedContacts;
+        return selectedContacts.filter(contact => contact.id !== primarySelectedContact.id && contact.number !== primarySelectedContact.number);
+    }, [selectedContacts, primarySelectedContact]);
+
+    const selectedAddressLabel = useMemo(() => {
+        if (!selectedCustomer) return '';
+        return buildGeoHierarchyLabel({
+            geoUnits,
+            neighborhoodId: selectedCustomer.geoUnitId,
+            fallback: selectedCustomer.addressText,
+        });
+    }, [geoUnits, selectedCustomer]);
+
+    const selectedSnapshotMeta = useMemo(() => {
+        const details: any = entityDetails || {};
+        const rawSource = details.sourceChannel || details.referralOriginChannel || '';
+        const referrers = Array.isArray(details.referrers) ? details.referrers : [];
+        const referrersCount = referrers.length || (details.referrerName || details.referralNameSnapshot ? 1 : 0);
+        const referrerName = details.referrerName || details.referralNameSnapshot || '';
+        const rawRating = details.rating || '';
+        const classification = selectedCustomer?.entityType === 'client'
+            ? (details.classification || details.candidateStatus || 'زبون')
+            : 'مقترح';
+        return {
+            classification,
+            nickname: details.nickname || '',
+            occupation: details.occupation || '',
+            spouseOccupation: details.spouseOccupation || '',
+            notes: details.notes || '',
+            sourceChannel: rawSource ? (SOURCE_CHANNEL_LABELS[rawSource] || rawSource) : '',
+            referrerName,
+            referrersCount,
+            rating: rawRating ? (RATING_LABELS[rawRating] || rawRating) : '',
+            branchName: details.branchName || '',
+            detailedAddress: details.detailedAddress || '',
+            gpsCoordinates: details.gpsCoordinates || null,
+        };
+    }, [entityDetails, selectedCustomer]);
 
     useEffect(() => {
         if (!selectedCustomer) {
@@ -582,6 +773,7 @@ export default function TelemarketerWorkspace() {
             setIsServiceTaskOpen(true);
         } else if (meta.opensAppointment) {
             // Fallback: legacy path if inline data is missing
+            setAppointmentMode('call_result');
             setIsAppointmentModalOpen(true);
         } else if (outcome === 'address_updated' || outcome === 'new_number') {
             setIsClientEditModalOpen(true);
@@ -607,8 +799,7 @@ export default function TelemarketerWorkspace() {
         if (!selectedCustomer || !activeTaskList) return;
 
         const visitTaskTypes = data.selectedTaskEntries.map(t => t.taskType);
-
-        await addAppointment({
+        const appointmentPayload = {
             entityType: selectedCustomer.entityType,
             entityId: selectedCustomer.entityId,
             customerName: selectedCustomer.name,
@@ -625,7 +816,14 @@ export default function TelemarketerWorkspace() {
             visitTasks: visitTaskTypes,
             requestedDeviceModelId: data.requestedDeviceModelId,
             requestedDeviceName: data.requestedDeviceName,
-        }, data.selectedTaskEntries);
+            contactTargetId: selectedCustomer.contactTargetId,
+        };
+
+        if (appointmentMode === 'direct') {
+            await addDirectAppointment(appointmentPayload, data.selectedTaskEntries);
+        } else {
+            await addAppointment(appointmentPayload, data.selectedTaskEntries);
+        }
 
         if (selectedCustomer.entityType === 'client' && data.waterSource) {
             await updateClient(selectedCustomer.entityId, { waterSource: data.waterSource });
@@ -666,6 +864,7 @@ export default function TelemarketerWorkspace() {
 
     const handleManualClose = async () => {
         if (!selectedCustomer || !activeTaskList) return;
+        if (!(await claimSelectedContactTarget())) return;
         setManualCloseSaving(true);
         try {
             await api.contactTargets.manualClose(
@@ -678,6 +877,7 @@ export default function TelemarketerWorkspace() {
             await loadData(date);
         } catch (err: any) {
             console.error('Manual close failed:', err);
+            setCallLogSaveError(err?.message || 'فشل إغلاق جهة الاتصال');
         } finally {
             setManualCloseSaving(false);
         }
@@ -912,6 +1112,7 @@ export default function TelemarketerWorkspace() {
                             const cgLogs = callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
                             const ctStage = getCustomerStatusGroup(cg, isBooked, cgLogs);
                             const ctClosed = isContactTargetClosed(cg, isBooked);
+                            const otherTeamsCount = getOtherTeamsCount(cg);
 
                             // Badge for CT lifecycle stage
                             const ctBadge = (() => {
@@ -977,6 +1178,11 @@ export default function TelemarketerWorkspace() {
                                             {cg.entityType === 'client' ? (
                                                 <OwnershipBadge ownership={cg.primaryItem.ownership} />
                                             ) : null}
+                                            {otherTeamsCount > 0 && (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold border bg-cyan-50 text-cyan-700 border-cyan-200">
+                                                    +{otherTeamsCount} فرق
+                                                </span>
+                                            )}
                                             {ctBadge}
                                         </div>
                                     </div>
@@ -990,70 +1196,156 @@ export default function TelemarketerWorkspace() {
                 <div className="flex-1 min-w-0 bg-white border border-gray-200 rounded-xl flex flex-col shadow-sm overflow-hidden relative">
                     {selectedCustomer && entityDetails ? (
                         <>
-                            {/* Identity card */}
-                            <div className="p-6 border-b border-gray-100 bg-gradient-to-br from-slate-50 to-white flex gap-6 shrink-0 relative overflow-hidden">
-                                <div className="w-24 h-24 rounded-2xl bg-white flex items-center justify-center text-3xl font-black text-slate-600 shadow-sm border border-slate-200 relative overflow-hidden shrink-0 z-10">
-                                    {getInitials(selectedCustomer.name)}
-                                    <div className={`absolute bottom-0 w-full h-3 ${selectedCustomer.entityType === 'client' ? 'bg-sky-500' : 'bg-amber-500'}`} />
+                            {/* Client snapshot */}
+                            <div className="px-6 py-5 border-b border-gray-100 bg-white shrink-0">
+                                <div className="flex items-start justify-between gap-5">
+                                    <div className="flex items-start gap-4 min-w-0">
+                                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-black shrink-0 border shadow-sm ${
+                                            selectedCustomer.entityType === 'client'
+                                                ? 'bg-sky-50 text-sky-800 border-sky-100'
+                                                : 'bg-amber-50 text-amber-800 border-amber-100'
+                                        }`}>
+                                            {getInitials(selectedCustomer.name)}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <h2 className="text-3xl font-black text-slate-950 leading-tight">{selectedCustomer.name}</h2>
+                                                {selectedSnapshotMeta.nickname && (
+                                                    <span className="text-sm font-bold text-slate-400">({selectedSnapshotMeta.nickname})</span>
+                                                )}
+                                            </div>
+                                            <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                                <span className={`px-2 py-0.5 rounded-md text-[11px] font-black border ${
+                                                    selectedCustomer.entityType === 'client'
+                                                        ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                }`}>
+                                                    {selectedSnapshotMeta.classification}
+                                                </span>
+                                                {selectedSnapshotMeta.rating && selectedSnapshotMeta.classification === 'OP' && (
+                                                    <span className="px-2 py-0.5 rounded-md text-[11px] font-black border bg-emerald-50 text-emerald-700 border-emerald-200">
+                                                        {selectedSnapshotMeta.rating}
+                                                    </span>
+                                                )}
+                                                {selectedCustomer.entityType === 'client' ? (
+                                                    <OwnershipBadge ownership={selectedCustomer.primaryItem.ownership} />
+                                                ) : null}
+                                                {selectedSnapshotMeta.branchName && (
+                                                    <span className="px-2 py-0.5 rounded-md text-[11px] font-bold border bg-slate-50 text-slate-600 border-slate-200">
+                                                        {selectedSnapshotMeta.branchName}
+                                                    </span>
+                                                )}
+                                                {selectedCustomer.lockedByHrUserName && (
+                                                    <span className="px-2 py-0.5 rounded-md text-[11px] font-bold border bg-amber-50 text-amber-700 border-amber-200">
+                                                        قيد المتابعة: {selectedCustomer.lockedByHrUserName}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {primarySelectedContact && (
+                                        <a
+                                            href={`tel:${primarySelectedContact.number}`}
+                                            className="h-11 px-4 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors font-black flex items-center gap-2 shrink-0 shadow-sm"
+                                        >
+                                            <Phone className="w-4 h-4" />
+                                            <span dir="ltr">{primarySelectedContact.number}</span>
+                                        </a>
+                                    )}
                                 </div>
-                                <div className="flex-1 z-10">
-                                    <div>
-                                        <h2 className="text-3xl font-black text-slate-800 mb-2">{selectedCustomer.name}</h2>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className={`px-2.5 py-1 rounded-md text-xs font-bold border shadow-sm ${selectedCustomer.entityType === 'client' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                                                {selectedCustomer.entityType === 'client' ? 'زبون مسجل' : 'اسم مقترح'}
-                                            </span>
-                                            {selectedCustomer.entityType === 'client' ? (
-                                                <OwnershipBadge ownership={selectedCustomer.primaryItem.ownership} />
-                                            ) : null}
-                                            {'occupation' in (entityDetails || {}) && entityDetails.occupation && (
-                                                <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-slate-50 text-slate-600 border border-slate-200 shadow-sm flex items-center gap-1">
-                                                    <Briefcase className="w-3.5 h-3.5 text-slate-400" /> {entityDetails.occupation}
+
+                                <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-2">
+                                    {selectedSnapshotMeta.occupation && (
+                                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                                            <p className="text-[10px] font-bold text-slate-400 mb-1">المهنة</p>
+                                            <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.occupation}</p>
+                                        </div>
+                                    )}
+                                    {selectedSnapshotMeta.spouseOccupation && (
+                                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                                            <p className="text-[10px] font-bold text-slate-400 mb-1">مهنة الزوج/الزوجة</p>
+                                            <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.spouseOccupation}</p>
+                                        </div>
+                                    )}
+                                    {selectedSnapshotMeta.sourceChannel && (
+                                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                                            <p className="text-[10px] font-bold text-slate-400 mb-1">مصدر الزبون</p>
+                                            <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.sourceChannel}</p>
+                                        </div>
+                                    )}
+                                    {selectedSnapshotMeta.referrersCount > 0 && (
+                                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                                            <p className="text-[10px] font-bold text-slate-400 mb-1">الوسيط</p>
+                                            <p className="text-sm font-black text-slate-800 truncate">
+                                                {selectedSnapshotMeta.referrerName || `${selectedSnapshotMeta.referrersCount} وسيط`}
+                                                {selectedSnapshotMeta.referrerName && selectedSnapshotMeta.referrersCount > 1 ? ` +${selectedSnapshotMeta.referrersCount - 1}` : ''}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-4">
+                                    <div className="rounded-lg border border-slate-100 bg-white px-4 py-3 shadow-sm">
+                                        <div className="flex items-start gap-2">
+                                            <MapPin className="w-4 h-4 text-sky-500 mt-0.5 shrink-0" />
+                                            <div className="min-w-0">
+                                                <p className="text-[11px] text-slate-400 font-black mb-1">العنوان المعتمد للتواصل</p>
+                                                <p className="text-sm text-slate-900 font-black leading-relaxed">{selectedAddressLabel}</p>
+                                                {selectedSnapshotMeta.detailedAddress && (
+                                                    <p className="text-xs text-slate-500 font-semibold mt-1 leading-relaxed">{selectedSnapshotMeta.detailedAddress}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-lg border border-slate-100 bg-white px-4 py-3 shadow-sm">
+                                        <div className="flex items-center justify-between gap-3 mb-2">
+                                            <p className="text-[11px] text-slate-400 font-black">أرقام إضافية</p>
+                                            {selectedOtherTargets.length > 0 && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-md border border-cyan-100 bg-cyan-50 text-cyan-700 font-black">
+                                                    {selectedOtherTargets.length} جهة أخرى اليوم
                                                 </span>
                                             )}
                                         </div>
-                                    </div>
-
-                                    {/* Location */}
-                                    <div className="flex flex-col gap-1 mt-4 text-sm text-slate-600 font-bold bg-white w-full px-4 py-3 rounded-lg border border-slate-200 shadow-sm">
-                                        <div className="flex items-center gap-1.5 text-slate-500"><MapPin className="w-4 h-4 shrink-0" /><span>العنوان الكامل:</span></div>
-                                        <p className="text-slate-800 leading-relaxed mr-5">
-                                            {buildGeoHierarchyLabel({ geoUnits, neighborhoodId: selectedCustomer.geoUnitId, fallback: selectedCustomer.addressText })}
-                                        </p>
-                                    </div>
-
-                                    {/* Open tasks section */}
-                                    {selectedCustomer.openTasks.length > 0 && (
-                                        <div className="mt-4 bg-purple-50 border border-purple-100 rounded-lg px-4 py-3">
-                                            <p className="text-xs font-black text-purple-700 mb-2 flex items-center gap-1">
-                                                <Layers className="w-3.5 h-3.5" /> المهام المفتوحة ({selectedCustomer.openTasks.length})
-                                            </p>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {selectedCustomer.openTasks.map(ot => (
-                                                    <span key={ot.taskListItemId} className="text-[11px] px-2 py-1 rounded-lg bg-white border border-purple-200 text-purple-800 font-bold">
-                                                        {(OPEN_TASK_TYPE_LABELS as Record<string, string>)[ot.openTaskType as OpenTaskType] || ot.openTaskType}
-                                                        {ot.openTaskReason && <span className="text-purple-500"> • {(OPEN_TASK_REASON_LABELS as Record<string, string>)[ot.openTaskReason as OpenTaskReason] || ot.openTaskReason}</span>}
-                                                    </span>
+                                        {secondarySelectedContacts.length > 0 ? (
+                                            <div className="flex flex-wrap gap-2">
+                                                {secondarySelectedContacts.map(contact => (
+                                                    <a
+                                                        key={contact.id || contact.number}
+                                                        href={`tel:${contact.number}`}
+                                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 text-sm font-bold transition-colors"
+                                                    >
+                                                        <Phone className="w-3.5 h-3.5" />
+                                                        <span dir="ltr">{contact.number}</span>
+                                                        {contact.label && <span className="text-[10px] text-slate-500">{contact.label}</span>}
+                                                        {contact.hasWhatsApp && <MessageSquare className="w-3.5 h-3.5 text-green-500" />}
+                                                    </a>
                                                 ))}
                                             </div>
-                                        </div>
-                                    )}
-
-                                    {/* Contacts */}
-                                    <div className="flex flex-wrap items-center gap-2 mt-4">
-                                        {getEntityContacts(entityDetails as any).map(contact => (
-                                            <a key={contact.id} href={`tel:${contact.number}`}
-                                                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors shadow-sm font-bold">
-                                                <Phone className="w-3.5 h-3.5" />
-                                                <span className="text-sm" dir="ltr">{contact.number}</span>
-                                                <span className="text-[10px] bg-white text-emerald-800 px-2 py-0.5 rounded border border-emerald-100 shadow-sm">{contact.label}</span>
-                                                {contact.isPrimary && <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded shadow-sm">أساسي</span>}
-                                                {contact.hasWhatsApp && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded border border-green-200">واتساب</span>}
-                                            </a>
-                                        ))}
+                                        ) : (
+                                            <p className="text-xs text-slate-400 font-bold">لا توجد أرقام إضافية.</p>
+                                        )}
                                     </div>
                                 </div>
-                                <div className="absolute left-0 top-0 w-64 h-64 bg-slate-100 rounded-full blur-3xl -translate-y-1/2 -translate-x-1/2 opacity-60" />
+
+                                {(selectedCustomer.openTasks.length > 0 || selectedSnapshotMeta.notes) && (
+                                    <div className="mt-4 flex flex-wrap items-start gap-2 border-t border-gray-100 pt-3">
+                                        {selectedCustomer.openTasks.map(ot => (
+                                            <span key={ot.taskListItemId} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border bg-violet-50 border-violet-100 text-violet-700 font-black">
+                                                <Layers className="w-3 h-3" />
+                                                {(OPEN_TASK_TYPE_LABELS as Record<string, string>)[ot.openTaskType as OpenTaskType] || ot.openTaskType}
+                                                {ot.openTaskReason && <span className="text-violet-400">{(OPEN_TASK_REASON_LABELS as Record<string, string>)[ot.openTaskReason as OpenTaskReason] || ot.openTaskReason}</span>}
+                                            </span>
+                                        ))}
+                                        {selectedSnapshotMeta.notes && (
+                                            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border bg-slate-50 border-slate-200 text-slate-600 font-bold max-w-full">
+                                                <FileText className="w-3 h-3 shrink-0" />
+                                                <span className="truncate">{selectedSnapshotMeta.notes}</span>
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             {/* Tabs */}
@@ -1181,7 +1473,8 @@ export default function TelemarketerWorkspace() {
                             {/* Action bar */}
                             <div className="p-2 bg-white border-t border-gray-200 flex gap-2 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-20">
                                 <button
-                                    onClick={() => {
+                                    onClick={async () => {
+                                        if (!(await claimSelectedContactTarget())) return;
                                         if (!entityDetails) return;
                                         const contacts = getEntityContacts(entityDetails as any);
                                         if (contacts.length === 1) {
@@ -1192,10 +1485,10 @@ export default function TelemarketerWorkspace() {
                                             setIsContactPickerOpen(true);
                                         }
                                     }}
-                                    disabled={isCtClosedForSelected}
-                                    className={`flex-1 py-1.5 px-3 flex items-center justify-center gap-2 border-none rounded-xl transition-all shadow-sm group active:scale-[0.98] ${isCtClosedForSelected ? 'bg-slate-100 border border-slate-200 text-slate-400 grayscale cursor-not-allowed shadow-none' : 'bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 shadow-violet-500/10'}`}>
-                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isCtClosedForSelected ? 'bg-slate-200' : 'bg-white/20'}`}>
-                                        <Send className={`w-3.5 h-3.5 ${isCtClosedForSelected ? 'text-slate-400' : 'text-white'}`} />
+                                    disabled={isCtClosedForSelected || isLockedByOtherForSelected}
+                                    className={`flex-1 py-1.5 px-3 flex items-center justify-center gap-2 border-none rounded-xl transition-all shadow-sm group active:scale-[0.98] ${isCtClosedForSelected || isLockedByOtherForSelected ? 'bg-slate-100 border border-slate-200 text-slate-400 grayscale cursor-not-allowed shadow-none' : 'bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 shadow-violet-500/10'}`}>
+                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isCtClosedForSelected || isLockedByOtherForSelected ? 'bg-slate-200' : 'bg-white/20'}`}>
+                                        <Send className={`w-3.5 h-3.5 ${isCtClosedForSelected || isLockedByOtherForSelected ? 'text-slate-400' : 'text-white'}`} />
                                     </div>
                                     <div className="text-right overflow-hidden">
                                         <p className={`font-black text-[11px] leading-tight truncate ${isCtClosedForSelected ? 'text-slate-500' : 'text-white'}`}>{isCtClosedForSelected ? 'جهة الاتصال مغلقة' : 'تسجيل نتيجة التواصل'}</p>
@@ -1214,8 +1507,34 @@ export default function TelemarketerWorkspace() {
                                     </div>
                                 )}
 
+                                {isLockedByOtherForSelected && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 shrink-0">
+                                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                        <div className="text-right">
+                                            <p className="font-black text-[10px] leading-tight">محجوزة</p>
+                                            <p className="text-[9px] font-bold">{selectedCustomer.lockedByHrUserName || 'تيلماركتر آخر'}</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {canDirectBookSelected && (
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            if (!(await claimSelectedContactTarget())) return;
+                                            setAppointmentMode('direct');
+                                            setIsAppointmentModalOpen(true);
+                                        }}
+                                        title="حجز زيارة بدون تسجيل نتيجة مكالمة جديدة"
+                                        className="py-1.5 px-3 flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-700 transition-all active:scale-[0.98] font-black text-[11px]"
+                                    >
+                                        <Calendar className="w-4 h-4" />
+                                        حجز مباشر
+                                    </button>
+                                )}
+
                                 {/* Manual close button — only when CT is not yet closed */}
-                                {!isCtClosedForSelected && (
+                                {!isCtClosedForSelected && !isLockedByOtherForSelected && (
                                     <button
                                         onClick={() => setIsManualCloseOpen(true)}
                                         title="إغلاق يدوي وإعادة المهمة لقيد الانتظار"
@@ -1296,6 +1615,53 @@ export default function TelemarketerWorkspace() {
                                 <p className="text-xl font-black text-sky-700">{bookingRate}%</p>
                             </div>
                         </div>
+                    </div>
+
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm shrink-0">
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                            <h3 className="text-sm font-black text-slate-800 flex items-center gap-1.5">
+                                <Layers className="w-4 h-4 text-cyan-600" />
+                                الوعي عبر الفرق
+                            </h3>
+                            {crossTeamLoading && <span className="text-[10px] font-bold text-cyan-600">تحميل...</span>}
+                        </div>
+                        {!selectedCustomer ? (
+                            <p className="text-xs text-slate-400 font-bold">اختر زبونا لعرض جهات اليوم.</p>
+                        ) : selectedOtherTargets.length === 0 ? (
+                            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+                                لا توجد جهات أخرى لهذا الزبون اليوم.
+                            </div>
+                        ) : (
+                            <div className="space-y-2 max-h-48 overflow-y-auto custom-scroll">
+                                {selectedOtherTargets.map(target => {
+                                    const isClosed = target.status === 'closed';
+                                    const outcome = target.latestTelemarketingOutcome || target.latestCallOutcome;
+                                    const outcomeLabel = outcome ? getOutcomeDisplay(outcome).label : 'بدون نتيجة';
+                                    return (
+                                        <div key={target.id} className="rounded-lg border border-cyan-100 bg-cyan-50/50 px-3 py-2">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-xs font-black text-slate-800 truncate">{target.teamKey || 'فريق غير محدد'}</span>
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${isClosed ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                                    {isClosed ? 'مغلقة' : target.status}
+                                                </span>
+                                            </div>
+                                            <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] font-bold text-slate-500">
+                                                <span className="truncate">الموقع: {target.workLocationName || '-'}</span>
+                                                <span className="truncate">المهام: {target.taskCount}</span>
+                                                <span className="truncate">آخر نتيجة: {outcomeLabel}</span>
+                                                <span className="truncate">القفل: {target.lockedByHrUserName || '-'}</span>
+                                            </div>
+                                            {target.latestVisitId && (
+                                                <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-700">
+                                                    <Calendar className="w-3 h-3" />
+                                                    زيارة {target.visitDate || ''} {target.visitTime || ''}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex-1 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col relative w-full h-full">
@@ -1460,9 +1826,14 @@ export default function TelemarketerWorkspace() {
 
             <AppointmentSchedulerModal
                 isOpen={isAppointmentModalOpen}
-                onClose={() => setIsAppointmentModalOpen(false)}
+                onClose={() => {
+                    setIsAppointmentModalOpen(false);
+                    setAppointmentMode('call_result');
+                }}
                 customerName={selectedCustomer?.name || ''}
                 defaultDate={date}
+                initialDate={appointmentMode === 'direct' ? directBookingTask?.openTaskExpectedDate || undefined : undefined}
+                defaultTime={appointmentMode === 'direct' ? directBookingTask?.openTaskExpectedTime || undefined : undefined}
                 customerOpenTasks={selectedCustomer?.openTasks || []}
                 entityDetails={entityDetails}
                 onSave={handleSaveAppointment}

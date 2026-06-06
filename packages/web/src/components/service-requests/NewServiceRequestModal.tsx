@@ -1,10 +1,14 @@
 // ============================================================
-// NewServiceRequestModal — universal creator across 4 channels
-// Constitution: maintenance.md §٠.٦ + §٠.١٢ + §٠.١٧.أ (walk-in fields)
+// NewServiceRequestModal — V1.0 simplified intake
+// Constitution: maintenance-v1.md §٣ + §١٢
+//   - زبون موجود إلزامي (لا walk-in في V1.0)
+//   - جهاز من أجهزة الزبون إلزامي
+//   - وصف المشكلة إلزامي
+//   - حقول العنوان/walk-in مَحذوفة من V1.0 (تُؤخَذ من الجهاز عند promote)
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Send, Search, AlertCircle, User, Loader2 } from 'lucide-react';
+import { X, Send, AlertCircle, Loader2, Search, Check } from 'lucide-react';
 import { api } from '../../lib/api';
 
 type Channel = 'internal_button' | 'client_detail_button' | 'admin_manual' | 'phone';
@@ -15,6 +19,7 @@ interface Props {
   beneficiaryClientId?: number | null;
   beneficiaryClientName?: string | null;
   contractId?: number | null;
+  /** Preselected device (used when opened from a device page). */
   installedDeviceId?: number | null;
   onClose: () => void;
   onCreated?: (serviceRequestId: number) => void;
@@ -27,68 +32,135 @@ const CHANNEL_TITLES: Record<Channel, string> = {
   phone: 'مكالمة صيانة واردة',
 };
 
+interface ClientLite {
+  id: number;
+  name?: string;
+  fullName?: string;
+  phone?: string;
+  mobile?: string;
+}
+
+interface DeviceLite {
+  id: number;
+  serialNumber?: string | null;
+  deviceModelName?: string | null;
+  status?: string | null;
+}
+
 export default function NewServiceRequestModal({
   channel,
-  beneficiaryClientId = null,
-  beneficiaryClientName = null,
+  beneficiaryClientId: initialClientId = null,
+  beneficiaryClientName: initialClientName = null,
   contractId = null,
-  installedDeviceId = null,
+  installedDeviceId: initialDeviceId = null,
   onClose,
   onCreated,
 }: Props) {
   const navigate = useNavigate();
-  const isWalkIn = beneficiaryClientId == null;
 
-  // Form state
-  const [requesterName, setRequesterName] = useState('');
-  const [requesterPhone, setRequesterPhone] = useState('');
+  // Linked client (mandatory)
+  const [clientId, setClientId] = useState<number | null>(initialClientId);
+  const [clientName, setClientName] = useState<string | null>(initialClientName);
+
+  // Client search state (only shown when no preselected client)
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientResults, setClientResults] = useState<ClientLite[]>([]);
+  const [searchingClients, setSearchingClients] = useState(false);
+
+  // Devices for the selected client (mandatory pick once client is chosen)
+  const [deviceId, setDeviceId] = useState<number | null>(initialDeviceId);
+  const [devices, setDevices] = useState<DeviceLite[]>([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
+
+  // Form fields
   const [problemDescription, setProblemDescription] = useState('');
+  const [callNotes, setCallNotes] = useState('');
   const [priority, setPriority] = useState<'Critical' | 'High' | 'Normal' | 'Low'>('Normal');
-  const [governorate, setGovernorate] = useState('');
-  const [detailedAddress, setDetailedAddress] = useState('');
-
-  // Suggested-matches search (٠.١١)
-  const [searchPhone, setSearchPhone] = useState('');
-  const [matches, setMatches] = useState<{ clients: any[]; candidates: any[] } | null>(null);
-  const [searching, setSearching] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setError(null);
-  }, [requesterName, requesterPhone, problemDescription, governorate, detailedAddress]);
+  }, [clientId, deviceId, problemDescription]);
 
-  // Auto-search as the operator types phone (debounced).
+  // -------- Client search (debounced) --------
   useEffect(() => {
-    if (!isWalkIn || channel !== 'phone' || searchPhone.length < 4) {
-      setMatches(null);
+    if (clientId != null) return; // already selected
+    if (clientSearch.trim().length < 2) {
+      setClientResults([]);
       return;
     }
-    const timer = setTimeout(async () => {
-      setSearching(true);
+    const t = setTimeout(async () => {
+      setSearchingClients(true);
       try {
-        // Lightweight search — we hit suggestedMatches by abusing a temporary
-        // approach: backend exposes only /:id/suggested-matches, so for pre-creation
-        // search we hit clients/candidates list endpoints via name/phone.
-        // For now we surface no live matches; users see the matches after creation.
-        // (Inline search endpoint may be added in future.)
-        setMatches(null);
+        const list = await api.clients.list();
+        const q = clientSearch.trim().toLowerCase();
+        const filtered = (list as ClientLite[])
+          .filter((c) => {
+            const name = (c.fullName ?? c.name ?? '').toLowerCase();
+            const phone = String(c.phone ?? c.mobile ?? '');
+            return name.includes(q) || phone.includes(clientSearch.trim());
+          })
+          .slice(0, 12);
+        setClientResults(filtered);
+      } catch (e) {
+        setClientResults([]);
       } finally {
-        setSearching(false);
+        setSearchingClients(false);
       }
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [searchPhone, channel, isWalkIn]);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [clientSearch, clientId]);
+
+  // -------- Devices for selected client --------
+  useEffect(() => {
+    if (clientId == null) {
+      setDevices([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingDevices(true);
+    (async () => {
+      try {
+        const list = await api.installedDevices.list({ customerId: clientId });
+        if (!cancelled) {
+          setDevices((list as DeviceLite[]) ?? []);
+          // If a single device exists, auto-select to reduce friction
+          if (!deviceId && Array.isArray(list) && list.length === 1) {
+            setDeviceId((list[0] as DeviceLite).id);
+          }
+        }
+      } finally {
+        if (!cancelled) setLoadingDevices(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
+
+  function selectClient(c: ClientLite) {
+    setClientId(c.id);
+    setClientName(c.fullName ?? c.name ?? `#${c.id}`);
+    setClientSearch('');
+    setClientResults([]);
+    setDeviceId(null);
+  }
+
+  function clearClient() {
+    if (initialClientId != null) return; // preselected — locked
+    setClientId(null);
+    setClientName(null);
+    setDeviceId(null);
+    setDevices([]);
+  }
 
   function validate(): string | null {
+    if (clientId == null) return 'اختيار زبون موجود إلزامي';
+    if (deviceId == null) return 'اختيار جهاز للزبون إلزامي';
     if (!problemDescription.trim()) return 'وصف المشكلة إلزامي';
-    if (!governorate.trim() || !detailedAddress.trim())
-      return 'المحافظة والعنوان التفصيلي إلزاميان (SR-WALKIN-03)';
-    if (isWalkIn) {
-      if (!requesterName.trim() || !requesterPhone.trim())
-        return 'الاسم والهاتف الرئيسي إلزاميان (SR-WALKIN-02)';
-    }
     return null;
   }
 
@@ -101,31 +173,47 @@ export default function NewServiceRequestModal({
     setBusy(true);
     setError(null);
     try {
+      // V1.0 payload — no walk-in, no service_address, no requesterExternal.
+      // serviceAddress is omitted; the backend / promote step will derive it
+      // from the device's installation address.
       const payload = {
         channel,
         problemDescription: problemDescription.trim(),
         priority,
-        serviceAddress: {
-          governorate: governorate.trim(),
-          detailed_address: detailedAddress.trim(),
-        },
-        beneficiaryClientId,
+        beneficiaryClientId: clientId,
         contractId,
-        installedDeviceId,
-        deviceSource: installedDeviceId ? 'company_device' : undefined,
-        requesterExternal: isWalkIn
-          ? { name: requesterName.trim(), primary_phone: requesterPhone.trim() }
-          : null,
-        submissionType: 'apply',
-        submitterTier: 'staff',
+        installedDeviceId: deviceId,
+        deviceSource: 'company_device' as const,
+        submissionType: 'apply' as const,
+        submitterTier: 'staff' as const,
       };
       const res =
         channel === 'admin_manual'
           ? await api.serviceRequests.createInternal(payload)
           : await api.serviceRequests.create(payload);
 
-      if (onCreated) onCreated(res.id);
-      else navigate(`/service-requests/${res.id}`);
+      // Capture optional call notes as the first internal note on the request.
+      const note = callNotes.trim();
+      if (note && (res as { id?: number })?.id) {
+        try {
+          await fetch(
+            `${(window as any).__API_BASE__ ?? '/api'}/service-requests/${(res as any).id}/notes`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${localStorage.getItem('hr_token') ?? ''}`,
+              },
+              body: JSON.stringify({ note }),
+            },
+          );
+        } catch {
+          // non-blocking
+        }
+      }
+
+      if (onCreated) onCreated((res as { id: number }).id);
+      else navigate(`/service-requests/${(res as { id: number }).id}`);
       onClose();
     } catch (e: any) {
       setError(e?.message ?? 'فَشل إنشاء الطلب');
@@ -133,6 +221,8 @@ export default function NewServiceRequestModal({
       setBusy(false);
     }
   }
+
+  const isClientLocked = initialClientId != null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80]" dir="rtl">
@@ -142,12 +232,6 @@ export default function NewServiceRequestModal({
             <h2 className="text-lg font-semibold text-gray-800">{CHANNEL_TITLES[channel]}</h2>
             <div className="text-xs text-gray-500 mt-0.5">
               قناة: <span className="font-medium">{channel}</span>
-              {beneficiaryClientName && (
-                <>
-                  {' · '}
-                  <span className="text-blue-700">للعميل: {beneficiaryClientName}</span>
-                </>
-              )}
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -163,100 +247,146 @@ export default function NewServiceRequestModal({
             </div>
           )}
 
-          {/* Walk-in requester section (٠.١٧.أ) */}
-          {isWalkIn && (
-            <section className="space-y-2">
-              <h3 className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                <User className="h-4 w-4" />
-                بيانات صاحب الطلب
-                <span className="text-xs text-red-600">*</span>
-              </h3>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  value={requesterName}
-                  onChange={(e) => setRequesterName(e.target.value)}
-                  placeholder="الاسم الكامل"
-                  className="text-sm border border-gray-300 rounded p-2"
-                />
-                <input
-                  type="tel"
-                  value={requesterPhone}
-                  onChange={(e) => {
-                    setRequesterPhone(e.target.value);
-                    setSearchPhone(e.target.value);
-                  }}
-                  placeholder="الهاتف الرئيسي"
-                  className="text-sm border border-gray-300 rounded p-2"
-                />
-              </div>
-              {channel === 'phone' && searchPhone.length >= 4 && (
-                <p className="text-xs text-gray-500 flex items-center gap-1">
-                  <Search className="h-3 w-3" />
-                  مُطابقات مقترَحة ستَظهر بعد الإنشاء في tab "الربط".
-                  {searching && <Loader2 className="h-3 w-3 animate-spin" />}
-                </p>
-              )}
-            </section>
-          )}
-
-          {/* Address — required for all (SR-WALKIN-03) */}
+          {/* (1) Client — mandatory, from existing only (V1.0) */}
           <section className="space-y-2">
             <h3 className="text-sm font-medium text-gray-700">
-              عنوان الخدمة <span className="text-xs text-red-600">*</span>
+              الزبون <span className="text-xs text-red-600">*</span>
             </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="text"
-                value={governorate}
-                onChange={(e) => setGovernorate(e.target.value)}
-                placeholder="المحافظة (مثل: دمشق)"
-                className="text-sm border border-gray-300 rounded p-2"
-              />
-              <input
-                type="text"
-                value={detailedAddress}
-                onChange={(e) => setDetailedAddress(e.target.value)}
-                placeholder="العنوان التفصيلي"
-                className="text-sm border border-gray-300 rounded p-2"
-              />
-            </div>
+            {clientId != null ? (
+              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded p-2 text-sm">
+                <span className="flex items-center gap-2 text-green-800">
+                  <Check className="h-4 w-4" />
+                  {clientName ?? `#${clientId}`}
+                </span>
+                {!isClientLocked && (
+                  <button onClick={clearClient} className="text-xs text-gray-500 hover:text-red-600">
+                    تَغيير
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <div className="relative">
+                  <Search className="h-4 w-4 absolute right-2 top-2.5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={clientSearch}
+                    onChange={(e) => setClientSearch(e.target.value)}
+                    placeholder="ابحث بالاسم أو الهاتف (حرفين فأكثر)"
+                    className="w-full text-sm border border-gray-300 rounded p-2 pr-8"
+                  />
+                </div>
+                {searchingClients && (
+                  <div className="text-xs text-gray-500 flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    جارٍ البحث...
+                  </div>
+                )}
+                {clientResults.length > 0 && (
+                  <ul className="border border-gray-200 rounded divide-y divide-gray-100 max-h-48 overflow-auto">
+                    {clientResults.map((c) => (
+                      <li key={c.id}>
+                        <button
+                          onClick={() => selectClient(c)}
+                          className="w-full text-right p-2 text-sm hover:bg-blue-50"
+                        >
+                          <div className="font-medium text-gray-800">
+                            {c.fullName ?? c.name ?? `#${c.id}`}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {c.phone ?? c.mobile ?? '— لا هاتف —'}
+                          </div>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {clientSearch.trim().length >= 2 && !searchingClients && clientResults.length === 0 && (
+                  <div className="text-xs text-gray-500">لا نتائج. (إنشاء زبون جديد خارج نطاق V1.0)</div>
+                )}
+              </div>
+            )}
           </section>
 
-          {/* Problem + priority */}
+          {/* (2) Device — mandatory, from client devices */}
           <section className="space-y-2">
             <h3 className="text-sm font-medium text-gray-700">
-              المشكلة <span className="text-xs text-red-600">*</span>
+              الجهاز <span className="text-xs text-red-600">*</span>
+            </h3>
+            {clientId == null ? (
+              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
+                اختر الزبون أولاً لرؤية أجهزته.
+              </div>
+            ) : loadingDevices ? (
+              <div className="text-xs text-gray-500 flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" /> جارٍ تَحميل الأجهزة...
+              </div>
+            ) : devices.length === 0 ? (
+              <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                لا أجهزة مُسجَّلة لهذا الزبون. لا يُمكن إنشاء طلب صيانة بدون جهاز (V1.0).
+              </div>
+            ) : (
+              <select
+                value={deviceId ?? ''}
+                onChange={(e) => setDeviceId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full text-sm border border-gray-300 rounded p-2"
+              >
+                <option value="">— اختر جهازاً —</option>
+                {devices.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {(d.deviceModelName ?? 'جهاز') +
+                      (d.serialNumber ? ` · S/N: ${d.serialNumber}` : '') +
+                      (d.status ? ` · ${d.status}` : '')}
+                  </option>
+                ))}
+              </select>
+            )}
+          </section>
+
+          {/* (3) Problem description — mandatory */}
+          <section className="space-y-2">
+            <h3 className="text-sm font-medium text-gray-700">
+              وصف المشكلة <span className="text-xs text-red-600">*</span>
             </h3>
             <textarea
               value={problemDescription}
               onChange={(e) => setProblemDescription(e.target.value)}
               placeholder="صَوت الزبون — اكتب ما يَقوله بلا تَفسير (immutable بعد الإنشاء، SR-R008)"
-              rows={4}
+              rows={3}
               className="w-full text-sm border border-gray-300 rounded p-2"
             />
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">الأولوية:</span>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as any)}
-                className="text-sm border border-gray-300 rounded p-1.5"
-              >
-                <option value="Critical">حرجة</option>
-                <option value="High">عالية</option>
-                <option value="Normal">عادية</option>
-                <option value="Low">منخفضة</option>
-              </select>
-            </div>
           </section>
 
-          {/* Note on linkage flow */}
-          {isWalkIn && (
-            <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-              💡 بعد الإنشاء يُمكنك ربط الطلب بعميل أو مرشّح من tab "الربط" في صفحة التفاصيل.
-              لو لم تَربطه، يَبقى walk-in حتى الـ promote.
-            </p>
-          )}
+          {/* (4) Call notes — optional (stored as first internal note) */}
+          <section className="space-y-2">
+            <h3 className="text-sm font-medium text-gray-700">ملاحظات على المكالمة</h3>
+            <textarea
+              value={callNotes}
+              onChange={(e) => setCallNotes(e.target.value)}
+              placeholder="ملاحظات داخلية للموظف المُستلِم (اختياري)"
+              rows={2}
+              className="w-full text-sm border border-gray-300 rounded p-2"
+            />
+          </section>
+
+          {/* (5) Priority */}
+          <section className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">الأولوية:</span>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as any)}
+              className="text-sm border border-gray-300 rounded p-1.5"
+            >
+              <option value="Critical">حرجة</option>
+              <option value="High">عالية</option>
+              <option value="Normal">عادية</option>
+              <option value="Low">منخفضة</option>
+            </select>
+          </section>
+
+          <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+            💡 المرفقات وقائمة الأعطال تُضاف من شاشة تفاصيل الطلب بعد الإنشاء.
+          </p>
         </div>
 
         <footer className="flex items-center justify-end gap-2 p-3 border-t border-gray-200 bg-gray-50 sticky bottom-0">
@@ -271,11 +401,7 @@ export default function NewServiceRequestModal({
             onClick={submit}
             className="text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded flex items-center gap-1"
           >
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {busy ? 'جاري الإنشاء...' : 'إنشاء الطلب'}
           </button>
         </footer>

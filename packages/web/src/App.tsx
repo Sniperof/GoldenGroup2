@@ -102,6 +102,8 @@ export default function App() {
                         <Route path="/tasks/device-demo" element={<DeviceDemo />} />
                         <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
                         <Route path="/tasks/after-sale-services/:id" element={<PostSaleTaskDetail />} />
+                        {/* Unified open_task detail under group URL — V1.0 reuses EmergencyTaskDetail. */}
+                        <Route path="/tasks/group/maintenance/:id" element={<EmergencyTaskDetail />} />
                         {/* Unified task groups (2026-06-01) — single page, 6 display_groups */}
                         <Route path="/tasks/group/:group" element={<TaskGroupPage />} />
                         <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />

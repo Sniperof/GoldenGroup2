@@ -106,12 +106,18 @@ function validateMandatory(
     }
   }
 
+  // V1.0 (maintenance-v1.md §٣): when an installed_device is provided, the
+  // service_address is derivable from the device at promote time — we relax
+  // the SR-WALKIN-03 enforcement at intake. Walk-in (no client + no device)
+  // is rejected by V1.0 anyway via the modal; this branch keeps the API
+  // robust for future channels that may still send the address explicitly.
   const addr = input.serviceAddress ?? {};
-  if (!addr['governorate'] || !addr['detailed_address']) {
+  const hasAddr = !!(addr['governorate'] && addr['detailed_address']);
+  if (!hasAddr && !input.installedDeviceId) {
     return {
       ok: false,
       code: 'service_address_required',
-      message: 'SR-WALKIN-03: service_address.governorate + .detailed_address required',
+      message: 'SR-WALKIN-03: service_address.governorate + .detailed_address required (or pass installedDeviceId)',
     };
   }
 

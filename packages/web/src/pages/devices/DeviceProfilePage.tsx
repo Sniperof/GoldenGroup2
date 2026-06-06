@@ -25,6 +25,7 @@ import { InstalledPartsSection } from './sections/InstalledPartsSection';
 import { LinkedContractSection } from './sections/LinkedContractSection';
 import { FinancialSection } from './sections/FinancialSection';
 import { TasksSection } from './sections/TasksSection';
+import { ProblemsHistorySection } from './sections/ProblemsHistorySection';
 
 const JUMP_LINKS = [
   { id: 'identity',          label: '١. الهوية' },
@@ -36,6 +37,7 @@ const JUMP_LINKS = [
   { id: 'contract',          label: '٧. العقد' },
   { id: 'financial',         label: '٨. المالية' },
   { id: 'tasks',             label: '٩. المهام' },
+  { id: 'problems',          label: '١٠. سجل الأعطال' },
 ];
 
 const MISSING_LABELS: Record<string, string> = {
@@ -230,6 +232,7 @@ export default function DeviceProfilePage() {
           <LinkedContractSection contract={contract} apiBase={API_BASE} />
           <FinancialSection contract={contract} customerId={device.customerId ?? null} />
           <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} />
+          <ProblemsHistorySection deviceId={deviceId} />
         </main>
       </div>
     </div>

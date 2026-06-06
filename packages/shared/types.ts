@@ -44,6 +44,7 @@ export interface ReferralSheet {
     ownerUserId: number;
     assignedHrUserId?: number | null;
     assignedHrUserName?: string | null;
+    fieldVisitId?: number | null;
     branchId?: number | null;
     branchName?: string | null;
     status: 'New' | 'In-Progress' | 'Completed' | 'Archived';
@@ -359,6 +360,7 @@ export type ClientSmartMatchResponse =
         normalizedPhone: string;
         reason: 'OUT_OF_SCOPE';
         message: string;
+        client: SmartMatchVisibleClient;
     };
 
 export interface Visit {
@@ -1019,10 +1021,14 @@ export interface TaskListItem {
     status: 'pending' | 'called' | 'booked';
     callOutcome?: CallOutcome;
     contactTargetId?: number;
+    lockedByHrUserId?: number | null;
+    lockedByHrUserName?: string | null;
     openTaskId: number | null;
     openTaskReason: string | null;
     openTaskType: string | null;
     openTaskStatus: string | null;
+    openTaskExpectedDate?: string | null;
+    openTaskExpectedTime?: string | null;
     ownership?: CustomerOwnership | null;
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import { Loader2, AlertCircle, ChevronRight } from 'lucide-react';
 import { api } from '../../lib/api';
@@ -79,7 +79,9 @@ export default function TaskDetailLayout({
   const [error, setError] = useState<string | null>(null);
   const [clientPopupId, setClientPopupId] = useState<number | null>(null);
 
-  const [activeTab, setActiveTab] = useState<string>('overview');
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') ?? 'overview';
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
 
   const [priorityDraft, setPriorityDraft] = useState<'' | 'high' | 'medium' | 'low'>('');
   const [prioritySaving, setPrioritySaving] = useState(false);
@@ -276,6 +278,8 @@ export default function TaskDetailLayout({
               task={task}
               hasResult={hasResult}
               ResultRenderer={extension?.ResultRenderer}
+              ResultModal={extension?.ResultModal}
+              canRecordResultFor={extension?.canRecordResultFor}
               attempts={attempts}
               rendererProps={{ preOffers }}
             />

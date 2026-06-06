@@ -23,6 +23,10 @@ const FINAL_DECISION_LABELS: Record<string, string> = {
   device_sold:     'بيع جهاز',
   rescheduled:     'إعادة جدولة',
   cancelled:       'إلغاء',
+  // emergency_maintenance lifecycle outcomes
+  resolved:        'تَم الإصلاح',
+  unresolved:      'لم يُحَلّ بالكامل',
+  needs_follow_up: 'بحاجة مُتابعة',
 };
 
 const CALL_TYPE_LABELS: Record<string, string> = {

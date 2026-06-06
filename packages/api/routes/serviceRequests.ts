@@ -227,24 +227,28 @@ router.get('/:id', requirePermission('service_requests.view'), async (req, res) 
       [id],
     ),
     pool.query(
-      `SELECT id, service_request_id AS "serviceRequestId",
-              open_task_id AS "openTaskId",
-              installed_device_id AS "installedDeviceId",
-              problem_type_id AS "problemTypeId", details, status,
-              added_during_phase AS "addedDuringPhase",
-              creator_role_snapshot AS "creatorRoleSnapshot",
-              created_by_user_id AS "createdByUserId",
-              created_at AS "createdAt",
-              resolved_at AS "resolvedAt",
-              resolution_recorded_by_user_id AS "resolutionRecordedByUserId",
-              repaired_by_employee_id AS "repairedByEmployeeId",
-              resolution_visit_task_id AS "resolutionVisitTaskId",
-              resolution_notes AS "resolutionNotes",
-              edit_count AS "editCount", last_edited_at AS "lastEditedAt",
-              deleted_at AS "deletedAt"
-         FROM service_request_problems
-        WHERE service_request_id = $1
-        ORDER BY created_at ASC`,
+      `SELECT p.id, p.service_request_id AS "serviceRequestId",
+              p.open_task_id AS "openTaskId",
+              p.installed_device_id AS "installedDeviceId",
+              p.problem_type_id AS "problemTypeId",
+              sl.value AS "problemTypeLabel",
+              p.details, p.status,
+              p.added_during_phase AS "addedDuringPhase",
+              p.creator_role_snapshot AS "creatorRoleSnapshot",
+              p.created_by_user_id AS "createdByUserId",
+              p.created_at AS "createdAt",
+              p.resolved_at AS "resolvedAt",
+              p.resolution_recorded_by_user_id AS "resolutionRecordedByUserId",
+              p.repaired_by_employee_id AS "repairedByEmployeeId",
+              p.resolution_visit_task_id AS "resolutionVisitTaskId",
+              p.resolution_notes AS "resolutionNotes",
+              p.no_resolve_reason AS "noResolveReason",
+              p.edit_count AS "editCount", p.last_edited_at AS "lastEditedAt",
+              p.deleted_at AS "deletedAt"
+         FROM service_request_problems p
+         LEFT JOIN system_lists sl ON sl.id = p.problem_type_id
+        WHERE p.service_request_id = $1
+        ORDER BY p.created_at ASC`,
       [id],
     ),
   ]);
@@ -766,6 +770,7 @@ router.patch('/:id/problems/:pid/status', requirePermission('service_requests.re
     repairTeamSnapshot: req.body.repairTeamSnapshot ?? null,
     resolutionNotes: req.body.resolutionNotes ?? null,
     reason: req.body.reason ?? null,
+    noResolveReason: req.body.noResolveReason ?? null,
   });
   if (result.ok !== true) return sendErr(res, result);
   res.json(result.data);

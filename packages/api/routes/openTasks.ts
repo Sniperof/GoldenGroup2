@@ -11,6 +11,7 @@ import {
   buildClientLifecycleStatusSql,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
+import { claimContactTarget, ContactTargetLockError } from '../services/contactTargetLocks.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -78,6 +79,7 @@ const OPEN_TASK_SELECT = `
     ot.*, 
     ot.client_snapshot AS "clientSnapshot",
     ot.contract_snapshot AS "contractSnapshot",
+    ot.device_snapshot AS "deviceSnapshot",
     ot.team_snapshot AS "teamSnapshot",
     c.name AS "clientName",
     c.first_name AS "clientFirstName",
@@ -240,11 +242,13 @@ function mapOpenTaskRow(row: any) {
     dispatchOriginType: row.dispatch_origin_type ?? null,
     dispatchOriginLabel: row.dispatch_origin_label ?? null,
     cancellationReason: row.cancellation_reason ?? null,
+    sourceServiceRequestId: row.source_service_request_id ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     clientSnapshot: row.clientSnapshot ?? null,
     contractSnapshot: row.contractSnapshot ?? null,
+    deviceSnapshot: row.deviceSnapshot ?? null,
     teamSnapshot: row.teamSnapshot ?? null,
     clientName: row.clientName ?? null,
     clientFirstName: row.clientFirstName ?? null,
@@ -312,7 +316,87 @@ function resolveGeoName(value: unknown, geoMap: Map<number, { name: string; leve
   return geoMap.get(parsed)?.name ?? String(value);
 }
 
-export async function buildOpenTaskSnapshots(db: Queryable, clientId: number, contractId?: number | null) {
+/**
+ * Build a DeviceSnapshot for a specific installed device.
+ * Constitution: docs/constitution/components/device-snapshot.md §3.2
+ */
+export async function buildDeviceSnapshot(db: Queryable, installedDeviceId: number | null | undefined) {
+  if (!installedDeviceId) return null;
+  const { rows } = await db.query(
+    `SELECT
+      d.id, d.contract_id, c.contract_number, c.customer_name,
+      d.customer_id, d.branch_id, b.name AS branch_name,
+      d.device_model_id, d.device_model_name, d.serial_number,
+      d.status, d.delivery_date, d.installation_date, d.activated_at,
+      d.installation_geo_unit_id, gu.name AS installation_geo_unit_name,
+      d.installation_address_text, d.installation_lat, d.installation_lng,
+      d.contract_warranty_end_date, d.golden_warranty_end_date,
+      d.warranty_months, d.warranty_visits
+     FROM installed_devices d
+     LEFT JOIN contracts c   ON c.id  = d.contract_id
+     LEFT JOIN branches  b   ON b.id  = d.branch_id
+     LEFT JOIN geo_units gu  ON gu.id = d.installation_geo_unit_id
+     WHERE d.id = $1`,
+    [installedDeviceId],
+  );
+  const r = rows[0];
+  if (!r) return null;
+
+  // Resolve the full geo hierarchy (governorate → district → neighborhood)
+  // via recursive CTE so we can display the full address per geo-units.md BR-4.
+  let geoPath: Array<{ id: number; name: string; level: number }> = [];
+  if (r.installation_geo_unit_id) {
+    const { rows: pathRows } = await db.query(
+      `WITH RECURSIVE chain AS (
+         SELECT id, name, level, parent_id, 0 AS depth
+           FROM geo_units WHERE id = $1
+         UNION ALL
+         SELECT g.id, g.name, g.level, g.parent_id, c.depth + 1
+           FROM geo_units g JOIN chain c ON g.id = c.parent_id
+       )
+       SELECT id, name, level FROM chain ORDER BY depth DESC`,
+      [r.installation_geo_unit_id],
+    );
+    geoPath = pathRows.map((p: any) => ({ id: p.id, name: p.name, level: p.level }));
+  }
+
+  return {
+    id: r.id,
+    contractId: r.contract_id,
+    contractNumber: r.contract_number ?? null,
+    customerId: r.customer_id,
+    customerName: r.customer_name ?? null,
+    branchId: r.branch_id ?? null,
+    branchName: r.branch_name ?? null,
+    identity: {
+      modelId: r.device_model_id ?? null,
+      modelName: r.device_model_name ?? '',
+      serialNumber: r.serial_number ?? null,
+    },
+    lifecycle: {
+      status: r.status ?? null,
+      deliveryDate: r.delivery_date ?? null,
+      installationDate: r.installation_date ?? null,
+      activatedAt: r.activated_at ?? null,
+    },
+    location: {
+      geoUnitId: r.installation_geo_unit_id ?? null,
+      geoUnitName: r.installation_geo_unit_name ?? null,
+      geoPath, // [{id,name,level}] root → leaf
+      addressText: r.installation_address_text ?? null,
+      lat: r.installation_lat ? Number(r.installation_lat) : null,
+      lng: r.installation_lng ? Number(r.installation_lng) : null,
+    },
+    warranty: {
+      contractWarrantyEndDate: r.contract_warranty_end_date ?? null,
+      goldenWarrantyEndDate: r.golden_warranty_end_date ?? null,
+      warrantyMonths: r.warranty_months ? Number(r.warranty_months) : null,
+      warrantyVisits: r.warranty_visits ? Number(r.warranty_visits) : null,
+    },
+  };
+}
+
+export async function buildOpenTaskSnapshots(db: Queryable, clientId: number, contractId?: number | null, installedDeviceId?: number | null) {
   const { rows: clientRows } = await db.query(
     `SELECT
       c.name,
@@ -331,7 +415,7 @@ export async function buildOpenTaskSnapshots(db: Queryable, clientId: number, co
 
   const clientRow = clientRows[0];
   if (!clientRow) {
-    return { clientSnapshot: null, contractSnapshot: null };
+    return { clientSnapshot: null, contractSnapshot: null, deviceSnapshot: null };
   }
 
   const geoIds = [
@@ -446,21 +530,54 @@ export async function buildOpenTaskSnapshots(db: Queryable, clientId: number, co
     }
   }
 
-  return { clientSnapshot, contractSnapshot };
+  const deviceSnapshot = await buildDeviceSnapshot(db, installedDeviceId ?? null);
+  return { clientSnapshot, contractSnapshot, deviceSnapshot };
 }
 
-export async function persistOpenTaskSnapshots(db: Queryable, openTaskId: number, clientId: number, contractId?: number | null) {
-  const { clientSnapshot, contractSnapshot } = await buildOpenTaskSnapshots(db, clientId, contractId);
+export async function persistOpenTaskSnapshots(db: Queryable, openTaskId: number, clientId: number, contractId?: number | null, installedDeviceId?: number | null) {
+  // Auto-resolve device from the task row if not provided (so legacy callers
+  // still get the snapshot written without changing their signatures).
+  let resolvedDeviceId = installedDeviceId ?? null;
+  if (resolvedDeviceId == null) {
+    const { rows } = await db.query(
+      `SELECT device_id FROM open_tasks WHERE id = $1`,
+      [openTaskId],
+    );
+    resolvedDeviceId = rows[0]?.device_id ?? null;
+  }
+
+  // If we have a device but no contract_id, derive contract_id from the device.
+  // Every installed_device has a contract_id (NOT NULL FK). Also stamp it onto
+  // open_tasks so the row stays internally consistent.
+  let resolvedContractId = contractId ?? null;
+  if (resolvedContractId == null && resolvedDeviceId != null) {
+    const { rows } = await db.query(
+      `SELECT contract_id FROM installed_devices WHERE id = $1`,
+      [resolvedDeviceId],
+    );
+    resolvedContractId = rows[0]?.contract_id ?? null;
+    if (resolvedContractId != null) {
+      await db.query(
+        `UPDATE open_tasks SET contract_id = $1 WHERE id = $2 AND contract_id IS NULL`,
+        [resolvedContractId, openTaskId],
+      );
+    }
+  }
+
+  const { clientSnapshot, contractSnapshot, deviceSnapshot } =
+    await buildOpenTaskSnapshots(db, clientId, resolvedContractId, resolvedDeviceId);
 
   await db.query(
     `UPDATE open_tasks
      SET client_snapshot = $1::jsonb,
-         contract_snapshot = $2::jsonb
+         contract_snapshot = $2::jsonb,
+         device_snapshot = $4::jsonb
      WHERE id = $3`,
     [
       clientSnapshot ? JSON.stringify(clientSnapshot) : null,
       contractSnapshot ? JSON.stringify(contractSnapshot) : null,
       openTaskId,
+      deviceSnapshot ? JSON.stringify(deviceSnapshot) : null,
     ],
   );
 }
@@ -2597,10 +2714,11 @@ router.post('/:id/emergency-result', requirePermission('open_tasks.edit'), async
         );
       }
       
-      // Capture contract device snapshot if applicable
-      if (taskRow.contract_id) {
-        await persistContractDeviceSnapshot(db, taskRow.contract_id, visitTaskResultId);
-      }
+      // NOTE: Device/contract snapshot is now captured at open_task creation
+      // time via persistOpenTaskSnapshots() (see open_tasks.device_snapshot
+      // column added in migration 259 + buildDeviceSnapshot). The previously
+      // referenced persistContractDeviceSnapshot() was never defined; the
+      // snapshot need is fully covered upstream.
 
       // 7. Phase 4 finalization rule: complete the field visit when all tasks resolved
       await maybeCompleteFieldVisit(db, fieldVisitId);
@@ -3728,9 +3846,10 @@ router.post('/:id/schedule-from-expected', requirePermission('telemarketing.appo
       return res.status(404).json({ error: 'المهمة غير موجودة' });
     }
     const task = taskRows[0];
-    if (task.status !== 'needs_follow_up') {
+    const liveStatuses = new Set(['needs_follow_up', 'assigned', 'in_scheduling']);
+    if (!liveStatuses.has(task.status)) {
       return res.status(409).json({
-        error: `Schedule-from-Expected متاح فقط للمهام بحالة needs_follow_up (الحالة الحالية: ${task.status})`,
+        error: `الحجز المباشر غير متاح للمهام بحالة ${task.status}`,
       });
     }
     if (!task.expected_date) {
@@ -3746,6 +3865,51 @@ router.post('/:id/schedule-from-expected', requirePermission('telemarketing.appo
       return res.status(400).json({ error: 'teamKey مطلوب' });
     }
 
+    const rawSelectedTasks = Array.isArray(body.selectedOpenTasks) ? body.selectedOpenTasks : [];
+    const selectedTaskIds = Array.from(new Set(
+      rawSelectedTasks
+        .map((item: any) => Number(item?.openTaskId))
+        .filter((id: number) => Number.isInteger(id) && id > 0),
+    ));
+    if (!selectedTaskIds.includes(taskId)) {
+      selectedTaskIds.unshift(taskId);
+    }
+
+    const { rows: selectedTaskRows } = await pool.query(
+      `SELECT id, client_id, branch_id, task_type, status
+         FROM open_tasks
+        WHERE id = ANY($1::int[])
+        ORDER BY array_position($1::int[], id)`,
+      [selectedTaskIds],
+    );
+
+    if (selectedTaskRows.length !== selectedTaskIds.length) {
+      return res.status(404).json({ error: 'توجد مهمة مختارة غير موجودة' });
+    }
+
+    for (const selectedTask of selectedTaskRows) {
+      if (Number(selectedTask.client_id) !== Number(task.client_id) || Number(selectedTask.branch_id) !== Number(task.branch_id)) {
+        return res.status(400).json({ error: 'لا يمكن حجز مهام من زبائن أو فروع مختلفة ضمن نفس الحجز المباشر' });
+      }
+      if (!liveStatuses.has(selectedTask.status)) {
+        return res.status(409).json({ error: `لا يمكن حجز المهمة #${selectedTask.id} مباشرة لأنها بحالة ${selectedTask.status}` });
+      }
+    }
+
+    const contactTargetId = Number(body.contactTargetId);
+    try {
+      await claimContactTarget(
+        pool,
+        Number.isInteger(contactTargetId) && contactTargetId > 0 ? contactTargetId : null,
+        performedByUserId,
+      );
+    } catch (err: any) {
+      if (err instanceof ContactTargetLockError) {
+        return res.status(err.statusCode).json({ error: err.message, ownerName: err.ownerName });
+      }
+      throw err;
+    }
+
     const result = await bookVisit({
       branchId: Number(task.branch_id),
       clientId: Number(task.client_id),
@@ -3755,15 +3919,53 @@ router.post('/:id/schedule-from-expected', requirePermission('telemarketing.appo
       // DEC-004 D22: origin_type = 'expected_followup'; origin_id = source open_task id
       originType: 'expected_followup',
       originId: taskId,
-      selectedTasks: [{ openTaskId: taskId, taskType: task.task_type }],
+      selectedTasks: selectedTaskRows.map((selectedTask: any) => ({
+        openTaskId: Number(selectedTask.id),
+        taskType: String(selectedTask.task_type ?? 'device_demo'),
+      })),
       performedByUserId,
       customerSnapshot: body.customerSnapshot ?? null,
       telemarketerNotes: body.notes ?? null,
     });
 
+    if (Number.isInteger(contactTargetId) && contactTargetId > 0) {
+      await pool.query(
+        `UPDATE contact_targets
+            SET status = 'closed',
+                closing_reason = 'booked',
+                latest_visit_id = $1,
+                latest_call_outcome = COALESCE(latest_call_outcome, 'booked_marketing_appointment'),
+                closed_at = NOW(),
+                updated_at = NOW()
+          WHERE id = $2`,
+        [result.fieldVisitId, contactTargetId],
+      );
+    }
+
+    if (body.taskListId) {
+      const taskListId = String(body.taskListId);
+      const rawItemIds = Array.isArray(body.taskListItemIds)
+        ? body.taskListItemIds
+        : body.taskListItemId
+          ? [body.taskListItemId]
+          : [];
+      const itemIds = rawItemIds.map((itemId: any) => String(itemId)).filter(Boolean);
+      if (itemIds.length > 0) {
+        await pool.query(
+          `UPDATE telemarketing_task_list_items
+              SET status = 'booked',
+                  call_outcome = 'booked_marketing_appointment'
+            WHERE task_list_id = $1
+              AND id = ANY($2::text[])`,
+          [taskListId, itemIds],
+        );
+      }
+    }
+
     return res.json({
       fieldVisitId: result.fieldVisitId,
       visitTaskIds: result.visitTaskIds,
+      contactTargetId: Number.isInteger(contactTargetId) && contactTargetId > 0 ? contactTargetId : null,
     });
   } catch (err: any) {
     if (err instanceof BookingError) {

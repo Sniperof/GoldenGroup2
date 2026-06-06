@@ -186,6 +186,7 @@ export interface DeviceInstallationResultBody {
   receiver_name?: string | null;
   receiver_signature?: string | null;
   parts?: DeviceInstallationPartInput[] | null;
+  installation_payment?: unknown;
 }
 
 export interface DeviceInstallationReflectionResult {
@@ -388,6 +389,31 @@ function normalizeInstallationParts(parts: unknown): DeviceInstallationPartInput
       && ['installed', 'customer_stock'].includes(String(part.placement_state))
       && (!!part.spare_part_id || !!part.part_name)
     )) as DeviceInstallationPartInput[];
+}
+
+function normalizeInstallationPayment(payment: unknown): Record<string, unknown> {
+  if (!payment || typeof payment !== 'object') return {};
+  const raw = payment as any;
+  const entries = Array.isArray(raw.payment_entries) ? raw.payment_entries : [];
+  const paymentEntries = entries
+    .map((entry: any) => ({
+      method: optionalText(entry?.method),
+      amount_value: optionalNumber(entry?.amount_value),
+      currency: optionalText(entry?.currency) || 'syp',
+      exchange_rate: optionalNumber(entry?.exchange_rate),
+      transfer_company_id: isPositiveInteger(entry?.transfer_company_id) ? Number(entry.transfer_company_id) : null,
+      barter_description: optionalText(entry?.barter_description),
+      amount_syp: optionalNumber(entry?.amount_syp),
+    }))
+    .filter((entry) => entry.method && (entry.amount_value ?? 0) > 0);
+
+  return {
+    payment_type: optionalText(raw.payment_type),
+    invoice_notes: optionalText(raw.invoice_notes),
+    total_parts_amount: optionalNumber(raw.total_parts_amount) ?? 0,
+    total_paid_syp: optionalNumber(raw.total_paid_syp) ?? 0,
+    payment_entries: paymentEntries,
+  };
 }
 
 function assertOfferShape(o: OfferInput, idx: number): void {
@@ -1250,6 +1276,9 @@ export async function applyDeviceInstallationResult(
     const parts = shape.decision === 'installed_successfully'
       ? normalizeInstallationParts(body.parts)
       : [];
+    const installationPayment = shape.decision === 'installed_successfully'
+      ? normalizeInstallationPayment(body.installation_payment)
+      : {};
 
     if (shape.decision === 'installed_successfully') {
       await db.query(
@@ -1342,9 +1371,9 @@ export async function applyDeviceInstallationResult(
           activation_due_date, customer_acknowledged, receiver_name, receiver_signature,
           final_installation_geo_unit_id, final_installation_address_text,
           final_installation_lat, final_installation_lng,
-          created_activation_task_id, installation_parts, technical_notes,
+          created_activation_task_id, installation_parts, installation_payment, technical_notes,
           installed_by_employee_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5::date,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,NOW(),NOW())
+       VALUES ($1,$2,$3,$4,$5::date,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,NOW(),NOW())
        ON CONFLICT (visit_task_result_id) DO UPDATE SET
           outcome = EXCLUDED.outcome,
           installation_incomplete_reason_id = EXCLUDED.installation_incomplete_reason_id,
@@ -1359,6 +1388,7 @@ export async function applyDeviceInstallationResult(
           final_installation_lng = EXCLUDED.final_installation_lng,
           created_activation_task_id = EXCLUDED.created_activation_task_id,
           installation_parts = EXCLUDED.installation_parts,
+          installation_payment = EXCLUDED.installation_payment,
           technical_notes = EXCLUDED.technical_notes,
           installed_by_employee_id = EXCLUDED.installed_by_employee_id,
           updated_at = NOW()
@@ -1378,6 +1408,7 @@ export async function applyDeviceInstallationResult(
         shape.decision === 'installed_successfully' ? optionalNumber(body.final_installation_lng) : null,
         createdActivationTaskId,
         JSON.stringify(parts),
+        JSON.stringify(installationPayment),
         notes,
         performedByUserId,
       ],
@@ -1439,6 +1470,135 @@ export async function applyDeviceInstallationResult(
       openTaskNewStatus: shape.openTaskNewStatus,
       deviceNewStatus: shape.deviceNewStatus,
       createdActivationTaskId,
+      visitCompleted: completion.completed,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// applyEmergencyMaintenanceLifecycleResult
+// ════════════════════════════════════════════════════════════════
+// Slim reflection for emergency_maintenance "reschedule" / "cancel"
+// outcomes — the "apply maintenance" outcome still goes through the
+// existing /api/emergency-result wizard (saveCosts).
+//
+// Mirrors device_demo lifecycle semantics:
+//   - rescheduled → open_task.status = needs_follow_up + expected_date
+//   - cancelled   → open_task.status = cancelled
+// Writes visit_task_results with reason_code + closing_notes, marks
+// visit_task as completed/cancelled, then calls checkAndCompleteVisit.
+// ════════════════════════════════════════════════════════════════
+export interface EmergencyLifecycleBody {
+  final_decision: 'rescheduled' | 'cancelled';
+  reason_code_id: number;
+  expected_date?: string | null;   // required for rescheduled
+  closing_notes?: string | null;
+}
+
+export async function applyEmergencyMaintenanceLifecycleResult(
+  visitTaskId: number,
+  body: EmergencyLifecycleBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+) {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status, fv.branch_id
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+        WHERE vt.id = $1 LIMIT 1`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير موجود');
+    const vt = vtRows[0];
+    if (vt.task_type !== 'emergency_maintenance') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" غير مدعوم لهذا المسار`);
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة — الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+
+    const decision = body.final_decision;
+    if (decision !== 'rescheduled' && decision !== 'cancelled') {
+      throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+    }
+    if (!body.reason_code_id || !Number.isFinite(Number(body.reason_code_id))) {
+      throw new ResultValidationError('reason_code_id مطلوب');
+    }
+    if (decision === 'rescheduled' && !body.expected_date) {
+      throw new ResultValidationError('expected_date مطلوب');
+    }
+
+    // visit_task_results — single row per visit_task
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = COALESCE(EXCLUDED.closing_notes, visit_task_results.closing_notes),
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [visitTaskId, decision, String(body.reason_code_id), body.closing_notes ?? null, performedByUserId],
+    );
+
+    // visit_tasks.status
+    const newVtStatus = decision === 'cancelled' ? 'cancelled' : 'completed';
+    await db.query(
+      `UPDATE visit_tasks SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [newVtStatus, visitTaskId],
+    );
+
+    // Reflect onto open_tasks
+    if (vt.source_open_task_id) {
+      if (decision === 'cancelled') {
+        await db.query(
+          `UPDATE open_tasks
+              SET status = 'cancelled',
+                  cancellation_reason = COALESCE($2, cancellation_reason),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [vt.source_open_task_id, body.closing_notes ?? null],
+        );
+      } else {
+        await db.query(
+          `UPDATE open_tasks
+              SET last_waiting_status = CASE
+                    WHEN status IN ('open', 'needs_follow_up') THEN status
+                    ELSE COALESCE(last_waiting_status, 'open')
+                  END,
+                  status = 'needs_follow_up',
+                  expected_date = COALESCE($2::date, expected_date),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [vt.source_open_task_id, body.expected_date ?? null],
+        );
+      }
+    }
+
+    // Auto-advance the visit if guards pass
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+
+    if (!useExternal) await db.query('COMMIT');
+    return {
+      visitTaskResultId: vtrRows[0].id,
+      openTaskNewStatus: decision === 'cancelled' ? 'cancelled' : 'needs_follow_up',
       visitCompleted: completion.completed,
     };
   } catch (err) {

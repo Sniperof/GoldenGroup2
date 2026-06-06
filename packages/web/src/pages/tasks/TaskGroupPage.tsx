@@ -249,6 +249,20 @@ function getTaskTypeLabel(taskType: string): string {
       return 'تركيب جهاز';
     case 'device_activation':
       return 'تشغيل جهاز';
+    case 'emergency_maintenance':
+      return 'صيانة طارئة';
+    case 'periodic_maintenance':
+      return 'صيانة دورية';
+    case 'collection':
+      return 'تحصيل';
+    case 'gift_delivery':
+      return 'تسليم هدية';
+    case 'golden_warranty':
+      return 'كفالة ذهبية';
+    case 'warranty_reactivation':
+      return 'إعادة تفعيل كفالة';
+    case 'warranty_cancellation':
+      return 'إلغاء كفالة';
     default:
       return taskType;
   }
@@ -333,7 +347,7 @@ export default function TaskGroupPage() {
       };
       if (group === 'device-demo') {
         setRows(await api.openTasks.listDeviceDemo(params));
-      } else if (group === 'after-sale-services') {
+      } else if (group === 'after-sale-services' || group === 'maintenance') {
         setRows(await api.openTasks.listByGroup(group, params));
       } else {
         setRows([]);
@@ -523,24 +537,7 @@ export default function TaskGroupPage() {
                   return (
                     <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`${config.detailHref}/${row.id}`)}>
                       <td className="px-4 py-3 text-slate-700 font-mono text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span>#{row.id}</span>
-                          {row.sourceServiceRequestId != null ? (
-                            <span
-                              title="مُنشأ من service_request — المسار الجديد"
-                              className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200"
-                            >
-                              SR
-                            </span>
-                          ) : (
-                            <span
-                              title="إنشاء قديم (emergency_tickets أو cron)"
-                              className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200"
-                            >
-                              Legacy
-                            </span>
-                          )}
-                        </div>
+                        #{row.id}
                       </td>
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-bold text-slate-700">

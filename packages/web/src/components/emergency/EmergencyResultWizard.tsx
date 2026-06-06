@@ -23,9 +23,14 @@ interface Props {
   taskId: number;
   contractId?: number | null;
   readOnly?: boolean;
+  /** Visit-level technician (executing team). Overrides open_task.team_snapshot for problem auto-fill. */
+  visitTechnicianEmployeeId?: number | null;
+  visitTechnicianName?: string | null;
+  /** Fires after the final phase (costs) saves successfully. */
+  onCostsSaved?: () => void;
 }
 
-export default function EmergencyResultWizard({ taskId, contractId, readOnly = false }: Props) {
+export default function EmergencyResultWizard({ taskId, contractId, readOnly = false, visitTechnicianEmployeeId = null, visitTechnicianName = null, onCostsSaved }: Props) {
   const [result, setResult]       = useState<any>(null);
   const [loading, setLoading]     = useState(true);
   const [activePhase, setActive]  = useState<PhaseKey>('preState');
@@ -106,6 +111,8 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
               taskId={taskId}
               serviceRequestId={result.taskMeta.sourceServiceRequestId}
               installedDeviceId={result.taskMeta.installedDeviceId ?? null}
+              defaultTechnicianEmployeeId={visitTechnicianEmployeeId ?? result.taskMeta.technicianEmployeeId ?? null}
+              defaultTechnicianName={visitTechnicianName ?? result.taskMeta.technicianName ?? null}
               problems={result.problems ?? []}
               derivedOutcome={result.derivedOutcome ?? null}
               readOnly={readOnly}
@@ -139,7 +146,10 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
           taskId={taskId}
           initialData={phases.costs}
           readOnly={readOnly}
-          onSaved={() => load()}
+          onSaved={() => {
+            load();
+            if (onCostsSaved) onCostsSaved();
+          }}
           onBack={() => setActive('postState')}
           // Phase 6c.2 — new-path props
           sourceServiceRequestId={result?.taskMeta?.sourceServiceRequestId ?? null}

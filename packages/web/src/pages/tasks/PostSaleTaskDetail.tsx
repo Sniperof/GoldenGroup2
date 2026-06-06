@@ -2,10 +2,27 @@ import { useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
-import type { TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
+import type { TaskResultModalProps, TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
 import DeliveryInfoTab from '../../taskTypes/device_delivery/DeliveryInfoTab';
+import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
+import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
+
+const RECORDABLE_POST_SALE_TYPES = new Set(['device_delivery', 'device_installation']);
+
+const PostSaleResultModal = (props: TaskResultModalProps) => {
+  const taskType = props.task?.taskType ?? props.task?.task_type;
+  if (taskType === 'device_installation') {
+    return <DeviceInstallationResultModal {...props} />;
+  }
+  if (taskType === 'device_delivery') {
+    return <DeviceDeliveryResultModal {...props} />;
+  }
+  return null;
+};
 
 const postSaleExtension: TaskTypeExtension = {
+  ResultModal: PostSaleResultModal,
+  canRecordResultFor: (task) => RECORDABLE_POST_SALE_TYPES.has(task?.taskType ?? task?.task_type),
   extraTabs: [
     {
       id: 'delivery-info',

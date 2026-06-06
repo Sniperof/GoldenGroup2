@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, Calendar, PlusCircle, X, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from 'lucide-react';
+import { UserPlus, PlusCircle, X, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from 'lucide-react';
 import { CandidateStatus, ReferralType, ReferralOriginChannel, Client, ContactEntry, Candidate, ContactType, ContactStatus } from '../../lib/types';
 import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
-import { usePermissions } from '../../hooks/usePermissions';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 import {
@@ -81,11 +80,15 @@ const initialCandidateState: {
 
 export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, initialData, title }: AddCandidateModalProps) {
     const authUser = useAuthStore(state => state.user);
-    const { hasPermission } = usePermissions();
+    const getPermissionScope = useAuthStore(state => state.getPermissionScope);
     const { branchId: contextBranchId } = useBranchContextStore();
     const currentUserDisplayName = authUser?.name?.trim() || '';
     const canChooseBranch = authUser?.isSuperAdmin === true;
-    const canChooseAssignedOwner = authUser?.isSuperAdmin === true || hasPermission('admin.roles.view');
+    const editCandidateScope = getPermissionScope('candidates.edit');
+    const canChooseAssignedOwner =
+        authUser?.isSuperAdmin === true ||
+        editCandidateScope === 'GLOBAL' ||
+        editCandidateScope === 'BRANCH';
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
@@ -359,7 +362,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setError('يجب اختيار لائحة أسماء في وضع (لائحة الأسماء).');
             return false;
         }
-        if (isDirectMode && (!referralDate || !referralNameSnapshot)) {
+        if (isDirectMode && !referralNameSnapshot) {
             setError('الرجاء تعبئة جميع الحقول الإلزامية الخاصة بالاستقطاب المباشر.');
             return false;
         }
@@ -409,6 +412,9 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             let resolvedReferralNameSnapshot = referralNameSnapshot;
             const resolvedBranchId = selectedSheet?.branchId ?? (selectedBranchId === '' ? (contextBranchId ?? authUser?.branchId ?? null) : Number(selectedBranchId));
             const resolvedResponsibleUserId = selectedSheet?.assignedHrUserId ?? (selectedResponsibleUserId === '' ? (authUser?.id ?? null) : Number(selectedResponsibleUserId));
+            const effectiveReferralDate = isDirectMode
+                ? (initialData?.referralDate?.split('T')[0] || new Date().toISOString().split('T')[0])
+                : referralDate;
             if (!isDirectMode && selectedSheet) {
                 resolvedReferralType = selectedSheet.referralType;
                 resolvedOriginChannel = selectedSheet.referralOriginChannel;
@@ -433,13 +439,13 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 referralOriginChannel: resolvedOriginChannel,
                 referralNameSnapshot: resolvedReferralNameSnapshot,
                 referralEntityId: entityId,
-                referralDate: new Date(referralDate).toISOString(),
+                referralDate: new Date(effectiveReferralDate).toISOString(),
                 referralReason: isDirectMode ? 'Direct Referral' : 'Part of Sheet',
                 occupation: candidateData.occupation,
                 candidateNotes: candidateData.candidateNotes,
                 ownerUserId: resolvedResponsibleUserId ?? authUser?.id ?? 0,
                 branchId: resolvedBranchId,
-                assignmentUserIds: resolvedResponsibleUserId ? [resolvedResponsibleUserId] : undefined,
+                assignmentUserIds: canChooseAssignedOwner && resolvedResponsibleUserId ? [resolvedResponsibleUserId] : undefined,
                 createdBy: authUser?.id ?? 0
             };
             if (initialData?.id) {
@@ -600,12 +606,6 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                             ) : (
                                 /* MODE A: Direct Referral */
                                 <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-4 transition-all">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />التاريخ *</label>
-                                            <input type="date" value={referralDate} onChange={e => setReferralDate(e.target.value)} className="w-full p-2.5 rounded-xl border border-indigo-200 bg-white text-sm" />
-                                        </div>
-                                    </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-xs font-semibold text-slate-600 mb-1.5">نوع الوسيط *</label>

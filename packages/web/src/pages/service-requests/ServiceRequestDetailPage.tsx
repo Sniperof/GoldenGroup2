@@ -94,6 +94,14 @@ export default function ServiceRequestDetailPage() {
   const isActive = ['received', 'in_review', 'awaiting_customer_info'].includes(req.status);
   const isTerminal = !isActive;
 
+  // V1.0 promote pre-conditions (maintenance-v1.md §١٢)
+  const activeProblems = data.problems.filter((p) => p.deletedAt == null);
+  const promoteMissing: string[] = [];
+  if (!req.beneficiaryClientId) promoteMissing.push('ربط زبون');
+  if (!req.installedDeviceId) promoteMissing.push('ربط جهاز');
+  if (activeProblems.length === 0) promoteMissing.push('عطل واحد على الأقل في اللائحة');
+  const canDoPromote = promoteMissing.length === 0;
+
   function showToast(message: string, kind: 'success' | 'error' = 'success') {
     setToast({ message, kind });
     setTimeout(() => setToast(null), 4000);
@@ -237,21 +245,28 @@ export default function ServiceRequestDetailPage() {
           )}
           {req.status === 'in_review' && canReview && (
             <>
-              <button
-                disabled={busy}
-                onClick={() => setActionModal('requestInfo')}
-                className="text-sm bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded disabled:opacity-50"
-              >
-                طَلب معلومة من الزبون
-              </button>
-              {req.beneficiaryClientId && (
+              {/* V1.0: "طلب معلومة من الزبون" مُؤجَّل (awaiting_customer_info خارج V1.0).
+                  الكود يَبقى في الـ stateMachine للـ V2. */}
+              {canPromote && (
                 <button
-                  disabled={busy}
+                  disabled={busy || !canDoPromote}
                   onClick={doPromote}
-                  className="text-sm bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded disabled:opacity-50 flex items-center gap-1"
+                  title={
+                    canDoPromote
+                      ? 'تَرقية الطلب إلى مهمة طوارئ'
+                      : `يَنقصك: ${promoteMissing.join(' + ')}`
+                  }
+                  className={`text-sm px-3 py-1.5 rounded flex items-center gap-1 ${
+                    canDoPromote
+                      ? 'bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50'
+                      : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                  }`}
                 >
                   <ArrowUpCircle className="h-4 w-4" />
                   ترقية إلى مهمة
+                  {!canDoPromote && (
+                    <span className="text-xs">({promoteMissing.length} ينقص)</span>
+                  )}
                 </button>
               )}
               <button
@@ -273,13 +288,15 @@ export default function ServiceRequestDetailPage() {
               )}
             </>
           )}
+          {/* V1.0: awaiting_customer_info خارج النطاق — زر "العَودة للمراجعة" مَخفي.
+              لو وُجد سجل قديم بهذه الحالة، يَبقى الزر للأمان. */}
           {req.status === 'awaiting_customer_info' && canReview && (
             <button
               disabled={busy}
               onClick={() => safeRun(() => api.serviceRequests.resumeReview(requestId))}
               className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:opacity-50"
             >
-              العَودة للمراجعة
+              العَودة للمراجعة (سجل قديم)
             </button>
           )}
           {req.reviewRequiredFlag && canReject && (
@@ -343,9 +360,76 @@ export default function ServiceRequestDetailPage() {
 
       {tab === 'overview' && (
         <div className="space-y-3">
+          {/* V1.0 §١٢ — promote readiness checklist (visible in in_review only). */}
+          {req.status === 'in_review' && !canDoPromote && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
+              <div className="font-semibold text-yellow-900 mb-1">
+                للترقية إلى مهمة، ينقصك:
+              </div>
+              <ul className="list-disc pr-5 text-yellow-800 space-y-0.5">
+                {promoteMissing.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+              <div className="mt-2 flex gap-2 flex-wrap">
+                {!req.beneficiaryClientId && (
+                  <button
+                    onClick={() => setTab('linkage')}
+                    className="text-xs bg-yellow-700 hover:bg-yellow-800 text-white px-2 py-1 rounded"
+                  >
+                    اذهب إلى الربط ←
+                  </button>
+                )}
+                {req.beneficiaryClientId && !req.installedDeviceId && canReview && (
+                  <button
+                    onClick={async () => {
+                      const idStr = prompt('أَدخِل installed_device_id من أجهزة الزبون:');
+                      const did = Number(idStr);
+                      if (!Number.isFinite(did) || did <= 0) return;
+                      await safeRun(
+                        () => api.serviceRequests.link(requestId, { installedDeviceId: did }),
+                        '✓ تَمَّ ربط الجهاز',
+                      );
+                    }}
+                    className="text-xs bg-yellow-700 hover:bg-yellow-800 text-white px-2 py-1 rounded"
+                  >
+                    ربط جهاز
+                  </button>
+                )}
+                {activeProblems.length === 0 && (
+                  <button
+                    onClick={() => setTab('problems')}
+                    className="text-xs bg-yellow-700 hover:bg-yellow-800 text-white px-2 py-1 rounded"
+                  >
+                    إضافة عطل ←
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="bg-white border border-gray-200 rounded p-4">
             <h3 className="font-semibold text-gray-800 mb-2">شكوى الزبون</h3>
             <p className="text-sm text-gray-700 whitespace-pre-wrap">{req.problemDescription}</p>
+          </div>
+
+          {/* Linked client + device summary */}
+          <div className="bg-white border border-gray-200 rounded p-4">
+            <h3 className="font-semibold text-gray-800 mb-2">الربط</h3>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-gray-500">الزبون</div>
+                <div className="font-medium">
+                  {req.beneficiaryClientId ? `#${req.beneficiaryClientId}` : '— لم يُربَط بعد —'}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">الجهاز</div>
+                <div className="font-medium">
+                  {req.installedDeviceId ? `#${req.installedDeviceId}` : '— لم يُربَط بعد —'}
+                </div>
+              </div>
+            </div>
           </div>
           {req.requesterExternal && (
             <div className="bg-white border border-gray-200 rounded p-4">

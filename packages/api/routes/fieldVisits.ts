@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
-import { applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
 import {
   buildClientLifecycleStatusSql,
   buildCustomerOwnershipSql,
@@ -375,6 +375,18 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
       [visitId],
     );
 
+    // Propagate to linked open_tasks: scheduled → in_execution so the
+    // group page derives the correct phase (execution, not planning).
+    await pool.query(
+      `UPDATE open_tasks SET status = 'in_execution', updated_at = NOW()
+         WHERE id IN (
+           SELECT source_open_task_id FROM visit_tasks
+            WHERE field_visit_id = $1 AND source_open_task_id IS NOT NULL
+         )
+           AND status IN ('scheduled', 'waiting_execution')`,
+      [visitId],
+    );
+
     // Auto-create visit_source if not yet present
     const src = await resolveVisitSource(visitId);
     if (src) {
@@ -538,6 +550,18 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
     await pool.query(
       `UPDATE field_visits SET status = 'ended', updated_at = NOW()
        WHERE id = $1 AND status NOT IN ('completed','cancelled','closed')`,
+      [visitId],
+    );
+
+    // Propagate to linked open_tasks: in_execution → ended.
+    // (completed/closed/cancelled are reached only after result is recorded.)
+    await pool.query(
+      `UPDATE open_tasks SET status = 'ended', updated_at = NOW()
+         WHERE id IN (
+           SELECT source_open_task_id FROM visit_tasks
+            WHERE field_visit_id = $1 AND source_open_task_id IS NOT NULL
+         )
+           AND status = 'in_execution'`,
       [visitId],
     );
 
@@ -2759,6 +2783,13 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('field_visits.ed
 
     if (taskType === 'device_installation') {
       const result = await applyDeviceInstallationResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'emergency_maintenance') {
+      // Lifecycle-only path (reschedule / cancel). The "apply maintenance"
+      // outcome continues to use the dedicated /api/emergency-result wizard.
+      const result = await applyEmergencyMaintenanceLifecycleResult(taskId, body, authContext.userId);
       return res.json({ success: true, ...result });
     }
 

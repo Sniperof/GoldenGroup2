@@ -3,6 +3,7 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
+import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
 import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
 
@@ -670,6 +671,26 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     return res.status(400).json({ error: 'لا يمكن إنشاء عقد جديد — الفرع المحدد موقوف عن العمل' });
   }
 
+  // Geo-coverage enforcement — installation_geo_unit_id must be inside the
+  // target branch's coverage. Enforced against the target branch so that
+  // cross-branch creates respect the recipient's coverage map.
+  const installationGeoUnitForCheck =
+    c.installationGeoUnitId ?? c.installation_geo_unit_id ?? null;
+  if (installationGeoUnitForCheck && (req as any).authContext) {
+    const geoCheck = await assertGeoUnitInScope(
+      (req as any).authContext,
+      installationGeoUnitForCheck,
+      'geo.view',
+      targetBranchId,
+    );
+    if (!geoCheck.allowed) {
+      return res.status(403).json({
+        error: 'موقع تَركيب الجهاز خارج نِطاق تَغطية الفَرع المُستهدف',
+        code: geoCheck.reason,
+      });
+    }
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -874,6 +895,25 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const c = req.body;
   const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
   const draftDevicePayload = buildDraftDevicePayload(c);
+
+  // Geo-coverage enforcement — see POST /contracts. Use the contract's own
+  // owning branch (existing[0].branch_id) since edits don't move branches.
+  const installationGeoUnitForCheck =
+    c.installationGeoUnitId ?? c.installation_geo_unit_id ?? null;
+  if (installationGeoUnitForCheck) {
+    const geoCheck = await assertGeoUnitInScope(
+      authContext,
+      installationGeoUnitForCheck,
+      'geo.view',
+      existing[0].branch_id,
+    );
+    if (!geoCheck.allowed) {
+      return res.status(403).json({
+        error: 'موقع تَركيب الجهاز خارج نِطاق تَغطية فَرع العَقد',
+        code: geoCheck.reason,
+      });
+    }
+  }
 
   const pgClient = await pool.connect();
   try {

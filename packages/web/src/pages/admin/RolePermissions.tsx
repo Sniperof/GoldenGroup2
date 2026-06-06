@@ -15,10 +15,56 @@ import {
 type ScopeType = RolePermissionGrant['scopeType'];
 
 const ALL_SCOPE_OPTIONS: Array<{ value: ScopeType; label: string }> = [
-  { value: 'GLOBAL', label: 'GLOBAL' },
-  { value: 'BRANCH', label: 'BRANCH' },
-  { value: 'ASSIGNED', label: 'ASSIGNED' },
+  { value: 'GLOBAL', label: 'كل الفروع' },
+  { value: 'BRANCH', label: 'فرع المستخدم' },
+  { value: 'ASSIGNED', label: 'السجلات المسندة' },
 ];
+
+const ACTION_LABELS: Record<string, string> = {
+  view_list: 'عرض القائمة',
+  view_detail: 'عرض التفاصيل',
+  view_eligible: 'عرض المؤهلين',
+  view_audit_logs: 'عرض سجل التغييرات',
+  view_history: 'عرض السجل',
+  create: 'إنشاء',
+  add_trainees: 'إضافة متدربين',
+  edit: 'تعديل',
+  delete: 'حذف',
+  edit_notes: 'تعديل الملاحظات',
+  change_status: 'تغيير الحالة',
+  change_stage: 'تغيير المرحلة',
+  record_decision: 'تسجيل قرار',
+  record_result: 'تسجيل نتيجة',
+  record_attendance: 'تسجيل حضور',
+  hire: 'تعيين',
+  schedule: 'جدولة',
+  appear: 'الظهور',
+  escalate: 'تصعيد',
+  archive: 'أرشفة',
+  start: 'بدء',
+  complete: 'إتمام',
+  view: 'عرض',
+  manage: 'إدارة',
+  generate: 'توليد',
+  book: 'حجز',
+  update_result: 'تسجيل نتيجة',
+  can_be_assigned: 'قابل للإسناد',
+  conduct: 'إجراء',
+  be_trainer: 'التدريب كمدرب',
+  review: 'مراجعة',
+  reject: 'رفض',
+  promote: 'ترحيل',
+  reopen_closed: 'إعادة فتح',
+};
+
+function isLegacyPermission(perm: Permission): boolean {
+  return perm.key.startsWith('referral_sheets.') || ((perm as any).module ?? '') === 'referral_sheets';
+}
+
+function getActionLabel(action?: string | null): string {
+  if (!action) return 'إجراء';
+  return ACTION_LABELS[action] ?? 'إجراء مخصص';
+}
 
 /** Return the allowed scope options for a given permission, filtering by allowed_scopes if present. */
 function getScopeOptions(perm: Permission): Array<{ value: ScopeType; label: string }> {
@@ -169,7 +215,7 @@ function ActionBadge({ action }: { action: string }) {
     view:             { icon: <Eye className="w-3 h-3" />,          color: 'bg-blue-50 text-blue-600',     text: 'عرض' },
     manage:           { icon: <Settings className="w-3 h-3" />,     color: 'bg-rose-50 text-rose-600',     text: 'إدارة' },
   };
-  const cfg = map[action] ?? { icon: <Key className="w-3 h-3" />, color: 'bg-slate-100 text-slate-500', text: action };
+  const cfg = map[action] ?? { icon: <Key className="w-3 h-3" />, color: 'bg-slate-100 text-slate-500', text: getActionLabel(action) };
   return (
     <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${cfg.color}`}>
       {cfg.icon}{cfg.text}
@@ -192,6 +238,13 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   branches:     { label: 'الفروع',                      icon: <Users className="w-4 h-4" />,        color: 'text-fuchsia-600 bg-fuchsia-50' },
   settings:     { label: 'إعدادات النظام',              icon: <Settings className="w-4 h-4" />,     color: 'text-slate-600 bg-slate-100' },
   admin:        { label: 'إدارة النظام والصلاحيات',     icon: <Settings className="w-4 h-4" />,     color: 'text-rose-600 bg-rose-50' },
+  users:        { label: 'المستخدمون',                   icon: <Users className="w-4 h-4" />,        color: 'text-indigo-600 bg-indigo-50' },
+  departments:  { label: 'الأقسام',                      icon: <ListChecks className="w-4 h-4" />,   color: 'text-slate-600 bg-slate-100' },
+  marketing_visits: { label: 'الزيارات التسويقية',       icon: <Calendar className="w-4 h-4" />,     color: 'text-emerald-600 bg-emerald-50' },
+  telemarketing: { label: 'التيلماركتنغ',                icon: <AlertCircle className="w-4 h-4" />,  color: 'text-pink-600 bg-pink-50' },
+  field_visits: { label: 'الزيارات الميدانية',           icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
+  open_tasks:   { label: 'المهام المفتوحة',              icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
+  service_requests: { label: 'طلبات الخدمة والصيانة',    icon: <FileText className="w-4 h-4" />,     color: 'text-cyan-600 bg-cyan-50' },
 };
 
 const SUB_MODULE_LABELS: Record<string, string> = {
@@ -203,15 +256,42 @@ const SUB_MODULE_LABELS: Record<string, string> = {
   name_lists:    'لوائح الأسماء',
   roles:        'الأدوار والصلاحيات',
   system_lists: 'القوائم النظامية',
+  branch_assignments: 'فروع المستخدمين المسموحة',
+  management: 'الإدارة',
+  system: 'النظام',
+  geography: 'المناطق الجغرافية',
+  visits: 'الزيارات',
+  tasks: 'المهام',
+  targets: 'الأهداف',
+  lists: 'قوائم الاتصال',
+  calls: 'المكالمات',
+  appointments: 'المواعيد',
+  schedule: 'جدولة الفرق',
+  service_requests: 'طلبات الخدمة والصيانة',
 };
+
+function getModuleConfig(module: string) {
+  return MODULE_CONFIG[module] ?? {
+    label: 'إدارة عمل الفرع',
+    icon: <Calendar className="w-4 h-4" />,
+    color: 'text-teal-600 bg-teal-50',
+  };
+}
+
+function getSubModuleLabel(subModule: string): string {
+  return SUB_MODULE_LABELS[subModule] ?? 'مجموعة صلاحيات';
+}
 
 // ── Helper to get display name safely (snake_case & camelCase) ────────────────
 function getPermLabel(perm: Permission): string {
   const known = PERM_LABELS[perm.key];
   if (known) return known.label;
   // Fallback: API may return display_name (snake_case)
-  const raw = (perm as any).display_name ?? perm.displayName ?? perm.key;
-  return raw;
+  const raw = (perm as any).display_name ?? perm.displayName;
+  if (raw && raw !== perm.key) return raw;
+  const action = getActionLabel((perm as any).action);
+  const sub = getSubModuleLabel((perm as any).sub_module ?? (perm as any).subModule ?? '');
+  return `${action} - ${sub}`;
 }
 
 function getPermDesc(perm: Permission): string | null {
@@ -255,6 +335,7 @@ export default function RolePermissions() {
   const grouped = useMemo(() => {
     const map: Record<string, Record<string, Permission[]>> = {};
     for (const p of allPermissions) {
+      if (isLegacyPermission(p)) continue;
       const mod = (p as any).module ?? 'other';
       const sub = (p as any).sub_module ?? (p as any).subModule ?? 'general';
       if (!map[mod]) map[mod] = {};
@@ -376,7 +457,12 @@ export default function RolePermissions() {
     return <Navigate to="/admin/roles" replace />;
   }
 
-  const totalPerms = allPermissions.length;
+  const visibleAssignedCount = Object.values(grouped)
+    .flatMap(subGroups => Object.values(subGroups).flat())
+    .filter(permission => assigned.has(permission.id)).length;
+  const totalPerms = Object.values(grouped)
+    .reduce((sum, subGroups) => sum + Object.values(subGroups).flat().length, 0);
+  const grantedPercent = totalPerms > 0 ? Math.round((visibleAssignedCount / totalPerms) * 100) : 0;
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
@@ -398,7 +484,7 @@ export default function RolePermissions() {
               صلاحيات دور: <span className="text-sky-600">{role?.displayName ?? `#${roleId}`}</span>
             </h1>
             <p className="text-xs text-slate-500">
-              {assigned.size} صلاحية مُفعَّلة من أصل {totalPerms}
+              {visibleAssignedCount} صلاحية مُفعَّلة من أصل {totalPerms}
             </p>
           </div>
           <button
@@ -416,13 +502,13 @@ export default function RolePermissions() {
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
             <span>نسبة الصلاحيات الممنوحة</span>
             <span className="font-bold text-slate-700">
-              {totalPerms > 0 ? Math.round((assigned.size / totalPerms) * 100) : 0}%
+              {grantedPercent}%
             </span>
           </div>
           <div className="w-full bg-slate-100 rounded-full h-2">
             <div
               className="bg-sky-500 h-2 rounded-full transition-all duration-500"
-              style={{ width: totalPerms > 0 ? `${(assigned.size / totalPerms) * 100}%` : '0%' }}
+              style={{ width: `${grantedPercent}%` }}
             />
           </div>
         </div>
@@ -451,11 +537,7 @@ export default function RolePermissions() {
 
           <div className="flex flex-wrap gap-2">
             {moduleEntries.map(([module, subGroups]) => {
-              const modCfg = MODULE_CONFIG[module] ?? {
-                label: module,
-                icon: <ListChecks className="w-4 h-4" />,
-                color: 'text-slate-600 bg-slate-100',
-              };
+              const modCfg = getModuleConfig(module);
               const allModulePerms = Object.values(subGroups).flat();
               const moduleSelected = allModulePerms.filter(p => assigned.has(p.id)).length;
               const isOpen = openModules.has(module);
@@ -502,17 +584,13 @@ export default function RolePermissions() {
 
         {/* Permissions grouped by module → subModule */}
         {moduleEntries.map(([module, subGroups]) => {
-          const modCfg = MODULE_CONFIG[module] ?? {
-            label: module,
-            icon: <ListChecks className="w-4 h-4" />,
-            color: 'text-slate-600 bg-slate-100',
-          };
+          const modCfg = getModuleConfig(module);
           const allModulePerms = Object.values(subGroups).flat();
           const moduleSelected = allModulePerms.filter(p => assigned.has(p.id)).length;
           const moduleTotal = allModulePerms.length;
           const allModuleSelected = moduleSelected === moduleTotal;
           const isOpen = openModules.has(module);
-          const subModuleNames = Object.keys(subGroups).map(sub => SUB_MODULE_LABELS[sub] ?? sub);
+          const subModuleNames = Object.keys(subGroups).map(getSubModuleLabel);
 
           return (
             <div key={module} className={`bg-white rounded-2xl border overflow-hidden transition-all ${isOpen ? 'border-sky-200 shadow-lg shadow-sky-100/60' : 'border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200'}`}>
@@ -567,7 +645,7 @@ export default function RolePermissions() {
               {isOpen && (
               <div className="divide-y divide-slate-50">
                 {Object.entries(subGroups).map(([sub, perms]) => {
-                  const subLabel = SUB_MODULE_LABELS[sub] ?? sub;
+                  const subLabel = getSubModuleLabel(sub);
                   const subSelected = perms.filter(p => assigned.has(p.id)).length;
                   const allSubSelected = subSelected === perms.length;
 

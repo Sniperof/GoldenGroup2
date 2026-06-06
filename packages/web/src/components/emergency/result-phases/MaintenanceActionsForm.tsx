@@ -389,8 +389,9 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
     setSavingMeta(true); setError('');
     try {
       await api.emergencyResult.saveActions(taskId, {
-        actionTypeId:    actionTypeId ? Number(actionTypeId) : null,
-        actionsTaken:    actionsTaken.trim() || null,
+        // Always null in V1.0 — actions live inside the problems list.
+        actionTypeId:    null,
+        actionsTaken:    null,
         technicianNotes: techNotes.trim() || null,
         partsUsed:       [],
       });
@@ -405,7 +406,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm" dir="rtl">
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between">
-        <h3 className="font-bold text-slate-800 text-sm">إجراء الصيانة</h3>
+        <h3 className="font-bold text-slate-800 text-sm">القطع المستبدلة</h3>
         {(initialData || savedParts.length > 0) && (
           <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
             {savedParts.length > 0 ? `${savedParts.length} قطعة محفوظة` : 'محفوظة ✓'}
@@ -414,22 +415,10 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
       </div>
 
       <div className="p-5 space-y-5">
-        {/* نوع الإجراء */}
-        <div className="space-y-1">
-          <label className="block text-xs font-bold text-slate-600">نوع الإجراء</label>
-          <select value={actionTypeId} onChange={e => setActionTypeId(e.target.value)} className={sel} disabled={readOnly}>
-            <option value="">— لم يُحدَّد —</option>
-            {actionTypes.map(t => <option key={t.id} value={t.id}>{t.arabicLabel}</option>)}
-          </select>
-        </div>
-
-        {/* وصف الإجراءات */}
-        <div className="space-y-1">
-          <label className="block text-xs font-bold text-slate-600">وصف الإجراءات المنفذة</label>
-          <textarea value={actionsTaken} onChange={e => setActionsTaken(e.target.value)}
-            rows={3} placeholder="اشرح بالتفصيل ما تم تنفيذه..."
-            disabled={readOnly} className={`${inp} resize-none`} />
-        </div>
+        {/* نوع الإجراء + وصف الإجراءات — تَمّ التخلّي عنهما (maintenance-v1.md):
+            الإجراءات تُمثَّل الآن داخل قسم "إجراء الصيانة" أعلاه (لائحة الأعطال).
+            actionTypes / actionTypeId / actionsTaken state يَبقى للـ legacy فقط
+            ويُرسَل null عند الحفظ. */}
 
         {/* ══════════════ القطع المستبدلة ══════════════ */}
         <div>

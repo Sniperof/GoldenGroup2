@@ -16,7 +16,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift,
+    Bell, Wrench, Gift, Inbox,
 } from 'lucide-react';
 
 const navItems = [
@@ -44,8 +44,6 @@ const recordsChildren = [
 const operationsChildren = [
     { path: '/tasks/group/device-demo',         label: 'مهام عرض الجهاز',        icon: Monitor },
     { path: '/tasks/group/maintenance',         label: 'مهام الصيانة',           icon: Wrench },
-    // Phase 4 — service_requests intake layer (GLOBAL list, §٠.١٦)
-    { path: '/service-requests',                label: 'طلبات الصيانة (جديد)',   icon: Wrench },
     { path: '/tasks/group/collection',          label: 'مهام تحصيل الأقساط',     icon: DollarSign },
     { path: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع', icon: RefreshCw },
     { path: '/tasks/group/gift-delivery',       label: 'مهام تسليم الهدايا',     icon: Gift },
@@ -62,6 +60,11 @@ const operationsChildren = [
     // { path: '/tasks/periodic',    label: 'صيانة دورية',     icon: RefreshCw },
     // { path: '/tasks/returns',     label: 'إرجاع',           icon: RotateCcw },
     // { path: '/tasks/followup',    label: 'متابعة',          icon: PhoneCall },
+];
+
+// Requests — intake parent section (currently only maintenance; will grow).
+const requestsChildren = [
+    { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench },
 ];
 
 const planningChildren = [
@@ -140,6 +143,7 @@ export default function MainLayout() {
     }
     const isPlanningActive = location.pathname.startsWith('/planning');
     const isOperationsActive = location.pathname.startsWith('/tasks');
+    const isRequestsActive = location.pathname.startsWith('/service-requests');
     const isVisitsActive = location.pathname.startsWith('/field-visits');
     const isContractsActive = location.pathname.startsWith('/contracts');
     const isGeoActive = location.pathname === '/geo' || location.pathname === '/routes';
@@ -149,6 +153,7 @@ export default function MainLayout() {
 
     const [planningOpen, setPlanningOpen] = useState(isPlanningActive);
     const [operationsOpen, setOperationsOpen] = useState(isOperationsActive);
+    const [requestsOpen, setRequestsOpen] = useState(isRequestsActive);
     const [geoOpen, setGeoOpen] = useState(isGeoActive);
     const [recordsOpen, setRecordsOpen] = useState(isRecordsActive);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -439,6 +444,53 @@ export default function MainLayout() {
                                     className="overflow-hidden"
                                 >
                                     {planningChildren.map(child => (
+                                        <NavLink
+                                            key={child.path}
+                                            to={child.path}
+                                            onClick={() => setIsMobileMenuOpen(false)}
+                                            className={({ isActive }: { isActive: boolean }) =>
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                                }`
+                                            }
+                                        >
+                                            <child.icon className="w-4 h-4" />
+                                            <span>{child.label}</span>
+                                        </NavLink>
+                                    ))}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                    )}
+
+                    {/* 5b. Requests — parent section for all intake layers */}
+                    {canSeeBranchModules && can('service_requests.view') && (
+                    <div className={isCollapsed ? 'lg:hidden' : 'block'}>
+                        <button
+                            onClick={() => setRequestsOpen((o: boolean) => !o)}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isRequestsActive
+                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                }`}
+                        >
+                            <Inbox className="w-5 h-5" />
+                            <span className="flex-1">الطلبات</span>
+                            <motion.div animate={{ rotate: requestsOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                                <ChevronDown className="w-3.5 h-3.5" />
+                            </motion.div>
+                        </button>
+
+                        <AnimatePresence initial={false}>
+                            {requestsOpen && (
+                                <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    className="overflow-hidden"
+                                >
+                                    {requestsChildren.map(child => (
                                         <NavLink
                                             key={child.path}
                                             to={child.path}
