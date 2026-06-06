@@ -138,7 +138,7 @@ export function AccountStatementTab({ client }: Props) {
         <div className="rounded-2xl border border-sky-100 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">الرصيد الحالي</p>
           <p className={`mt-2 text-2xl font-black ${
-            summary.current_balance < 0 ? 'text-red-600' : 'text-emerald-600'
+            summary.current_balance > 0 ? 'text-red-600' : 'text-emerald-600'
           }`}>
             {formatMoney(summary.current_balance)}
           </p>
@@ -246,7 +246,7 @@ export function AccountStatementTab({ client }: Props) {
                         {entry.credit_amount > 0 ? formatMoney(entry.credit_amount) : '-'}
                       </td>
                       <td className={`whitespace-nowrap px-4 py-3 font-black ${
-                        entry.running_balance < 0 ? 'text-red-600' : 'text-emerald-600'
+                        entry.running_balance > 0 ? 'text-red-600' : 'text-emerald-600'
                       }`}>
                         {formatMoney(entry.running_balance)}
                       </td>
@@ -257,7 +257,7 @@ export function AccountStatementTab({ client }: Props) {
             </table>
           </div>
         ) : !loading && !error ? (
-          <div className="flex min-h-64 flex-col items-center justify-center px-4 py-10 text-center">
+          <div className="flex min-h-[16rem] flex-col items-center justify-center px-4 py-10 text-center">
             <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
               <FileSearch className="h-7 w-7" />
             </div>
