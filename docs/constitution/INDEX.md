@@ -19,6 +19,7 @@
 | المهام (Tasks) | [domains/tasks.md](domains/tasks.md) | ⚠️ قديم | 17,165 بايت | — | — |
 | التخطيط (Planning) | [domains/planning.md](domains/planning.md) | ⚠️ قديم | 14,126 بايت | — | — |
 | التوظيف (Jobs) | [domains/jobs-recruitment.md](domains/jobs-recruitment.md) | ⚠️ قديم | 26,418 بايت | — | — |
+| الأدوار والصلاحيات (Roles & Permissions) | [domains/roles-and-permissions.md](domains/roles-and-permissions.md) | ✅ جديد | 320 سطر | 10+ | 6 |
 | الأجهزة والصيانة (Devices & Maintenance) | [domains/devices-maintenance.md](domains/devices-maintenance.md) | ✅ مكتمل | 757 سطر | 15+ | 12 |
 | الموظفون (Employees) | [domains/employees.md](domains/employees.md) | ✅ مكتمل | 480 سطر | 12+ | 6 |
 | المناطق الجغرافية (Geo Units) | [domains/geo-units.md](domains/geo-units.md) | ✅ مكتمل | 240 سطر | 10+ | 7 |
@@ -38,6 +39,7 @@
 
 | الميزة | الملف | الحالة |
 |---|---|---|
+| الأدوار والصلاحيات | [plans/permissions-view-strategy.md](plans/permissions-view-strategy.md) | ✅ جديد |
 | زيارة ميدانية | [features/marketing-visits.md](features/marketing-visits.md) | ⚠️ قديم |
 | توصيل جهاز | [features/device-delivery-task.md](features/device-delivery-task.md) | ⚠️ قديم |
 | تركيب جهاز | [features/device-installation-task.md](features/device-installation-task.md) | ⚠️ قديم |
@@ -61,6 +63,8 @@
 | العلاقات بين الجداول | [CROSS-REFERENCE.md](CROSS-REFERENCE.md) |
 | الثغرات المفتوحة بكل الكيانات | [GAPS-TRACKER.md](GAPS-TRACKER.md) |
 | القالب لتوثيق كيان جديد | [templates/entity-constitution.md](templates/entity-constitution.md) |
+| الأدوار والصلاحيات | [domains/roles-and-permissions.md](domains/roles-and-permissions.md) |
+| كيف يشوف كل دور | [plans/permissions-view-strategy.md](plans/permissions-view-strategy.md) |
 
 ---
 
