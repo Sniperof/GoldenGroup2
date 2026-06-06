@@ -775,9 +775,20 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
     const status = typeof req.query.status === 'string' ? req.query.status : null;
     const visitType = typeof req.query.visitType === 'string' ? req.query.visitType : null;
     const taskType = typeof req.query.taskType === 'string' ? req.query.taskType : null;
+    const mineOnly = req.query.mineOnly === 'true';
 
     if (clientId === null && date === null) {
       return res.status(400).json({ error: 'يجب تحديد clientId أو date' });
+    }
+
+    let employeeId: number | null = null;
+    if (mineOnly) {
+      const { rows: userRows } = await pool.query(
+        `SELECT employee_id FROM hr_users WHERE id = $1 AND is_active = TRUE`,
+        [authContext.userId],
+      );
+      const rawId = userRows[0]?.employee_id;
+      employeeId = Number.isInteger(rawId) && rawId > 0 ? rawId : null;
     }
 
     const conditions: string[] = [];
@@ -815,6 +826,14 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
     if (!authContext.isSuperAdmin && authContext.actingBranchId != null) {
       conditions.push(`fv.branch_id = $${idx++}`);
       params.push(authContext.actingBranchId);
+    }
+    if (mineOnly && employeeId != null) {
+      conditions.push(`(
+        COALESCE(fv.reassigned_supervisor_id, NULLIF((fv.team_snapshot->>'supervisorEmployeeId')::text, '')::int) = $${idx++}
+        OR COALESCE(fv.reassigned_technician_id, NULLIF((fv.team_snapshot->>'technicianEmployeeId')::text, '')::int) = $${idx++}
+        OR COALESCE(fv.reassigned_trainee_id, NULLIF((fv.team_snapshot->>'traineeEmployeeId')::text, '')::int) = $${idx++}
+      )`);
+      params.push(employeeId, employeeId, employeeId);
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

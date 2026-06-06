@@ -327,24 +327,6 @@ function teamName(row: VisitRow): string {
   return r ? `فريق ${r}` : '';
 }
 
-/** Returns the current user's employee_id from the team snapshot — used to
- *  decide if a visit "belongs to me" for the Field Team view. */
-function isUserInTeam(row: VisitRow, employeeId: number | null): boolean {
-  if (!employeeId) return false;
-  const ids = new Set<number>();
-  const team = row.team || {};
-  for (const role of ['supervisor', 'technician', 'trainee'] as const) {
-    const id = (team as any)[role]?.id;
-    if (id) ids.add(Number(id));
-  }
-  // Legacy snapshot keys
-  const snap = row.teamSnapshot || {};
-  ['supervisorEmployeeId', 'technicianEmployeeId', 'traineeEmployeeId'].forEach((k) => {
-    if (snap[k]) ids.add(Number(snap[k]));
-  });
-  return ids.has(employeeId);
-}
-
 /** Status badge that, for branch view, surfaces an inline escalation marker so
  *  the branch manager spots stuck visits without leaving the page. */
 function StatusWithTier({ row }: { row: VisitRow }) {
@@ -581,6 +563,7 @@ export default function VisitsListPage() {
         ...(statusFilter ? { status: statusFilter } : {}),
         ...(visitTypeFilter ? { visitType: visitTypeFilter } : {}),
         ...(taskTypeFilter ? { taskType: taskTypeFilter } : {}),
+        ...(activeView === 'team' && teamMineOnly ? { mineOnly: true } : {}),
       });
       setRows(data as VisitRow[]);
     } catch (e: any) {
@@ -588,7 +571,7 @@ export default function VisitsListPage() {
     } finally {
       setLoading(false);
     }
-  }, [canGlobal, date, effectiveBranchId, selectedBranchId, statusFilter, taskTypeFilter, visitTypeFilter]);
+  }, [activeView, canGlobal, date, effectiveBranchId, selectedBranchId, statusFilter, taskTypeFilter, teamMineOnly, visitTypeFilter]);
 
   useEffect(() => {
     void load();
@@ -631,15 +614,13 @@ export default function VisitsListPage() {
       return branchStuckOnly ? rows.filter(isVisitStuck) : rows;
     }
     if (activeView === 'team') {
-      // Field team view: actionable visits (not cancelled/closed) and — when
-      // requested — only those where the logged-in user is on the team.
-      const me = user?.employeeId ?? null;
+      // Field team view: actionable visits (not cancelled/closed).
+      // The mineOnly filtering is now server-side; we only filter by status here.
       return rows
-        .filter((row) => !['cancelled', 'closed'].includes(row.status))
-        .filter((row) => (teamMineOnly && me ? isUserInTeam(row, me) : true));
+        .filter((row) => !['cancelled', 'closed'].includes(row.status));
     }
     return rows;
-  }, [activeView, rows, tierFilter, branchStuckOnly, teamMineOnly, user?.employeeId]);
+  }, [activeView, rows, tierFilter, branchStuckOnly]);
 
   // Branch manager: load distribution per responsible person for the day.
   const teamLoad = useMemo(() => {
@@ -733,8 +714,7 @@ export default function VisitsListPage() {
     if (activeView === 'team') {
       // Field team: lens shifts from "the branch" to "my visits today" — what's
       // next, what's running, what's done, what's left, what's urgent.
-      const me = user?.employeeId ?? null;
-      const mine = me ? rows.filter((r) => isUserInTeam(r, me)) : rows;
+      const mine = rows;
       const myTotal = mine.length;
       const myInField = mine.filter((r) => r.status === 'in_progress' || r.status === 'ended').length;
       const myDone = mine.filter((r) => r.status === 'completed').length;
@@ -756,7 +736,7 @@ export default function VisitsListPage() {
       { label: 'ناقصة توثيق',    value: stats.missingDocs, icon: ClipboardList,  color: 'text-amber-700 bg-amber-50' },
       { label: 'تصعيد',           value: stats.escalated,   icon: AlertTriangle,  color: 'text-orange-700 bg-orange-50' },
     ];
-  }, [activeView, stats, docStats, rows, user?.employeeId, branchSummary, taskSummary]);
+  }, [activeView, stats, docStats, rows, branchSummary, taskSummary]);
 
   // ── Executive view: per-branch comparison columns ──────────────────────────
   // Each numeric KPI is rendered as a value + a tiny horizontal bar, scaled

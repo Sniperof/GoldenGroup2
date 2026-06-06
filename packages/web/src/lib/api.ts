@@ -498,6 +498,7 @@ export const api = {
       status?: string;
       visitType?: string;
       taskType?: string;
+      mineOnly?: boolean;
     }) => {
       const qs = new URLSearchParams();
       if (params.clientId) qs.append('clientId', String(params.clientId));
@@ -506,6 +507,7 @@ export const api = {
       if (params.status) qs.append('status', params.status);
       if (params.visitType) qs.append('visitType', params.visitType);
       if (params.taskType) qs.append('taskType', params.taskType);
+      if (params.mineOnly) qs.append('mineOnly', 'true');
       return request<any[]>(`/field-visits/?${qs.toString()}`);
     },
     get: (id: number) => request<any>(`/field-visits/${id}`),
