@@ -91,6 +91,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [branches, setBranches] = useState<BranchOption[]>([]);
     const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
+    const [waterSourceOptions, setWaterSourceOptions] = useState<string[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
     const [assignmentUserIds, setAssignmentUserIds] = useState<number[]>([]);
     const [assignDropdownOpen, setAssignDropdownOpen] = useState(false);
@@ -166,6 +167,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 employeesRes,
                 contractsRes,
                 occupationRes,
+                waterSourceRes,
                 branchesRes,
                 hrUsersRes,
             ] = await Promise.allSettled([
@@ -173,6 +175,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 api.employees.list(),
                 api.contracts.list(),
                 api.systemLists.list({ category: 'occupation', activeOnly: true }),
+                api.systemLists.list({ category: 'water_source', activeOnly: true }),
                 canChooseBranch ? api.branches.list() : Promise.resolve([]),
                 canChooseAssignedOwner ? api.admin.hrUsers.assignable() : Promise.resolve([]),
             ]);
@@ -191,6 +194,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             setOccupationOptions(
                 occupationRes.status === 'fulfilled'
                     ? occupationRes.value.map((item: any) => item.value)
+                    : [],
+            );
+            setWaterSourceOptions(
+                waterSourceRes.status === 'fulfilled'
+                    ? waterSourceRes.value.map((item: any) => item.value)
                     : [],
             );
             setBranches(
@@ -1360,26 +1368,26 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             type="text"
                                             value={nationalId}
                                             onChange={e => {
-                                                const v = e.target.value.replace(/\D/g, '').slice(0, 12);
+                                                const v = e.target.value.replace(/\D/g, '').slice(0, 11);
                                                 setNationalId(v);
                                             }}
                                             placeholder="000000000000"
                                             dir="ltr"
-                                            maxLength={12}
+                                            maxLength={11}
                                             className={`w-full border rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none transition-colors ${
-                                                nationalId.length > 0 && nationalId.length < 12
+                                                nationalId.length > 0 && nationalId.length < 11
                                                     ? 'border-amber-300 focus:border-amber-400 bg-amber-50/30'
-                                                    : nationalId.length === 12
+                                                    : nationalId.length === 11
                                                     ? 'border-emerald-300 focus:border-emerald-400 bg-emerald-50/20'
                                                     : 'border-gray-200 focus:border-sky-500'
                                             }`}
                                         />
-                                        {nationalId.length > 0 && nationalId.length < 12 && (
+                                        {nationalId.length > 0 && nationalId.length < 11 && (
                                             <p className="text-[10px] text-amber-600 font-medium">
-                                                {12 - nationalId.length} خانة متبقية
+                                                {11 - nationalId.length} خانة متبقية
                                             </p>
                                         )}
-                                        {nationalId.length === 12 && (
+                                        {nationalId.length === 11 && (
                                             <p className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
                                                 <CheckCircle className="w-3 h-3" /> مكتمل
                                             </p>
@@ -1485,13 +1493,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">مصدر المياه</label>
-                                            <input
-                                                type="text"
+                                            <select
                                                 value={waterSource}
                                                 onChange={e => setWaterSource(e.target.value)}
-                                                placeholder="مثال: شبكة عامة، بئر، صهريج..."
                                                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                            />
+                                            >
+                                                <option value="">اختر مصدر المياه</option>
+                                                {waterSourceOptions.map((option) => (
+                                                    <option key={option} value={option}>{option}</option>
+                                                ))}
+                                            </select>
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-semibold text-slate-500">ملاحظات إضافية (محرر نصي)</label>
