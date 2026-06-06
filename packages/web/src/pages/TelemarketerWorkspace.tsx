@@ -356,7 +356,7 @@ export default function TelemarketerWorkspace() {
                 clientIds.map(clientId =>
                     api.telemarketing.customerTargetsToday(clientId, date)
                         .then(result => [clientId, result.items || []] as const)
-                        .catch(() => [clientId, []] as const),
+                        .catch(() => [clientId, [] as CrossTeamTarget[]] as const),
                 ),
             ).then(entries => {
                 if (cancelled) return;
