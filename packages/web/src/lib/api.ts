@@ -303,7 +303,10 @@ export const api = {
       request<any>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
   },
   deviceModels: {
-    list: () => request<any[]>('/device-models'),
+    list: (branchId?: number) => {
+      const qs = branchId ? `?branchId=${branchId}` : '';
+      return request<any[]>(`/device-models${qs}`);
+    },
     create: (data: any) => request<any>('/device-models', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/device-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/device-models/${id}`, { method: 'DELETE' }),

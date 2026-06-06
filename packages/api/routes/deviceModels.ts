@@ -163,8 +163,21 @@ function normalizeDevicePayload(body: any) {
  *       500:
  *         description: Server error
  */
-router.get('/', requireAuth, async (_req, res) => {
-  const { rows } = await pool.query(`SELECT ${selectFields} FROM device_models WHERE deleted_at IS NULL ORDER BY id`);
+router.get('/', requireAuth, async (req, res) => {
+  const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+  let query = `SELECT ${selectFields} FROM device_models WHERE deleted_at IS NULL`;
+  const params: any[] = [];
+  if (branchId != null && Number.isInteger(branchId) && branchId > 0) {
+    query += ` AND id IN (
+      SELECT DISTINCT (jsonb_array_elements_text(d.device_model_ids))::int
+      FROM departments d
+      WHERE d.branch_id = $1
+        AND jsonb_array_length(d.device_model_ids) > 0
+    )`;
+    params.push(branchId);
+  }
+  query += ` ORDER BY id`;
+  const { rows } = await pool.query(query, params);
   res.json(rows.map(serializeDevice));
 });
 

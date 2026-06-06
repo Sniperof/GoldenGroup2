@@ -410,7 +410,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     setLoading(true);
     setError('');
     Promise.all([
-      api.deviceModels.list(),
+      api.deviceModels.list(client.branchId ?? undefined),
       api.employees.employeeClosers(),
       api.systemLists.getItemsByCode('open_task_reasons'),
       api.systemLists.getItemsByCode('no_closing_reasons'),
