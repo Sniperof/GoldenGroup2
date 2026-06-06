@@ -7,6 +7,29 @@ import { shouldAttachBranchContextHeader } from './branchContext';
 
 export const API_BASE = '/api';
 
+export interface AccountStatementEntry {
+  id: number;
+  entry_date: string;
+  entry_type: 'contract_payment' | 'maintenance_payment' | 'contract_installment' | 'contract_discount' | 'refund' | 'opening_balance';
+  source_type: 'contract' | 'maintenance_request' | null;
+  source_id: number | null;
+  description: string;
+  reference_no: string | null;
+  debit_amount: number;
+  credit_amount: number;
+  running_balance: number;
+}
+
+export interface AccountStatementResponse {
+  summary: {
+    total_owed: number;
+    total_paid: number;
+    current_balance: number;
+    overdue_amount: number;
+  };
+  entries: AccountStatementEntry[];
+}
+
 // Read token from localStorage at call time (not at import time)
 function getToken(): string | null {
   return localStorage.getItem('hr_token');
@@ -125,6 +148,17 @@ export const api = {
     list: () => request<any[]>('/clients'),
     get: (id: number) => request<any>(`/clients/${id}`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
+    getAccountStatement: (
+      id: number,
+      params?: { from?: string; to?: string; types?: string },
+    ) => {
+      const query = new URLSearchParams();
+      if (params?.from) query.set('from', params.from);
+      if (params?.to) query.set('to', params.to);
+      if (params?.types) query.set('types', params.types);
+      const suffix = query.size > 0 ? `?${query.toString()}` : '';
+      return request<AccountStatementResponse>(`/clients/${id}/account-statement${suffix}`);
+    },
     smartMatch: (data: { phone?: string; mobile?: string; name?: string }) =>
       request<any>('/clients/smart-match', { method: 'POST', body: JSON.stringify(data) }),
     create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),

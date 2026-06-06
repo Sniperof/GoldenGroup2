@@ -13,6 +13,7 @@ import { DevicesTab } from './clientProfile/DevicesTab'; // plan §1 — replace
 import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
 import { PartsStockTab } from './clientProfile/PartsStockTab';
 import { PreOffersTab } from './clientProfile/PreOffersTab'; // plan B — device-demo pre-offers audit
+import { AccountStatementTab } from './clientProfile/AccountStatementTab';
 import { api } from '../lib/api';
 import type { Client, GeoUnit } from '../lib/types';
 import { buildGeoPath, geoLevelLabel } from '../lib/geoPath';
@@ -306,7 +307,7 @@ function ProfileHeaderSection({ client, geoUnits }: { client: Client; geoUnits: 
 export default function ClientProfile() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network' | 'devices' | 'purchase_history' | 'parts_stock' | 'pre_offers'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network' | 'devices' | 'purchase_history' | 'parts_stock' | 'pre_offers' | 'account_statement'>('overview');
     const [callLogRefreshKey, setCallLogRefreshKey] = useState(0);
     const [client, setClient] = useState<Client | null>(null);
     const [allGeoUnits, setAllGeoUnits] = useState<GeoUnit[]>([]);
@@ -401,6 +402,7 @@ export default function ClientProfile() {
                                 { id: 'parts_stock', label: 'المخزون', icon: Package },
                                 { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
                                 { id: 'network', label: 'الشبكة', icon: Share2 },
+                                { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
                             ].map((tab) => (
                                 <button
                                     key={tab.id}
@@ -457,6 +459,7 @@ export default function ClientProfile() {
                                 {activeTab === 'parts_stock' && <PartsStockTab client={client} />}
                                 {activeTab === 'pre_offers' && <PreOffersTab client={client} />}
                                 {activeTab === 'network' && <NetworkTab client={client} />}
+                                {activeTab === 'account_statement' && <AccountStatementTab client={client} />}
                             </motion.div>
                         </AnimatePresence>
                     </div>
