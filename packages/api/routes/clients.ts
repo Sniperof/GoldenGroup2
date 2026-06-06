@@ -802,6 +802,134 @@ router.post('/smart-match', requirePermission('clients.create'), async (req, res
  *       500:
  *         description: Server error
  */
+router.get('/:id/account-statement', requirePermission('clients.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const subject = await loadClientSubject(clientId!);
+    if (!subject) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const access = canViewClient(authContext, subject);
+    if (!access.allowed) {
+      const branchIdsForRelatedAccess = authContext.actingBranchId != null
+        ? [authContext.actingBranchId]
+        : authContext.allowedBranchIds;
+      const canReadViaRelatedBranch =
+        hasBranchScopedClientGrant(authContext, 'clients.view') &&
+        await hasClientDeviceOrContractInBranches(clientId!, branchIdsForRelatedAccess);
+
+      if (!canReadViaRelatedBranch) {
+        return forbidClientAccess(res, access.reason);
+      }
+    }
+
+    const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+    const to = typeof req.query.to === 'string' ? req.query.to : undefined;
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    if ((from && !datePattern.test(from)) || (to && !datePattern.test(to))) {
+      return res.status(400).json({ error: 'صيغة التاريخ غير صالحة' });
+    }
+    if (from && to && from > to) {
+      return res.status(400).json({ error: 'تاريخ البداية يجب أن يسبق تاريخ النهاية' });
+    }
+
+    const allowedTypes = new Set([
+      'contract_payment',
+      'maintenance_payment',
+      'contract_installment',
+      'contract_discount',
+      'refund',
+      'opening_balance',
+    ]);
+    const types = typeof req.query.types === 'string'
+      ? req.query.types.split(',').map(type => type.trim()).filter(Boolean)
+      : [];
+    if (types.some(type => !allowedTypes.has(type))) {
+      return res.status(400).json({ error: 'نوع الحركة المالية غير صالح' });
+    }
+
+    const filters = ['client_id = $1'];
+    const params: Array<string | string[]> = [clientId!];
+    if (from) {
+      params.push(from);
+      filters.push(`entry_date >= $${params.length}::date`);
+    }
+    if (to) {
+      params.push(to);
+      filters.push(`entry_date < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+    if (types.length > 0) {
+      params.push(types);
+      filters.push(`entry_type = ANY($${params.length}::varchar[])`);
+    }
+
+    const [entriesResult, summaryResult] = await Promise.all([
+      pool.query(
+        `SELECT
+           id,
+           entry_date,
+           entry_type,
+           source_type,
+           source_id,
+           description,
+           reference_no,
+           debit_amount,
+           credit_amount,
+           running_balance
+         FROM client_ledger_entries
+         WHERE ${filters.join(' AND ')}
+         ORDER BY entry_date ASC, id ASC`,
+        params,
+      ),
+      pool.query(
+        `SELECT
+           COALESCE(SUM(l.debit_amount), 0) AS total_owed,
+           COALESCE(SUM(l.credit_amount), 0) AS total_paid,
+           COALESCE((
+             SELECT running_balance
+             FROM client_ledger_entries
+             WHERE client_id = $1
+             ORDER BY entry_date DESC, id DESC
+             LIMIT 1
+           ), 0) AS current_balance,
+           COALESCE(SUM(
+             CASE
+               WHEN l.entry_type = 'contract_installment' AND l.entry_date < NOW()
+                 THEN GREATEST(l.debit_amount - COALESCE(i.paid_amount, 0), 0)
+               ELSE 0
+             END
+           ), 0) AS overdue_amount
+         FROM client_ledger_entries l
+         LEFT JOIN contract_installments i
+           ON l.entry_type = 'contract_installment'
+          AND i.id = l.source_entry_id
+         WHERE l.client_id = $1`,
+        [clientId],
+      ),
+    ]);
+
+    const summary = summaryResult.rows[0];
+    res.json({
+      summary: {
+        total_owed: Number(summary.total_owed),
+        total_paid: Number(summary.total_paid),
+        current_balance: Number(summary.current_balance),
+        overdue_amount: Number(summary.overdue_amount),
+      },
+      entries: entriesResult.rows.map(row => ({
+        ...row,
+        debit_amount: Number(row.debit_amount),
+        credit_amount: Number(row.credit_amount),
+        running_balance: Number(row.running_balance),
+      })),
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 router.get('/:id', requirePermission('clients.view'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
