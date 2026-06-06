@@ -834,6 +834,145 @@ router.get('/:id', requirePermission('clients.view'), async (req, res) => {
 
 /**
  * @swagger
+ * /api/clients/{id}/network:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get client referral network
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/:id/network', requirePermission('clients.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const subject = await loadClientSubject(clientId!);
+    if (!subject) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const access = canViewClient(authContext, subject);
+    if (!access.allowed) {
+      const branchIdsForRelatedAccess = authContext.actingBranchId != null
+        ? [authContext.actingBranchId]
+        : authContext.allowedBranchIds;
+      const canReadViaRelatedBranch =
+        hasBranchScopedClientGrant(authContext, 'clients.view') &&
+        await hasClientDeviceOrContractInBranches(clientId!, branchIdsForRelatedAccess);
+
+      if (!canReadViaRelatedBranch) {
+        return forbidClientAccess(res, access.reason);
+      }
+    }
+
+    // Incoming (who referred this client)
+    const { rows: incomingRows } = await pool.query(
+      `SELECT
+        c.referral_entity_id as id,
+        c.referrer_name as name,
+        c.referrer_type as type,
+        c.referral_date as referral_date,
+        c.referral_address_text as address,
+        c.referrers as referrers_json
+      FROM clients c
+      WHERE c.id = $1`,
+      [clientId],
+    );
+
+    const incoming: Array<{
+      id: number | null;
+      name: string;
+      type: string;
+      referralDate: string | null;
+      address: string | null;
+      mobile: string | null;
+    }> = [];
+
+    const incomingRow = incomingRows[0];
+    if (incomingRow) {
+      const referrerList = Array.isArray(incomingRow.referrers_json) && incomingRow.referrers_json.length > 0
+        ? incomingRow.referrers_json
+        : (incomingRow.name ? [{ id: incomingRow.id, name: incomingRow.name, type: incomingRow.type }] : []);
+
+      for (const ref of referrerList) {
+        let mobile = null;
+        if (ref.id != null) {
+          const { rows: mobileRows } = await pool.query(
+            'SELECT mobile FROM clients WHERE id = $1',
+            [ref.id],
+          );
+          mobile = mobileRows[0]?.mobile ?? null;
+        }
+        incoming.push({
+          id: ref.id ?? null,
+          name: ref.name ?? '',
+          type: ref.type ?? 'unknown',
+          referralDate: incomingRow.referral_date
+            ? new Date(incomingRow.referral_date).toISOString().split('T')[0]
+            : null,
+          address: incomingRow.address ?? null,
+          mobile,
+        });
+      }
+    }
+
+    // Outgoing (who this client referred)
+    const { rows: outgoingRows } = await pool.query(
+      `SELECT
+        rs.id as sheet_id,
+        rs.referral_date,
+        rs.referral_address_text,
+        COALESCE(cli.id, can.id) as id,
+        COALESCE(cli.name, NULLIF(TRIM(CONCAT_WS(' ', can.first_name, can.last_name)), '')) as name,
+        COALESCE(cli.mobile, can.mobile) as mobile,
+        COALESCE(cli.detailed_address, can.address_text) as address,
+        CASE WHEN cli.id IS NOT NULL THEN true ELSE false END as is_client,
+        COALESCE(cli.candidate_status, can.status) as status
+      FROM referral_sheets rs
+      LEFT JOIN candidates can ON can.referral_sheet_id = rs.id
+      LEFT JOIN clients cli ON cli.referral_sheet_id = rs.id
+      WHERE rs.referral_entity_id = $1 AND rs.referral_type = 'Client'
+      ORDER BY rs.referral_date DESC`,
+      [clientId],
+    );
+
+    const outgoing = outgoingRows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      mobile: r.mobile ?? null,
+      address: r.address ?? null,
+      status: r.status ?? 'Unknown',
+      referralDate: r.referral_date
+        ? new Date(r.referral_date).toISOString().split('T')[0]
+        : null,
+      isClient: r.is_client,
+    }));
+
+    res.json({ incoming, outgoing });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
  * /api/clients:
  *   post:
  *     tags: [Clients]

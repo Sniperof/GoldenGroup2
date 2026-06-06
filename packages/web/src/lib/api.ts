@@ -124,6 +124,7 @@ export const api = {
   clients: {
     list: () => request<any[]>('/clients'),
     get: (id: number) => request<any>(`/clients/${id}`),
+    getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
     smartMatch: (data: { phone?: string; mobile?: string; name?: string }) =>
       request<any>('/clients/smart-match', { method: 'POST', body: JSON.stringify(data) }),
     create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),

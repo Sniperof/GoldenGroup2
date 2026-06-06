@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ChevronRight, Phone, MapPin, Share2,
@@ -14,7 +14,6 @@ import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
 import { PartsStockTab } from './clientProfile/PartsStockTab';
 import { PreOffersTab } from './clientProfile/PreOffersTab'; // plan B — device-demo pre-offers audit
 import { api } from '../lib/api';
-import { useCandidateStore } from '../hooks/useCandidateStore';
 import type { Client, GeoUnit } from '../lib/types';
 import { buildGeoPath, geoLevelLabel } from '../lib/geoPath';
 import ClientAvatar from '../components/ClientAvatar';
@@ -310,10 +309,8 @@ export default function ClientProfile() {
     const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network' | 'devices' | 'purchase_history' | 'parts_stock' | 'pre_offers'>('overview');
     const [callLogRefreshKey, setCallLogRefreshKey] = useState(0);
     const [client, setClient] = useState<Client | null>(null);
-    const [clients, setClients] = useState<Client[]>([]);
     const [allGeoUnits, setAllGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
-    const { candidates } = useCandidateStore();
 
     useEffect(() => {
         const clientId = Number(id);
@@ -328,21 +325,18 @@ export default function ClientProfile() {
         const fetchData = async () => {
             try {
                 setLoading(true);
-                const [clientData, clientsData, geoUnitsData] = await Promise.all([
+                const [clientData, geoUnitsData] = await Promise.all([
                     api.clients.get(clientId),
-                    api.clients.list(),
                     api.geoUnits.list(),
                 ]);
 
                 if (!active) return;
                 setClient(clientData);
-                setClients(clientsData);
                 setAllGeoUnits(geoUnitsData);
             } catch (error) {
                 console.error('Failed to fetch client profile:', error);
                 if (!active) return;
                 setClient(null);
-                setClients([]);
                 setAllGeoUnits([]);
             } finally {
                 if (active) setLoading(false);
@@ -462,7 +456,7 @@ export default function ClientProfile() {
                                 {activeTab === 'purchase_history' && <PurchaseHistoryTab client={client} />}
                                 {activeTab === 'parts_stock' && <PartsStockTab client={client} />}
                                 {activeTab === 'pre_offers' && <PreOffersTab client={client} />}
-                                {activeTab === 'network' && <NetworkTab client={client} clients={clients} candidates={candidates} />}
+                                {activeTab === 'network' && <NetworkTab client={client} />}
                             </motion.div>
                         </AnimatePresence>
                     </div>
@@ -957,7 +951,7 @@ function typeBadgeClass(type: string): string {
 }
 
 function outgoingStatusBadge(ref: any): { cls: string; label: string } {
-    if (ref.convertedToLeadId || ref.isCandidate === false) {
+    if (ref.convertedToLeadId || ref.isCandidate === false || ref.isClient === true) {
         return { cls: 'bg-emerald-100 text-emerald-700', label: 'تحوّل لزبون' };
     }
     const statusMap: Record<string, { cls: string; label: string }> = {
@@ -971,15 +965,38 @@ function outgoingStatusBadge(ref: any): { cls: string; label: string } {
     return statusMap[ref.status] ?? { cls: 'bg-slate-100 text-slate-500', label: ref.status ?? 'غير محدد' };
 }
 
-function NetworkTab({ client, clients, candidates }: any) {
-    let incomingReferrals: Array<{ id?: number; name: string; type: string }> = client.referrers ?? [];
-    if (incomingReferrals.length === 0 && client.referrerName && client.referrerName !== 'مجهول') {
-        incomingReferrals = [{ name: client.referrerName, type: client.referrerType || 'unknown' }];
+function NetworkTab({ client }: { client: Client }) {
+    const [network, setNetwork] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let active = true;
+        const fetchNetwork = async () => {
+            try {
+                setLoading(true);
+                const data = await api.clients.getNetwork(client.id);
+                if (active) setNetwork(data);
+            } catch (e) {
+                console.error('Failed to load network:', e);
+            } finally {
+                if (active) setLoading(false);
+            }
+        };
+        fetchNetwork();
+        return () => { active = false; };
+    }, [client.id]);
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-12 text-slate-400">
+                <Loader2 className="w-6 h-6 animate-spin mr-2" />
+                <span className="font-bold">جاري تحميل بيانات الشبكة...</span>
+            </div>
+        );
     }
 
-    const clientReferrals = clients.filter((c: any) => c.referralEntityId === client.id);
-    const candidateReferrals = candidates.filter((c: any) => c.referralEntityId === client.id);
-    const allOutgoing = [...clientReferrals, ...candidateReferrals];
+    const incoming = network?.incoming ?? [];
+    const outgoing = network?.outgoing ?? [];
 
     return (
         <div className="space-y-10 max-w-5xl">
@@ -992,28 +1009,40 @@ function NetworkTab({ client, clients, candidates }: any) {
                     </div>
                     <div>
                         <h3 className="text-lg font-black text-slate-800">وسطاء الزبون</h3>
-                        <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الوسطاء: {incomingReferrals.length}</p>
+                        <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الوسطاء: {incoming.length}</p>
                     </div>
                 </div>
                 <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                    {incomingReferrals.length > 0 ? (
+                    {incoming.length > 0 ? (
                         <>
                             <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-gray-100 text-xs font-black text-slate-500">
                                 <span className="col-span-1">#</span>
-                                <span className="col-span-5">اسم الوسيط</span>
-                                <span className="col-span-3">النوع</span>
-                                <span className="col-span-3">تاريخ الاقتراح</span>
+                                <span className="col-span-3">اسم الوسيط</span>
+                                <span className="col-span-2">النوع</span>
+                                <span className="col-span-2">العنوان</span>
+                                <span className="col-span-2">تاريخ الإحالة</span>
+                                <span className="col-span-2">رابط</span>
                             </div>
-                            {incomingReferrals.map((ref, i) => (
+                            {incoming.map((ref: any, i: number) => (
                                 <div key={i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-50 hover:bg-slate-50/50 items-center text-sm">
                                     <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
-                                    <span className="col-span-5 font-bold text-slate-800">{ref.name}</span>
-                                    <span className="col-span-3">
+                                    <span className="col-span-3 font-bold text-slate-800">{ref.name}</span>
+                                    <span className="col-span-2">
                                         <span className={`px-2 py-1 rounded-full text-xs font-bold ${typeBadgeClass(ref.type)}`}>
                                             {referrerTypeLabel(ref.type)}
                                         </span>
                                     </span>
-                                    <span className="col-span-3 font-mono text-xs text-slate-500">{client.createdAt?.split('T')[0] || '--'}</span>
+                                    <span className="col-span-2 text-slate-600">{ref.address || '--'}</span>
+                                    <span className="col-span-2 font-mono text-xs text-slate-500">{ref.referralDate || '--'}</span>
+                                    <span className="col-span-2">
+                                        {ref.id ? (
+                                            <Link to={`/clients/${ref.id}`} className="text-sky-600 font-bold hover:underline">
+                                                عرض
+                                            </Link>
+                                        ) : (
+                                            <span className="text-slate-400">--</span>
+                                        )}
+                                    </span>
                                 </div>
                             ))}
                         </>
@@ -1034,31 +1063,42 @@ function NetworkTab({ client, clients, candidates }: any) {
                     </div>
                     <div>
                         <h3 className="text-lg font-black text-slate-800">الأسماء المقترحة</h3>
-                        <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الأسماء: {allOutgoing.length}</p>
+                        <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الأسماء: {outgoing.length}</p>
                     </div>
                 </div>
                 <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                    {allOutgoing.length > 0 ? (
+                    {outgoing.length > 0 ? (
                         <>
                             <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-gray-100 text-xs font-black text-slate-500">
                                 <span className="col-span-1">#</span>
-                                <span className="col-span-4">الاسم</span>
-                                <span className="col-span-3">الرقم</span>
-                                <span className="col-span-4">الحالة</span>
+                                <span className="col-span-3">الاسم</span>
+                                <span className="col-span-2">الرقم</span>
+                                <span className="col-span-2">العنوان</span>
+                                <span className="col-span-2">الحالة</span>
+                                <span className="col-span-2">رابط</span>
                             </div>
-                            {allOutgoing.map((ref: any, i: number) => (
+                            {outgoing.map((ref: any, i: number) => (
                                 <div key={ref.id ?? i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-50 hover:bg-slate-50/50 items-center text-sm">
                                     <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
-                                    <span className="col-span-4 font-bold text-slate-800">
-                                        {ref.name || `${ref.firstName || ''} ${ref.lastName || ''}`.trim()}
-                                    </span>
-                                    <span className="col-span-3 font-mono text-slate-500" dir="ltr">
-                                        {ref.mobile || ref.contacts?.find((c: any) => c.isPrimary)?.number || ref.contacts?.[0]?.number || '--'}
-                                    </span>
-                                    <span className="col-span-4">
+                                    <span className="col-span-3 font-bold text-slate-800">{ref.name}</span>
+                                    <span className="col-span-2 font-mono text-slate-500" dir="ltr">{ref.mobile || '--'}</span>
+                                    <span className="col-span-2 text-slate-600">{ref.address || '--'}</span>
+                                    <span className="col-span-2">
                                         <span className={`px-2 py-1 rounded-full text-xs font-bold ${outgoingStatusBadge(ref).cls}`}>
                                             {outgoingStatusBadge(ref).label}
                                         </span>
+                                    </span>
+                                    <span className="col-span-2">
+                                        {ref.id ? (
+                                            <Link
+                                                to={ref.isClient ? `/clients/${ref.id}` : `/candidates/${ref.id}`}
+                                                className="text-sky-600 font-bold hover:underline"
+                                            >
+                                                عرض
+                                            </Link>
+                                        ) : (
+                                            <span className="text-slate-400">--</span>
+                                        )}
                                     </span>
                                 </div>
                             ))}
