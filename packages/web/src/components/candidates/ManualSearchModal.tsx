@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Search, AlertCircle, ArrowLeft, User, Lock, Pencil, Link2, Loader2 } from 'lucide-react';
-import { Candidate, Client, ClientSmartMatchResponse } from '../../lib/types';
+import { Candidate, Client, ClientSmartMatchResponse, SmartMatchNameCheck } from '../../lib/types';
 import { api } from '../../lib/api';
 
 interface ManualSearchModalProps {
@@ -40,6 +40,22 @@ function extractSmartMatchErrorMessage(error: unknown): string {
     }
 
     return rawMessage;
+}
+
+function NameMatchHint({ nameMatch }: { nameMatch?: SmartMatchNameCheck }) {
+    if (!nameMatch?.checked) return null;
+
+    return (
+        <div className={`mt-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold ${
+            nameMatch.matches
+                ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                : 'border-amber-100 bg-amber-50 text-amber-700'
+        }`}>
+            {nameMatch.matches
+                ? 'الاسم المدخل قريب من اسم الزبون الموجود'
+                : 'تنبيه: الرقم مطابق لكن الاسم المدخل مختلف عن اسم الزبون الموجود'}
+        </div>
+    );
 }
 
 export default function ManualSearchModal({
@@ -278,6 +294,7 @@ export default function ManualSearchModal({
                                                 زبون موجود
                                             </span>
                                         </div>
+                                        <NameMatchHint nameMatch={matchResult.nameMatch} />
                                         <div className="space-y-1 text-xs text-slate-500 font-medium">
                                             <div className="flex items-center gap-2">
                                                 <span className="font-mono">{matchResult.client.phone}</span>
@@ -310,6 +327,7 @@ export default function ManualSearchModal({
                                     <div>
                                         <h4 className="text-amber-900 font-bold mb-1">مطابقة موجودة لكن تفاصيلها مقيّدة</h4>
                                         <p className="text-sm text-amber-800 leading-6">{matchResult.message || RESTRICTED_MESSAGE}</p>
+                                        <NameMatchHint nameMatch={matchResult.nameMatch} />
                                     </div>
                                 </div>
                             </div>

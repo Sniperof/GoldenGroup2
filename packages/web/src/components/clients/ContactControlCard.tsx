@@ -24,6 +24,7 @@ function formatDate(value?: string | null): string {
 
 export default function ContactControlCard({ client, onChange }: Props) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
+  const canEdit = hasPermission('clients.contact_control.edit');
   const canUnlock = hasPermission('clients.cooldown_unlock'); // DEC-006 D32
 
   const [busy, setBusy] = useState(false);
@@ -38,6 +39,7 @@ export default function ContactControlCard({ client, onChange }: Props) {
   const doNotContact = client.doNotContact === true;
 
   async function activateCooldown() {
+    if (!canEdit) return;
     setError(null);
     if (!reason.trim()) {
       setError('السبب مطلوب');
@@ -75,6 +77,7 @@ export default function ContactControlCard({ client, onChange }: Props) {
   }
 
   async function toggleDoNotContact() {
+    if (!canEdit) return;
     setBusy(true);
     setError(null);
     try {

@@ -40,13 +40,15 @@ export async function resolveGeoScope(
   permission: 'geo.view' | 'geo.manage',
   allUnits?: GeoUnitRow[],
 ): Promise<GeoScope | null> {
-  if (authContext.isSuperAdmin && authContext.actingBranchId == null) {
-    return null;
-  }
-
-  const check = authorize(authContext, { permission });
-  if (!check.allowed || check.grant?.scope === 'GLOBAL' || check.reason === 'SUPER_ADMIN') {
-    return null;
+  if (authContext.isSuperAdmin) {
+    if (authContext.actingBranchId == null) {
+      return null;
+    }
+  } else {
+    const check = authorize(authContext, { permission });
+    if (!check.allowed || check.grant?.scope === 'GLOBAL') {
+      return null;
+    }
   }
 
   const branchId = authContext.actingBranchId;

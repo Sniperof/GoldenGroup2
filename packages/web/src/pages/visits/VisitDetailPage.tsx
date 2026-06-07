@@ -622,11 +622,11 @@ export default function VisitDetailPage() {
                         {tasks.map((task: any) => {
                             const ts = TASK_STATUS_LABELS[task.status] ?? { label: task.status, color: 'text-slate-500', bg: 'bg-slate-100' };
                             const hasResult = task.result_id != null;
-                            // Visit must be officially ended (with GPS/duration on visit_geo_logs)
-                            // before any task result can be recorded — otherwise actual_end_time
-                            // is never captured.
-                            const canRecord = visit.status === 'ended' && !hasResult;
-                            const needsEndFirst = visit.status === 'in_progress' && !hasResult;
+                            // DEC-004 D15: task results may be recorded while the visit is
+                            // `in_progress` (during the field work) and remain editable
+                            // after it transitions to `ended`. The visit auto-completes
+                            // once the last task result + the survey are in place.
+                            const canRecord = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
                             const isDemo = task.task_type === 'device_demo';
                             const isDelivery = task.task_type === 'device_delivery';
                             const isInstallation = task.task_type === 'device_installation';
@@ -694,11 +694,6 @@ export default function VisitDetailPage() {
                                     <div className="mt-3">
                                         {visit.status === 'scheduled' && <span className="text-xs text-slate-400">عرض فقط — لم تبدأ الزيارة</span>}
                                         {visit.status === 'cancelled' && <span className="text-xs text-slate-400">الزيارة ملغاة</span>}
-                                        {needsEndFirst && (
-                                            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded inline-flex items-center gap-1">
-                                                <AlertCircle className="w-3 h-3" /> يَلزم إنهاء الزيارة أولاً (لتسجيل وقت الانتهاء و GPS) قبل تسجيل النتيجة
-                                            </span>
-                                        )}
                                         {canRecord && supportsUnifiedResult && (
                                             <button onClick={() => setResultTask(task)}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 transition-colors">

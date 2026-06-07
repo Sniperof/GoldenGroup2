@@ -65,7 +65,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const branchCtx = getBranchContextHeader();
-  if (branchCtx) headers['X-Branch-Id'] = branchCtx;
+  if (branchCtx && !headers['X-Branch-Id']) headers['X-Branch-Id'] = branchCtx;
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
@@ -89,7 +89,11 @@ export const api = {
     get: () => request<any>('/dashboard'),
   },
   geoUnits: {
-    list: () => request<any[]>('/geo-units'),
+    list: (branchId?: number | null) => request<any[]>(
+      '/geo-units',
+      branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+    ),
+    listReference: () => request<any[]>('/geo-units/reference'),
     create: (data: any) => request<any>('/geo-units', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: { name: string }) => request<any>(`/geo-units/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     updateStatus: (id: number, status: 'active' | 'inactive') => request<any>(`/geo-units/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),

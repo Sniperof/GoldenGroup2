@@ -100,6 +100,10 @@ type Queryable = {
   query: (text: string, params?: any[]) => Promise<{ rows: any[] }>;
 };
 
+function isTerminalCandidateState(status: unknown, convertedToLeadId: unknown): boolean {
+  return status === 'Qualified' || status === 'Junk' || convertedToLeadId != null;
+}
+
 function canManageCandidateAssignments(authContext: ReturnType<typeof getRequiredAuthContext>, branchId: number | null): boolean {
   if (authContext.isSuperAdmin) return true;
   const grant = authContext.grants.find(item => item.permission === 'candidates.edit');
@@ -675,8 +679,12 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
     }
 
     const newReferrer = {
-      id: `candidate-${candidate.id}`,
+      id: candidate.referralType === 'Client' ? candidate.referralEntityId : null,
       sourceCandidateId: candidate.id,
+      name: candidate.referralNameSnapshot,
+      type: candidate.referralType,
+      channel: candidate.referralOriginChannel,
+      address: candidate.addressText,
       referrerType: candidate.referralType,
       referralEntityId: candidate.referralEntityId,
       referrerName: candidate.referralNameSnapshot,
@@ -687,7 +695,13 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       referralAddressText: candidate.addressText,
     };
 
-    const supervisorIds = client.lifecycleStage === 'LEAD'
+    const sameBranchLink =
+      candidate.branchId != null &&
+      client.branchId != null &&
+      Number(candidate.branchId) === Number(client.branchId);
+    const shouldTransferLeadOwnership = client.lifecycleStage === 'LEAD' && sameBranchLink;
+
+    const supervisorIds = shouldTransferLeadOwnership
       ? await resolveCandidateSupervisorAssignmentIds(candidateId, candidate.createdBy ?? authContext.userId)
       : [];
 
@@ -728,7 +742,7 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       ],
     );
 
-    if (client.lifecycleStage === 'LEAD') {
+    if (shouldTransferLeadOwnership) {
       await insertLinkedClientAssignments(db, clientId, supervisorIds, authContext.userId);
     }
 
@@ -748,7 +762,7 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       clientId,
       candidateId,
       lifecycleStage: client.lifecycleStage,
-      addedAssignmentUserIds: client.lifecycleStage === 'LEAD' ? supervisorIds : [],
+      addedAssignmentUserIds: shouldTransferLeadOwnership ? supervisorIds : [],
     });
   } catch (err: any) {
     await db.query('ROLLBACK').catch(() => undefined);
@@ -824,6 +838,18 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
     const editAccess = canEditCandidate(authContext, existing);
     if (!editAccess.allowed) {
       return forbidCandidateAccess(res, editAccess.reason);
+    }
+
+    const { rows: currentRows } = await pool.query(
+      'SELECT status, converted_to_lead_id AS "convertedToLeadId" FROM candidates WHERE id = $1',
+      [candidateId],
+    );
+    const currentCandidate = currentRows[0];
+    if (isTerminalCandidateState(currentCandidate?.status, currentCandidate?.convertedToLeadId)) {
+      return res.status(409).json({
+        error: 'لا يمكن تعديل الاسم المقترح بعد الربط أو الرفض أو التحويل',
+        code: 'candidate_terminal_locked',
+      });
     }
 
     const c = normalizeCandidatePayload(req.body ?? {});

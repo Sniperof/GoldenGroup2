@@ -93,6 +93,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
     const [branches, setBranches] = useState<BranchOption[]>([]);
     const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
+    const [branchGeoUnits, setBranchGeoUnits] = useState<GeoUnit[]>(geoUnits);
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
     const [waterSourceOptions, setWaterSourceOptions] = useState<string[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
@@ -227,6 +228,31 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             active = false;
         };
     }, [isOpen, canChooseAssignedOwner, canChooseBranch]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setBranchGeoUnits(geoUnits);
+            return;
+        }
+
+        if (!canChooseBranch || selectedBranchId === '') {
+            setBranchGeoUnits(geoUnits);
+            return;
+        }
+
+        let active = true;
+        api.geoUnits.list(Number(selectedBranchId))
+            .then(rows => {
+                if (active) setBranchGeoUnits(Array.isArray(rows) ? rows : []);
+            })
+            .catch(() => {
+                if (active) setBranchGeoUnits([]);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [isOpen, canChooseBranch, selectedBranchId, geoUnits]);
 
     useEffect(() => {
         if (referralType === 'Personal') {
@@ -418,6 +444,19 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         // Store the deepest selected level: حي (level 4) if available, otherwise ناحية (level 3)
         updateForm('neighborhood', sel.neighborhoodId || sel.subId || '');
     }, [updateForm]);
+
+    useEffect(() => {
+        if (!isOpen || !canChooseBranch || selectedBranchId === '') return;
+        if (branchGeoUnits.length === 0) return;
+
+        const deepestId = geoSelection.neighborhoodId || geoSelection.subId || geoSelection.regionId || geoSelection.govId;
+        if (!deepestId) return;
+
+        const selectedStillVisible = branchGeoUnits.some(unit => unit.id.toString() === deepestId);
+        if (!selectedStillVisible) {
+            handleGeoChange({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+        }
+    }, [isOpen, canChooseBranch, selectedBranchId, branchGeoUnits, geoSelection, handleGeoChange]);
 
     const handleLocationSelect = useCallback((lat: number, lng: number) => {
         setMapPosition([lat, lng]);
@@ -1082,7 +1121,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             {activeTab === 'location' && (
                                 <div className="space-y-4">
                                     <GeoSmartSearch
-                                        geoUnits={geoUnits}
+                                        geoUnits={branchGeoUnits}
                                         value={geoSelection}
                                         onChange={handleGeoChange}
                                         label="العنوان"

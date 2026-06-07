@@ -16,6 +16,7 @@ interface Props {
     limit?: number;
     /** Called when a log is updated (to refresh parent) */
     onLogUpdated?: () => void;
+    canEdit?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ function groupBorderColor(outcome: string, status?: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function PhoneCallLog({ customerId, contactId, contactLabel, contactNumber, refreshKey, limit, onLogUpdated }: Props) {
+export default function PhoneCallLog({ customerId, contactId, contactLabel, contactNumber, refreshKey, limit, onLogUpdated, canEdit = true }: Props) {
     const [logs, setLogs] = useState<CustomerCallLog[]>([]);
     const [loading, setLoading] = useState(false);
     const [editLog, setEditLog] = useState<CustomerCallLog | null>(null);
@@ -185,7 +186,7 @@ export default function PhoneCallLog({ customerId, contactId, contactLabel, cont
                                     {abLabel}
                                 </span>
                             )}
-                            {log.status === 'pending' && log.communicationChannel?.includes('text') && (
+                            {canEdit && log.status === 'pending' && log.communicationChannel?.includes('text') && (
                                 <button
                                     onClick={() => setEditLog(log)}
                                     className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded font-bold border border-amber-100 hover:bg-amber-100 transition-colors flex items-center gap-1"

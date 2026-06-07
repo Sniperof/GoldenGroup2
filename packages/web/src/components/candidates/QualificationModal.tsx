@@ -201,7 +201,10 @@ export default function QualificationModal({
 
             setAutoCheckLoading(true);
             api.clients
-                .smartMatch({ phone: candidate.mobile })
+                .smartMatch({
+                    phone: candidate.mobile,
+                    name: [candidate.firstName, candidate.lastName, candidate.nickname].filter(Boolean).join(' ') || undefined,
+                })
                 .then((result: SmartMatchResult) => {
                     setAutoCheckResult(result);
                     setAutoCheckError(false);

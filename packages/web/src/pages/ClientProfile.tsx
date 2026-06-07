@@ -26,6 +26,19 @@ import PhoneCallLog from '../components/customers/PhoneCallLog';
 import DeviceOfferModal from '../components/clients/DeviceOfferModal';
 import RequestEmergencyModal from '../components/emergency/RequestEmergencyModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
+import { usePermissions } from '../hooks/usePermissions';
+
+type ClientProfileTabId =
+    | 'overview'
+    | 'contacts'
+    | 'calllog'
+    | 'visits'
+    | 'network'
+    | 'devices'
+    | 'purchase_history'
+    | 'parts_stock'
+    | 'pre_offers'
+    | 'account_statement';
 
 const referrerTypesAr: Record<string, string> = {
     'Personal': 'شخصي',
@@ -307,7 +320,21 @@ function ProfileHeaderSection({ client, geoUnits }: { client: Client; geoUnits: 
 export default function ClientProfile() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'calllog' | 'visits' | 'network' | 'devices' | 'purchase_history' | 'parts_stock' | 'pre_offers' | 'account_statement'>('overview');
+    const { hasPermission, hasAnyPermission } = usePermissions();
+    const canViewContacts = hasPermission('clients.contacts.view');
+    const canEditContacts = hasPermission('clients.contacts.edit');
+    const canViewCallLog = hasPermission('clients.call_log.view');
+    const canCreateCallLog = hasAnyPermission('clients.call_log.create', 'telemarketing.calls.create');
+    const canEditCallLog = hasAnyPermission('clients.call_log.edit', 'telemarketing.calls.create');
+    const canViewVisits = hasPermission('clients.visits.view') || hasAnyPermission('open_tasks.view', 'field_visits.view');
+    const canViewDevices = hasAnyPermission('clients.devices.view', 'contracts.view_list');
+    const canViewPurchaseHistory = hasPermission('clients.purchase_history.view');
+    const canViewPartsStock = hasPermission('clients.parts_stock.view');
+    const canViewPreOffers = hasAnyPermission('clients.pre_offers.view', 'contracts.view_list');
+    const canViewNetwork = hasPermission('clients.network.view');
+    const canViewAccountStatement = hasPermission('clients.account_statement.view');
+    const canEditContactControl = hasPermission('clients.contact_control.edit') || hasPermission('clients.cooldown_unlock');
+    const [activeTab, setActiveTab] = useState<ClientProfileTabId>('overview');
     const [callLogRefreshKey, setCallLogRefreshKey] = useState(0);
     const [client, setClient] = useState<Client | null>(null);
     const [allGeoUnits, setAllGeoUnits] = useState<GeoUnit[]>([]);
@@ -370,6 +397,20 @@ export default function ClientProfile() {
         );
     }
 
+    const tabs: Array<{ id: ClientProfileTabId; label: string; icon: any }> = [
+        { id: 'overview', label: 'ظ†ط¸ط±ط© ط¹ط§ظ…ط©', icon: LayoutDashboard },
+        ...(canViewContacts ? [{ id: 'contacts' as const, label: 'ط§ظ„طھظˆط§طµظ„', icon: Contact2 }] : []),
+        ...(canViewCallLog ? [{ id: 'calllog' as const, label: 'ط³ط¬ظ„ ط§ظ„ط§طھطµط§ظ„', icon: PhoneCall }] : []),
+        ...(canViewVisits ? [{ id: 'visits' as const, label: 'ط§ظ„ط²ظٹط§ط±ط§طھ', icon: Navigation }] : []),
+        ...(canViewDevices ? [{ id: 'devices' as const, label: 'ط§ظ„ط£ط¬ظ‡ط²ط©', icon: Cpu }] : []),
+        ...(canViewPurchaseHistory ? [{ id: 'purchase_history' as const, label: 'ط³ط¬ظ„ ط§ظ„ظ…ط´طھط±ظٹط§طھ', icon: History }] : []),
+        ...(canViewPartsStock ? [{ id: 'parts_stock' as const, label: 'ط§ظ„ظ…ط®ط²ظˆظ†', icon: Package }] : []),
+        ...(canViewPreOffers ? [{ id: 'pre_offers' as const, label: 'ط§ظ„ط¹ط±ظˆط¶ ط§ظ„ظ…ط³ط¨ظ‚ط©', icon: Sparkles }] : []),
+        ...(canViewNetwork ? [{ id: 'network' as const, label: 'ط§ظ„ط´ط¨ظƒط©', icon: Share2 }] : []),
+        ...(canViewAccountStatement ? [{ id: 'account_statement' as const, label: 'ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨', icon: FileText }] : []),
+    ];
+    const safeActiveTab: ClientProfileTabId = tabs.some(tab => tab.id === activeTab) ? activeTab : 'overview';
+
     return (
         <div className="h-full flex flex-col overflow-hidden bg-slate-50" style={{ direction: 'rtl' }}>
             {/* Header / Breadcrumbs - Corrected path text */}
@@ -403,16 +444,16 @@ export default function ClientProfile() {
                                 { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
                                 { id: 'network', label: 'الشبكة', icon: Share2 },
                                 { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
-                            ].map((tab) => (
+                            ].filter((tab) => tabs.some(allowedTab => allowedTab.id === tab.id)).map((tab) => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id as any)}
-                                    className={`flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all whitespace-nowrap sm:px-5 ${activeTab === tab.id
+                                    className={`flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all whitespace-nowrap sm:px-5 ${safeActiveTab === tab.id
                                         ? 'text-sky-700 bg-white shadow-sm border border-gray-100'
                                         : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
                                         }`}
                                 >
-                                    <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-sky-500' : 'text-slate-400'}`} />
+                                    <tab.icon className={`w-4 h-4 ${safeActiveTab === tab.id ? 'text-sky-500' : 'text-slate-400'}`} />
                                     <span>{tab.label}</span>
                                 </button>
                             ))}
@@ -423,43 +464,48 @@ export default function ClientProfile() {
                     <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
                         <AnimatePresence mode="wait">
                             <motion.div
-                                key={activeTab}
+                                key={safeActiveTab}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.2 }}
                                 className="h-full"
                             >
-                                {activeTab === 'overview' && (
+                                {safeActiveTab === 'overview' && (
                                     <OverviewTab
                                         client={client}
+                                        canEditContactControl={canEditContactControl}
                                         onClientChanged={async () => {
                                             const fresh = await api.clients.get(client.id);
                                             setClient(fresh);
                                         }}
                                     />
                                 )}
-                                {activeTab === 'contacts' && (
+                                {safeActiveTab === 'contacts' && (
                                     <ContactsTab
                                         client={client}
                                         refreshKey={callLogRefreshKey}
                                         onCallSaved={() => setCallLogRefreshKey(k => k + 1)}
                                         onClientUpdate={(fields) => setClient(prev => prev ? { ...prev, ...fields } : null)}
+                                        canViewCallLog={canViewCallLog}
+                                        canCreateCallLog={canCreateCallLog}
+                                        canEditContacts={canEditContacts}
+                                        canEditCallLog={canEditCallLog}
                                     />
                                 )}
-                                {activeTab === 'calllog' && (
+                                {safeActiveTab === 'calllog' && (
                                     <div className="space-y-4 max-w-5xl">
                                         <h3 className="text-lg font-black text-slate-800">سجل الاتصال الكامل</h3>
-                                        <CustomerCallLog customerId={client.id} refreshKey={callLogRefreshKey} />
+                                        <CustomerCallLog customerId={client.id} refreshKey={callLogRefreshKey} canEdit={canEditCallLog} />
                                     </div>
                                 )}
-                                {activeTab === 'visits' && <VisitsTab client={client} />}
-                                {activeTab === 'devices' && <DevicesTab client={client} />}
-                                {activeTab === 'purchase_history' && <PurchaseHistoryTab client={client} />}
-                                {activeTab === 'parts_stock' && <PartsStockTab client={client} />}
-                                {activeTab === 'pre_offers' && <PreOffersTab client={client} />}
-                                {activeTab === 'network' && <NetworkTab client={client} />}
-                                {activeTab === 'account_statement' && <AccountStatementTab client={client} />}
+                                {safeActiveTab === 'visits' && <VisitsTab client={client} />}
+                                {safeActiveTab === 'devices' && <DevicesTab client={client} />}
+                                {safeActiveTab === 'purchase_history' && <PurchaseHistoryTab client={client} />}
+                                {safeActiveTab === 'parts_stock' && <PartsStockTab client={client} />}
+                                {safeActiveTab === 'pre_offers' && <PreOffersTab client={client} />}
+                                {safeActiveTab === 'network' && <NetworkTab client={client} />}
+                                {safeActiveTab === 'account_statement' && <AccountStatementTab client={client} />}
                             </motion.div>
                         </AnimatePresence>
                     </div>
@@ -471,11 +517,11 @@ export default function ClientProfile() {
 
 {/* ============ TABS COMPONENTS ============ */ }
 
-function OverviewTab({ client, onClientChanged }: { client: Client; onClientChanged: () => void | Promise<void> }) {
+function OverviewTab({ client, onClientChanged, canEditContactControl }: { client: Client; onClientChanged: () => void | Promise<void>; canEditContactControl: boolean }) {
     return (
         <div className="w-full h-full max-w-4xl space-y-4">
             {/* DEC-005 D29 + DEC-006 D32: contact-control surface (cooldown + do_not_contact) */}
-            <ContactControlCard client={client} onChange={() => { void onClientChanged(); }} />
+            {canEditContactControl && <ContactControlCard client={client} onChange={() => { void onClientChanged(); }} />}
 
             {client.notes ? (
                 <section>
@@ -544,13 +590,35 @@ function formatCallDate(dateStr: string): string {
 
 // ── ContactsTab ───────────────────────────────────────────────────────────────
 
-function ContactsTab({ client, refreshKey, onCallSaved, onClientUpdate }: { client: Client; refreshKey?: number; onCallSaved?: () => void; onClientUpdate?: (fields: Partial<Client>) => void }) {
+function ContactsTab({
+    client,
+    refreshKey,
+    onCallSaved,
+    onClientUpdate,
+    canViewCallLog,
+    canCreateCallLog,
+    canEditContacts,
+    canEditCallLog,
+}: {
+    client: Client;
+    refreshKey?: number;
+    onCallSaved?: () => void;
+    onClientUpdate?: (fields: Partial<Client>) => void;
+    canViewCallLog: boolean;
+    canCreateCallLog: boolean;
+    canEditContacts: boolean;
+    canEditCallLog: boolean;
+}) {
     const [callLogs, setCallLogs] = useState<any[]>([]);
     const [loadingCalls, setLoadingCalls] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [modalContact, setModalContact] = useState<{ id?: string; number?: string; label?: string } | null>(null);
 
     const fetchCalls = useCallback(async () => {
+        if (!canViewCallLog) {
+            setCallLogs([]);
+            return;
+        }
         setLoadingCalls(true);
         try {
             const logs = await api.customerCalls.list(client.id);
@@ -560,7 +628,7 @@ function ContactsTab({ client, refreshKey, onCallSaved, onClientUpdate }: { clie
         } finally {
             setLoadingCalls(false);
         }
-    }, [client.id]);
+    }, [client.id, canViewCallLog]);
 
     useEffect(() => { fetchCalls(); }, [fetchCalls]);
 
@@ -650,7 +718,7 @@ function ContactsTab({ client, refreshKey, onCallSaved, onClientUpdate }: { clie
                                 </div>
 
                                 <div className="space-y-4">
-                                    <PhoneCallLog
+                                    {canViewCallLog && <PhoneCallLog
                                         customerId={client.id}
                                         contactId={c.id}
                                         contactLabel={c.label || 'جهة اتصال'}
@@ -658,12 +726,14 @@ function ContactsTab({ client, refreshKey, onCallSaved, onClientUpdate }: { clie
                                         refreshKey={refreshKey}
                                         limit={2}
                                         onLogUpdated={onCallSaved}
-                                    />
+                                        canEdit={canEditCallLog}
+                                    />}
                                 </div>
 
                                 <button
                                     onClick={() => {
                                         setModalContact({ id: c.id, number: c.number, label: c.label || 'جهة اتصال' });
+                                        if (!canCreateCallLog) return;
                                         setModalOpen(true);
                                     }}
                                     className="mt-6 px-4 py-3 border border-slate-200 text-slate-600 hover:text-sky-600 bg-slate-50 hover:bg-sky-50 font-bold rounded-xl text-sm w-full transition-all flex justify-center items-center gap-2 shadow-sm"
@@ -703,7 +773,7 @@ function ContactsTab({ client, refreshKey, onCallSaved, onClientUpdate }: { clie
                             // Auto-apply phone status update based on outcome
                             const meta = OUTCOME_MAP[outcome];
                             const phoneStatusUpdate = meta?.phoneStatusUpdate;
-                            if (phoneStatusUpdate && phoneStatusUpdate !== 'none' && modalContact?.id) {
+                            if (canEditContacts && phoneStatusUpdate && phoneStatusUpdate !== 'none' && modalContact?.id) {
                                 const contactStatus = PHONE_STATUS_TO_CONTACT_ENTRY[phoneStatusUpdate];
                                 if (contactStatus) {
                                     const updatedContacts = (client.contacts || []).map((c: any) =>

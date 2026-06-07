@@ -123,7 +123,7 @@ function isSuperAdmin(req: any): boolean {
  */
 router.get(
   '/:customerId/calls',
-  requirePermission('clients.view'),
+  requirePermission('clients.call_log.view'),
   async (req, res) => {
     try {
     const customerId = parseInt(req.params['customerId'] as string, 10);
@@ -252,7 +252,7 @@ router.get(
  */
 router.get(
   '/:customerId/calls/stats',
-  requirePermission('clients.view'),
+  requirePermission('clients.call_log.view'),
   async (req, res) => {
     const customerId = parseInt(req.params['customerId'] as string, 10);
     if (!Number.isInteger(customerId) || customerId <= 0) {
@@ -394,7 +394,7 @@ router.get(
  */
 router.post(
   '/:customerId/calls',
-  // TODO: add requirePermission('customers.call') once that permission is defined
+  requirePermission('clients.call_log.create', 'telemarketing.calls.create'),
   async (req, res) => {
     const customerId = parseInt(req.params['customerId'] as string, 10);
     if (!Number.isInteger(customerId) || customerId <= 0) {
@@ -660,7 +660,7 @@ router.post(
  */
 router.patch(
   '/calls/:callId',
-  requirePermission('clients.edit', 'telemarketing.calls.create'),
+  requirePermission('clients.call_log.edit', 'telemarketing.calls.create'),
   async (req, res) => {
     const { callId } = req.params;
     if (!callId) {
@@ -837,7 +837,7 @@ router.patch(
  */
 router.get(
   '/:id/purchase-history',
-  requirePermission('clients.view'),
+  requirePermission('clients.purchase_history.view'),
   async (req, res) => {
     const customerId = parseInt(req.params['id'] as string, 10);
     if (!Number.isInteger(customerId) || customerId <= 0) {
@@ -1072,7 +1072,7 @@ router.get(
  */
 router.get(
   '/:id/parts-stock',
-  requirePermission('clients.view'),
+  requirePermission('clients.parts_stock.view'),
   async (req, res) => {
     const customerId = parseInt(req.params['id'] as string, 10);
     if (!Number.isInteger(customerId) || customerId <= 0) {

@@ -10,8 +10,11 @@ import MapPicker from '../../../components/MapPicker';
 
 interface Props {
   device: any;
+  tasks?: any[];
   onTaskCreated?: () => void;
 }
+
+const ACTIVE_TASK_STATUSES = ['completed', 'closed', 'cancelled'];
 
 const emptyGeoSelection: GeoSelection = { govId: '', regionId: '', subId: '', neighborhoodId: '' };
 
@@ -41,7 +44,7 @@ const ALLOWED_NEXT_TASK: Record<string, { type: 'device_delivery' | 'device_inst
   installed: { type: 'device_activation', label: 'جدولة مهمة تشغيل', Icon: Zap, reason: 'other' },
 };
 
-export function OperationalStatusSection({ device, onTaskCreated }: Props) {
+export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props) {
   const [busy, setBusy] = useState(false);
   const [showInstallationModal, setShowInstallationModal] = useState(false);
   const [geoUnits, setGeoUnits] = useState<any[]>([]);
@@ -52,6 +55,17 @@ export function OperationalStatusSection({ device, onTaskCreated }: Props) {
   const [showMap, setShowMap] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const next = ALLOWED_NEXT_TASK[device?.status];
+  // Guard against duplicate scheduling — backend rejects with 409 if a task
+  // of the same type is already open on this device. Hide the button when
+  // such a task exists and show a helper pointing to the existing one.
+  const existingActiveTask = useMemo(() => {
+    if (!next || !device?.id || !Array.isArray(tasks)) return null;
+    return tasks.find((t: any) => (
+      Number(t?.deviceId) === Number(device.id)
+      && t?.taskType === next.type
+      && !ACTIVE_TASK_STATUSES.includes(String(t?.status))
+    )) ?? null;
+  }, [tasks, device?.id, next]);
   const activeGeoUnits = useMemo(() => geoUnits.filter((unit) => unit?.status !== 'inactive'), [geoUnits]);
 
   useEffect(() => {
@@ -147,14 +161,21 @@ export function OperationalStatusSection({ device, onTaskCreated }: Props) {
         subtitle="حالة الجهاز الحالية وتواريخ مراحل دورة حياته"
         actions={
           next && (
-            <button
-              onClick={handleSchedule}
-              disabled={busy}
-              className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
-            >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <next.Icon className="h-4 w-4" />}
-              {next.label}
-            </button>
+            existingActiveTask ? (
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+                <AlertCircle className="h-3.5 w-3.5" />
+                يوجد مهمة {next.label.replace('جدولة مهمة ', '')} نشطة بالفعل #{existingActiveTask.id}
+              </span>
+            ) : (
+              <button
+                onClick={handleSchedule}
+                disabled={busy}
+                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <next.Icon className="h-4 w-4" />}
+                {next.label}
+              </button>
+            )
           )
         }
       >

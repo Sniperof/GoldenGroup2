@@ -44,7 +44,7 @@ function toPositiveInteger(value: any): number | null {
 
 router.get(
   '/:id/pre-offers',
-  requirePermission('contracts.view_list'),
+  requirePermission('clients.pre_offers.view', 'contracts.view_list'),
   async (req, res) => {
     const customerId = Number(req.params.id);
     if (!Number.isInteger(customerId) || customerId <= 0) {

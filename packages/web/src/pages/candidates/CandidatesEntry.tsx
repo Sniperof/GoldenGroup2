@@ -433,7 +433,7 @@ export default function CandidatesEntry() {
                                                 </td>
                                                 <td className="px-5 py-2">
                                                     <div className="flex items-center justify-center gap-2">
-                                                        {canEditCandidates && (
+                                                        {canEditCandidates && c.status !== 'Qualified' && c.status !== 'Junk' && c.convertedToLeadId == null && (
                                                             <button
                                                                 onClick={() => {
                                                                     setEditingCandidate(c);

@@ -63,6 +63,13 @@ export interface OfferInput {
   no_closing_reason?: string | null;
   sale_reference_number?: string | null;
   source_customer_pre_offer_id?: number | null;
+  /**
+   * Existing open_task_pre_offers.id when the offer was loaded from the task.
+   * Used as the primary UPDATE key so result recording mutates the existing
+   * row instead of inserting a duplicate when source_customer_pre_offer_id
+   * is NULL (e.g. offers authored manually in DeviceOfferModal pre migration).
+   */
+  open_task_pre_offer_id?: number | null;
 }
 
 export interface DeviceDemoResultBody {
@@ -625,9 +632,31 @@ export async function applyDeviceDemoResult(
       // Linked standalone offers keep their identity: result recording updates
       // customer_device_pre_offers instead of creating a duplicate history row.
       for (const offer of body.offers!) {
-        const sourceCustomerPreOfferId = isPositiveNumber(offer.source_customer_pre_offer_id)
+        let sourceCustomerPreOfferId = isPositiveNumber(offer.source_customer_pre_offer_id)
           ? Number(offer.source_customer_pre_offer_id)
           : null;
+        const openTaskPreOfferId = isPositiveNumber(offer.open_task_pre_offer_id)
+          ? Number(offer.open_task_pre_offer_id)
+          : null;
+
+        // When the offer came from an existing task row but no longer carries
+        // a source_customer_pre_offer_id (e.g. authored manually pre-migration),
+        // we still need to UPDATE the row instead of inserting a duplicate.
+        // Recover the CDPO link, if any, from the existing row so the CDPO
+        // UPDATE path below can hit its target as well.
+        if (openTaskPreOfferId != null && sourceCustomerPreOfferId == null && vt.source_open_task_id) {
+          const { rows: existingRows } = await db.query(
+            `SELECT source_customer_pre_offer_id AS "cdpoId"
+               FROM open_task_pre_offers
+              WHERE id = $1
+                AND open_task_id = $2
+              LIMIT 1`,
+            [openTaskPreOfferId, vt.source_open_task_id],
+          );
+          if (existingRows.length > 0 && isPositiveNumber(existingRows[0].cdpoId)) {
+            sourceCustomerPreOfferId = Number(existingRows[0].cdpoId);
+          }
+        }
         const offerCloserId = offer.closed_by_employee_id ?? body.closed_by_employee_id ?? null;
         const offerNoClosingReason = typeof offer.no_closing_reason === 'string'
           ? offer.no_closing_reason.trim() || null
@@ -736,7 +765,38 @@ export async function applyDeviceDemoResult(
             offerSaleReference,
           ];
 
-          if (sourceCustomerPreOfferId != null) {
+          // Preferred path: update by primary key when the client echoed back
+          // the original open_task_pre_offers.id. This works regardless of
+          // whether source_customer_pre_offer_id was populated on the row.
+          let updated = false;
+          if (openTaskPreOfferId != null) {
+            const { rowCount } = await db.query(
+              `UPDATE open_task_pre_offers
+                  SET device_model_id = $2,
+                      offer_type = $3,
+                      quantity = $4,
+                      total_amount = $5,
+                      first_payment_amount = $6,
+                      installment_months = $7,
+                      currency = $8,
+                      discount_percentage = $9,
+                      applied_device_discount_id = $10,
+                      closed_by_employee_id = $11,
+                      no_closing_reason = $12,
+                      source_customer_pre_offer_id = $13,
+                      sale_reference_number = $14,
+                      updated_at = NOW()
+                WHERE id = $15
+                  AND open_task_id = $1`,
+              [...openTaskOfferValues, openTaskPreOfferId],
+            );
+            updated = (rowCount ?? 0) > 0;
+          }
+
+          // Fallback: legacy path keyed on source_customer_pre_offer_id. This
+          // remains correct for offers imported from a standalone CDPO where
+          // the row was created with that link already in place.
+          if (!updated && sourceCustomerPreOfferId != null) {
             const { rowCount } = await db.query(
               `UPDATE open_task_pre_offers
                   SET device_model_id = $2,
@@ -757,13 +817,15 @@ export async function applyDeviceDemoResult(
                   AND source_customer_pre_offer_id = $13`,
               openTaskOfferValues,
             );
-            if (rowCount > 0) {
-              if (offer.customer_response === 'accepted' && acceptedPreOfferId == null) {
-                acceptedPreOfferId = cdpoId;
-                acceptedOfferData = offer;
-              }
-              continue;
+            updated = (rowCount ?? 0) > 0;
+          }
+
+          if (updated) {
+            if (offer.customer_response === 'accepted' && acceptedPreOfferId == null) {
+              acceptedPreOfferId = cdpoId;
+              acceptedOfferData = offer;
             }
+            continue;
           }
 
           await db.query(

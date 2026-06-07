@@ -1,6 +1,8 @@
 import express from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -37,9 +39,22 @@ function mapWarranty(row: any) {
 }
 
 // GET /api/device-warranties?deviceId=:id
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('clients.device_warranties.view', 'contracts.view_list'), async (req, res) => {
   const { deviceId } = req.query;
+  const authContext = req.authContext!;
   if (!deviceId) return res.status(400).json({ error: 'deviceId مطلوب' });
+
+  const { rows: deviceRows } = await pool.query(
+    'SELECT branch_id AS "branchId" FROM installed_devices WHERE id = $1',
+    [deviceId],
+  );
+  if (!deviceRows[0]) return res.status(404).json({ error: 'ط§ظ„ط¬ظ‡ط§ط² ط؛ظٹط± ظ…ظˆط¬ظˆط¯' });
+  const access = {
+    allowed:
+      authorize(authContext, { permission: 'clients.device_warranties.view', branchId: deviceRows[0].branchId }).allowed ||
+      authorize(authContext, { permission: 'contracts.view_list', branchId: deviceRows[0].branchId }).allowed,
+  };
+  if (!access.allowed) return res.status(403).json({ error: 'ط؛ظٹط± ظ…ط³ظ…ظˆط­' });
 
   const { rows } = await pool.query(
     `SELECT * FROM device_warranties WHERE device_id = $1 ORDER BY warranty_type`,
@@ -58,7 +73,7 @@ router.get('/', async (req, res) => {
 //   - status='cancelled' requires cancellationReason.
 //   - cancelled_at/cancelled_by are stamped server-side from the actor and NOW().
 //   - Any non-cancelled status clears the cancellation triplet.
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const b = req.body ?? {};
   const actorId = (req as any).user?.id ?? null;
 

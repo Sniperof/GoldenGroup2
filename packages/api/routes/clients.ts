@@ -2,7 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
-import { resolveActingBranch } from '../services/authorizationService.js';
+import { authorize, resolveActingBranch } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import {
   canCreateClient,
@@ -172,12 +172,20 @@ type SmartMatchResponse =
       visible: false;
       normalizedPhone: string;
       message: string;
+      submittedName?: string | null;
     }
   | {
       status: 'MATCH_VISIBLE';
       matched: true;
       visible: true;
       normalizedPhone: string;
+      submittedName?: string | null;
+      nameMatch?: {
+        checked: boolean;
+        matches: boolean | null;
+        submittedName: string | null;
+        existingName: string | null;
+      };
       client: {
         id: number;
         name: string;
@@ -191,6 +199,13 @@ type SmartMatchResponse =
       matched: true;
       visible: false;
       normalizedPhone: string;
+      submittedName?: string | null;
+      nameMatch?: {
+        checked: boolean;
+        matches: boolean | null;
+        submittedName: string | null;
+        existingName: string | null;
+      };
       reason: 'OUT_OF_SCOPE';
       message: string;
       client: {
@@ -214,6 +229,38 @@ const NO_MATCH_SMART_MATCH_MESSAGE = 'لا توجد نتائج مطابقة';
 
 function normalizePhone(value: unknown): string {
   return normalizeContactPhone(value);
+}
+
+function normalizeSmartMatchName(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي');
+}
+
+function buildNameMatch(submittedName: string | null, existingName: string | null) {
+  if (!submittedName) {
+    return {
+      checked: false,
+      matches: null,
+      submittedName: null,
+      existingName,
+    };
+  }
+
+  const submitted = normalizeSmartMatchName(submittedName);
+  const existing = normalizeSmartMatchName(existingName);
+  const matches = Boolean(submitted && existing && (submitted === existing || existing.includes(submitted) || submitted.includes(existing)));
+
+  return {
+    checked: true,
+    matches,
+    submittedName,
+    existingName,
+  };
 }
 
 function normalizeClientContacts(rawContacts: unknown): ClientContactInput[] {
@@ -325,13 +372,19 @@ async function findDuplicateClientByPhone(
   return rows[0] ?? null;
 }
 
-function buildSmartMatchResponse(authContext: any, duplicate: Awaited<ReturnType<typeof findDuplicateClientByPhone>>, normalizedPhone: string): SmartMatchResponse {
+function buildSmartMatchResponse(
+  authContext: any,
+  duplicate: Awaited<ReturnType<typeof findDuplicateClientByPhone>>,
+  normalizedPhone: string,
+  submittedName: string | null = null,
+): SmartMatchResponse {
   if (!duplicate) {
     return {
       status: 'NO_MATCH',
       matched: false,
       visible: false,
       normalizedPhone,
+      submittedName,
       message: NO_MATCH_SMART_MATCH_MESSAGE,
     };
   }
@@ -347,6 +400,8 @@ function buildSmartMatchResponse(authContext: any, duplicate: Awaited<ReturnType
       matched: true,
       visible: false,
       normalizedPhone,
+      submittedName,
+      nameMatch: buildNameMatch(submittedName, duplicate.name),
       reason: 'OUT_OF_SCOPE',
       message: RESTRICTED_SMART_MATCH_MESSAGE,
       client: {
@@ -364,6 +419,8 @@ function buildSmartMatchResponse(authContext: any, duplicate: Awaited<ReturnType
     matched: true,
     visible: true,
     normalizedPhone,
+    submittedName,
+    nameMatch: buildNameMatch(submittedName, duplicate.name),
     client: {
       id: duplicate.id,
       name: duplicate.name,
@@ -785,6 +842,9 @@ router.post('/smart-match', requirePermission('clients.create'), async (req, res
     const authContext = getRequiredAuthContext(req);
     const rawPhoneDigits = String(req.body?.phone ?? req.body?.mobile ?? '').replace(/\D/g, '');
     const normalizedPhone = normalizePhone(rawPhoneDigits);
+    const submittedName = typeof req.body?.name === 'string' && req.body.name.trim()
+      ? req.body.name.trim()
+      : null;
 
     if (!normalizedPhone) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب للتحقق الذكي' });
@@ -795,7 +855,7 @@ router.post('/smart-match', requirePermission('clients.create'), async (req, res
     }
 
     const duplicate = await findDuplicateClientByPhone(normalizedPhone);
-    return res.json(buildSmartMatchResponse(authContext, duplicate, normalizedPhone));
+    return res.json(buildSmartMatchResponse(authContext, duplicate, normalizedPhone, submittedName));
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -838,7 +898,7 @@ router.post('/smart-match', requirePermission('clients.create'), async (req, res
  *       500:
  *         description: Server error
  */
-router.get('/:id/account-statement', requirePermission('clients.view'), async (req, res) => {
+router.get('/:id/account-statement', requirePermission('clients.account_statement.view'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -853,7 +913,7 @@ router.get('/:id/account-statement', requirePermission('clients.view'), async (r
         ? [authContext.actingBranchId]
         : authContext.allowedBranchIds;
       const canReadViaRelatedBranch =
-        hasBranchScopedClientGrant(authContext, 'clients.view') &&
+        hasBranchScopedClientGrant(authContext, 'clients.account_statement.view') &&
         await hasClientDeviceOrContractInBranches(clientId!, branchIdsForRelatedAccess);
 
       if (!canReadViaRelatedBranch) {
@@ -1023,7 +1083,7 @@ router.get('/:id', requirePermission('clients.view'), async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/:id/network', requirePermission('clients.view'), async (req, res) => {
+router.get('/:id/network', requirePermission('clients.network.view'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -1038,7 +1098,7 @@ router.get('/:id/network', requirePermission('clients.view'), async (req, res) =
         ? [authContext.actingBranchId]
         : authContext.allowedBranchIds;
       const canReadViaRelatedBranch =
-        hasBranchScopedClientGrant(authContext, 'clients.view') &&
+        hasBranchScopedClientGrant(authContext, 'clients.network.view') &&
         await hasClientDeviceOrContractInBranches(clientId!, branchIdsForRelatedAccess);
 
       if (!canReadViaRelatedBranch) {
@@ -1076,22 +1136,28 @@ router.get('/:id/network', requirePermission('clients.view'), async (req, res) =
         : (incomingRow.name ? [{ id: incomingRow.id, name: incomingRow.name, type: incomingRow.type }] : []);
 
       for (const ref of referrerList) {
+        const rawReferrerClientId = ref.referralEntityId ?? ref.id ?? null;
+        const referrerClientId = Number(rawReferrerClientId);
+        const linkedClientId = Number.isInteger(referrerClientId) && referrerClientId > 0
+          ? referrerClientId
+          : null;
+        const referralDate = ref.referralDate ?? incomingRow.referral_date ?? null;
         let mobile = null;
-        if (ref.id != null) {
+        if (linkedClientId != null) {
           const { rows: mobileRows } = await pool.query(
             'SELECT mobile FROM clients WHERE id = $1',
-            [ref.id],
+            [linkedClientId],
           );
           mobile = mobileRows[0]?.mobile ?? null;
         }
         incoming.push({
-          id: ref.id ?? null,
-          name: ref.name ?? '',
-          type: ref.type ?? 'unknown',
-          referralDate: incomingRow.referral_date
-            ? new Date(incomingRow.referral_date).toISOString().split('T')[0]
+          id: linkedClientId,
+          name: ref.name ?? ref.referrerName ?? ref.referralName ?? '',
+          type: ref.type ?? ref.referrerType ?? 'unknown',
+          referralDate: referralDate
+            ? new Date(referralDate).toISOString().split('T')[0]
             : null,
-          address: incomingRow.address ?? null,
+          address: ref.address ?? ref.referralAddressText ?? incomingRow.address ?? null,
           mobile,
         });
       }
@@ -1359,13 +1425,30 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:id', requirePermission('clients.edit'), async (req, res) => {
+router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const subject = await loadClientSubject(clientId!);
     if (!subject) {
       return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const bodyKeys = Object.keys(req.body ?? {});
+    const isContactsOnlyUpdate =
+      bodyKeys.length === 1 &&
+      Object.prototype.hasOwnProperty.call(req.body ?? {}, 'contacts');
+
+    if (isContactsOnlyUpdate) {
+      const access = authorize(authContext, { permission: 'clients.contacts.edit', branchId: subject.branchId });
+      if (!access.allowed) {
+        return forbidClientAccess(res, access.reason);
+      }
+
+      const contacts = normalizeContactsForWrite(req.body?.contacts);
+      await pool.query('UPDATE clients SET contacts = $1 WHERE id = $2', [toJson(contacts, []), clientId]);
+      const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
+      return res.json(mapClientRow(rows[0]));
     }
 
     const access = canEditClient(authContext, subject);
@@ -1723,7 +1806,7 @@ router.post('/bulk-delete', requirePermission('clients.delete'), async (req, res
  *     security:
  *       - bearerAuth: []
  */
-router.post('/:id/cooldown', requirePermission('clients.edit'), async (req, res) => {
+router.post('/:id/cooldown', requirePermission('clients.contact_control.edit'), async (req, res) => {
   try {
     const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
     if (!Number.isInteger(clientId) || clientId <= 0) {
@@ -1812,7 +1895,7 @@ router.delete('/:id/cooldown', requirePermission('clients.cooldown_unlock'), asy
  *     security:
  *       - bearerAuth: []
  */
-router.patch('/:id/do-not-contact', requirePermission('clients.edit'), async (req, res) => {
+router.patch('/:id/do-not-contact', requirePermission('clients.contact_control.edit'), async (req, res) => {
   try {
     const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
     if (!Number.isInteger(clientId) || clientId <= 0) {
