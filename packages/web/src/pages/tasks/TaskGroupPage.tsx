@@ -334,7 +334,15 @@ export default function TaskGroupPage() {
     setLoading(true);
     setError(null);
     try {
-      const params = {
+      const params: {
+        branchId: number;
+        status?: string;
+        visitStatus?: string;
+        scheduledDate?: string;
+        scheduled?: 'yes' | 'no';
+        hideSnoozed?: 'true';
+        hideFutureTasks?: 'true';
+      } = {
         branchId,
         ...(statusFilter ? { status: statusFilter } : {}),
         ...(visitStatusFilter ? { visitStatus: visitStatusFilter } : {}),

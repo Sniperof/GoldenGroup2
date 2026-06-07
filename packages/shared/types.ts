@@ -1011,6 +1011,7 @@ export type CallOutcome =
   | 'seen_offer_not_interested'
   | 'address_updated'
   // Group 3: Reached — follow-up
+  | 'customer_requested_followup'
   | 'other_company_callback'
   | 'seen_offer_callback'
   // Group 4: Reached — service / transfer

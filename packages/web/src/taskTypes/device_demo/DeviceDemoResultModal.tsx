@@ -74,7 +74,7 @@ function buildWizardTask(taskId: number, task: any | null | undefined, preOffers
     ? task.offers
     : normalizedPreOffers;
   const savedOffers = hasSavedOutcome
-    ? rawSavedOffers.map(normalizePreOffer).filter((offer) =>
+    ? rawSavedOffers.map(normalizePreOffer).filter((offer: ReturnType<typeof normalizePreOffer>) =>
         Number.isFinite(offer.deviceModelId) &&
         offer.deviceModelId > 0 &&
         ['cash', 'installment'].includes(offer.offerType) &&
