@@ -25,7 +25,13 @@ function toNumber(value: any): number | null {
 }
 
 function normalizePreOffer(offer: any) {
+  // `openTaskPreOfferId` carries the existing open_task_pre_offers.id when the
+  // offer was loaded from the task (vs. authored fresh in the wizard). The
+  // backend uses it as the primary UPDATE key so result recording mutates the
+  // existing row even when `source_customer_pre_offer_id` is NULL (which is
+  // the common case for offers authored manually in DeviceOfferModal).
   return {
+    openTaskPreOfferId: offer.openTaskPreOfferId ?? offer.open_task_pre_offer_id ?? offer.id ?? null,
     deviceModelId: Number(offer.deviceModelId ?? offer.device_model_id),
     offerType: offer.offerType ?? offer.offer_type,
     quantity: Number(offer.quantity ?? 1),
@@ -152,6 +158,7 @@ function buildWizardVisit(visitId: number, visit: any | null | undefined, task: 
 function mapOutcomePayload(payload: MarketingVisitTaskOutcomeRequest) {
   if (payload.outcome === 'device_sold' && payload.offers?.length) {
     const offers = payload.offers.map((offer) => ({
+      open_task_pre_offer_id: (offer as any).openTaskPreOfferId ?? null,
       device_model_id: Number(offer.deviceModelId),
       offer_type: offer.offerType,
       quantity: Number(offer.quantity ?? 1),
@@ -183,6 +190,7 @@ function mapOutcomePayload(payload: MarketingVisitTaskOutcomeRequest) {
 
   if (payload.offers?.length) {
     const offers = (payload.offers ?? []).map((offer) => ({
+      open_task_pre_offer_id: (offer as any).openTaskPreOfferId ?? null,
       device_model_id: Number(offer.deviceModelId),
       offer_type: offer.offerType,
       quantity: Number(offer.quantity ?? 1),

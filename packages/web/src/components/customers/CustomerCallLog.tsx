@@ -9,6 +9,7 @@ interface Props {
     customerId: number;
     /** Bump to force refresh */
     refreshKey?: number;
+    canEdit?: boolean;
 }
 
 // ── Filter types ──────────────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ function FilterSelect<T extends string>({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function CustomerCallLog({ customerId, refreshKey }: Props) {
+export default function CustomerCallLog({ customerId, refreshKey, canEdit = true }: Props) {
     const [logs, setLogs] = useState<CallLogEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [editLog, setEditLog] = useState<CallLogEntry | null>(null);
@@ -336,7 +337,7 @@ export default function CustomerCallLog({ customerId, refreshKey }: Props) {
                                                     {log.callerName}
                                                 </span>
                                             )}
-                                            {log.status === 'pending' && log.communicationChannel?.includes('text') && (
+                                                {canEdit && log.status === 'pending' && log.communicationChannel?.includes('text') && (
                                                 <button
                                                     onClick={() => setEditLog(log)}
                                                     className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded font-bold border border-amber-100 hover:bg-amber-100 transition-colors flex items-center gap-1"

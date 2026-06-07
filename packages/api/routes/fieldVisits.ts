@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
 import { applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
@@ -766,7 +767,7 @@ router.get('/:id/source', requirePermission('field_visits.view'), async (req, re
  *       500:
  *         description: Server error
  */
-router.get('/', requirePermission('field_visits.view'), async (req, res) => {
+router.get('/', requirePermission('clients.visits.view', 'field_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const clientId = req.query.clientId ? Number(req.query.clientId) : null;
@@ -779,6 +780,10 @@ router.get('/', requirePermission('field_visits.view'), async (req, res) => {
 
     if (clientId === null && date === null) {
       return res.status(400).json({ error: 'يجب تحديد clientId أو date' });
+    }
+
+    if (clientId === null && !authorize(authContext as any, { permission: 'field_visits.view' }).allowed) {
+      return res.status(403).json({ error: 'ط؛ظٹط± ظ…ط³ظ…ظˆط­' });
     }
 
     let employeeId: number | null = null;

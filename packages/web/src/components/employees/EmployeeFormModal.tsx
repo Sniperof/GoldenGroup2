@@ -45,7 +45,6 @@ import {
   normalizeContactNumberInput,
 } from '../../lib/contactRules';
 
-type GenderValue = '' | 'male' | 'female';
 type YesNoValue = '' | 'yes' | 'no';
 
 export type EmployeeFormValues = {
@@ -54,7 +53,7 @@ export type EmployeeFormValues = {
   fatherName: string;
   lastName: string;
   birthDate: string;
-  gender: GenderValue;
+  gender: string;
   maritalStatus: string;
   militaryService: string;
   geoSelection: GeoSelection;
@@ -64,6 +63,7 @@ export type EmployeeFormValues = {
   specialization: string;
   yearsOfExperience: string;
   drivingLicense: YesNoValue;
+  hasCar: YesNoValue;
   jobSkills: string;
   foreignLanguages: string[];
   status: Employee['status'];
@@ -175,11 +175,8 @@ const STEPS: StepDef[] = [
   { key: 'referral', title: 'الوسيط والملاحظات', subtitle: 'مصدر التوصية (اختياري)', icon: Users },
 ];
 
-function toGenderValue(value: unknown): GenderValue {
-  const raw = String(value ?? '').trim().toLowerCase();
-  if (raw === 'male' || raw === 'ذكر') return 'male';
-  if (raw === 'female' || raw === 'أنثى' || raw === 'انثى') return 'female';
-  return '';
+function toGenderValue(value: unknown): string {
+  return String(value ?? '').trim();
 }
 
 function toYesNoValue(value: unknown): YesNoValue {
@@ -278,6 +275,7 @@ function buildFormState(
     specialization: initialValues?.specialization ?? '',
     yearsOfExperience: initialValues?.yearsOfExperience != null ? String(initialValues.yearsOfExperience) : '',
     drivingLicense: toYesNoValue(initialValues?.drivingLicense),
+    hasCar: toYesNoValue((initialValues as any)?.hasCar),
     jobSkills: initialValues?.jobSkills ?? '',
     foreignLanguages: initialValues?.foreignLanguages ?? [],
     status: initialValues?.status ?? 'active',
@@ -446,6 +444,7 @@ export default function EmployeeFormModal({
         const [
           geoData,
           branchData,
+          genderList,
           maritalStatus,
           militaryService,
           certificates,
@@ -454,8 +453,9 @@ export default function EmployeeFormModal({
           foreignLanguages,
           jobTitles,
         ] = await Promise.all([
-          api.geoUnits.list(),
+          api.geoUnits.listReference(),
           api.branches.list(),
+          api.systemLists.list({ category: 'gender', activeOnly: true }),
           api.systemLists.list({ category: 'marital_status', activeOnly: true }),
           api.systemLists.list({ category: 'military_service', activeOnly: true }),
           api.systemLists.list({ category: 'certificate', activeOnly: true }),
@@ -470,6 +470,7 @@ export default function EmployeeFormModal({
         setGeoUnits(geoData);
         setBranches(branchData);
         setListsByCategory({
+          gender: genderList,
           marital_status: maritalStatus,
           military_service: militaryService,
           certificate: certificates,
@@ -588,6 +589,7 @@ export default function EmployeeFormModal({
     return (listsByCategory.job_title ?? []).find((item) => item.value === form.jobTitle) ?? null;
   }, [listsByCategory, form.jobTitle]);
 
+  const genderOptions = listsByCategory.gender ?? [];
   const certificateOptions = listsByCategory.certificate ?? [];
   const maritalStatusOptions = listsByCategory.marital_status ?? [];
   const militaryServiceOptions = listsByCategory.military_service ?? [];
@@ -612,7 +614,6 @@ export default function EmployeeFormModal({
         if (!form.birthDate) return 'تاريخ الميلاد مطلوب.';
         if (!form.gender) return 'الجنس مطلوب.';
         if (!form.maritalStatus) return 'الحالة الاجتماعية مطلوبة.';
-        if (!form.militaryService) return 'الخدمة العسكرية مطلوبة.';
         return null;
       case 'contact': {
         if (!form.geoSelection.subId && !form.geoSelection.neighborhoodId) {
@@ -711,6 +712,7 @@ export default function EmployeeFormModal({
       specialization: form.specialization || null,
       yearsOfExperience: form.yearsOfExperience || null,
       drivingLicense: form.drivingLicense === '' ? null : form.drivingLicense === 'yes',
+      hasCar: form.hasCar === '' ? null : form.hasCar === 'yes',
       jobSkills: form.jobSkills.trim() || null,
       foreignLanguages: form.foreignLanguages,
       status: form.status,
@@ -884,12 +886,13 @@ export default function EmployeeFormModal({
           <FieldLabel required>الجنس</FieldLabel>
           <select
             value={form.gender}
-            onChange={(e) => setForm((c) => ({ ...c, gender: e.target.value as GenderValue }))}
+            onChange={(e) => setForm((c) => ({ ...c, gender: e.target.value }))}
             className={INPUT_CLASS}
           >
             <option value="">اختر الجنس</option>
-            <option value="male">ذكر</option>
-            <option value="female">أنثى</option>
+            {genderOptions.map((item) => (
+              <option key={item.id} value={item.value}>{item.value}</option>
+            ))}
           </select>
         </label>
         <label className="block">
@@ -906,7 +909,7 @@ export default function EmployeeFormModal({
           </select>
         </label>
         <label className="block md:col-span-2 xl:col-span-3">
-          <FieldLabel required>الخدمة العسكرية</FieldLabel>
+          <FieldLabel>الخدمة العسكرية</FieldLabel>
           <select
             value={form.militaryService}
             onChange={(e) => setForm((c) => ({ ...c, militaryService: e.target.value }))}
@@ -1155,6 +1158,19 @@ export default function EmployeeFormModal({
           <select
             value={form.drivingLicense}
             onChange={(e) => setForm((c) => ({ ...c, drivingLicense: e.target.value as YesNoValue }))}
+            className={INPUT_CLASS}
+          >
+            <option value="">بدون تحديد</option>
+            <option value="yes">نعم</option>
+            <option value="no">لا</option>
+          </select>
+        </label>
+
+        <label className="block">
+          <FieldLabel>امتلاك سيارة</FieldLabel>
+          <select
+            value={form.hasCar}
+            onChange={(e) => setForm((c) => ({ ...c, hasCar: e.target.value as YesNoValue }))}
             className={INPUT_CLASS}
           >
             <option value="">بدون تحديد</option>

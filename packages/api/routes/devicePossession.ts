@@ -39,7 +39,7 @@ function mapRow(r: any) {
 // GET /api/devices/:deviceId/possession — full history (newest first).
 router.get(
   '/:deviceId/possession',
-  requirePermission('contracts.view_list'),
+  requirePermission('clients.devices.view', 'contracts.view_list'),
   async (req, res) => {
     const deviceId = Number(req.params.deviceId);
     if (!Number.isInteger(deviceId) || deviceId <= 0) {
@@ -58,7 +58,7 @@ router.get(
 // GET /api/devices/:deviceId/possession/current — single current holder (or null).
 router.get(
   '/:deviceId/possession/current',
-  requirePermission('contracts.view_list'),
+  requirePermission('clients.devices.view', 'contracts.view_list'),
   async (req, res) => {
     const deviceId = Number(req.params.deviceId);
     const { rows } = await pool.query(

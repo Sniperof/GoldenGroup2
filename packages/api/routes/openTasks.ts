@@ -1242,7 +1242,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
  *       500:
  *         description: Internal Server Error
  */
-router.get('/client/:clientId', requirePermission('open_tasks.view'), async (req, res) => {
+router.get('/client/:clientId', requirePermission('clients.visits.view', 'open_tasks.view'), async (req, res) => {
   const authContext = getAuthContext(req);
   const clientId = Number(req.params.clientId);
   if (!Number.isInteger(clientId) || clientId <= 0) {

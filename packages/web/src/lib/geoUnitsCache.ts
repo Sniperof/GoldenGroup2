@@ -21,11 +21,21 @@ export interface GeoUnit {
 }
 
 let cached: GeoUnit[] | null = null;
+let cachedKey: string | null = null;
 let inflight: Promise<GeoUnit[]> | null = null;
+let inflightKey: string | null = null;
+
+function getCacheKey(): string {
+  const token = localStorage.getItem('hr_token') ?? '';
+  const branchContext = localStorage.getItem('hr_branch_context') ?? '';
+  return `${token}:${branchContext}:${window.location.pathname}`;
+}
 
 export async function getGeoUnits(): Promise<GeoUnit[]> {
-  if (cached) return cached;
-  if (inflight) return inflight;
+  const key = getCacheKey();
+  if (cached && cachedKey === key) return cached;
+  if (inflight && inflightKey === key) return inflight;
+  inflightKey = key;
   inflight = api.geoUnits
     .list()
     .then((rows: any[]) => {
@@ -37,9 +47,13 @@ export async function getGeoUnits(): Promise<GeoUnit[]> {
         parentId: r.parentId == null ? null : Number(r.parentId),
         status:   r.status,
       }));
+      cachedKey = key;
       return cached;
     })
-    .finally(() => { inflight = null; });
+    .finally(() => {
+      inflight = null;
+      inflightKey = null;
+    });
   return inflight;
 }
 
@@ -49,4 +63,5 @@ export async function getGeoUnits(): Promise<GeoUnit[]> {
  */
 export function invalidateGeoUnitsCache(): void {
   cached = null;
+  cachedKey = null;
 }

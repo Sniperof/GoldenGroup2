@@ -224,7 +224,7 @@ export default function DeviceProfilePage() {
 
         <main className="flex-1 min-w-0 space-y-6">
           <IdentitySection device={device} />
-          <OperationalStatusSection device={device} onTaskCreated={fetchAll} />
+          <OperationalStatusSection device={device} tasks={tasks} onTaskCreated={fetchAll} />
           <CurrentHolderSection device={device} currentPossession={currentPossession} />
           <PossessionHistorySection entries={possessionLog} />
           <WarrantiesSection warranties={warranties} />

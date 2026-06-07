@@ -57,9 +57,9 @@ type EmployeeWriteInput = {
   mobile: string;
   contacts: ContactEntry[];
   birthDate: string;
-  gender: 'male' | 'female';
+  gender: string;
   maritalStatus: string;
-  militaryService: string;
+  militaryService: string | null;
   residenceGovernorateId: number;
   residenceGovernorate: string;
   residenceRegionId: number;
@@ -77,6 +77,7 @@ type EmployeeWriteInput = {
   specialization: string | null;
   yearsOfExperience: number | null;
   drivingLicense: boolean | null;
+  hasCar: boolean | null;
   jobSkills: string | null;
   foreignLanguages: string[];
   hireDate: string | null;
@@ -135,11 +136,10 @@ function asOptionalNumber(value: unknown, error?: string): number | null {
   return num;
 }
 
-function asGender(value: unknown): 'male' | 'female' {
-  const raw = String(value ?? '').trim().toLowerCase();
-  if (raw === 'male' || raw === 'ذكر') return 'male';
-  if (raw === 'female' || raw === 'أنثى' || raw === 'انثى') return 'female';
-  throw createServiceError(400, { error: 'الجنس مطلوب' });
+function asGender(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) throw createServiceError(400, { error: 'الجنس مطلوب' });
+  return raw;
 }
 
 function asEmployeeStatus(value: unknown): 'active' | 'vacation' | 'suspended' | 'terminated' {
@@ -235,7 +235,7 @@ export async function prepareEmployeeWriteInput(
   const birthDate = asRequiredDate(body.birthDate, 'تاريخ الميلاد مطلوب');
   const gender = asGender(body.gender);
   const maritalStatus = asRequiredText(body.maritalStatus, 'الحالة الاجتماعية مطلوبة');
-  const militaryService = asRequiredText(body.militaryService, 'الخدمة العسكرية مطلوبة');
+  const militaryService = asOptionalText(body.militaryService);
   const jobTitle = asRequiredText(body.jobTitle, 'المسمى الوظيفي مطلوب');
   const contractType = asRequiredText(body.contractType, 'نوع العقد مطلوب');
   const workType = asRequiredText(body.workType, 'نوع العمل مطلوب');
@@ -367,6 +367,7 @@ export async function prepareEmployeeWriteInput(
     specialization: asOptionalText(body.specialization),
     yearsOfExperience,
     drivingLicense: asOptionalBoolean(body.drivingLicense),
+    hasCar: asOptionalBoolean(body.hasCar),
     jobSkills: asOptionalText(body.jobSkills),
     foreignLanguages: normalizeStringArray(body.foreignLanguages),
     hireDate: asOptionalDate(body.hireDate, 'تاريخ التوظيف غير صالح'),
@@ -391,7 +392,7 @@ export async function insertPreparedEmployeeProfile(db: Queryable, input: Employ
       residence_governorate_id, residence_region_id, residence_sub_area_id,
       residence_neighborhood_id, detailed_address, status, avatar, job_title, contacts,
       birth_date, gender, marital_status, military_service, academic_qualification,
-      specialization, years_of_experience, driving_license, job_skills, foreign_languages,
+      specialization, years_of_experience, driving_license, has_car, job_skills, foreign_languages,
       hire_date, start_work_date, department_id, contract_type, work_type,
       previous_employment, direct_manager_id, referrer_type, source_channel,
       referrer_name, referral_notes, referral_entity_id
@@ -400,10 +401,10 @@ export async function insertPreparedEmployeeProfile(db: Queryable, input: Employ
       $9,$10,$11,
       $12,$13,$14,$15,$16,$17,
       $18,$19,$20,$21,$22,
-      $23,$24,$25,$26,$27,
-      $28,$29,$30,$31,$32,
-      $33,$34,$35,$36,
-      $37,$38,$39
+      $23,$24,$25,$26,$27,$28,
+      $29,$30,$31,$32,$33,
+      $34,$35,$36,$37,
+      $38,$39,$40
     )
     RETURNING id`,
     [
@@ -432,6 +433,7 @@ export async function insertPreparedEmployeeProfile(db: Queryable, input: Employ
       input.specialization,
       input.yearsOfExperience,
       input.drivingLicense,
+      input.hasCar,
       input.jobSkills,
       JSON.stringify(input.foreignLanguages),
       input.hireDate,
@@ -489,21 +491,22 @@ async function insertOrUpdatePreparedEmployeeProfile(
        specialization = $23,
        years_of_experience = $24,
        driving_license = $25,
-       job_skills = $26,
-       foreign_languages = $27,
-       hire_date = $28,
-       start_work_date = $29,
-       department_id = $30,
-       contract_type = $31,
-       work_type = $32,
-       previous_employment = $33,
-       direct_manager_id = $34,
-       referrer_type = $35,
-       source_channel = $36,
-       referrer_name = $37,
-       referral_notes = $38,
-       referral_entity_id = $39
-     WHERE id = $40`,
+       has_car = $26,
+       job_skills = $27,
+       foreign_languages = $28,
+       hire_date = $29,
+       start_work_date = $30,
+       department_id = $31,
+       contract_type = $32,
+       work_type = $33,
+       previous_employment = $34,
+       direct_manager_id = $35,
+       referrer_type = $36,
+       source_channel = $37,
+       referrer_name = $38,
+       referral_notes = $39,
+       referral_entity_id = $40
+     WHERE id = $41`,
     [
       input.name,
       input.firstName,
@@ -530,6 +533,7 @@ async function insertOrUpdatePreparedEmployeeProfile(
       input.specialization,
       input.yearsOfExperience,
       input.drivingLicense,
+      input.hasCar,
       input.jobSkills,
       JSON.stringify(input.foreignLanguages),
       input.hireDate,
@@ -688,6 +692,7 @@ export async function getEmployeeById(employeeId: number | string) {
     specialization: row.specialization,
     yearsOfExperience: row.yearsOfExperience,
     drivingLicense: row.drivingLicense,
+    hasCar: row.hasCar,
     jobSkills: row.jobSkills,
     foreignLanguages,
     hireDate: row.hireDate,

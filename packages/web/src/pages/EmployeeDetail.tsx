@@ -66,6 +66,21 @@ const SOURCE_LABELS: Record<string, string> = {
   Internal:              'داخلي',
 };
 
+const REFERRER_TYPE_LABELS: Record<string, string> = {
+  Personal:  'شخصي',
+  Employee:  'موظف',
+  Client:    'زبون',
+  Unknown:   'مجهول',
+};
+
+const SOURCE_CHANNEL_LABELS: Record<string, string> = {
+  Acquaintance: 'معرفة شخصية',
+  PhoneCall:    'مكالمة هاتفية',
+  SocialMedia:  'سوشال ميديا',
+  App:          'سوشال ميديا',
+  Campaign:     'حملة إعلانية',
+};
+
 const INTERVIEW_STATUS_LABELS: Record<string, string> = {
   'Interview Scheduled': 'مجدولة',
   'Interview Completed': 'مكتملة',
@@ -158,6 +173,7 @@ function buildEmployeeInitialValues(detail: EmployeeDetailType): EmployeeFormIni
     specialization:    detail.specialization ?? '',
     yearsOfExperience: detail.yearsOfExperience != null ? String(detail.yearsOfExperience) : '',
     drivingLicense:    detail.drivingLicense === true ? 'yes' : detail.drivingLicense === false ? 'no' : '',
+    hasCar:            detail.hasCar === true ? 'yes' : detail.hasCar === false ? 'no' : '',
     jobSkills:         detail.jobSkills ?? '',
     foreignLanguages:  detail.foreignLanguages ?? [],
     status:            detail.status,
@@ -481,8 +497,8 @@ export default function EmployeeDetail() {
         <div className="lg:col-span-2">
           <SectionCard title="الوسيط ومصدر التوظيف" icon={<Users className="h-3.5 w-3.5" />} accent="amber">
             <div className="grid md:grid-cols-2">
-              <InfoRow label="نوع الوسيط">{detail!.referrerType}</InfoRow>
-              <InfoRow label="نوع التواصل">{detail!.sourceChannel}</InfoRow>
+              <InfoRow label="نوع الوسيط">{detail!.referrerType ? (REFERRER_TYPE_LABELS[detail!.referrerType] ?? detail!.referrerType) : undefined}</InfoRow>
+              <InfoRow label="نوع التواصل">{detail!.sourceChannel ? (SOURCE_CHANNEL_LABELS[detail!.sourceChannel] ?? detail!.sourceChannel) : undefined}</InfoRow>
               <InfoRow label="اسم الوسيط">{detail!.referrerName}</InfoRow>
               <InfoRow label="ملاحظات" span>{detail!.referralNotes}</InfoRow>
             </div>
@@ -502,6 +518,7 @@ export default function EmployeeDetail() {
             {detail!.yearsOfExperience != null ? `${detail!.yearsOfExperience} سنة` : undefined}
           </InfoRow>
           <InfoRow label="رخصة القيادة">{formatDrivingLicense(detail!.drivingLicense)}</InfoRow>
+          <InfoRow label="امتلاك سيارة">{formatDrivingLicense(detail!.hasCar)}</InfoRow>
           <InfoRow label="العمل السابق">{detail!.previousEmployment}</InfoRow>
         </SectionCard>
 

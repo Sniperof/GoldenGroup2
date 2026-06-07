@@ -62,6 +62,10 @@ router.get('/active', requirePermission('geo.view'), async (req, res) => {
   res.json(filterGeoUnitsByScope(active, scope));
 });
 
+router.get('/reference', requirePermission('geo.view'), async (_req, res) => {
+  res.json(await listAllGeoUnits());
+});
+
 /**
  * @swagger
  * /api/geo-units/{id}:

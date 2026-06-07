@@ -90,6 +90,11 @@ const EMPLOYEE_DETAIL_COLS = `
     WHEN a.driving_license IN ('false', 'FALSE', 'no', 'NO', '0') THEN FALSE
     ELSE NULL
   END) AS "drivingLicense",
+  COALESCE(e.has_car, CASE
+    WHEN a.has_car = TRUE THEN TRUE
+    WHEN a.has_car = FALSE THEN FALSE
+    ELSE NULL
+  END) AS "hasCar",
   COALESCE(NULLIF(e.job_skills, ''), NULLIF(a.computer_skills, '')) AS "jobSkills",
   COALESCE(e.foreign_languages, '[]'::jsonb) AS "foreignLanguages",
   e.hire_date AS "hireDate",

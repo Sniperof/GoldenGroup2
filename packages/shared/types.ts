@@ -132,6 +132,7 @@ export interface Employee {
     specialization?: string | null;
     yearsOfExperience?: number | null;
     drivingLicense?: boolean | null;
+    hasCar?: boolean | null;
     jobSkills?: string | null;
     foreignLanguages?: string[];
     hireDate?: string | null;
@@ -338,12 +339,20 @@ export interface SmartMatchVisibleClient {
     assignedUserName: string | null;
 }
 
+export interface SmartMatchNameCheck {
+    checked: boolean;
+    matches: boolean | null;
+    submittedName: string | null;
+    existingName: string | null;
+}
+
 export type ClientSmartMatchResponse =
     | {
         status: 'NO_MATCH';
         matched: false;
         visible: false;
         normalizedPhone: string;
+        submittedName?: string | null;
         message: string;
     }
     | {
@@ -351,6 +360,8 @@ export type ClientSmartMatchResponse =
         matched: true;
         visible: true;
         normalizedPhone: string;
+        submittedName?: string | null;
+        nameMatch?: SmartMatchNameCheck;
         client: SmartMatchVisibleClient;
     }
     | {
@@ -358,6 +369,8 @@ export type ClientSmartMatchResponse =
         matched: true;
         visible: false;
         normalizedPhone: string;
+        submittedName?: string | null;
+        nameMatch?: SmartMatchNameCheck;
         reason: 'OUT_OF_SCOPE';
         message: string;
         client: SmartMatchVisibleClient;
@@ -565,6 +578,8 @@ export interface MarketingVisitTaskOfferInput {
     extensionDueDate?: string | null;
     saleReferenceNumber?: string | null;
     sourceCustomerPreOfferId?: number | null;
+    /** Existing open_task_pre_offers.id when this offer was loaded from the task. */
+    openTaskPreOfferId?: number | null;
     contractId?: number | null;
 }
 

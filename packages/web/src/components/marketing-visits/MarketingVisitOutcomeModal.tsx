@@ -42,6 +42,10 @@ type OverallOutcome = 'device_sold' | 'offer_presented' | 'needs_reschedule' | '
 
 interface DeviceOffer {
   id: string;
+  // `openTaskPreOfferId` survives the trip from API → wizard → submit so the
+  // backend can update the existing open_task_pre_offers row by primary key
+  // instead of creating a duplicate when `source_customer_pre_offer_id` is NULL.
+  openTaskPreOfferId?: number | null;
   offerType: OfferType;
   quantity: number;
   totalAmount: number;
@@ -99,6 +103,7 @@ interface VisitDeviceLike {
 }
 
 interface PreOfferLike {
+  openTaskPreOfferId?: number | null;
   deviceModelId: number;
   offerType: OfferType;
   quantity?: number | null;
@@ -109,6 +114,7 @@ interface PreOfferLike {
   appliedDeviceDiscountId?: number | null;
   closedByEmployeeId?: number | null;
   noClosingReason?: string | null;
+  customerResponse?: CustomerResponse;
   saleReferenceNumber?: string | null;
   sourceCustomerPreOfferId?: number | null;
 }
@@ -346,6 +352,7 @@ export default function MarketingVisitOutcomeModal({
 
         group.offers.push({
           id: crypto.randomUUID(),
+          openTaskPreOfferId: (offer as any).openTaskPreOfferId ?? null,
           offerType: offer.offerType,
           quantity: offer.quantity ?? 1,
           totalAmount: offer.totalAmount,
@@ -417,6 +424,7 @@ export default function MarketingVisitOutcomeModal({
 
         group.offers.push({
           id: crypto.randomUUID(),
+          openTaskPreOfferId: offer.openTaskPreOfferId ?? null,
           offerType: offer.offerType,
           quantity: offer.quantity ?? 1,
           totalAmount: offer.totalAmount,
@@ -690,6 +698,7 @@ export default function MarketingVisitOutcomeModal({
                 extensionDueDate: existing.extensionDueDate,
                 saleReferenceNumber: existing.saleReferenceNumber,
                 sourceCustomerPreOfferId: existing.sourceCustomerPreOfferId ?? null,
+                openTaskPreOfferId: existing.openTaskPreOfferId ?? null,
               };
 
         // device_sold: if the device group doesn't exist yet, create it
@@ -893,6 +902,7 @@ export default function MarketingVisitOutcomeModal({
           extensionDueDate: offer.extensionDueDate,
           saleReferenceNumber: offer.saleReferenceNumber,
           sourceCustomerPreOfferId: offer.sourceCustomerPreOfferId ?? null,
+          openTaskPreOfferId: offer.openTaskPreOfferId ?? null,
         })),
       ),
       offerType: null,
@@ -939,6 +949,7 @@ export default function MarketingVisitOutcomeModal({
           extensionDueDate: null,
           saleReferenceNumber: offer.saleReferenceNumber,
           sourceCustomerPreOfferId: offer.sourceCustomerPreOfferId ?? null,
+          openTaskPreOfferId: offer.openTaskPreOfferId ?? null,
         })),
       ),
       offerType: null, cashOfferAmount: null, installmentAmount: null,

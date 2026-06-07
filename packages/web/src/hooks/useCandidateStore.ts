@@ -274,6 +274,9 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
         const state = get();
         const candidate = state.candidates.find(c => c.id === candidateId);
         if (!candidate) return;
+        if (candidate.status === 'Qualified' || candidate.status === 'Junk' || candidate.convertedToLeadId != null) {
+            throw new Error('لا يمكن تعديل الاسم المقترح بعد الربط أو الرفض أو التحويل');
+        }
 
         const updatedData = { ...candidate, ...data };
 

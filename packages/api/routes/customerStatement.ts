@@ -22,7 +22,7 @@ router.use(requireAuth);
 
 router.get(
   '/:id/statement',
-  requirePermission('contracts.view_list'),
+  requirePermission('clients.account_statement.view', 'contracts.view_list'),
   async (req, res) => {
     const customerId = Number(req.params.id);
     if (!Number.isInteger(customerId) || customerId <= 0) {

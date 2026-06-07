@@ -52,7 +52,7 @@ const selectFields = `
 `;
 
 // GET /api/installed-devices?customerId=X&branchId=Y
-router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
+router.get('/', requirePermission('clients.devices.view', 'contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
   const { customerId, branchId, status } = req.query;
   const conditions: string[] = [];
@@ -64,7 +64,11 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
     if (!Number.isInteger(requestedBranchId) || requestedBranchId <= 0) {
       return res.status(400).json({ error: 'معرف الفرع غير صالح' });
     }
-    const access = authorize(authContext, { permission: 'contracts.view_list', branchId: requestedBranchId });
+    const access = {
+      allowed:
+        authorize(authContext, { permission: 'clients.devices.view', branchId: requestedBranchId }).allowed ||
+        authorize(authContext, { permission: 'contracts.view_list', branchId: requestedBranchId }).allowed,
+    };
     if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
     params.push(requestedBranchId);
     conditions.push(`d.branch_id = $${params.length}`);
@@ -93,7 +97,7 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
 });
 
 // GET /api/installed-devices/:id
-router.get('/:id', requirePermission('contracts.view_list'), async (req, res) => {
+router.get('/:id', requirePermission('clients.devices.view', 'contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
   const { rows } = await pool.query(
     `SELECT ${selectFields}
@@ -105,14 +109,18 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
     [req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
-  const access = authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId });
+  const access = {
+    allowed:
+      authorize(authContext, { permission: 'clients.devices.view', branchId: rows[0].branchId }).allowed ||
+      authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId }).allowed,
+  };
   if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
   res.json(rows[0]);
 });
 
 // GET /api/installed-devices/:id/problems — full diagnosed-problems history
 // for this device (across all service_requests / open_tasks). Read-only.
-router.get('/:id/problems', requirePermission('contracts.view_list'), async (req, res) => {
+router.get('/:id/problems', requirePermission('clients.devices.view', 'contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
   const deviceId = Number(req.params.id);
   const { rows: devRows } = await pool.query(
@@ -120,7 +128,11 @@ router.get('/:id/problems', requirePermission('contracts.view_list'), async (req
     [deviceId],
   );
   if (!devRows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
-  const access = authorize(authContext, { permission: 'contracts.view_list', branchId: devRows[0].branchId });
+  const access = {
+    allowed:
+      authorize(authContext, { permission: 'clients.devices.view', branchId: devRows[0].branchId }).allowed ||
+      authorize(authContext, { permission: 'contracts.view_list', branchId: devRows[0].branchId }).allowed,
+  };
   if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
 
   const { rows } = await pool.query(
