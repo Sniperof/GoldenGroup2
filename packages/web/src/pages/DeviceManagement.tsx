@@ -1,5 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Wrench, PenTool, Truck, Clock, Package, Cog, X, Save, AlertTriangle, RefreshCw, Gem, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+    Plus, Wrench, PenTool, GraduationCap, Truck, Package, Cog, X, Save,
+    RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
+    AlertCircle,
+} from 'lucide-react';
 import { api } from '../lib/api';
 import type { DeviceModel, SparePart, MaintenancePartType } from '../lib/types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,20 +18,34 @@ import type { ColumnDef, FilterDef } from '../components/SmartTable';
 const categoryLabels: Record<string, { label: string; icon: string; color: string }> = {
     'منزلي': { label: 'منزلي', icon: '🏠', color: 'bg-green-100 text-green-800' },
     'صناعي': { label: 'صناعي', icon: '🏭', color: 'bg-orange-100 text-orange-800' },
-    'تجاري': { label: 'تجاري', icon: '🏢', color: 'bg-blue-100 text-blue-800' },
 };
 
-const maintenanceLabels: Record<string, string> = {
-    '3 أشهر': '3 أشهر',
-    '6 أشهر': '6 أشهر',
-    '1 سنة': 'سنة واحدة',
+
+const serviceLabels: Record<string, { label: string; icon: string; color: string }> = {
+    'تسليم': { label: 'تسليم', icon: '🚚', color: 'bg-sky-100 text-sky-800' },
+    'تركيب': { label: 'تركيب', icon: '🔧', color: 'bg-blue-100 text-blue-800' },
+    'صيانة': { label: 'صيانة', icon: '🛠️', color: 'bg-orange-100 text-orange-800' },
+    'تعليم': { label: 'تعليم', icon: '🎓', color: 'bg-amber-100 text-amber-800' },
 };
 
-const serviceLabels: Record<string, { label: string; Icon: any }> = {
-    'تركيب': { label: 'تركيب', Icon: Wrench },
-    'صيانة': { label: 'صيانة', Icon: PenTool },
-    'توصيل': { label: 'توصيل', Icon: Truck },
-};
+const supportedServiceOptions = [
+    { id: 'تسليم', icon: <Truck size={16} />, label: 'تسليم', desc: 'تسليم الجهاز للعميل' },
+    { id: 'تركيب', icon: <Wrench size={16} />, label: 'تركيب', desc: 'تركيب الجهاز' },
+    { id: 'صيانة', icon: <PenTool size={16} />, label: 'صيانة', desc: 'صيانة دورية وطوارئ' },
+    { id: 'تعليم', icon: <GraduationCap size={16} />, label: 'تعليم', desc: 'تعليم استخدام الجهاز' },
+] satisfies Array<{ id: DeviceModel['supportedVisitTypes'][number]; icon: React.ReactNode; label: string; desc: string }>;
+
+const warrantyPeriodOptions: Array<{ months: number; label: string }> = [
+    { months: 3,  label: '3 أشهر'  },
+    { months: 6,  label: '6 أشهر'  },
+    { months: 9,  label: '9 أشهر'  },
+    { months: 12, label: '12 شهرًا' },
+    { months: 24, label: '24 شهرًا' },
+    { months: 36, label: '36 شهرًا' },
+];
+
+type DeviceAttachment = { id: string; name: string; url: string };
+type SupportedVisitType = DeviceModel['supportedVisitTypes'][number];
 
 const partTypeConfig: Record<MaintenancePartType, { label: string; color: string; bg: string; border: string; hint: string }> = {
     Periodic: { label: 'دورية', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', hint: 'يعيد ضبط عداد الصيانة الدورية' },
@@ -34,26 +53,579 @@ const partTypeConfig: Record<MaintenancePartType, { label: string; color: string
     Accessory: { label: 'ملحقات', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200', hint: 'ملحق إضافي غير إلزامي' },
 };
 
-const formatPrice = (n: number) => new Intl.NumberFormat('ar-SY', { style: 'currency', currency: 'SYP', maximumFractionDigits: 0 }).format(n);
+const formatPrice = (n: number) =>
+    new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n) + ' ل.س';
 
 type ActiveTab = 'devices' | 'parts';
+
+const emptyDeviceForm = (): Partial<DeviceModel> => ({
+    name: '',
+    nameAr: '',
+    nameEn: '',
+    brand: '',
+    category: 'صناعي',
+    maintenanceInterval: '6 أشهر',
+    basePrice: 0,
+    supportedVisitTypes: [],
+    isGoldenWarranty: false,
+    goldenWarrantyPeriods: [],
+    warrantyPeriods: [],
+    isFeatured: false,
+    description: '',
+    descriptionEn: null,
+    code: '',
+    images: [],
+    primaryImageId: null,
+    videos: [],
+    documents: [],
+});
+
+function makeAttachmentId() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function readFileAsDataUrl(file: File): Promise<DeviceAttachment> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ id: makeAttachmentId(), name: file.name, url: String(reader.result || '') });
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+    });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Media Attachment Sections                                           */
+/* ------------------------------------------------------------------ */
+
+function ImageGrid({ images, primaryImageId, onSetPrimary, onRemove }: {
+    images: DeviceAttachment[];
+    primaryImageId: string | null | undefined;
+    onSetPrimary: (id: string) => void;
+    onRemove: (id: string) => void;
+}) {
+    if (images.length === 0) return null;
+    return (
+        <div className="grid grid-cols-3 gap-2 mt-2">
+            {images.map(img => (
+                <div key={img.id} className={`relative group rounded-lg overflow-hidden border-2 transition-all ${img.id === primaryImageId ? 'border-amber-400' : 'border-slate-200'}`}>
+                    <img src={img.url} alt={img.name} className="w-full h-20 object-cover" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                        <button type="button" onClick={() => onSetPrimary(img.id)}
+                            className={`p-1 rounded-full ${img.id === primaryImageId ? 'bg-amber-400 text-white' : 'bg-white/80 text-slate-600 hover:bg-amber-400 hover:text-white'}`}
+                            title="الصورة الرئيسية">
+                            <Star className="w-3.5 h-3.5" />
+                        </button>
+                        <button type="button" onClick={() => onRemove(img.id)} className="p-1 rounded-full bg-white/80 text-red-500 hover:bg-red-500 hover:text-white">
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                    {img.id === primaryImageId && (
+                        <div className="absolute top-1 right-1 bg-amber-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">رئيسية</div>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function VideoList({ videos, onRemove }: { videos: DeviceAttachment[]; onRemove: (id: string) => void }) {
+    if (videos.length === 0) return null;
+    return (
+        <div className="space-y-2 mt-2">
+            {videos.map(vid => (
+                <div key={vid.id} className="rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                    <video src={vid.url} controls className="w-full max-h-32 object-contain bg-black" />
+                    <div className="flex items-center justify-between px-2 py-1">
+                        <span className="text-xs text-slate-500 truncate">{vid.name}</span>
+                        <button type="button" onClick={() => onRemove(vid.id)} className="text-red-400 hover:text-red-600 shrink-0">
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function DocumentList({ documents, onRemove }: { documents: DeviceAttachment[]; onRemove: (id: string) => void }) {
+    if (documents.length === 0) return null;
+    return (
+        <div className="space-y-1.5 mt-2">
+            {documents.map(doc => {
+                const isPdf = doc.name.toLowerCase().endsWith('.pdf');
+                const isImage = doc.url.startsWith('data:image');
+                return (
+                    <div key={doc.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200">
+                        {isImage
+                            ? <img src={doc.url} alt={doc.name} className="w-8 h-8 object-cover rounded" />
+                            : <div className={`w-8 h-8 rounded flex items-center justify-center text-white text-xs font-bold ${isPdf ? 'bg-red-500' : 'bg-blue-500'}`}>{isPdf ? 'PDF' : 'DOC'}</div>
+                        }
+                        <span className="text-xs text-slate-600 flex-1 truncate">{doc.name}</span>
+                        <button type="button" onClick={() => onRemove(doc.id)} className="text-red-400 hover:text-red-600 shrink-0">
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Add Device Page                                                     */
+/* ------------------------------------------------------------------ */
+
+function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: () => void }) {
+    const [newDevice, setNewDevice] = useState<Partial<DeviceModel>>(emptyDeviceForm);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+    const [wpMonths, setWpMonths] = useState('');
+    const [wpVisits, setWpVisits] = useState('');
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setNewDevice(prev => ({ ...prev, [name]: value }));
+    };
+
+    const toggleVisitType = (type: SupportedVisitType) => {
+        setNewDevice(prev => {
+            const current = prev.supportedVisitTypes || [];
+            return { ...prev, supportedVisitTypes: current.includes(type) ? current.filter(t => t !== type) : [...current, type] };
+        });
+    };
+
+    const toggleWarrantyPeriod = (period: { months: number; label: string }) => {
+        setNewDevice(prev => {
+            const current = prev.goldenWarrantyPeriods || [];
+            const exists = current.some(p => p.months === period.months);
+            return { ...prev, goldenWarrantyPeriods: exists ? current.filter(p => p.months !== period.months) : [...current, period] };
+        });
+    };
+
+    const addWarrantyPeriod = () => {
+        const months = parseInt(wpMonths, 10);
+        const visits = parseInt(wpVisits, 10);
+        if (!months || months <= 0 || !visits || visits <= 0) return;
+        const alreadyExists = (newDevice.warrantyPeriods || []).some(p => p.months === months);
+        if (alreadyExists) return;
+        const label = months === 1 ? 'شهر' : months < 11 ? `${months} أشهر` : `${months} شهرًا`;
+        setNewDevice(prev => ({
+            ...prev,
+            warrantyPeriods: [...(prev.warrantyPeriods || []), { months, label, visits }].sort((a, b) => a.months - b.months),
+        }));
+        setWpMonths('');
+        setWpVisits('');
+    };
+
+    const removeWarrantyPeriod = (months: number) => {
+        setNewDevice(prev => ({ ...prev, warrantyPeriods: (prev.warrantyPeriods || []).filter(p => p.months !== months) }));
+    };
+
+    const addAttachments = async (field: 'images' | 'videos' | 'documents', files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        const attachments = await Promise.all(Array.from(files).map(readFileAsDataUrl));
+        setNewDevice(prev => {
+            const current = (prev[field] || []) as DeviceAttachment[];
+            const next = [...current, ...attachments];
+            return {
+                ...prev,
+                [field]: next,
+                primaryImageId: field === 'images' && !prev.primaryImageId && next[0] ? next[0].id : prev.primaryImageId,
+            };
+        });
+    };
+
+    const removeAttachment = (field: 'images' | 'videos' | 'documents', id: string) => {
+        setNewDevice(prev => {
+            const next = ((prev[field] || []) as DeviceAttachment[]).filter(item => item.id !== id);
+            return {
+                ...prev,
+                [field]: next,
+                primaryImageId: field === 'images' && prev.primaryImageId === id ? (next[0]?.id || null) : prev.primaryImageId,
+            };
+        });
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const nameAr = (newDevice.nameAr || newDevice.name || '').trim();
+        const nameEn = (newDevice.nameEn || '').trim();
+        const basePrice = Number(newDevice.basePrice) || 0;
+        if (!nameAr) { setError('اسم الجهاز بالعربية مطلوب'); return; }
+        if (!nameEn) { setError('اسم الجهاز بالإنكليزية مطلوب'); return; }
+        if (basePrice <= 0) { setError('السعر الأساسي مطلوب'); return; }
+        if (newDevice.isGoldenWarranty && (newDevice.goldenWarrantyPeriods?.length || 0) === 0) {
+            setError('يرجى تحديد فترة الكفالة الذهبية'); return;
+        }
+        setError('');
+        setSaving(true);
+        try {
+            await api.deviceModels.create({
+                ...newDevice,
+                name: nameAr,
+                nameAr,
+                nameEn,
+                brand: nameEn,
+                code: newDevice.code || null,
+                category: newDevice.category,
+                maintenanceInterval: newDevice.maintenanceInterval,
+                basePrice,
+                supportedVisitTypes: newDevice.supportedVisitTypes || [],
+                descriptionEn: newDevice.descriptionEn || null,
+            });
+            onSaved();
+        } catch (err) {
+            console.error('Failed to create device:', err);
+            setError('حدث خطأ أثناء الحفظ');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const images = (newDevice.images || []) as DeviceAttachment[];
+    const videos = (newDevice.videos || []) as DeviceAttachment[];
+    const documents = (newDevice.documents || []) as DeviceAttachment[];
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 40 }}
+            className="flex-1 overflow-hidden flex flex-col bg-slate-50 min-h-0"
+            dir="rtl"
+        >
+            {/* Page header */}
+            <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0 flex items-center gap-3">
+                <button onClick={onCancel} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
+                    <ChevronRight className="w-4 h-4" />
+                    <span>الأجهزة</span>
+                </button>
+                <span className="text-slate-300">/</span>
+                <span className="text-sm font-semibold text-slate-800">إضافة جهاز جديد</span>
+            </div>
+
+            {/* Form content */}
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+                <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
+
+                    {error && (
+                        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                            {error}
+                        </div>
+                    )}
+
+                    {/* ── Section: الأسماء والسعر ── */}
+                    <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                        <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3">معلومات الجهاز الأساسية</h3>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم الجهاز بالعربية <span className="text-red-500">*</span></label>
+                                <input
+                                    type="text" name="nameAr" required
+                                    value={newDevice.nameAr || ''}
+                                    onChange={handleInputChange}
+                                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm"
+                                    placeholder="مثال: فلتر جولدن 7 مراحل"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم الجهاز بالإنكليزية <span className="text-red-500">*</span></label>
+                                <input
+                                    type="text" name="nameEn"
+                                    value={newDevice.nameEn || ''}
+                                    onChange={handleInputChange}
+                                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm"
+                                    dir="ltr" placeholder="Golden 7 Stage Filter"
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1.5">الرمز</label>
+                            <input
+                                type="text" name="code"
+                                value={newDevice.code || ''}
+                                onChange={handleInputChange}
+                                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm"
+                                dir="ltr"
+                                placeholder="مثال: GW-7H-2025"
+                            />
+                            <p className="text-[10px] text-slate-400 mt-1">رمز داخلي اختياري للجهاز</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5">السعر الأساسي <span className="text-red-500">*</span></label>
+                                <div className="relative">
+                                    <input
+                                        type="number" name="basePrice" required min={1}
+                                        value={newDevice.basePrice || ''}
+                                        onChange={handleInputChange}
+                                        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm pr-12"
+                                    />
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">ل.س</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1.5">وصف الجهاز</label>
+                            <textarea
+                                name="description"
+                                value={newDevice.description || ''}
+                                onChange={handleInputChange}
+                                rows={3}
+                                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm resize-none"
+                                placeholder="وصف مختصر عن الجهاز..."
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1.5">وصف الجهاز بالإنكليزية</label>
+                            <textarea
+                                name="descriptionEn"
+                                value={newDevice.descriptionEn || ''}
+                                onChange={handleInputChange}
+                                rows={3}
+                                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm resize-none"
+                                dir="ltr"
+                                placeholder="English description..."
+                            />
+                        </div>
+                    </div>
+
+                    {/* ── Section: التصنيف والصيانة ── */}
+                    <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                        <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3">التصنيف والصيانة</h3>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">الفئة</label>
+                                <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
+                                    {(['منزلي', 'صناعي'] as const).map(cat => (
+                                        <button
+                                            type="button" key={cat}
+                                            onClick={() => setNewDevice(prev => ({ ...prev, category: cat }))}
+                                            className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all flex items-center justify-center gap-1.5
+                                                ${newDevice.category === cat ? 'bg-white shadow text-sky-600' : 'text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                            <span className="text-base">{categoryLabels[cat].icon}</span>
+                                            {categoryLabels[cat].label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                        </div>
+
+                        {/* الخدمات المدعومة */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">الخدمات المدعومة</label>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                {supportedServiceOptions.map(type => {
+                                    const active = (newDevice.supportedVisitTypes as string[] || []).includes(type.id);
+                                    return (
+                                        <button
+                                            type="button" key={type.id}
+                                            onClick={() => toggleVisitType(type.id)}
+                                            className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 transition-all text-center
+                                                ${active ? 'border-sky-400 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600'}`}
+                                        >
+                                            <span className={active ? 'text-sky-600' : 'text-slate-400'}>{type.icon}</span>
+                                            <span className="text-xs font-bold">{type.label}</span>
+                                            <span className="text-[10px] opacity-70">{type.desc}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── Section: الكفالة والعروض ── */}
+                    <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                        <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3">الكفالة والعروض</h3>
+
+                        {/* Contract warranty periods */}
+                        <div className="space-y-2">
+                            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide">فترات كفالة العقد</label>
+                            <p className="text-xs text-slate-400">حدد الفترات المتاحة لهذا الجهاز — كل فترة تتضمن عدد زيارات الصيانة خلالها</p>
+
+                            {(newDevice.warrantyPeriods || []).length > 0 && (
+                                <div className="space-y-1.5">
+                                    {(newDevice.warrantyPeriods || []).map(p => {
+                                        const intervalDays = Math.round((p.months * 30) / p.visits);
+                                        return (
+                                            <div key={p.months} className="flex items-center justify-between bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xs font-bold text-sky-700">{p.label}</span>
+                                                    <span className="text-xs text-slate-500">{p.visits} زيارة · كل {intervalDays} يوم</span>
+                                                </div>
+                                                <button type="button" onClick={() => removeWarrantyPeriod(p.months)} className="text-red-400 hover:text-red-600">
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            <div className="flex gap-2">
+                                <input
+                                    type="number" min={1} placeholder="المدة (أشهر)"
+                                    value={wpMonths}
+                                    onChange={e => setWpMonths(e.target.value)}
+                                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                                />
+                                <input
+                                    type="number" min={1} placeholder="عدد الزيارات"
+                                    value={wpVisits}
+                                    onChange={e => setWpVisits(e.target.value)}
+                                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                                />
+                                <button
+                                    type="button" onClick={addWarrantyPeriod}
+                                    disabled={!wpMonths || !wpVisits}
+                                    className="px-3 py-2 rounded-lg bg-sky-500 text-white text-xs font-bold hover:bg-sky-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="border-t border-slate-100 pt-3 space-y-3">
+                        <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                            <div>
+                                <span className="text-sm font-semibold text-slate-700 block">الكفالة الذهبية</span>
+                                <span className="text-xs text-slate-400">الجهاز مشمول بالكفالة الذهبية</span>
+                            </div>
+                            <div className="relative">
+                                <input
+                                    type="checkbox"
+                                    checked={newDevice.isGoldenWarranty || false}
+                                    onChange={(e) => setNewDevice(prev => ({ ...prev, isGoldenWarranty: e.target.checked, goldenWarrantyPeriods: e.target.checked ? prev.goldenWarrantyPeriods : [] }))}
+                                    className="w-5 h-5 accent-sky-600"
+                                />
+                            </div>
+                        </label>
+
+                        {newDevice.isGoldenWarranty && (
+                            <div className="px-2 space-y-2">
+                                <label className="block text-xs font-medium text-slate-600">اختر فترات الكفالة الذهبية المتاحة</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {warrantyPeriodOptions.map(period => (
+                                        <button
+                                            type="button" key={period.months}
+                                            onClick={() => toggleWarrantyPeriod(period)}
+                                            className={`px-4 py-2 rounded-lg border-2 text-xs font-bold transition-all
+                                                ${newDevice.goldenWarrantyPeriods?.some(p => p.months === period.months)
+                                                    ? 'bg-amber-50 border-amber-400 text-amber-700 shadow-sm'
+                                                    : 'border-slate-200 text-slate-500 hover:border-amber-200 hover:text-amber-600'}`}
+                                        >
+                                            {period.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        </div>
+
+                        <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                            <div>
+                                <span className="text-sm font-semibold text-slate-700 block">جهاز بارز</span>
+                                <span className="text-xs text-slate-400">يظهر في قائمة الأجهزة المُركّز عليها</span>
+                            </div>
+                            <input
+                                type="checkbox"
+                                checked={newDevice.isFeatured || false}
+                                onChange={(e) => setNewDevice(prev => ({ ...prev, isFeatured: e.target.checked }))}
+                                className="w-5 h-5 accent-sky-600"
+                            />
+                        </label>
+                    </div>
+
+                    {/* ── Section: الوسائط ── */}
+                    <div className="bg-white rounded-xl border border-slate-200 p-5">
+                        <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3 mb-4">الصور والوسائط</h3>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            {/* Images */}
+                            <div>
+                                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                                    <Image className="w-4 h-4 text-sky-500" /> صور الجهاز
+                                </label>
+                                <label className="flex flex-col items-center justify-center gap-1.5 h-20 rounded-xl border-2 border-dashed border-slate-300 hover:border-sky-400 hover:bg-sky-50 cursor-pointer transition-all text-slate-400 hover:text-sky-500">
+                                    <Plus className="w-5 h-5" />
+                                    <span className="text-xs font-medium">إضافة صور</span>
+                                    <input type="file" multiple accept="image/*" className="hidden" onChange={e => addAttachments('images', e.target.files)} />
+                                </label>
+                                <ImageGrid
+                                    images={images}
+                                    primaryImageId={newDevice.primaryImageId}
+                                    onSetPrimary={id => setNewDevice(prev => ({ ...prev, primaryImageId: id }))}
+                                    onRemove={id => removeAttachment('images', id)}
+                                />
+                            </div>
+
+                            {/* Videos */}
+                            <div>
+                                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                                    <Video className="w-4 h-4 text-purple-500" /> فيديوهات
+                                </label>
+                                <label className="flex flex-col items-center justify-center gap-1.5 h-20 rounded-xl border-2 border-dashed border-slate-300 hover:border-purple-400 hover:bg-purple-50 cursor-pointer transition-all text-slate-400 hover:text-purple-500">
+                                    <Plus className="w-5 h-5" />
+                                    <span className="text-xs font-medium">إضافة فيديو</span>
+                                    <input type="file" multiple accept="video/*" className="hidden" onChange={e => addAttachments('videos', e.target.files)} />
+                                </label>
+                                <VideoList videos={videos} onRemove={id => removeAttachment('videos', id)} />
+                            </div>
+
+                            {/* Documents */}
+                            <div>
+                                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                                    <FileText className="w-4 h-4 text-emerald-500" /> مستندات
+                                </label>
+                                <label className="flex flex-col items-center justify-center gap-1.5 h-20 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-400 hover:bg-emerald-50 cursor-pointer transition-all text-slate-400 hover:text-emerald-500">
+                                    <Plus className="w-5 h-5" />
+                                    <span className="text-xs font-medium">إضافة مستند</span>
+                                    <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" className="hidden" onChange={e => addAttachments('documents', e.target.files)} />
+                                </label>
+                                <DocumentList documents={documents} onRemove={id => removeAttachment('documents', id)} />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── Actions ── */}
+                    <div className="flex gap-3 pb-6">
+                        <button type="button" onClick={onCancel} className="flex-1 px-6 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm transition-colors">
+                            إلغاء
+                        </button>
+                        <button
+                            type="submit" disabled={saving}
+                            className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-xl hover:bg-sky-500 font-semibold text-sm transition-colors disabled:opacity-60"
+                        >
+                            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            {saving ? 'جاري الحفظ...' : 'حفظ الجهاز'}
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </motion.div>
+    );
+}
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
 const DeviceManagement = () => {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<ActiveTab>('devices');
     const [loading, setLoading] = useState(true);
 
-    // ──── Devices state ────
     const [devices, setDevices] = useState<DeviceModel[]>([]);
     const [isAddingDevice, setIsAddingDevice] = useState(false);
-    const [newDevice, setNewDevice] = useState<Partial<DeviceModel>>({
-        name: '', brand: '', category: 'صناعي', maintenanceInterval: '6 أشهر', basePrice: 0, supportedVisitTypes: [],
-    });
 
-    // ──── Spare Parts state ────
     const [parts, setParts] = useState<SparePart[]>([]);
     const [isAddingPart, setIsAddingPart] = useState(false);
     const [editingPart, setEditingPart] = useState<SparePart | null>(null);
@@ -77,42 +649,8 @@ const DeviceManagement = () => {
         }
     };
 
-    useEffect(() => {
-        fetchData();
-    }, []);
+    useEffect(() => { fetchData(); }, []);
 
-    // ──── Device handlers ────
-    const handleDeviceInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setNewDevice(prev => ({ ...prev, [name]: value }));
-    };
-
-    const toggleVisitType = (type: 'تركيب' | 'صيانة' | 'توصيل') => {
-        setNewDevice(prev => {
-            const current = prev.supportedVisitTypes || [];
-            return { ...prev, supportedVisitTypes: current.includes(type) ? current.filter(t => t !== type) : [...current, type] };
-        });
-    };
-
-    const handleDeviceSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (newDevice.name && newDevice.brand && newDevice.basePrice) {
-            try {
-                await api.deviceModels.create({
-                    name: newDevice.name, brand: newDevice.brand,
-                    category: newDevice.category, maintenanceInterval: newDevice.maintenanceInterval,
-                    basePrice: Number(newDevice.basePrice), supportedVisitTypes: newDevice.supportedVisitTypes || [],
-                });
-                setIsAddingDevice(false);
-                setNewDevice({ name: '', brand: '', category: 'صناعي', maintenanceInterval: '6 أشهر', basePrice: 0, supportedVisitTypes: [] });
-                await fetchData();
-            } catch (err) {
-                console.error('Failed to create device:', err);
-            }
-        }
-    };
-
-    // ──── Part handlers ────
     const openPartForm = (part?: SparePart) => {
         if (part) {
             setEditingPart(part);
@@ -161,38 +699,55 @@ const DeviceManagement = () => {
             key: 'name', label: 'اسم الجهاز', sortable: true,
             render: (d) => (
                 <div>
-                    <span className="font-semibold text-slate-700 block text-sm">{d.name}</span>
-                    <span className="text-xs text-gray-400">#{d.id.toString().padStart(4, '0')}</span>
+                    <span className="font-semibold text-slate-700 block text-sm">{d.nameAr || d.name}</span>
+                    <span className="text-xs text-gray-400 font-mono">#{String(d.id).padStart(4, '0')}</span>
                 </div>
             ),
         },
-        { key: 'brand', label: 'العلامة التجارية', sortable: true, render: (d) => <span className="text-sm text-slate-600">{d.brand}</span> },
+        {
+            key: 'brand', label: 'الاسم الإنكليزي', sortable: true,
+            render: (d) => <span className="text-sm text-slate-600">{d.nameEn || d.brand || '—'}</span>,
+        },
         {
             key: 'category', label: 'الفئة', sortable: true,
             render: (d) => {
                 const cat = categoryLabels[d.category] || { label: d.category, icon: '📦', color: 'bg-gray-100 text-gray-800' };
-                return <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium gap-1.5 ${cat.color}`}><span className="text-[10px]">{cat.icon}</span>{cat.label}</span>;
+                return (
+                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium gap-1.5 ${cat.color}`}>
+                        <span className="text-[11px]">{cat.icon}</span>{cat.label}
+                    </span>
+                );
             },
         },
         {
-            key: 'maintenanceInterval', label: 'دورة الصيانة', sortable: true,
-            render: (d) => <span className="text-sm text-slate-600 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-gray-400" />{maintenanceLabels[d.maintenanceInterval] || d.maintenanceInterval}</span>,
-        },
-        {
-            key: 'basePrice', label: 'السعر الأساسي', sortable: true,
-            render: (d) => <span className="font-mono text-sm text-slate-700 font-medium">{formatPrice(d.basePrice)}</span>,
+            key: 'basePrice', label: 'السعر', sortable: true,
+            render: (d) => (
+                <div className="text-sm">
+                    <span className="font-mono text-slate-700 font-medium block">{formatPrice(d.basePrice)}</span>
+                </div>
+            ),
         },
         {
             key: 'supportedVisitTypes', label: 'الخدمات',
             render: (d) => (
-                <div className="flex gap-2">
-                    {d.supportedVisitTypes.map(type => {
+                <div className="flex gap-1.5 flex-wrap">
+                    {(d.supportedVisitTypes as string[]).map(type => {
                         const S = serviceLabels[type];
                         if (!S) return null;
-                        return <div key={type} title={S.label} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-400 hover:text-sky-600 transition-all cursor-help"><S.Icon size={16} /></div>;
+                        return (
+                            <div key={type} title={S.label} className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium cursor-help ${S.color}`}>
+                                <span>{S.icon}</span><span>{S.label}</span>
+                            </div>
+                        );
                     })}
                 </div>
             ),
+        },
+        {
+            key: 'isFeatured', label: 'بارز',
+            render: (d) => d.isFeatured
+                ? <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-sky-100 text-sky-700">بارز</span>
+                : null,
         },
     ];
 
@@ -229,7 +784,7 @@ const DeviceManagement = () => {
                         const dev = devices.find(d => d.id === did);
                         return dev ? (
                             <span key={did} className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-600 border border-sky-200">
-                                {dev.name}
+                                {dev.nameAr || dev.name}
                             </span>
                         ) : null;
                     })}
@@ -240,8 +795,7 @@ const DeviceManagement = () => {
     ];
 
     const deviceFilters: FilterDef[] = [
-        { key: 'category', label: 'جميع الفئات', options: [{ value: 'منزلي', label: 'منزلي' }, { value: 'صناعي', label: 'صناعي' }, { value: 'تجاري', label: 'تجاري' }] },
-        { key: 'maintenanceInterval', label: 'جميع الدورات', options: [{ value: '3 أشهر', label: '3 أشهر' }, { value: '6 أشهر', label: '6 أشهر' }, { value: '1 سنة', label: 'سنة واحدة' }] },
+        { key: 'category', label: 'جميع الفئات', options: [{ value: 'منزلي', label: 'منزلي' }, { value: 'صناعي', label: 'صناعي' }] },
     ];
 
     const partFilters: FilterDef[] = [
@@ -250,7 +804,7 @@ const DeviceManagement = () => {
 
     const tabs: { id: ActiveTab; label: string; icon: any; count: number }[] = [
         { id: 'devices', label: 'الأجهزة', icon: Package, count: devices.length },
-        { id: 'parts', label: 'قطع الغيار', icon: Cog, count: parts.length },
+        { id: 'parts', label: 'قطع الأجهزة', icon: Cog, count: parts.length },
     ];
 
     if (loading) {
@@ -266,147 +820,97 @@ const DeviceManagement = () => {
 
     return (
         <>
-            {/* ============ TAB HEADER ============ */}
             <div className="h-full flex flex-col overflow-hidden">
-                <div className="bg-white border-b border-gray-200 flex gap-1 px-6 pt-4 shrink-0">
-                    {tabs.map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-2 px-5 py-3 text-sm font-bold rounded-t-lg transition-all relative top-[1px] ${activeTab === tab.id
-                                ? 'bg-slate-50 text-sky-600 border border-gray-200 border-b-slate-50 shadow-sm'
-                                : 'text-slate-500 hover:text-slate-700 hover:bg-gray-50'
-                                }`}
-                        >
-                            <tab.icon className="w-4 h-4" />
-                            <span>{tab.label}</span>
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${activeTab === tab.id ? 'bg-sky-100 text-sky-600' : 'bg-gray-100 text-gray-500'}`}>
-                                {tab.count}
-                            </span>
-                        </button>
-                    ))}
-                </div>
+                {/* TAB HEADER — hidden when adding device */}
+                {!isAddingDevice && (
+                    <div className="bg-white border-b border-gray-200 flex gap-1 px-6 pt-4 shrink-0">
+                        {tabs.map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex items-center gap-2 px-5 py-3 text-sm font-bold rounded-t-lg transition-all relative top-[1px] ${activeTab === tab.id
+                                    ? 'bg-slate-50 text-sky-600 border border-gray-200 border-b-slate-50 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-gray-50'}`}
+                            >
+                                <tab.icon className="w-4 h-4" />
+                                <span>{tab.label}</span>
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${activeTab === tab.id ? 'bg-sky-100 text-sky-600' : 'bg-gray-100 text-gray-500'}`}>
+                                    {tab.count}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                )}
 
-                {/* ============ TAB CONTENT ============ */}
+                {/* TAB CONTENT */}
                 <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-                    {activeTab === 'devices' && (
-                        <SmartTable<DeviceModel>
-                            title="إدارة الأجهزة وقطع الغيار"
-                            icon={Package}
-                            data={devices}
-                            columns={deviceColumns}
-                            filters={deviceFilters}
-                            searchKeys={['name', 'brand']}
-                            searchPlaceholder="بحث عن جهاز..."
-                            getId={(d) => d.id}
-                            headerActions={
-                                <button onClick={() => setIsAddingDevice(true)} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all">
-                                    <Plus className="w-4 h-4" /><span>إضافة جهاز</span>
-                                </button>
-                            }
-                            emptyIcon={Package}
-                            emptyMessage="لا توجد أجهزة"
-                        />
-                    )}
-
-                    {activeTab === 'parts' && (
-                        <SmartTable<SparePart>
-                            title="قطع الغيار"
-                            icon={Cog}
-                            data={parts}
-                            columns={partColumns}
-                            filters={partFilters}
-                            searchKeys={['name', 'code']}
-                            searchPlaceholder="بحث عن قطعة..."
-                            getId={(p) => p.id}
-                            onRowClick={(p) => openPartForm(p)}
-                            headerActions={
-                                <button onClick={() => openPartForm()} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all">
-                                    <Plus className="w-4 h-4" /><span>إضافة قطعة</span>
-                                </button>
-                            }
-                            emptyIcon={Cog}
-                            emptyMessage="لا توجد قطع غيار"
-                        />
-                    )}
+                    <AnimatePresence mode="wait">
+                        {isAddingDevice ? (
+                            <AddDevicePage
+                                key="add-device"
+                                onCancel={() => setIsAddingDevice(false)}
+                                onSaved={async () => { setIsAddingDevice(false); await fetchData(); }}
+                            />
+                        ) : activeTab === 'devices' ? (
+                            <motion.div key="devices-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
+                                <SmartTable<DeviceModel>
+                                    title="إدارة الأجهزة"
+                                    icon={Package}
+                                    data={devices}
+                                    columns={deviceColumns}
+                                    filters={deviceFilters}
+                                    searchKeys={['name', 'nameAr', 'nameEn', 'brand']}
+                                    searchPlaceholder="بحث عن جهاز..."
+                                    getId={(d) => d.id}
+                                    onRowClick={(d) => navigate(`/devices/${d.id}`)}
+                                    headerActions={
+                                        <button
+                                            onClick={() => setIsAddingDevice(true)}
+                                            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
+                                        >
+                                            <Plus className="w-4 h-4" /><span>إضافة جهاز</span>
+                                        </button>
+                                    }
+                                    emptyIcon={Package}
+                                    emptyMessage="لا توجد أجهزة"
+                                />
+                            </motion.div>
+                        ) : (
+                            <motion.div key="parts-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
+                                <SmartTable<SparePart>
+                                    title="قطع الأجهزة"
+                                    icon={Cog}
+                                    data={parts}
+                                    columns={partColumns}
+                                    filters={partFilters}
+                                    searchKeys={['name', 'code']}
+                                    searchPlaceholder="بحث عن قطعة..."
+                                    getId={(p) => p.id}
+                                    onRowClick={(p) => openPartForm(p)}
+                                    headerActions={
+                                        <button
+                                            onClick={() => openPartForm()}
+                                            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
+                                        >
+                                            <Plus className="w-4 h-4" /><span>إضافة قطعة</span>
+                                        </button>
+                                    }
+                                    emptyIcon={Cog}
+                                    emptyMessage="لا توجد قطع غيار"
+                                />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </div>
 
-            {/* ============ ADD DEVICE MODAL ============ */}
-            <AnimatePresence>
-                {isAddingDevice && (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden text-right" dir="rtl">
-                            <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-                                <h2 className="text-xl font-bold text-slate-900">إضافة جهاز جديد</h2>
-                                <button onClick={() => setIsAddingDevice(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
-                            </div>
-                            <form onSubmit={handleDeviceSubmit} className="p-6 space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">اسم الجهاز</label>
-                                    <input type="text" name="name" required value={newDevice.name} onChange={handleDeviceInputChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right placeholder-gray-400 text-sm" placeholder="مثال: فلتر جولدن 7 مراحل" />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">العلامة التجارية</label>
-                                        <input type="text" name="brand" required value={newDevice.brand} onChange={handleDeviceInputChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm" placeholder="مثال: Golden" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">السعر (ل.س)</label>
-                                        <input type="number" name="basePrice" required value={newDevice.basePrice} onChange={handleDeviceInputChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm" />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">الفئة</label>
-                                        <div className="flex bg-gray-100 p-1 rounded-lg">
-                                            {(['منزلي', 'صناعي', 'تجاري'] as const).map(cat => (
-                                                <button type="button" key={cat} onClick={() => setNewDevice(prev => ({ ...prev, category: cat }))}
-                                                    className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1 ${newDevice.category === cat ? 'bg-white shadow-sm text-sky-600' : 'text-gray-500 hover:text-gray-700'}`}>
-                                                    <span>{categoryLabels[cat]?.icon || '📦'}</span>{categoryLabels[cat]?.label || cat}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">دورة الصيانة</label>
-                                        <select name="maintenanceInterval" value={newDevice.maintenanceInterval} onChange={handleDeviceInputChange} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none bg-white text-right text-sm">
-                                            <option value="3 أشهر">3 أشهر</option>
-                                            <option value="6 أشهر">6 أشهر</option>
-                                            <option value="1 سنة">سنة واحدة</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">الخدمات المدعومة</label>
-                                    <div className="flex gap-4">
-                                        {[
-                                            { id: 'تركيب' as const, icon: <Wrench size={16} />, label: 'تركيب' },
-                                            { id: 'صيانة' as const, icon: <PenTool size={16} />, label: 'صيانة' },
-                                            { id: 'توصيل' as const, icon: <Truck size={16} />, label: 'توصيل' },
-                                        ].map(type => (
-                                            <label key={type.id} className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-all ${newDevice.supportedVisitTypes?.includes(type.id) ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-gray-200 hover:bg-gray-50'}`}>
-                                                <input type="checkbox" className="hidden" checked={newDevice.supportedVisitTypes?.includes(type.id)} onChange={() => toggleVisitType(type.id)} />
-                                                {type.icon}
-                                                <span className="text-sm font-medium">{type.label}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="pt-4 flex gap-3">
-                                    <button type="button" onClick={() => setIsAddingDevice(false)} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm">إلغاء</button>
-                                    <button type="submit" className="flex-1 px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-medium text-sm">حفظ الجهاز</button>
-                                </div>
-                            </form>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            {/* ============ ADD/EDIT PART MODAL ============ */}
+            {/* ADD/EDIT PART MODAL */}
             <AnimatePresence>
                 {isAddingPart && (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { setIsAddingPart(false); setEditingPart(null); }}>
+                    <div
+                        className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                        onClick={() => { setIsAddingPart(false); setEditingPart(null); }}
+                    >
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
@@ -420,7 +924,6 @@ const DeviceManagement = () => {
                                 <button onClick={() => { setIsAddingPart(false); setEditingPart(null); }} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
                             </div>
                             <form onSubmit={handlePartSubmit} className="p-6 space-y-4">
-                                {/* Name + Code */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">اسم القطعة <span className="text-red-400">*</span></label>
@@ -434,35 +937,48 @@ const DeviceManagement = () => {
                                     </div>
                                 </div>
 
-                                {/* Price */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">السعر ل.س</label>
                                     <input type="number" value={partForm.basePrice || ''} onChange={e => setPartForm(p => ({ ...p, basePrice: Number(e.target.value) }))}
                                         className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm" />
                                 </div>
 
-                                {/* Type Selector */}
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">نوع الصيانة</label>
-                                    <div className="flex gap-2">
-                                        {(['Periodic', 'Emergency', 'Accessory'] as const).map(type => {
-                                            const tc = partTypeConfig[type];
-                                            const isActive = partForm.maintenanceType === type;
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">نوع القطعة</label>
+                                    <div className="space-y-2">
+                                        {/* قطع الغيار frame */}
+                                        <div className="rounded-xl border-2 border-slate-200 p-2 space-y-1.5">
+                                            <span className="block text-[10px] font-bold text-slate-400 px-1 uppercase tracking-wider">قطع غيار</span>
+                                            <div className="flex gap-2">
+                                                {(['Periodic', 'Emergency'] as const).map(type => {
+                                                    const tc = partTypeConfig[type];
+                                                    const isActive = partForm.maintenanceType === type;
+                                                    return (
+                                                        <button key={type} type="button"
+                                                            onClick={() => setPartForm(p => ({ ...p, maintenanceType: type }))}
+                                                            className={`flex-1 px-3 py-3 rounded-lg border-2 transition-all text-center ${isActive ? `${tc.bg} ${tc.border} ${tc.color} shadow-sm` : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'}`}
+                                                        >
+                                                            <span className="text-sm font-bold block">{tc.label}</span>
+                                                            <span className="text-[10px] opacity-70 block mt-0.5">{tc.hint}</span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        {/* ملحقات — منفصلة */}
+                                        {(() => {
+                                            const tc = partTypeConfig['Accessory'];
+                                            const isActive = partForm.maintenanceType === 'Accessory';
                                             return (
-                                                <button
-                                                    key={type}
-                                                    type="button"
-                                                    onClick={() => setPartForm(p => ({ ...p, maintenanceType: type }))}
-                                                    className={`flex-1 px-3 py-3 rounded-xl border-2 transition-all text-center ${isActive
-                                                        ? `${tc.bg} ${tc.border} ${tc.color} shadow-sm`
-                                                        : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'
-                                                        }`}
+                                                <button type="button"
+                                                    onClick={() => setPartForm(p => ({ ...p, maintenanceType: 'Accessory' }))}
+                                                    className={`w-full px-3 py-3 rounded-xl border-2 transition-all text-center ${isActive ? `${tc.bg} ${tc.border} ${tc.color} shadow-sm` : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'}`}
                                                 >
                                                     <span className="text-sm font-bold block">{tc.label}</span>
                                                     <span className="text-[10px] opacity-70 block mt-0.5">{tc.hint}</span>
                                                 </button>
                                             );
-                                        })}
+                                        })()}
                                     </div>
                                     {partForm.maintenanceType === 'Periodic' && (
                                         <div className="mt-2 flex items-center gap-2 text-[11px] text-blue-600 bg-blue-50 rounded-lg px-3 py-2 border border-blue-100">
@@ -472,21 +988,19 @@ const DeviceManagement = () => {
                                     )}
                                 </div>
 
-                                {/* Compatible Devices — Multi-select */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">الأجهزة المتوافقة</label>
                                     <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-gray-50">
                                         {devices.map(dev => {
                                             const isSelected = partForm.compatibleDeviceIds?.includes(dev.id) || false;
                                             return (
-                                                <label
-                                                    key={dev.id}
+                                                <label key={dev.id}
                                                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${isSelected ? 'bg-sky-50 border border-sky-200' : 'bg-white border border-gray-100 hover:bg-gray-50'}`}
                                                 >
                                                     <input type="checkbox" checked={isSelected} onChange={() => toggleDeviceCompat(dev.id)} className="accent-sky-600 w-4 h-4" />
                                                     <div className="flex-1 min-w-0">
-                                                        <span className="text-sm font-medium text-slate-700 block">{dev.name}</span>
-                                                        <span className="text-[10px] text-gray-400">{dev.brand} · {categoryLabels[dev.category]?.label || dev.category}</span>
+                                                        <span className="text-sm font-medium text-slate-700 block">{dev.nameAr || dev.name}</span>
+                                                        <span className="text-[10px] text-gray-400">{categoryLabels[dev.category]?.label || dev.category}</span>
                                                     </div>
                                                     <Gem className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-sky-500' : 'text-gray-300'}`} />
                                                 </label>
@@ -495,8 +1009,7 @@ const DeviceManagement = () => {
                                     </div>
                                 </div>
 
-                                {/* Actions */}
-                                <div className="pt-4 flex gap-3">
+                                <div className="pt-2 flex gap-3">
                                     <button type="button" onClick={() => { setIsAddingPart(false); setEditingPart(null); }} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm">إلغاء</button>
                                     <button type="submit" className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-medium text-sm">
                                         <Save className="w-4 h-4" />

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Save, PlusCircle, Building2, User, PhoneCall, Handshake, Search, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Save, PlusCircle, Building2, User, Handshake, Search, CheckCircle, AlertCircle } from 'lucide-react';
 import { ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import { api } from '../../lib/api';
-import type { GeoUnit } from '../../lib/types';
+import { useAuthStore } from '../../hooks/useAuthStore';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 
 interface Props {
     isOpen: boolean;
@@ -12,66 +13,102 @@ interface Props {
     onSheetCreated?: (sheetId: number) => void;
 }
 
+interface BranchOption {
+    id: number;
+    name: string;
+}
+
+interface HrUserOption {
+    id: number;
+    name: string;
+    branchId?: number | null;
+    roleDisplayName?: string | null;
+}
+
 const referralTypes: { value: ReferralType; label: string; icon: any }[] = [
     { value: 'Personal', label: 'شخصي', icon: User },
-    { value: 'Client', label: 'زبون حالي', icon: Handshake },
+    { value: 'Client', label: 'زبون', icon: Handshake },
     { value: 'Employee', label: 'موظف', icon: Building2 },
     { value: 'Unknown', label: 'مجهول', icon: Search }
 ];
 
 const channels: { value: ReferralOriginChannel; label: string }[] = [
-    { value: 'App', label: 'سوشال ميديا' },
+    { value: 'Acquaintance', label: 'معرفة شخصية' },
+    { value: 'PhoneCall', label: 'مكالمة هاتفية' },
+    { value: 'SocialMedia', label: 'سوشال ميديا' },
     { value: 'Campaign', label: 'حملة إعلانية' },
-    { value: 'Acquaintance', label: 'معرفة شخصية' }
 ];
 
 export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreated }: Props) {
     const addReferralSheet = useCandidateStore(state => state.addReferralSheet); // Updated hook
+    const authUser = useAuthStore(state => state.user);
+    const getPermissionScope = useAuthStore(state => state.getPermissionScope);
+    const { branchId: contextBranchId } = useBranchContextStore();
+    const currentUserDisplayName = authUser?.name?.trim() || '';
+    const canChooseBranch = authUser?.isSuperAdmin === true;
+    const editNameListScope = getPermissionScope('candidates.name_lists.edit');
+    const canChooseAssignedOwner =
+        authUser?.isSuperAdmin === true ||
+        editNameListScope === 'GLOBAL' ||
+        editNameListScope === 'BRANCH';
 
-    const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [allClients, setAllClients] = useState<Client[]>([]);
-    const [visits, setVisits] = useState<Array<{ customerId: number }>>([]);
+    const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
+    const [branches, setBranches] = useState<BranchOption[]>([]);
+    const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
+    const [selectedBranchId, setSelectedBranchId] = useState<number | ''>(contextBranchId ?? authUser?.branchId ?? '');
+    const [selectedResponsibleUserId, setSelectedResponsibleUserId] = useState<number | ''>(authUser?.id ?? '');
     useEffect(() => {
+        if (!isOpen) return;
         let active = true;
 
-        Promise.all([
-            api.geoUnits.list(),
+        Promise.allSettled([
             api.clients.list(),
-            api.visits.list(),
+            api.employees.list(),
             api.contracts.list(),
+            canChooseBranch ? api.branches.list() : Promise.resolve([]),
+            canChooseAssignedOwner ? api.admin.hrUsers.assignable() : Promise.resolve([]),
         ])
-            .then(([units, clients, visitsData, contractsData]) => {
+            .then(([clientsRes, employeesRes, contractsRes, branchesRes, hrUsersRes]) => {
                 if (!active) return;
-                setGeoUnits(units);
-                setAllClients(clients);
-                setVisits(visitsData);
-                setContracts(contractsData);
-            })
-            .catch((error) => {
-                console.error(error);
-                if (!active) return;
-                setGeoUnits([]);
-                setAllClients([]);
-                setVisits([]);
-                setContracts([]);
+                setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
+                setEmployees(
+                    employeesRes.status === 'fulfilled'
+                        ? employeesRes.value.map(toMediatorEmployee)
+                        : [],
+                );
+                setContracts(contractsRes.status === 'fulfilled' ? contractsRes.value : []);
+                setBranches(
+                    branchesRes.status === 'fulfilled'
+                        ? branchesRes.value.map((branch: any) => ({ id: branch.id, name: branch.name }))
+                        : [],
+                );
+                setHrUsers(
+                    hrUsersRes.status === 'fulfilled'
+                        ? hrUsersRes.value.map((user: any) => ({
+                            id: user.id,
+                            name: user.name,
+                            branchId: user.branch_id ?? user.branchId ?? null,
+                            roleDisplayName: user.role_display_name ?? user.roleDisplayName ?? null,
+                        }))
+                        : [],
+                );
             });
 
         return () => {
             active = false;
         };
-    }, []);
+    }, [isOpen, canChooseAssignedOwner, canChooseBranch]);
 
     const [referralType, setReferralType] = useState<ReferralType>('Personal');
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
-    const [nameSnapshot, setNameSnapshot] = useState('إبراهيم (مشرف)');
-    const [addressSelection, setAddressSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
-    const [referralDate, setReferralDate] = useState(new Date().toISOString().split('T')[0]);
+    const [nameSnapshot, setNameSnapshot] = useState(currentUserDisplayName);
     const [notes, setNotes] = useState('');
     const [error, setError] = useState('');
 
     const [employeeIdInput, setEmployeeIdInput] = useState('');
-    const [employeeFound, setEmployeeFound] = useState<{ name: string, id: number } | null>(null);
+    const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
     const [employeeSearchError, setEmployeeSearchError] = useState('');
 
     const [clientSearch, setClientSearch] = useState('');
@@ -91,8 +128,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     }, []);
 
     useEffect(() => {
-        setNameSnapshot('');
-        setOriginChannel('Acquaintance');
         setEmployeeIdInput('');
         setEmployeeFound(null);
         setEmployeeSearchError('');
@@ -102,12 +137,31 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         setError('');
 
         if (referralType === 'Personal') {
-            setOriginChannel('Acquaintance');
-            setNameSnapshot('إبراهيم (مشرف)');
+            setNameSnapshot(currentUserDisplayName);
         } else if (referralType === 'Unknown') {
             setNameSnapshot('مجهول');
+        } else {
+            setNameSnapshot('');
         }
     }, [referralType]);
+
+    useEffect(() => {
+        if (referralType === 'Personal') {
+            setNameSnapshot(currentUserDisplayName);
+        }
+    }, [referralType, currentUserDisplayName]);
+
+    const assignableHrUsers = React.useMemo(() => {
+        if (!canChooseAssignedOwner) return [];
+        if (selectedBranchId === '') return hrUsers;
+        return hrUsers.filter(user => user.branchId == null || user.branchId === Number(selectedBranchId));
+    }, [canChooseAssignedOwner, hrUsers, selectedBranchId]);
+
+    useEffect(() => {
+        if (isOpen && referralType === 'Personal') {
+            setNameSnapshot(currentUserDisplayName);
+        }
+    }, [isOpen, referralType, currentUserDisplayName]);
 
     const handleEmployeeBlur = async () => {
         if (!employeeIdInput.trim()) {
@@ -115,11 +169,24 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             setEmployeeSearchError('');
             return;
         }
+        const loadedEmployee = findEmployeeByNumber(employees, employeeIdInput);
+        if (loadedEmployee) {
+            setEmployeeFound(loadedEmployee);
+            setNameSnapshot(loadedEmployee.name);
+            setEmployeeSearchError('');
+            return;
+        }
+        if (employees.length > 0) {
+            setEmployeeFound(null);
+            setNameSnapshot('');
+            setEmployeeSearchError('لم يتم العثور على الموظف');
+            return;
+        }
         try {
-            const employees = await api.employees.list();
-            const emp = employees.find((e: any) => e.id.toString() === employeeIdInput.trim() || e.employeeId === employeeIdInput.trim());
+            const employees = (await api.employees.list()).map(toMediatorEmployee);
+            const emp = findEmployeeByNumber(employees, employeeIdInput);
             if (emp) {
-                setEmployeeFound({ name: emp.name, id: emp.id });
+                setEmployeeFound(emp);
                 setNameSnapshot(emp.name);
                 setEmployeeSearchError('');
             } else {
@@ -135,8 +202,9 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     };
 
     const getClientLifecycleStage = (client: Client) => {
+        const serverStage = (client as any).lifecycleStage;
+        if (serverStage === 'OP' || serverStage === 'FOP') return serverStage;
         if (contracts.some(contract => contract.customerId === client.id)) return 'OP';
-        if (visits.some(visit => visit.customerId === client.id)) return 'FOP';
         return 'Lead';
     };
 
@@ -163,10 +231,28 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     };
 
     const handleSave = async () => {
-        if (!nameSnapshot.trim() || !referralDate) {
-            setError('الرجاء تعبئة جميع الحقول الإلزامية (اسم الوسيط، وتاريخ الورقة).');
+        if (!nameSnapshot.trim()) {
+            setError('الرجاء تعبئة جميع الحقول الإلزامية.');
             return;
         }
+        if (referralType === 'Employee' && !employeeFound) {
+            setError('الرجاء اختيار موظف صالح كوسيط.');
+            return;
+        }
+        if (referralType === 'Client' && !selectedClientId) {
+            setError('الرجاء اختيار زبون صالح كوسيط.');
+            return;
+        }
+
+        if (canChooseBranch && !selectedBranchId) {
+            setError('يجب تحديد الفرع لهذه اللائحة.');
+            return;
+        }
+        if (canChooseAssignedOwner && !selectedResponsibleUserId) {
+            setError('يجب تحديد المسؤول عن هذه اللائحة.');
+            return;
+        }
+
         let entityId: number | null = null;
         if (referralType === 'Employee' && employeeFound) {
             entityId = employeeFound.id;
@@ -174,22 +260,22 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             entityId = selectedClientId;
         }
 
-        const unitId = addressSelection.neighborhoodId || addressSelection.subId || addressSelection.regionId || addressSelection.govId;
-        const matchingUnit = geoUnits.find(u => u.id === Number(unitId));
-        const addressText = matchingUnit ? matchingUnit.name : 'غير محدد';
-
         try {
+            const resolvedResponsibleUserId = selectedResponsibleUserId === '' ? (authUser?.id ?? undefined) : Number(selectedResponsibleUserId);
+            const assignmentOwnerId = canChooseAssignedOwner ? resolvedResponsibleUserId : (authUser?.id ?? undefined);
             const newId = await addReferralSheet({
                 referralType,
                 referralOriginChannel: originChannel,
                 referralNameSnapshot: nameSnapshot,
-                referralAddressText: addressText,
+                referralAddressText: '',
                 referralEntityId: entityId,
-                referralDate: new Date(referralDate).toISOString(),
+                referralDate: new Date().toISOString(),
                 referralNotes: notes,
-                ownerUserId: 1,
+                ownerUserId: assignmentOwnerId,
+                assignedHrUserId: assignmentOwnerId,
+                branchId: selectedBranchId === '' ? (contextBranchId ?? authUser?.branchId ?? undefined) : Number(selectedBranchId),
                 status: 'New',
-                createdBy: 1
+                createdBy: authUser?.id
             });
 
             if (onSheetCreated) onSheetCreated(newId);
@@ -203,14 +289,16 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const resetState = () => {
         setReferralType('Personal');
         setOriginChannel('Acquaintance');
-        setNameSnapshot('إبراهيم (مشرف)');
+        setNameSnapshot(currentUserDisplayName);
+        setNameSnapshot(currentUserDisplayName);
         setEmployeeIdInput('');
         setEmployeeFound(null);
         setEmployeeSearchError('');
         setClientSearch('');
         setClientSuggestions([]);
         setSelectedClientId(null);
-        setReferralDate(new Date().toISOString().split('T')[0]);
+        setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
+        setSelectedResponsibleUserId(authUser?.id ?? '');
         setNotes('');
         setError('');
     };
@@ -228,8 +316,8 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             <PlusCircle className="w-5 h-5 text-amber-600" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-800">إضافة ورقة ترشيح جديدة </h2>
-                            <p className="text-sm text-slate-500">تسجيل قائمة أسماء جديدة تحت وسيط محدد</p>
+                            <h2 className="text-xl font-bold text-slate-800">إضافة لائحة أسماء جديدة </h2>
+                            <p className="text-sm text-slate-500">تسجيل لائحة أسماء جديدة تحت وسيط محدد</p>
                         </div>
                     </div>
                     <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors">
@@ -245,6 +333,43 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                         </div>
                     )}
 
+                    {(canChooseBranch || canChooseAssignedOwner) && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl border border-slate-200 bg-slate-50">
+                            {canChooseBranch && (
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">الفرع</label>
+                                    <select
+                                        value={selectedBranchId}
+                                        onChange={(e) => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
+                                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
+                                    >
+                                        <option value="">-- اختر الفرع --</option>
+                                        {branches.map(branch => (
+                                            <option key={branch.id} value={branch.id}>{branch.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            {canChooseAssignedOwner && (
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">المسؤول عن اللائحة</label>
+                                    <select
+                                        value={selectedResponsibleUserId}
+                                        onChange={(e) => setSelectedResponsibleUserId(e.target.value ? Number(e.target.value) : '')}
+                                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
+                                    >
+                                        <option value="">-- اختر المسؤول --</option>
+                                        {assignableHrUsers.map(user => (
+                                            <option key={user.id} value={user.id}>
+                                                {user.name}{user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">نوع الوسيط </label>
@@ -257,12 +382,11 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-2">طريقة الوصول</label>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">طريقة التواصل</label>
                             <select
                                 value={originChannel}
                                 onChange={(e) => setOriginChannel(e.target.value as ReferralOriginChannel)}
-                                disabled={referralType === 'Personal' || referralType === 'Unknown'}
-                                className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                                className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm"
                             >
                                 {channels.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                             </select>
@@ -282,10 +406,17 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                                     placeholder="أدخل رقم الموظف..."
                                     className="w-1/2 p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
                                 />
+                                <button
+                                    type="button"
+                                    onClick={handleEmployeeBlur}
+                                    className="px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold hover:bg-amber-100"
+                                >
+                                    اعتماد
+                                </button>
                                 {employeeFound && (
                                     <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 flex-1">
                                         <CheckCircle className="w-5 h-5" />
-                                        {employeeFound.name}
+                                        {formatEmployeeMediatorLabel(employeeFound)}
                                     </div>
                                 )}
                                 {employeeSearchError && (
@@ -300,7 +431,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
 
                     {referralType === 'Client' && (
                         <div ref={clientSearchRef} className="relative">
-                            <label className="block text-sm font-bold text-slate-700 mb-2">اسم الزبون <span className="text-red-500">*</span></label>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">اسم الوسيط <span className="text-red-500">*</span></label>
                             <input
                                 type="text"
                                 value={clientSearch}
@@ -349,26 +480,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             />
                         </div>
                     )}
-
-                    <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">تاريخ الورقة <span className="text-red-500">*</span></label>
-                        <input
-                            type="date"
-                            value={referralDate}
-                            onChange={(e) => setReferralDate(e.target.value)}
-                            className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm"
-                        />
-                    </div>
-
-                    <div>
-                        <GeoSmartSearch
-                            label="النطاق الجغرافي / منطقة العمل"
-                            geoUnits={geoUnits}
-                            value={addressSelection}
-                            onChange={setAddressSelection}
-                            placeholder="ابحث عن المنطقة المستهدفة..."
-                        />
-                    </div>
 
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">ملاحظات عامة</label>

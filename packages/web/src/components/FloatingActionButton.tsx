@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, AlertTriangle, UserPlus, UserCheck } from 'lucide-react';
+import { Plus, AlertTriangle, UserPlus, UserCheck, ClipboardList } from 'lucide-react';
 
 interface FloatingActionButtonProps {
     onEmergencyClick: () => void;
     onAddSuggested: () => void;
     onAddCandidate: () => void;
+    /** Phase 5 — service_requests intake. When omitted, button is hidden. */
+    onServiceRequestClick?: () => void;
 }
 
-export default function FloatingActionButton({ onEmergencyClick, onAddSuggested, onAddCandidate }: FloatingActionButtonProps) {
+export default function FloatingActionButton({ onEmergencyClick, onAddSuggested, onAddCandidate, onServiceRequestClick }: FloatingActionButtonProps) {
     const [isOpen, setIsOpen] = useState(false);
 
     return (
@@ -55,8 +57,20 @@ export default function FloatingActionButton({ onEmergencyClick, onAddSuggested,
                                 <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center group-hover:bg-red-100 transition-colors">
                                     <AlertTriangle className="w-5 h-5 text-red-600" />
                                 </div>
-                                <span className="text-sm font-bold text-red-600">🚨 طلب طوارئ</span>
+                                <span className="text-sm font-bold text-red-600">🚨 طلب طوارئ (Legacy)</span>
                             </button>
+
+                            {onServiceRequestClick && (
+                                <button
+                                    onClick={() => { onServiceRequestClick(); setIsOpen(false); }}
+                                    className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 shadow-xl border border-emerald-100 hover:border-emerald-300 hover:shadow-2xl transition-all group whitespace-nowrap"
+                                >
+                                    <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
+                                        <ClipboardList className="w-5 h-5 text-emerald-600" />
+                                    </div>
+                                    <span className="text-sm font-bold text-emerald-700">طلب صيانة جديد</span>
+                                </button>
+                            )}
 
                             <button
                                 onClick={() => { onAddSuggested(); setIsOpen(false); }}

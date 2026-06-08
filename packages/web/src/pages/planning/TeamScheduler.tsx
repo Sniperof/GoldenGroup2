@@ -1,21 +1,33 @@
 import { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Users, UserCheck, Plus, User, Copy, Save, X, PhoneCall } from 'lucide-react';
+import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { DaySchedule, Employee } from '../../lib/types';
 
 const getToday = () => new Date().toISOString().split('T')[0];
-const getYesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]; };
+
+type SlotType = 'team' | 'solo';
+type TeamRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
+type SlotRole = TeamRole;
+
+const teamSlotTypeLabels: Record<string, string> = {
+    SUPERVISOR: 'مشرف',
+    TECHNICIAN: 'فني',
+    TELEMARKETER: 'مسوق هاتفي',
+    TRAINEE: 'متدرب',
+};
 
 export default function TeamScheduler() {
     const [current, setCurrent] = useState<DaySchedule>({ teams: [], solos: [] });
     const [date, setDate] = useState(getToday);
-    const [selectedSlot, setSelectedSlot] = useState<{ type: string; slotIdx: number; role: string } | null>(null);
+    const [selectedSlot, setSelectedSlot] = useState<{ type: SlotType; slotIdx: number; role: SlotRole } | null>(null);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [loading, setLoading] = useState(true);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     useEffect(() => {
-        api.employees.list().then((data: Employee[]) => setEmployees(data)).catch(() => {});
+        api.employees.schedulePool().then((data: Employee[]) => setEmployees(data)).catch(() => {});
     }, []);
 
     useEffect(() => {
@@ -32,7 +44,6 @@ export default function TeamScheduler() {
 
     const updateCurrent = useCallback((sched: DaySchedule) => {
         setCurrent(sched);
-        api.schedules.save(date, { teams: sched.teams, solos: sched.solos }).catch(() => {});
     }, [date]);
 
     const addTeamSlot = () => updateCurrent({ ...current, teams: [...current.teams, { supervisor: null, technician: null }] });
@@ -41,16 +52,18 @@ export default function TeamScheduler() {
     const removeSoloSlot = (idx: number) => updateCurrent({ ...current, solos: current.solos.filter((_, i) => i !== idx) });
 
     const assignedIds = [
-        ...current.teams.flatMap(t => [t.supervisor, t.technician, ...(t.telemarketers || [])]),
-        ...current.solos.map(s => s.technician),
+        ...current.teams.flatMap(t => [t.supervisor, t.technician, ...(t.telemarketers || []), t.trainee]),
+        ...current.solos.flatMap(s => [s.technician, s.trainee ?? null, ...(s.telemarketers || [])]),
     ].filter(Boolean) as number[];
 
-    const availableSups = employees.filter(e => e.role === 'supervisor' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTechs = employees.filter(e => e.role === 'technician' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTeles = employees.filter(e => e.role === 'telemarketer' && e.status === 'active' && !assignedIds.includes(e.id));
-    const poolEmployees = [...availableSups, ...availableTechs, ...availableTeles];
+    const canAppear = (employee: Employee) => employee.canAppearInSchedule === true;
+    const availableSups = employees.filter(e => canAppear(e) && e.teamSlotType === 'SUPERVISOR' && e.status === 'active' && !assignedIds.includes(e.id));
+    const availableTechs = employees.filter(e => canAppear(e) && e.teamSlotType === 'TECHNICIAN' && e.status === 'active' && !assignedIds.includes(e.id));
+    const availableTeles = employees.filter(e => canAppear(e) && e.teamSlotType === 'TELEMARKETER' && e.status === 'active' && !assignedIds.includes(e.id));
+    const availableTrainees = employees.filter(e => canAppear(e) && e.teamSlotType === 'TRAINEE' && e.status === 'active' && !assignedIds.includes(e.id));
+    const poolEmployees = [...availableSups, ...availableTechs, ...availableTeles, ...availableTrainees];
 
-    const selectSlot = (type: string, slotIdx: number, role: string) => {
+    const selectSlot = (type: SlotType, slotIdx: number, role: SlotRole) => {
         setSelectedSlot(s => s && s.type === type && s.slotIdx === slotIdx && s.role === role ? null : { type, slotIdx, role });
     };
 
@@ -62,29 +75,41 @@ export default function TeamScheduler() {
         if (type === 'team') {
             const teams = [...current.teams];
             if (role === 'telemarketer') {
-                if (emp.role !== 'telemarketer') return;
+                if (emp.teamSlotType !== 'TELEMARKETER') return;
                 const currentTeles = teams[slotIdx].telemarketers || [];
                 if (!currentTeles.includes(empId)) {
                     teams[slotIdx] = { ...teams[slotIdx], telemarketers: [...currentTeles, empId] };
                 }
             } else {
-                if (role === 'supervisor' && emp.role !== 'supervisor') return;
-                if (role === 'technician' && emp.role !== 'technician') return;
+                if (role === 'supervisor' && emp.teamSlotType !== 'SUPERVISOR') return;
+                if (role === 'technician' && emp.teamSlotType !== 'TECHNICIAN') return;
+                if (role === 'trainee' && emp.teamSlotType !== 'TRAINEE') return;
                 teams[slotIdx] = { ...teams[slotIdx], [role]: empId };
             }
             updateCurrent({ ...current, teams });
         } else {
-            if (emp.role !== 'technician') return;
             const solos = [...current.solos];
-            solos[slotIdx] = { technician: empId };
+            if (role === 'technician') {
+                if (emp.teamSlotType !== 'TECHNICIAN') return;
+                solos[slotIdx] = { ...solos[slotIdx], technician: empId };
+            } else if (role === 'trainee') {
+                if (emp.teamSlotType !== 'TRAINEE') return;
+                solos[slotIdx] = { ...solos[slotIdx], trainee: empId };
+            } else if (role === 'telemarketer') {
+                if (emp.teamSlotType !== 'TELEMARKETER') return;
+                const currentSoloTeles = solos[slotIdx].telemarketers || [];
+                if (!currentSoloTeles.includes(empId)) {
+                    solos[slotIdx] = { ...solos[slotIdx], telemarketers: [...currentSoloTeles, empId] };
+                }
+            } else {
+                return;
+            }
             updateCurrent({ ...current, solos });
         }
-        if (role !== 'telemarketer') {
-            setSelectedSlot(null);
-        }
+        setSelectedSlot(null);
     };
 
-    const unassign = (type: string, slotIdx: number, role: string, empId?: number) => {
+    const unassign = (type: SlotType, slotIdx: number, role: SlotRole, empId?: number) => {
         if (type === 'team') {
             const teams = [...current.teams];
             if (role === 'telemarketer') {
@@ -96,34 +121,29 @@ export default function TeamScheduler() {
             updateCurrent({ ...current, teams });
         } else {
             const solos = [...current.solos];
-            solos[slotIdx] = { technician: null };
+            if (role === 'technician') {
+                solos[slotIdx] = { ...solos[slotIdx], technician: null };
+            } else if (role === 'trainee') {
+                solos[slotIdx] = { ...solos[slotIdx], trainee: null };
+            } else if (role === 'telemarketer') {
+                const currentSoloTeles = solos[slotIdx].telemarketers || [];
+                solos[slotIdx] = { ...solos[slotIdx], telemarketers: currentSoloTeles.filter(id => id !== empId) };
+            }
             updateCurrent({ ...current, solos });
-        }
-    };
-
-    const copyFromYesterday = async () => {
-        const yest = getYesterday();
-        try {
-            const yesterdaySchedule: DaySchedule = await api.schedules.get(yest);
-            if (!yesterdaySchedule || (!yesterdaySchedule.teams?.length && !yesterdaySchedule.solos?.length)) {
-                alert('لا يوجد جدول محفوظ ليوم ' + yest);
-                return;
-            }
-            if (current.teams.length > 0 || current.solos.length > 0) {
-                if (!confirm('سيتم استبدال الجدول الحالي. متابعة؟')) return;
-            }
-            updateCurrent(JSON.parse(JSON.stringify(yesterdaySchedule)));
-        } catch {
-            alert('لا يوجد جدول محفوظ ليوم ' + yest);
         }
     };
 
     const saveSchedule = async () => {
         try {
             await api.schedules.save(date, { teams: current.teams, solos: current.solos });
-            alert('تم حفظ الجدول!');
-        } catch {
-            alert('حدث خطأ أثناء الحفظ');
+            setSaveStatus('success');
+            setSaveError(null);
+            setTimeout(() => setSaveStatus('idle'), 3000);
+        } catch (err: any) {
+            const msg = err?.response?.data?.error || err?.message || null;
+            setSaveError(msg);
+            setSaveStatus('error');
+            setTimeout(() => { setSaveStatus('idle'); setSaveError(null); }, 5000);
         }
     };
 
@@ -159,9 +179,11 @@ export default function TeamScheduler() {
                     <div className="flex items-center gap-1.5 text-sm"><UserCheck className="w-4 h-4 text-indigo-500" /><span className="text-slate-500">مشرفون:</span><span className="text-slate-900 font-bold">{availableSups.length}</span></div>
                     <div className="flex items-center gap-1.5 text-sm"><Users className="w-4 h-4 text-emerald-500" /><span className="text-slate-500">فنيون:</span><span className="text-slate-900 font-bold">{availableTechs.length}</span></div>
                     <div className="flex items-center gap-1.5 text-sm"><PhoneCall className="w-4 h-4 text-violet-500" /><span className="text-slate-500">مسوقون:</span><span className="text-slate-900 font-bold">{availableTeles.length}</span></div>
+                    <div className="flex items-center gap-1.5 text-sm"><GraduationCap className="w-4 h-4 text-amber-500" /><span className="text-slate-500">متدربون:</span><span className="text-slate-900 font-bold">{availableTrainees.length}</span></div>
                 </div>
                 <div className="mr-auto flex items-center gap-2">
-                    <button onClick={copyFromYesterday} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm transition-colors"><Copy className="w-4 h-4" /><span>نسخ من الأمس</span></button>
+                    {saveStatus === 'success' && <span className="flex items-center gap-1 text-emerald-600 text-sm font-medium"><CheckCircle className="w-4 h-4" />تم الحفظ</span>}
+                    {saveStatus === 'error' && <span className="flex items-center gap-1 text-red-500 text-sm font-medium"><AlertCircle className="w-4 h-4" />{saveError || 'خطأ في الحفظ'}</span>}
                     <button onClick={saveSchedule} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all"><Save className="w-4 h-4" /><span>حفظ الجدول</span></button>
                 </div>
             </div>
@@ -181,10 +203,13 @@ export default function TeamScheduler() {
                                     key={e.id}
                                     onClick={() => assignEmployee(e.id)}
                                     className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${selectedSlot
-                                        ? ((selectedSlot.role === 'supervisor' && e.role === 'supervisor') ||
-                                            (selectedSlot.role === 'technician' && e.role === 'technician') ||
-                                            (selectedSlot.role === 'telemarketer' && e.role === 'telemarketer') ||
-                                            (selectedSlot.type === 'solo' && e.role === 'technician'))
+                                        ? ((selectedSlot.role === 'supervisor' && e.teamSlotType === 'SUPERVISOR') ||
+                                            (selectedSlot.role === 'technician' && e.teamSlotType === 'TECHNICIAN') ||
+                                            (selectedSlot.role === 'telemarketer' && e.teamSlotType === 'TELEMARKETER') ||
+                                            (selectedSlot.role === 'trainee' && selectedSlot.type === 'team' && e.teamSlotType === 'TRAINEE') ||
+                                            (selectedSlot.type === 'solo' && selectedSlot.role === 'technician' && e.teamSlotType === 'TECHNICIAN') ||
+                                            (selectedSlot.type === 'solo' && selectedSlot.role === 'trainee' && e.teamSlotType === 'TRAINEE') ||
+                                            (selectedSlot.type === 'solo' && selectedSlot.role === 'telemarketer' && e.teamSlotType === 'TELEMARKETER'))
                                             ? 'hover:bg-sky-50'
                                             : 'opacity-40 grayscale cursor-not-allowed'
                                         : 'hover:bg-sky-50'
@@ -196,12 +221,14 @@ export default function TeamScheduler() {
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-medium text-slate-700 truncate">{e.name}</p>
-                                        <p className="text-xs text-gray-500">{e.role === 'supervisor' ? 'مشرف' : e.role === 'telemarketer' ? 'مسوق هاتفي' : 'فني'}</p>
+                                        <p className="text-xs text-gray-500">{e.teamSlotType ? teamSlotTypeLabels[e.teamSlotType] : ''}</p>
                                     </div>
-                                    {e.role === 'supervisor' ? (
+                                    {e.teamSlotType === 'SUPERVISOR' ? (
                                         <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold">مشرف</span>
-                                    ) : e.role === 'telemarketer' ? (
+                                    ) : e.teamSlotType === 'TELEMARKETER' ? (
                                         <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 text-[10px] font-bold">مسوق</span>
+                                    ) : e.teamSlotType === 'TRAINEE' ? (
+                                        <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 text-[10px] font-bold">متدرب</span>
                                     ) : (
                                         <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold">فني</span>
                                     )}
@@ -215,11 +242,11 @@ export default function TeamScheduler() {
                 <div className="col-span-2 space-y-4">
                     <div className="flex gap-2">
                         <button onClick={addTeamSlot} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold transition-all"><Plus className="w-4 h-4" /><span>إضافة فريق</span></button>
-                        <button onClick={addSoloSlot} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm transition-colors"><User className="w-4 h-4" /><span>وحدة فردية / طوارئ</span></button>
+                        <button onClick={addSoloSlot} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-orange-200 text-orange-600 hover:bg-orange-50 text-sm font-medium transition-colors"><AlertCircle className="w-4 h-4" /><span>فريق طوارئ</span></button>
                     </div>
 
                     {current.teams.length === 0 && current.solos.length === 0 ? (
-                        <div className="text-center text-slate-400 py-10"><Calendar className="w-10 h-10 mx-auto mb-3 opacity-30" /><p>اضغط "إضافة فريق" أو "وحدة فردية" لبدء الجدولة</p></div>
+                        <div className="text-center text-slate-400 py-10"><Calendar className="w-10 h-10 mx-auto mb-3 opacity-30" /><p>اضغط "إضافة فريق" أو "فريق طوارئ" لبدء الجدولة</p></div>
                     ) : (
                         <div className="space-y-4">
                             {current.teams.map((t, idx) => {
@@ -227,6 +254,7 @@ export default function TeamScheduler() {
                                 const isSup = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'supervisor';
                                 const isTech = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'technician';
                                 const isTele = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'telemarketer';
+                                const isTrainee = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'trainee';
                                 const teamTeles = t.telemarketers || [];
 
                                 return (
@@ -264,6 +292,18 @@ export default function TeamScheduler() {
                                                     <div className="text-center py-2"><User className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">فني</p></div>
                                                 )}
                                             </div>
+                                            {/* Trainee Slot */}
+                                            <div onClick={() => selectSlot('team', idx, 'trainee')} className={`col-span-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${isTrainee ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
+                                                {t.trainee ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <img src={employees.find(e => e.id === t.trainee)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
+                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(t.trainee)}</p><p className="text-xs text-amber-500">متدرب</p></div>
+                                                        <button onClick={e => { e.stopPropagation(); unassign('team', idx, 'trainee'); }} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-center py-2"><GraduationCap className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">متدرب (اختياري)</p></div>
+                                                )}
+                                            </div>
                                         </div>
                                         <div className="p-4 border-t border-gray-100 bg-slate-50/50">
                                             {/* Telemarketer Slots */}
@@ -292,26 +332,71 @@ export default function TeamScheduler() {
                             })}
 
                             {current.solos.map((s, idx) => {
-                                const isSolo = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx;
+                                const isTech = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx && selectedSlot.role === 'technician';
+                                const isTrainee = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx && selectedSlot.role === 'trainee';
+                                const isTele = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx && selectedSlot.role === 'telemarketer';
+                                const soloTeles = s.telemarketers || [];
+                                const formLabel = s.trainee && soloTeles.length > 0 ? 'فني + متدرب + تيلماركتر' : s.trainee ? 'فني + متدرب' : soloTeles.length > 0 ? 'فني + تيلماركتر' : 'فني فقط';
+                                const emergencyName = s.technician ? `طوارئ — ${getEmpName(s.technician)}` : `فريق طوارئ #${idx + 1}`;
                                 return (
-                                    <motion.div key={`solo-${idx}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                        <div className="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                    <motion.div key={`solo-${idx}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden">
+                                        <div className="p-3 bg-orange-50 border-b border-orange-200 flex justify-between items-center">
                                             <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600"><User className="w-4 h-4" /></div>
-                                                <span className="font-bold text-slate-800 text-sm">وحدة فردية / طوارئ</span>
+                                                <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600"><AlertCircle className="w-4 h-4" /></div>
+                                                <span className="font-bold text-slate-800 text-sm">{emergencyName}</span>
+                                                <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[10px] font-bold">{formLabel}</span>
                                             </div>
                                             <button onClick={() => removeSoloSlot(idx)} className="text-slate-400 hover:text-red-500 transition-colors"><X className="w-4 h-4" /></button>
                                         </div>
-                                        <div className="p-4">
-                                            <div onClick={() => selectSlot('solo', idx, 'technician')} className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isSolo ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
+                                        <div className="p-4 grid grid-cols-2 gap-3">
+                                            {/* Technician — required, full width */}
+                                            <div onClick={() => selectSlot('solo', idx, 'technician')} className={`col-span-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${isTech ? 'border-sky-500 bg-sky-50' : s.technician ? 'border-emerald-300' : 'border-dashed border-red-300 hover:border-sky-300'}`}>
                                                 {s.technician ? (
                                                     <div className="flex items-center gap-2">
                                                         <img src={employees.find(e => e.id === s.technician)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
-                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(s.technician)}</p><p className="text-xs text-emerald-500">فني</p></div>
+                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(s.technician)}</p><p className="text-xs text-emerald-500">فني (مطلوب)</p></div>
                                                         <button onClick={e => { e.stopPropagation(); unassign('solo', idx, 'technician'); }} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
                                                     </div>
                                                 ) : (
-                                                    <div className="text-center py-2"><User className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">فني</p></div>
+                                                    <div className="text-center py-2"><User className="w-5 h-5 mx-auto text-red-400 mb-1" /><p className="text-xs text-red-400">فني (مطلوب)</p></div>
+                                                )}
+                                            </div>
+                                            {/* Trainee — optional */}
+                                            <div onClick={() => selectSlot('solo', idx, 'trainee')} className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isTrainee ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
+                                                {s.trainee ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <img src={employees.find(e => e.id === s.trainee)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
+                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(s.trainee)}</p><p className="text-xs text-amber-500">متدرب</p></div>
+                                                        <button onClick={e => { e.stopPropagation(); unassign('solo', idx, 'trainee'); }} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-center py-2"><GraduationCap className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">متدرب (اختياري)</p></div>
+                                                )}
+                                            </div>
+                                            {/* Telemarketers — optional, multiple */}
+                                            <div
+                                                onClick={() => selectSlot('solo', idx, 'telemarketer')}
+                                                className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${isTele ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}
+                                            >
+                                                {soloTeles.length > 0 ? (
+                                                    <div className="space-y-2">
+                                                        <p className="text-xs font-bold text-violet-600 mb-2">المسوقون ({soloTeles.length})</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {soloTeles.map(teleId => (
+                                                                <div key={teleId} className="flex items-center gap-1.5 bg-white border border-violet-100 rounded-full pl-1.5 pr-3 py-1 shadow-sm">
+                                                                    <img src={employees.find(e => e.id === teleId)?.avatar || ''} alt="" className="w-5 h-5 rounded-full" />
+                                                                    <span className="text-xs font-medium text-slate-700">{getEmpName(teleId)}</span>
+                                                                    <button onClick={e => { e.stopPropagation(); unassign('solo', idx, 'telemarketer', teleId); }} className="text-slate-400 hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {isTele && <p className="text-[10px] text-sky-600 mt-2 text-center">انقر على موظف من القائمة جانباً للإضافة</p>}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-center py-2">
+                                                        <PhoneCall className="w-5 h-5 mx-auto text-slate-400 mb-1" />
+                                                        <p className="text-xs text-slate-400">مسوق هاتفي (اختياري)</p>
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>

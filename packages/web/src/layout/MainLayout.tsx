@@ -2,16 +2,21 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { usePermissions } from '../hooks/usePermissions';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import { isGlobalOnlyPath } from '../lib/branchContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import FloatingActionButton from '../components/FloatingActionButton';
 import NewEmergencyTicketModal from '../components/NewEmergencyTicketModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
+import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
+import BranchSwitcher from '../components/BranchSwitcher';
 import {
     LayoutDashboard, Route, Users, BookUser, Globe,
     ClipboardList, UsersRound, MapPinned, ChevronDown, Gem, Eye,
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
-    ChevronLeft, ChevronRight, Target, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck
+    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
+    Bell, Wrench, Gift, Inbox,
 } from 'lucide-react';
 
 const navItems = [
@@ -29,14 +34,37 @@ const recordsChildren = [
     { path: '/employees', label: 'سجلات الموظفين', icon: Users },
 ];
 
+// ============================================================
+// Operations & Tasks — Unified 6-section structure (2026-06-01)
+// ============================================================
+// Per unified-task-template.md: 6 display_groups, each gets a single
+// sidebar entry pointing to the unified TaskGroupPage. Legacy entries
+// commented out below; their routes still resolve (App.tsx) so deep
+// links from existing detail pages continue to work during transition.
 const operationsChildren = [
-    { path: '/tasks/today', label: 'مهام اليوم', icon: Calendar },
-    { path: '/tasks/emergency', label: 'طوارئ', icon: AlertTriangle },
-    { path: '/tasks/dues', label: 'مستحقات', icon: DollarSign },
-    { path: '/tasks/periodic', label: 'صيانة دورية', icon: RefreshCw },
-    { path: '/tasks/returns', label: 'إرجاع', icon: RotateCcw },
-    { path: '/tasks/followup', label: 'متابعة', icon: PhoneCall },
-    { path: '/operations/marketing', label: 'عمليات التسويق', icon: Target },
+    { path: '/tasks/group/device-demo',         label: 'مهام عرض الجهاز',        icon: Monitor },
+    { path: '/tasks/group/maintenance',         label: 'مهام الصيانة',           icon: Wrench },
+    { path: '/tasks/group/collection',          label: 'مهام تحصيل الأقساط',     icon: DollarSign },
+    { path: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع', icon: RefreshCw },
+    { path: '/tasks/group/gift-delivery',       label: 'مهام تسليم الهدايا',     icon: Gift },
+    { path: '/tasks/group/warranty-services',   label: 'مهام خدمات الكفالة',     icon: ShieldCheck },
+    // DEC-006 D37/D38: hub for supervisor alerts (attempt threshold + visit escalation)
+    { path: '/supervisor/alerts',               label: 'تنبيهات المشرف',         icon: Bell },
+
+    // -------- Legacy entries (hidden 2026-06-01) — kept commented for reference --------
+    // { path: '/tasks/open',        label: 'المهام المفتوحة', icon: ListChecks },
+    // { path: '/tasks/device-demo', label: 'عروض الأجهزة',    icon: Monitor },
+    // { path: '/tasks/today',       label: 'مهام اليوم',      icon: Calendar },
+    // { path: '/tasks/emergency',   label: 'طوارئ',           icon: AlertTriangle },
+    // { path: '/tasks/dues',        label: 'مستحقات',         icon: DollarSign },
+    // { path: '/tasks/periodic',    label: 'صيانة دورية',     icon: RefreshCw },
+    // { path: '/tasks/returns',     label: 'إرجاع',           icon: RotateCcw },
+    // { path: '/tasks/followup',    label: 'متابعة',          icon: PhoneCall },
+];
+
+// Requests — intake parent section (currently only maintenance; will grow).
+const requestsChildren = [
+    { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench },
 ];
 
 const planningChildren = [
@@ -56,12 +84,36 @@ const jobsChildren = [
 export default function MainLayout() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { user: authUser, logout } = useAuthStore();
+    const { user: authUser, logout, grants } = useAuthStore();
     const { hasPermission } = usePermissions();
 
     // Privileged users bypass explicit UI permission checks
-    const isPrivilegedUser = authUser?.role === 'HR_MANAGER' || authUser?.role === 'ADMIN';
+    const isSuperAdmin = authUser?.isSuperAdmin === true;
+    const isPrivilegedUser = isSuperAdmin || authUser?.role === 'HR_MANAGER' || authUser?.role === 'ADMIN';
+    const authUserRoleLabel = authUser?.roleDisplayName
+        ?? (authUser?.role === 'ADMIN'
+            ? 'مدير النظام'
+            : authUser?.role === 'HR_MANAGER'
+                ? 'مدير الموارد البشرية'
+                : authUser?.role === 'SYSTEM_ADMIN'
+                    ? 'مدير النظام'
+                    : authUser?.role === 'HR_ASSISTANT'
+                        ? 'مساعد الموارد البشرية'
+                        : authUser?.role
+                            ? 'دور نظامي محمي'
+                            : 'بدون دور');
     const can = (perm: string) => isPrivilegedUser || hasPermission(perm);
+    const canAccessAdminSurface = (perm: string) => hasPermission(perm);
+
+    const { branchId: selectedBranchId } = useBranchContextStore();
+    const isGlobalOnlyPage = isGlobalOnlyPath(location.pathname);
+    // Users see branch modules if they have any permission granted with BRANCH or ASSIGNED scope,
+    // OR if they are a super admin who has selected a branch context.
+    // Super admins without a branch context still see branch modules if they have non-global grants.
+    const hasBranchScopedPermission = grants.some(g => g.scope === 'BRANCH' || g.scope === 'ASSIGNED');
+    const canSeeBranchModules = hasBranchScopedPermission
+      || (isSuperAdmin && selectedBranchId != null)
+      || isPrivilegedUser;
 
     const jobsViewPermMap: Record<string, string> = {
       '/jobs/applications': 'jobs.applications.view_list',
@@ -91,6 +143,8 @@ export default function MainLayout() {
     }
     const isPlanningActive = location.pathname.startsWith('/planning');
     const isOperationsActive = location.pathname.startsWith('/tasks');
+    const isRequestsActive = location.pathname.startsWith('/service-requests');
+    const isVisitsActive = location.pathname.startsWith('/field-visits');
     const isContractsActive = location.pathname.startsWith('/contracts');
     const isGeoActive = location.pathname === '/geo' || location.pathname === '/routes';
     const isRecordsActive = visibleRecordsChildren.some(child => location.pathname.startsWith(child.path));
@@ -99,6 +153,7 @@ export default function MainLayout() {
 
     const [planningOpen, setPlanningOpen] = useState(isPlanningActive);
     const [operationsOpen, setOperationsOpen] = useState(isOperationsActive);
+    const [requestsOpen, setRequestsOpen] = useState(isRequestsActive);
     const [geoOpen, setGeoOpen] = useState(isGeoActive);
     const [recordsOpen, setRecordsOpen] = useState(isRecordsActive);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -109,6 +164,12 @@ export default function MainLayout() {
     const toggleCollapse = () => setIsCollapsed(!isCollapsed);
     const [showEmergencyModal, setShowEmergencyModal] = useState(false);
     const [showCandidateModal, setShowCandidateModal] = useState(false);
+    // Phase 5 — service_requests intake. Feature-gated via localStorage so
+    // ops can flip it on per-user during staging without a deploy.
+    const [showServiceRequestModal, setShowServiceRequestModal] = useState(false);
+    const serviceRequestsUiEnabled =
+        typeof window !== 'undefined' &&
+        localStorage.getItem('gc_service_requests_ui') === 'on';
     const [candidateInitialMode, setCandidateInitialMode] = useState(false);
 
     return (
@@ -170,6 +231,9 @@ export default function MainLayout() {
                         <CloseIcon className="w-6 h-6" />
                     </button>
                 </div>
+
+                {/* Branch Switcher appears only on branch-aware pages. */}
+                {!isCollapsed && !isGlobalOnlyPage && <BranchSwitcher />}
 
                 {/* Navigation */}
                 <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1 mt-16 lg:mt-0">
@@ -239,8 +303,8 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 2. Appointments (Separate Section) */}
-                    {can('telemarketer.view') && (
+                    {/* 2. Appointments (branch-only for super admins without branch context) */}
+                    {canSeeBranchModules && can('telemarketing.lists.view') && (
                     <NavLink
                         to="/telemarketer"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -253,6 +317,23 @@ export default function MainLayout() {
                     >
                         <Headset className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
                         <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إدارة المواعيد</span>
+                    </NavLink>
+                    )}
+
+                    {/* 3. Field Visits (central daily visit hub) */}
+                    {canSeeBranchModules && can('field_visits.view') && (
+                    <NavLink
+                        to="/field-visits"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={({ isActive }: { isActive: boolean }) =>
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive || isVisitsActive
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                            } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                        }
+                    >
+                        <MapPinned className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                        <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>الزيارات</span>
                     </NavLink>
                     )}
 
@@ -337,8 +418,8 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 5. Branch Operations (formerly Planning) */}
-                    {can('planning.view') && (
+                    {/* 5. Branch Operations — hidden until a branch context is selected */}
+                    {canSeeBranchModules && can('planning.view') && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setPlanningOpen((o: boolean) => !o)}
@@ -384,8 +465,55 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 6. Tasks & Operations */}
-                    {can('tasks.view') && (
+                    {/* 5b. Requests — parent section for all intake layers */}
+                    {canSeeBranchModules && can('service_requests.view') && (
+                    <div className={isCollapsed ? 'lg:hidden' : 'block'}>
+                        <button
+                            onClick={() => setRequestsOpen((o: boolean) => !o)}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isRequestsActive
+                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                }`}
+                        >
+                            <Inbox className="w-5 h-5" />
+                            <span className="flex-1">الطلبات</span>
+                            <motion.div animate={{ rotate: requestsOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                                <ChevronDown className="w-3.5 h-3.5" />
+                            </motion.div>
+                        </button>
+
+                        <AnimatePresence initial={false}>
+                            {requestsOpen && (
+                                <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    className="overflow-hidden"
+                                >
+                                    {requestsChildren.map(child => (
+                                        <NavLink
+                                            key={child.path}
+                                            to={child.path}
+                                            onClick={() => setIsMobileMenuOpen(false)}
+                                            className={({ isActive }: { isActive: boolean }) =>
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                                }`
+                                            }
+                                        >
+                                            <child.icon className="w-4 h-4" />
+                                            <span>{child.label}</span>
+                                        </NavLink>
+                                    ))}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                    )}
+
+                    {/* 6. Tasks & Operations — hidden until a branch context is selected */}
+                    {canSeeBranchModules && can('tasks.view') && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setOperationsOpen((o: boolean) => !o)}
@@ -432,7 +560,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 7. Geo Section (Moved above Settings) */}
-                    {can('geo.view') && (
+                    {canAccessAdminSurface('geo.view') && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setGeoOpen(o => !o)}
@@ -478,8 +606,8 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 8. Branches */}
-                    {can('branches.view') && (
+                    {/* 8. Branches (admin-only) */}
+                    {canAccessAdminSurface('branches.view') && (
                     <NavLink
                         to="/branches"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -495,8 +623,8 @@ export default function MainLayout() {
                     </NavLink>
                     )}
 
-                    {/* 9. System Lists */}
-                    {can('admin.system_lists.view') && (
+                    {/* 9. System Lists (admin-only) */}
+                    {canAccessAdminSurface('admin.system_lists.view') && (
                         <NavLink
                             to="/system-lists"
                             onClick={() => setIsMobileMenuOpen(false)}
@@ -513,7 +641,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 10. Roles & Permissions */}
-                    {can('admin.roles.view') && (
+                    {canAccessAdminSurface('admin.roles.view') && (
                         <NavLink
                             to="/admin/roles"
                             onClick={() => setIsMobileMenuOpen(false)}
@@ -529,8 +657,42 @@ export default function MainLayout() {
                         </NavLink>
                     )}
 
+                    {/* 10b. Permission Scopes (Super Admin) */}
+                    {isSuperAdmin && (
+                        <NavLink
+                            to="/admin/permissions-settings"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <Shield className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>نطاقات الصلاحيات</span>
+                        </NavLink>
+                    )}
+
+                    {/* 10c. Task Types Configuration */}
+                    {canAccessAdminSurface('admin.task_types.view') && (
+                        <NavLink
+                            to="/admin/task-types"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <Settings2 className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إعدادات أنواع المهام</span>
+                        </NavLink>
+                    )}
+
                     {/* 11. System Settings (At Bottom) */}
-                    {can('settings.view') && (
+                    {canAccessAdminSurface('settings.view') && (
                     <NavLink
                         to="/settings"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -563,11 +725,7 @@ export default function MainLayout() {
                         <div className={`flex-1 min-w-0 ${isCollapsed ? 'lg:hidden' : 'block'}`}>
                             <p className="text-sm font-semibold text-slate-700 truncate">{authUser?.name || '—'}</p>
                             <p className="text-xs text-slate-500 truncate">
-                                {authUser?.role === 'ADMIN'
-                                  ? 'مدير النظام'
-                                  : authUser?.role === 'HR_MANAGER'
-                                    ? 'مدير الموارد البشرية'
-                                    : 'مساعد الموارد البشرية'}
+                                {authUserRoleLabel}
                             </p>
                         </div>
                         <button
@@ -582,7 +740,7 @@ export default function MainLayout() {
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-hidden bg-slate-50 mt-16 lg:mt-0">
+            <main className="flex-1 overflow-y-auto custom-scroll bg-slate-50 mt-16 lg:mt-0">
                 <Outlet />
             </main>
 
@@ -597,7 +755,16 @@ export default function MainLayout() {
                     setCandidateInitialMode(true);
                     setShowCandidateModal(true);
                 }}
+                onServiceRequestClick={
+                    serviceRequestsUiEnabled ? () => setShowServiceRequestModal(true) : undefined
+                }
             />
+            {showServiceRequestModal && (
+                <NewServiceRequestModal
+                    channel="internal_button"
+                    onClose={() => setShowServiceRequestModal(false)}
+                />
+            )}
 
             {/* Emergency Ticket Modal */}
             <NewEmergencyTicketModal

@@ -10,11 +10,15 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
+import SmartTable from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 import { useBranchStore } from '../../hooks/useBranchStore';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
+import { useAuthStore } from '../../hooks/useAuthStore';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { GeoSelection, getLevelName } from '../../components/GeoSmartSearch';
 import { api } from '../../lib/api';
-import type { GeoUnit } from '../../lib/types';
+import type { Department, GeoUnit } from '../../lib/types';
 
 const STATUS_COLORS: Record<VacancyStatus, string> = {
   Open: 'bg-emerald-100 text-emerald-700',
@@ -39,14 +43,29 @@ const CONTACT_COLORS: Record<BranchContactType, string> = {
 };
 
 const emptyVacancy: Partial<JobVacancy> = {
-  title: '', branch: '', governorate: null, cityOrArea: null, subArea: null,
+  title: '', branch: '', branchId: null, departmentId: null, departmentName: null, governorate: null, cityOrArea: null, subArea: null,
   neighborhood: null, detailedAddress: null, workType: null, requiredGender: null,
   requiredAgeMin: null, requiredAgeMax: null, contactMethods: [],
   requiredCertificate: null, requiredMajor: null,
   requiredExperienceYears: null, requiredSkills: null, responsibilities: null,
-  drivingLicenseRequired: false, vacancyCount: 1,
+  drivingLicenseRequired: false, hasCarRequired: false, vacancyCount: 1,
   startDate: '', endDate: '',
 };
+
+function buildGeoSelectionFromId(geoUnits: GeoUnit[], id?: number | null): GeoSelection {
+  const path: GeoUnit[] = [];
+  let cursor = id ? geoUnits.find(unit => unit.id === id) : undefined;
+  while (cursor) {
+    path.unshift(cursor);
+    cursor = cursor.parentId ? geoUnits.find(unit => unit.id === cursor!.parentId) : undefined;
+  }
+  return {
+    govId: path[0]?.id.toString() || '',
+    regionId: path[1]?.id.toString() || '',
+    subId: path[2]?.id.toString() || '',
+    neighborhoodId: path[3]?.id.toString() || '',
+  };
+}
 
 export default function Vacancies() {
   const navigate = useNavigate();
@@ -65,7 +84,20 @@ export default function Vacancies() {
   const [saving, setSaving] = useState(false);
   const { branches, fetchBranches } = useBranchStore();
   const { fetchLists, getValuesByCategory } = useSystemListsStore();
+  const { user } = useAuthStore();
+  const { branchId: contextBranchId } = useBranchContextStore();
+
+  const isSuperAdmin = user?.isSuperAdmin === true;
+  // Effective branchId driving the branch field:
+  // - Super Admin + context selected → that context
+  // - Branch Admin → their own branchId
+  // - Super Admin + "كل الفروع" → null (free choice)
+  const effectiveBranchId: number | null = isSuperAdmin
+    ? contextBranchId
+    : (user?.branchId ?? null);
+  const branchFieldLocked = effectiveBranchId != null;
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [branchContacts, setBranchContacts] = useState<BranchContact[]>([]);
   const [geoSelection, setGeoSelection] = useState<GeoSelection>({
     govId: '', regionId: '', subId: '', neighborhoodId: ''
@@ -78,32 +110,54 @@ export default function Vacancies() {
     api.geoUnits.list().then(setGeoUnits).catch(console.error);
   }, [filters.status, filters.branch, filters.search]);
 
+  const selectedBranchId =
+    effectiveBranchId ??
+    formData.branchId ??
+    branches.find((branch) => branch.name === formData.branch)?.id ??
+    null;
+
+  useEffect(() => {
+    if (selectedBranchId == null) {
+      setDepartments([]);
+      return;
+    }
+
+    api.departments.list(selectedBranchId)
+      .then((rows) => setDepartments(Array.isArray(rows) ? rows : []))
+      .catch((err) => {
+        console.error(err);
+        setDepartments([]);
+      });
+  }, [selectedBranchId]);
+
+  useEffect(() => {
+    if (formData.departmentId == null) return;
+    if (departments.some((department) => department.id === formData.departmentId)) return;
+    setFormData((prev) => ({ ...prev, departmentId: null, departmentName: null }));
+  }, [departments, formData.departmentId]);
+
   const setField = (key: string, value: any) => setFormData(prev => ({ ...prev, [key]: value }));
 
   const handleBranchChange = (branchName: string) => {
-    setField('branch', branchName);
-    setField('contactMethods', []);
     const branch = branches.find(b => b.name === branchName);
+    setFormData(prev => ({
+      ...prev,
+      branch: branchName,
+      branchId: branch?.id ?? null,
+      departmentId: null,
+      departmentName: null,
+      contactMethods: [],
+      detailedAddress: branch?.detailedAddress ?? null,
+    }));
     if (branch) {
       setBranchContacts(branch.contactInfo || []);
       if (branch.locationGeoId) {
-        const geoUnit = geoUnits.find(g => g.id === branch.locationGeoId);
-        if (geoUnit) {
-          const chain: Record<number, number> = {};
-          let cur = geoUnit as typeof geoUnit | undefined;
-          while (cur) {
-            chain[cur.level] = cur.id;
-            cur = cur.parentId ? geoUnits.find(g => g.id === cur!.parentId) : undefined;
-          }
-          setGeoSelection({
-            govId: chain[1]?.toString() || '',
-            regionId: chain[2]?.toString() || '',
-            subId: chain[3]?.toString() || '',
-            neighborhoodId: chain[4]?.toString() || '',
-          });
-        }
+        setGeoSelection(buildGeoSelectionFromId(geoUnits, branch.locationGeoId));
+      } else {
+        setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
       }
     } else {
+      setDepartments([]);
       setBranchContacts([]);
     }
   };
@@ -112,9 +166,30 @@ export default function Vacancies() {
     setEditingVacancy(null);
     setEditTier(1);
     setWizardStep(1);
-    setFormData({ ...emptyVacancy });
-    setBranchContacts([]);
-    setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+
+    // Pre-fill branch when a context branch is active
+    if (effectiveBranchId != null) {
+      const contextBranch = branches.find(b => b.id === effectiveBranchId);
+      const contextBranchName = contextBranch?.name ?? '';
+      setFormData({ ...emptyVacancy, branch: contextBranchName, branchId: effectiveBranchId, detailedAddress: contextBranch?.detailedAddress ?? null } as any);
+      if (contextBranch) {
+        setBranchContacts(contextBranch.contactInfo || []);
+        // Auto-fill geo from branch's locationGeoId if available
+        if (contextBranch.locationGeoId) {
+          setGeoSelection(buildGeoSelectionFromId(geoUnits, contextBranch.locationGeoId));
+        } else {
+          setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+        }
+      } else {
+        setBranchContacts([]);
+        setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+      }
+    } else {
+      setFormData({ ...emptyVacancy });
+      setBranchContacts([]);
+      setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+    }
+
     setFormError('');
     setShowModal(true);
   };
@@ -124,7 +199,7 @@ export default function Vacancies() {
     setEditTier(1);
     setWizardStep(1);
     setFormData({ ...v });
-    const branch = branches.find(b => b.name === v.branch);
+    const branch = branches.find(b => b.id === v.branchId) ?? branches.find(b => b.name === v.branch);
     setBranchContacts(branch?.contactInfo || []);
     setGeoSelection({
       govId: geoUnits.find(u => u.name === v.governorate && u.level === 1)?.id.toString() || '',
@@ -140,6 +215,8 @@ export default function Vacancies() {
     setFormError('');
     if (!formData.title?.trim()) { setFormError('عنوان الوظيفة مطلوب'); return; }
     if (!formData.branch?.trim()) { setFormError('الفرع مطلوب'); return; }
+    if (!formData.departmentId) { setFormError('القسم مطلوب'); return; }
+    if (!geoSelection.subId && !geoSelection.neighborhoodId) { setFormError('يجب اختيار ناحية أو حي على الأقل في العنوان.'); return; }
     if (!formData.vacancyCount || formData.vacancyCount <= 0) { setFormError('عدد الشواغر يجب أن يكون أكبر من 0'); return; }
     if (!formData.startDate) { setFormError('تاريخ البداية مطلوب'); return; }
     if (!formData.endDate) { setFormError('تاريخ النهاية مطلوب'); return; }
@@ -147,6 +224,8 @@ export default function Vacancies() {
 
     const finalData = {
       ...formData,
+      branchId: selectedBranchId,
+      departmentName: departments.find((department) => department.id === formData.departmentId)?.name ?? formData.departmentName ?? null,
       governorate: getLevelName(geoUnits, geoSelection.govId) || formData.governorate,
       cityOrArea: getLevelName(geoUnits, geoSelection.regionId) || formData.cityOrArea,
       subArea: getLevelName(geoUnits, geoSelection.subId) || formData.subArea,
@@ -206,12 +285,40 @@ export default function Vacancies() {
             {getValuesByCategory('job_title').map(v => <option key={v} value={v}>{v}</option>)}
           </select>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">الفرع <span className="text-red-400">*</span></label>
-            <select value={formData.branch || ''} onChange={e => handleBranchChange(e.target.value)} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))}>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+              الفرع <span className="text-red-400">*</span>
+              {branchFieldLocked && <Lock className="inline w-3 h-3 mr-1 text-slate-400" />}
+            </label>
+            <select
+              value={formData.branch || ''}
+              onChange={e => handleBranchChange(e.target.value)}
+              disabled={isFieldLocked('full') || branchFieldLocked}
+              className={inputCls(isFieldLocked('full') || branchFieldLocked)}
+            >
               <option value="">اختر الفرع</option>
               {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">القسم <span className="text-red-400">*</span></label>
+            <select
+              value={formData.departmentId ?? ''}
+              onChange={e => {
+                const departmentId = Number(e.target.value) || null;
+                const department = departments.find((item) => item.id === departmentId) ?? null;
+                setFormData((prev) => ({
+                  ...prev,
+                  departmentId,
+                  departmentName: department?.name ?? null,
+                }));
+              }}
+              disabled={isFieldLocked('full') || !selectedBranchId}
+              className={inputCls(isFieldLocked('full') || !selectedBranchId)}
+            >
+              <option value="">{selectedBranchId ? 'اختر القسم' : 'اختر الفرع أولاً'}</option>
+              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
             </select>
           </div>
           <div>
@@ -226,8 +333,21 @@ export default function Vacancies() {
 
       {/* Location */}
       <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> الموقع</p>
-        <GeoSmartSearch label="الموقع الجغرافي" geoUnits={geoUnits} value={geoSelection} onChange={setGeoSelection} placeholder="يتم تعبئته تلقائياً عند اختيار الفرع..." disabled={isFieldLocked('full')} />
+        <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> العنوان</p>
+        <GeoSmartSearch
+          label="العنوان"
+          geoUnits={geoUnits}
+          value={geoSelection}
+          onChange={setGeoSelection}
+          placeholder="يتم تعبئته تلقائياً عند اختيار الفرع..."
+          disabled={isFieldLocked('full')}
+          minSelectableLevel={3}
+        />
+        {!geoSelection.subId && !geoSelection.neighborhoodId && (
+          <p className="text-[11px] text-amber-600 font-medium">
+            يجب اختيار ناحية أو حي على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
+          </p>
+        )}
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1.5">العنوان التفصيلي</label>
           <input value={formData.detailedAddress || ''} onChange={e => setField('detailedAddress', e.target.value || null)} placeholder="مثال: شارع الرشيد، بجانب مطعم..." disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))} />
@@ -305,6 +425,13 @@ export default function Vacancies() {
             {formData.drivingLicenseRequired && <div className="w-2 h-2 bg-white rounded-full" />}
           </div>
           <span className="text-sm font-medium text-slate-700">يُشترط امتلاك رخصة قيادة</span>
+        </label>
+        <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${formData.hasCarRequired ? 'border-sky-400 bg-sky-50' : 'border-slate-200 bg-white hover:border-sky-200'}`}>
+          <input type="checkbox" checked={formData.hasCarRequired || false} onChange={e => setField('hasCarRequired', e.target.checked)} disabled={isFieldLocked('full')} className="sr-only" />
+          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${formData.hasCarRequired ? 'bg-sky-500 border-sky-500' : 'border-slate-300'}`}>
+            {formData.hasCarRequired && <div className="w-2 h-2 bg-white rounded-full" />}
+          </div>
+          <span className="text-sm font-medium text-slate-700">هل يمتلك المتقدم سيارة</span>
         </label>
       </div>
 
@@ -391,10 +518,13 @@ export default function Vacancies() {
           {[
             { l: 'المسمى الوظيفي', v: formData.title || '—' },
             { l: 'الفرع', v: formData.branch || '—' },
+            { l: 'القسم', v: formData.departmentName || '—' },
             { l: 'نوع العمل', v: formData.workType || '—' },
             { l: 'الجنس', v: formData.requiredGender || 'لا يهم' },
             { l: 'الشهادة', v: formData.requiredCertificate || '—' },
             { l: 'وسائل التواصل', v: `${(formData.contactMethods || []).length} وسيلة` },
+            { l: 'رخصة القيادة', v: formData.drivingLicenseRequired ? 'مطلوبة' : 'غير مطلوبة' },
+            { l: 'هل يمتلك سيارة', v: formData.hasCarRequired ? 'مطلوب' : 'غير مطلوب' },
           ].map(({ l, v }) => (
             <div key={l}>
               <p className="text-[10px] text-slate-400">{l}</p>
@@ -432,8 +562,48 @@ export default function Vacancies() {
     </motion.div>
   );
 
+  const vacancyColumns: ColumnDef<JobVacancy>[] = [
+    {
+      key: 'id', label: '#', sortable: true,
+      render: (v) => <span className="text-xs font-mono text-slate-400">#{v.id}</span>,
+      getValue: (v) => v.id,
+    },
+    {
+      key: 'title', label: 'عنوان الوظيفة', sortable: true,
+      render: (v) => <span className="font-semibold text-slate-800">{v.title}</span>,
+    },
+    {
+      key: 'branch', label: 'الفرع', sortable: true,
+      render: (v) => <span className="flex items-center gap-1.5 text-slate-600"><MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />{v.branch}</span>,
+    },
+    {
+      key: 'startDate', label: 'الفترة', sortable: true,
+      render: (v) => (
+        <span className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
+          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {v.startDate ? new Date(v.startDate).toLocaleDateString('ar-IQ') : '—'} ← {v.endDate ? new Date(v.endDate).toLocaleDateString('ar-IQ') : '—'}
+        </span>
+      ),
+      getValue: (v) => v.startDate || '',
+    },
+    {
+      key: 'requiredCertificate', label: 'الشهادة', sortable: true,
+      render: (v) => <span className="flex items-center gap-1.5 text-slate-600"><GraduationCap className="w-3.5 h-3.5 text-slate-400 shrink-0" />{v.requiredCertificate || '—'}</span>,
+    },
+    {
+      key: 'vacancyCount', label: 'الشواغر المتبقية', sortable: true,
+      render: (v) => <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold"><Users className="w-3 h-3" />{v.vacancyCount}</span>,
+      getValue: (v) => v.vacancyCount,
+    },
+    {
+      key: 'status', label: 'الحالة', sortable: true,
+      render: (v) => <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${STATUS_COLORS[v.status]}`}>{STATUS_LABELS[v.status]}</span>,
+      getValue: (v) => v.status,
+    },
+  ];
+
   return (
-    <div className="h-full overflow-y-auto p-6" dir="rtl">
+    <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -478,71 +648,63 @@ export default function Vacancies() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400">
-            <div className="animate-spin w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full mx-auto mb-3" />
-            جاري التحميل...
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <div className="animate-spin w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full" />
+            <span className="text-sm">جاري التحميل...</span>
           </div>
-        ) : vacancies.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <Briefcase className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p>لا توجد شواغر وظيفية</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">#</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">عنوان الوظيفة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الفرع</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الفترة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الشهادة</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">الشواغر</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">الحالة</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {vacancies.map((v, idx) => (
-                  <tr key={v.id} className={`border-b border-slate-100 hover:bg-sky-50/40 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/30' : ''}`} onClick={() => navigate(`/jobs/vacancies/${v.id}`)}>
-                    <td className="px-4 py-3 text-slate-500 font-mono text-xs">{v.id}</td>
-                    <td className="px-4 py-3 font-medium text-slate-800">{v.title}</td>
-                    <td className="px-4 py-3 text-slate-600"><span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-slate-400" />{v.branch}</span></td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        {v.startDate ? new Date(v.startDate).toLocaleDateString('ar-IQ') : '—'} → {v.endDate ? new Date(v.endDate).toLocaleDateString('ar-IQ') : '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600"><span className="flex items-center gap-1"><GraduationCap className="w-3.5 h-3.5 text-slate-400" />{v.requiredCertificate || '—'}</span></td>
-                    <td className="px-4 py-3 text-center"><span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold"><Users className="w-3 h-3" />{v.vacancyCount}</span></td>
-                    <td className="px-4 py-3 text-center"><span className={`px-3 py-1 rounded-full text-xs font-bold ${STATUS_COLORS[v.status]}`}>{STATUS_LABELS[v.status]}</span></td>
-                    <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
-                      <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => navigate(`/jobs/vacancies/${v.id}`)} className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="عرض"><Eye className="w-4 h-4" /></button>
-                        <PermissionGate permission="jobs.vacancies.edit">
-                          {v.status !== 'Archived' && <button onClick={() => openEdit(v)} className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="تعديل"><Edit className="w-4 h-4" /></button>}
-                        </PermissionGate>
-                        <PermissionGate permission="jobs.vacancies.change_status">
-                          {v.status === 'Open' && <button onClick={() => handleStatusChange(v.id, 'Closed')} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="إغلاق"><XCircle className="w-4 h-4" /></button>}
-                          {v.status === 'Closed' && (
-                            <>
-                              <button onClick={() => handleStatusChange(v.id, 'Open')} className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors" title="إعادة فتح"><RotateCcw className="w-4 h-4" /></button>
-                              <button onClick={() => handleStatusChange(v.id, 'Archived')} className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="أرشفة"><Archive className="w-4 h-4" /></button>
-                            </>
-                          )}
-                        </PermissionGate>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <SmartTable<JobVacancy>
+          title="الشواغر الوظيفية"
+          icon={Briefcase}
+          hideFilterBar={true}
+          data={vacancies}
+          columns={vacancyColumns}
+          getId={(v) => v.id}
+          onRowClick={(v) => navigate(`/jobs/vacancies/${v.id}`)}
+          tableMinWidth={880}
+          emptyIcon={Briefcase}
+          emptyMessage="لا توجد شواغر وظيفية"
+          actions={(v) => (
+            <div className="flex items-center gap-1">
+              <button onClick={(e) => { e.stopPropagation(); navigate(`/jobs/vacancies/${v.id}`); }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="عرض">
+                <Eye className="w-4 h-4" />
+              </button>
+              <PermissionGate permission="jobs.vacancies.edit">
+                {v.status !== 'Archived' && (
+                  <button onClick={(e) => { e.stopPropagation(); openEdit(v); }}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="تعديل">
+                    <Edit className="w-4 h-4" />
+                  </button>
+                )}
+              </PermissionGate>
+              <PermissionGate permission="jobs.vacancies.change_status">
+                {v.status === 'Open' && (
+                  <button onClick={(e) => { e.stopPropagation(); handleStatusChange(v.id, 'Closed'); }}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="إغلاق">
+                    <XCircle className="w-4 h-4" />
+                  </button>
+                )}
+                {v.status === 'Closed' && (
+                  <>
+                    <button onClick={(e) => { e.stopPropagation(); handleStatusChange(v.id, 'Open'); }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors" title="إعادة فتح">
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleStatusChange(v.id, 'Archived'); }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="أرشفة">
+                      <Archive className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </PermissionGate>
+            </div>
+          )}
+        />
+      )}
 
       {/* ── MODAL ── */}
       <AnimatePresence>
@@ -627,6 +789,7 @@ export default function Vacancies() {
                           if (wizardStep === 1) {
                             if (!formData.title?.trim()) { setFormError('عنوان الوظيفة مطلوب'); return; }
                             if (!formData.branch?.trim()) { setFormError('الفرع مطلوب'); return; }
+                            if (!formData.departmentId) { setFormError('القسم مطلوب'); return; }
                           }
                           setWizardStep(s => (s + 1) as 1 | 2 | 3);
                         }} className="px-6 py-2.5 text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl shadow-lg shadow-sky-500/25 transition-all flex items-center gap-2">

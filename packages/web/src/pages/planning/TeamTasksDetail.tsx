@@ -1,12 +1,14 @@
-import { useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useMemo, useEffect } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowRight, Users, User, Phone, MapPin, Clock, Calendar,
     AlertTriangle, DollarSign, PhoneCall, RefreshCw, RotateCcw,
     CheckCircle2, XCircle, Shuffle, Ban, Filter,
-    Route as RouteIcon, Zap, PhoneMissed, Loader2, Minus
+    Route as RouteIcon, Zap, PhoneMissed, Loader2, Minus,
+    Layers, Building2, Megaphone, Wrench
 } from 'lucide-react';
+import { api } from '../../lib/api';
 
 /* ------------------------------------------------------------------ */
 /*  Types & Config                                                      */
@@ -52,7 +54,7 @@ const teleStatusConfig: Record<TeleStatus, { label: string; icon: any; color: st
 const teamNames: Record<string, { name: string; supervisor: string; technician: string }> = {
     'team_0': { name: 'فريق ليلى أحمد', supervisor: 'ليلى أحمد', technician: 'أحمد علي' },
     'team_1': { name: 'فريق عمر حسن', supervisor: 'عمر حسن', technician: 'محمد جاسم' },
-    'solo_0': { name: 'فردي: فاطمة نور', supervisor: '—', technician: 'فاطمة نور' },
+    'solo_0': { name: 'طوارئ: فاطمة نور', supervisor: '—', technician: 'فاطمة نور' },
 };
 
 const mockTeamTasks: TeamTask[] = [
@@ -72,11 +74,25 @@ const mockTeamTasks: TeamTask[] = [
 
 export default function TeamTasksDetail() {
     const { teamKey } = useParams<{ teamKey: string }>();
+    const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
     const [tasks, setTasks] = useState<TeamTask[]>(mockTeamTasks);
+    const [workScope, setWorkScope] = useState<any>(null);
+    const [workScopeLoading, setWorkScopeLoading] = useState(false);
 
     const teamInfo = teamNames[teamKey || 'team_0'] || teamNames['team_0'];
+
+    // Load real work scope data alongside mock tasks
+    useEffect(() => {
+        if (!teamKey) return;
+        const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
+        setWorkScopeLoading(true);
+        api.workScopes.get(date, teamKey)
+            .then(scope => setWorkScope(scope))
+            .catch(() => setWorkScope(null))
+            .finally(() => setWorkScopeLoading(false));
+    }, [teamKey, searchParams]);
 
     // Filter
     const filteredTasks = useMemo(() => {
@@ -292,6 +308,52 @@ export default function TeamTasksDetail() {
                     </div>
                 )}
             </div>
+
+            {/* ─── WORK SCOPE PANEL ─── */}
+            {(workScopeLoading || workScope) && (
+                <div className="bg-violet-50 border-t border-violet-100 px-6 py-3 shrink-0">
+                    {workScopeLoading ? (
+                        <div className="flex items-center gap-2 text-xs text-violet-500">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>جاري تحميل نطاق العمل...</span>
+                        </div>
+                    ) : workScope && workScope.counts?.total > 0 ? (
+                        <div className="flex items-center gap-4 flex-wrap">
+                            <div className="flex items-center gap-1.5 text-xs text-violet-700 font-bold">
+                                <Layers className="w-3.5 h-3.5" />
+                                <span>نطاق العمل الفعلي:</span>
+                                <span className="bg-violet-200 text-violet-800 px-1.5 py-0.5 rounded font-black">{workScope.counts.total}</span>
+                            </div>
+                            {workScope.counts.marketing > 0 && (
+                                <div className="flex items-center gap-1 text-xs text-emerald-700">
+                                    <Megaphone className="w-3 h-3" />
+                                    <span>{workScope.counts.marketing} تسويق</span>
+                                </div>
+                            )}
+                            {workScope.counts.emergency > 0 && (
+                                <div className="flex items-center gap-1 text-xs text-red-600">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    <span>{workScope.counts.emergency} طوارئ</span>
+                                </div>
+                            )}
+                            {(workScope.counts.service + workScope.counts.other) > 0 && (
+                                <div className="flex items-center gap-1 text-xs text-blue-600">
+                                    <Wrench className="w-3 h-3" />
+                                    <span>{workScope.counts.service + workScope.counts.other} خدمة</span>
+                                </div>
+                            )}
+                            {workScope.tasks?.some((t: any) => t.ownershipType === 'company_branch') && (
+                                <div className="flex items-center gap-1 text-xs text-slate-500 mr-auto">
+                                    <Building2 className="w-3 h-3" />
+                                    <span>
+                                        {workScope.tasks.filter((t: any) => t.ownershipType === 'company_branch').length} مملوكة للشركة
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
+                </div>
+            )}
 
             {/* ─── FOOTER SUMMARY ─── */}
             <div className="bg-white border-t border-gray-200 px-6 py-3 flex items-center justify-between shrink-0">

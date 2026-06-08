@@ -6,8 +6,11 @@
   "exports": {
     ".": "./index.ts",
     "./types.js": "./types.ts",
+    "./workCoverage.js": "./workCoverage.ts",
     "./types/auth.js": "./types/auth.ts",
-    "./contracts/roles.js": "./contracts/roles.ts"
+    "./types/authorization.js": "./types/authorization.ts",
+    "./contracts/roles.js": "./contracts/roles.ts",
+    "./telemarketingOutcomes.js": "./telemarketingOutcomes.ts"
   },
   "dependencies": {
     "zod": "^4.3.6"

@@ -1,0 +1,134 @@
+تم تنفيذ **PHASE 3 فقط**: حجز الموعد في التيلماركتر صار ينشئ تلقائياً `marketing_visit` واحدة و`device_demo` task واحدة، من دون أي استخدام لجدول `visits` القديم.
+
+الملفات المعدلة:
+- [telemarketing.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/telemarketing.ts>)
+- [types.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/shared/types.ts>)
+
+**ما الذي تغير**
+
+إنشاء الموعد في [telemarketing.ts](</D:/OneDrive/سطح المكتب/golden-crm-clean/packages/api/routes/telemarketing.ts>) لم يكن transaction كاملة سابقاً. كان:
+- insert إلى `telemarketing_appointments`
+- ثم update لـ `contact_targets`
+- ثم response
+
+الآن صار داخل transaction واحدة:
+- insert appointment
+- update `contact_targets.status = booked` و`latestAppointmentId`
+- create/find `marketing_visit`
+- create `marketing_visit_task` من نوع `device_demo`
+- ثم `COMMIT`
+
+**كيف يتم إنشاء Marketing Visit**
+
+أضفت helper داخلي:
+- `createMarketingVisitForAppointment(...)`
+
+سلوكه:
+- إذا كانت `entityType !== 'client'` يرجع `null` ولا ينشئ زيارة
+- إذا كانت `entityType === 'client'`:
+  - ينشئ صفاً في `marketing_visits`
+  - أو يعيد نفس الزيارة الموجودة لنفس `source_type/source_id`
+  - ثم يضمن وجود task واحدة من نوع `device_demo`
+
+**الـ field mapping**
+
+الزيارة الجديدة تُبنى من الموعد الحالي كما يلي:
+- `branch_id = branchId`
+- `client_id = taskListItem.entity_id`
+- `visit_type = 'marketing'`
+- `status = 'scheduled'`
+- `scheduled_date = appointment.date`
+- `scheduled_time = appointment.timeSlot`
+- `source_type = 'telemarketing_appointment'`
+- `source_id = appointment.id`
+- `contact_target_id = contactTargetId`
+- `task_list_id = appointment.taskListId`
+- `task_list_item_id = appointment.taskListItemId`
+- `team_key = appointment.teamKey`
+- `requested_device_model_id = appointment.requestedDeviceModelId`
+- `requested_device_name = appointment.requestedDeviceName`
+- `water_source = appointment.waterSource`
+- `technician_notes = appointment.notes`
+- `customer_name = appointment.customerName`
+- `customer_address = appointment.customerAddress`
+- `customer_mobile = appointment.customerMobile`
+- `created_by = auth user id`
+
+**كيف تُنشأ device_demo task**
+
+يتم إنشاء task واحدة في `marketing_visit_tasks` بهذه القيم:
+- `task_type = 'device_demo'`
+- `status = 'pending'`
+- `result = null`
+- `cash_offer_amount = null`
+- `installment_amount = null`
+- `installment_months = null`
+- `closed_by_employee_id = null`
+- `result_notes = null`
+- `contract_id = null`
+- `completed_at = null`
+
+**منع التكرار**
+
+منع duplication صار على مستويين:
+- `marketing_visits` تعتمد على `UNIQUE(source_type, source_id)` الموجود من Phase 2
+- helper يستخدم `INSERT ... ON CONFLICT (source_type, source_id) DO UPDATE ... RETURNING id`
+- task `device_demo` تعتمد على `UNIQUE(visit_id, task_type)` من Phase 2
+- والإدخال يستخدم `ON CONFLICT (visit_id, task_type) DO NOTHING`
+
+بالتالي:
+- retry لنفس appointment لا ينشئ زيارة ثانية
+- ولا ينشئ task ثانية
+
+**team snapshot**
+
+نعم، تم التقاط team snapshot إذا أمكن من `day_schedules` باستخدام:
+- `appointment.date`
+- `appointment.teamKey`
+
+ويتم حفظ:
+- `supervisor_employee_id`
+- `technician_employee_id`
+- `trainee_employee_id`
+- `team_snapshot` JSON
+
+وإذا كان `teamKey` من نوع `solo_X`:
+- يتم حفظ `technician_employee_id` إن وجد
+- والباقي يبقى `null`
+
+**شكل response للموعد**
+
+رد `POST /telemarketing/appointments` صار يحتوي الآن أيضاً:
+- `taskListId`
+- `taskListItemId`
+- `marketingVisitId`
+
+وأضفت في shared type:
+- `Appointment.marketingVisitId?: string | null`
+
+**ما لم يتغير**
+
+- لم يتم لمس جدول `visits` القديم إطلاقاً
+- لم يتم إنشاء عقود
+- لم يتم تنفيذ أي Marketing Visits API
+- لم يتم تنفيذ أي واجهة frontend جديدة
+- لم يتم تغيير telemarketing outcome behavior
+- لم يتم تغيير booked agenda flow الحالي
+
+**نتائج TypeScript**
+- `packages/shared`: ناجح
+- `packages/api`: ناجح
+- `packages/web`: ناجح
+
+**ملاحظتان مهمتان**
+- `telemarketing_appointments` نفسها ما زالت لا تخزن `task_list_id/task_list_item_id` في جدولها؛ لذلك يتم تمرير هاتين القيمتين مباشرة من request إلى `marketing_visits` عند الإنشاء.
+- لم أشغّل فحص قاعدة بيانات يدوي فعلي لإنشاء appointment حقيقي داخل الواجهة هنا، لذلك التحقق اليدوي المطلوب التالي سيكون:
+  1. حجز موعد من TelemarketerWorkspace
+  2. التأكد من وجود صف في `telemarketing_appointments`
+  3. التأكد من وجود صف واحد فقط مطابق في `marketing_visits`
+  4. التأكد من وجود task واحدة فقط `device_demo` في `marketing_visit_tasks`
+
+تأكيد نهائي:
+- جدول `visits` القديم لم يُمس
+- لا يوجد contract creation
+- كل appointment محجوزة لعميل `client` تنشئ الآن Marketing Visit MVP معزولة وآمنة

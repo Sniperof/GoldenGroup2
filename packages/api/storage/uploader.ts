@@ -1,11 +1,9 @@
 import multer from 'multer';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { UPLOADS_DIR } from '../config/env.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-export const UPLOADS_DIR = path.resolve(__dirname, '..', '..', '..', 'uploads');
+export { UPLOADS_DIR };
 
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -20,16 +18,20 @@ const storage = multer.diskStorage({
   },
 });
 
-const fileFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.pdf', '.doc', '.docx'];
-  const ext = path.extname(file.originalname).toLowerCase();
+const IMAGE_EXTS  = ['.jpg', '.jpeg', '.png', '.webp'];
+const DOC_EXTS    = ['.pdf', '.doc', '.docx'];
+const VIDEO_EXTS  = ['.mp4', '.mov', '.avi', '.webm'];
 
-  if (allowed.includes(ext)) cb(null, true);
+const fileFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if ([...IMAGE_EXTS, ...DOC_EXTS, ...VIDEO_EXTS].includes(ext)) cb(null, true);
   else cb(new Error('نوع الملف غير مدعوم'));
 };
 
 export const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: 150 * 1024 * 1024 }, // 150 MB — covers 20-sec video
 });
+
+export { IMAGE_EXTS, VIDEO_EXTS };

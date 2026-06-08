@@ -4,6 +4,7 @@ import Login from './pages/auth/Login';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import MainLayout from './layout/MainLayout';
 import Dashboard from './pages/Dashboard';
+import SupervisorAlertsPage from './pages/supervisor/SupervisorAlertsPage';
 import GeoSettings from './pages/GeoSettings';
 import RouteManager from './pages/RouteManager';
 import Employees from './pages/Employees';
@@ -14,20 +15,29 @@ import CandidatesEntry from './pages/candidates/CandidatesEntry';
 import TeamScheduler from './pages/planning/TeamScheduler';
 import RouteAssigner from './pages/planning/RouteAssigner';
 import PlanOverview from './pages/planning/PlanOverview';
+import PlanningContactTargets from './pages/planning/PlanningContactTargets';
 import TodaysTasks from './pages/tasks/TodaysTasks';
 import EmergencyTasks from './pages/tasks/EmergencyTasks';
+import EmergencyTaskDetail from './pages/tasks/EmergencyTaskDetail';
 import Dues from './pages/tasks/Dues';
 import Periodic from './pages/tasks/Periodic';
 import Returns from './pages/tasks/Returns';
 import FollowUp from './pages/tasks/FollowUp';
 import DeviceManagement from './pages/DeviceManagement';
+import DeviceDetail from './pages/DeviceDetail';
+import DeviceProfilePage from './pages/devices/DeviceProfilePage'; // DEC-CT plan §2
 import ContractList from './pages/contracts/ContractList';
 import ContractForm from './pages/contracts/ContractForm';
+import ContractDetail from './pages/contracts/ContractDetail';
 import TelemarketerWorkspace from './pages/TelemarketerWorkspace';
 import TeamTasksDetail from './pages/planning/TeamTasksDetail';
-import MarketingOperations from './pages/tasks/MarketingOperations';
+import DeviceDemo from './pages/tasks/DeviceDemo';
+import DeviceDemoDetail from './pages/tasks/DeviceDemoDetail';
+import PostSaleTaskDetail from './pages/tasks/PostSaleTaskDetail';
+import OpenTasks from './pages/OpenTasks';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
+import BranchDetail from './pages/admin/BranchDetail';
 import Vacancies from './pages/jobs/Vacancies';
 import VacancyDetail from './pages/jobs/VacancyDetail';
 import PublicJobs from './pages/jobs/PublicJobs';
@@ -40,6 +50,15 @@ import TrainingCourseDetail from './pages/jobs/TrainingCourseDetail';
 import SystemLists from './pages/admin/SystemLists';
 import Roles from './pages/admin/Roles';
 import RolePermissions from './pages/admin/RolePermissions';
+import PermissionSettings from './pages/admin/PermissionSettings';
+import TaskTypes from './pages/admin/TaskTypes';
+import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
+import VisitsListPage from './pages/visits/VisitsListPage';
+import VisitDetailPage from './pages/visits/VisitDetailPage';
+import TaskGroupPage from './pages/tasks/TaskGroupPage';
+import ServiceRequestsListPage from './pages/service-requests/ServiceRequestsListPage';
+import ServiceRequestDetailPage from './pages/service-requests/ServiceRequestDetailPage';
+import NewServiceRequestPage from './pages/service-requests/NewServiceRequestPage';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -57,6 +76,9 @@ export default function App() {
                     <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/devices" element={<DeviceManagement />} />
+                        <Route path="/devices/:id" element={<DeviceDetail />} />
+                        {/* DEC-CT plan §2 — standalone profile for a customer's installed device */}
+                        <Route path="/installed-devices/:id" element={<DeviceProfilePage />} />
                         <Route path="/geo" element={<GeoSettings />} />
                         <Route path="/routes" element={<RouteManager />} />
                         <Route path="/employees" element={<Employees />} />
@@ -67,21 +89,40 @@ export default function App() {
                         <Route path="/planning/schedule" element={<TeamScheduler />} />
                         <Route path="/planning/assign" element={<RouteAssigner />} />
                         <Route path="/planning/overview" element={<PlanOverview />} />
+                        <Route path="/planning/contact-targets/:teamKey" element={<PlanningContactTargets />} />
                         <Route path="/planning/team-tasks/:teamKey" element={<TeamTasksDetail />} />
                         <Route path="/tasks/today" element={<TodaysTasks />} />
                         <Route path="/tasks/emergency" element={<EmergencyTasks />} />
+                        <Route path="/tasks/emergency/:id" element={<EmergencyTaskDetail />} />
                         <Route path="/tasks/dues" element={<Dues />} />
                         <Route path="/tasks/periodic" element={<Periodic />} />
                         <Route path="/tasks/returns" element={<Returns />} />
                         <Route path="/tasks/followup" element={<FollowUp />} />
-                        <Route path="/operations/marketing" element={<MarketingOperations />} />
+                        <Route path="/tasks/open" element={<OpenTasks />} />
+                        <Route path="/tasks/device-demo" element={<DeviceDemo />} />
+                        <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
+                        <Route path="/tasks/after-sale-services/:id" element={<PostSaleTaskDetail />} />
+                        {/* Unified open_task detail under group URL — V1.0 reuses EmergencyTaskDetail. */}
+                        <Route path="/tasks/group/maintenance/:id" element={<EmergencyTaskDetail />} />
+                        {/* Unified task groups (2026-06-01) — single page, 6 display_groups */}
+                        <Route path="/tasks/group/:group" element={<TaskGroupPage />} />
+                        <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
+                        {/* Service Requests intake (٠.١٦ — GLOBAL) */}
+                        <Route path="/service-requests" element={<ServiceRequestsListPage />} />
+                        <Route path="/service-requests/new" element={<NewServiceRequestPage />} />
+                        <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
+                        <Route path="/field-visits" element={<VisitsListPage />} />
+                        <Route path="/field-visits/:id" element={<VisitDetailPage />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />
+                        <Route path="/contracts/:id/edit" element={<ContractForm />} />
+                        <Route path="/contracts/:id" element={<ContractDetail />} />
 
                         <Route path="/telemarketer" element={<TelemarketerWorkspace />} />
                         <Route path="/settings" element={<SystemSettings />} />
                         <Route path="/system-lists" element={<SystemLists />} />
                         <Route path="/branches" element={<Branches />} />
+                        <Route path="/branches/:id" element={<BranchDetail />} />
 
                         {/* Job Applications Epic */}
                         <Route path="/jobs/vacancies" element={<Vacancies />} />
@@ -94,9 +135,15 @@ export default function App() {
                         <Route path="/jobs/training-courses" element={<TrainingCourses />} />
                         <Route path="/jobs/training-courses/:id" element={<TrainingCourseDetail />} />
 
+                        {/* Supervisor */}
+                        <Route path="/supervisor/alerts" element={<SupervisorAlertsPage />} />
+
                         {/* Admin */}
                         <Route path="/admin/roles" element={<Roles />} />
                         <Route path="/admin/roles/:id/permissions" element={<RolePermissions />} />
+                        <Route path="/admin/permissions-settings" element={<PermissionSettings />} />
+                        <Route path="/admin/task-types" element={<TaskTypes />} />
+                        <Route path="/admin/emergency-action-types" element={<EmergencyActionTypes />} />
                     </Route>
                 </Routes>
             </ErrorBoundary>

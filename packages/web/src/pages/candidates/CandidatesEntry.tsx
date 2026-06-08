@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit } from 'lucide-react';
+import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit, User } from 'lucide-react';
 import AddCandidateModal from '../../components/candidates/AddCandidateModal';
 import CreateReferralSheetModal from '../../components/candidates/CreateReferralSessionModal';
 import ImportCSVModal from '../../components/candidates/ImportCSVModal';
@@ -10,8 +10,28 @@ import QualificationModal from '../../components/candidates/QualificationModal';
 import ClientModal from '../../components/ClientModal';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
+import { usePermissions } from '../../hooks/usePermissions';
+import { formatGeoUnitLastLevels } from '../../components/GeoSmartSearch';
+
+const referralTypeLabels: Record<string, string> = {
+    Personal: 'شخصي',
+    Employee: 'موظف',
+    Client: 'زبون',
+    Unknown: 'غير معروف',
+};
+
+const getReferralTypeLabel = (type?: string | null) => {
+    if (!type) return '--';
+    return referralTypeLabels[type] || type;
+};
 
 export default function CandidatesEntry() {
+    const { hasAnyPermission, hasPermission } = usePermissions();
+    const canViewNameLists = hasAnyPermission('candidates.name_lists.view_list', 'referral_sheets.view_list');
+    const canCreateNameLists = hasAnyPermission('candidates.name_lists.create', 'referral_sheets.create');
+    const canCreateCandidates = hasPermission('candidates.create');
+    const canEditCandidates = hasPermission('candidates.edit');
+
     // UI State
     const [activeTab, setActiveTab] = useState<'candidates' | 'sheets'>('candidates');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -20,6 +40,17 @@ export default function CandidatesEntry() {
     const [sheetDetailsId, setSheetDetailsId] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [errorModal, setErrorModal] = useState<string | null>(null);
+
+    // Candidate Filters
+    const [candidateStatusFilter, setCandidateStatusFilter] = useState('');
+    const [candidateSupervisorFilter, setCandidateSupervisorFilter] = useState('');
+    const [candidateBranchFilter, setCandidateBranchFilter] = useState('');
+
+    // Sheet Filters
+    const [sheetSearchQuery, setSheetSearchQuery] = useState('');
+    const [sheetStatusFilter, setSheetStatusFilter] = useState('');
+    const [sheetSupervisorFilter, setSheetSupervisorFilter] = useState('');
+    const [sheetBranchFilter, setSheetBranchFilter] = useState('');
 
     // Pagination State
     const [candidatePage, setCandidatePage] = useState(1);
@@ -33,7 +64,6 @@ export default function CandidatesEntry() {
     const qualifyCandidate = useCandidateStore(state => state.qualifyCandidate);
     const linkCandidateToClient = useCandidateStore(state => state.linkCandidateToClient);
     const markJunk = useCandidateStore(state => state.markJunk);
-    const markForFollowUp = useCandidateStore(state => state.markForFollowUp);
 
     // New Qualification & Client Modals
     const [isQualifyModalOpen, setIsQualifyModalOpen] = useState(false);
@@ -43,21 +73,61 @@ export default function CandidatesEntry() {
     const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
 
-    // Derived State
-    const filteredCandidates = candidates
-        .filter(c => {
-            const fullStr = `${c.firstName || ''} ${c.nickname || ''} ${c.lastName || ''} ${c.mobile}`.toLowerCase();
-            return fullStr.includes(searchQuery.toLowerCase());
-        })
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Derived: unique supervisors and branches for filter dropdowns
+    const candidateSupervisors = useMemo(() =>
+        [...new Set(candidates.flatMap(c => (c.assignments || []).map(a => a.userName)))].sort(),
+        [candidates]
+    );
+    const candidateBranches = useMemo(() =>
+        [...new Set(candidates.map(c => c.branchName).filter(Boolean) as string[])].sort(),
+        [candidates]
+    );
+    const sheetSupervisors = useMemo(() =>
+        [...new Set(referralSheets.map(s => s.assignedHrUserName).filter(Boolean) as string[])].sort(),
+        [referralSheets]
+    );
+    const sheetBranches = useMemo(() =>
+        [...new Set(referralSheets.map(s => s.branchName).filter(Boolean) as string[])].sort(),
+        [referralSheets]
+    );
+
+    // Derived State: filtered candidates
+    const filteredCandidates = useMemo(() =>
+        candidates
+            .filter(c => {
+                const fullStr = `${c.firstName || ''} ${c.nickname || ''} ${c.lastName || ''} ${c.mobile}`.toLowerCase();
+                if (searchQuery && !fullStr.includes(searchQuery.toLowerCase())) return false;
+                if (candidateStatusFilter && c.status !== candidateStatusFilter) return false;
+                if (candidateSupervisorFilter && !(c.assignments || []).some(a => a.userName === candidateSupervisorFilter)) return false;
+                if (candidateBranchFilter && c.branchName !== candidateBranchFilter) return false;
+                return true;
+            })
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+        [candidates, searchQuery, candidateStatusFilter, candidateSupervisorFilter, candidateBranchFilter]
+    );
+
+    // Derived State: filtered sheets
+    const filteredSheets = useMemo(() =>
+        referralSheets.filter(s => {
+            if (sheetSearchQuery) {
+                const q = sheetSearchQuery.toLowerCase();
+                if (!s.referralNameSnapshot.toLowerCase().includes(q)) return false;
+            }
+            if (sheetStatusFilter && s.status !== sheetStatusFilter) return false;
+            if (sheetSupervisorFilter && s.assignedHrUserName !== sheetSupervisorFilter) return false;
+            if (sheetBranchFilter && s.branchName !== sheetBranchFilter) return false;
+            return true;
+        }),
+        [referralSheets, sheetSearchQuery, sheetStatusFilter, sheetSupervisorFilter, sheetBranchFilter]
+    );
 
     // Pagination for Candidates
     const totalCandidatePages = Math.ceil(filteredCandidates.length / ITEMS_PER_PAGE);
     const paginatedCandidates = filteredCandidates.slice((candidatePage - 1) * ITEMS_PER_PAGE, candidatePage * ITEMS_PER_PAGE);
 
     // Pagination for Sheets
-    const totalSheetsPages = Math.ceil(referralSheets.length / ITEMS_PER_PAGE);
-    const paginatedSheets = referralSheets.slice((sheetsPage - 1) * ITEMS_PER_PAGE, sheetsPage * ITEMS_PER_PAGE);
+    const totalSheetsPages = Math.ceil(filteredSheets.length / ITEMS_PER_PAGE);
+    const paginatedSheets = filteredSheets.slice((sheetsPage - 1) * ITEMS_PER_PAGE, sheetsPage * ITEMS_PER_PAGE);
 
     const handleOpenQualify = (candidate: Candidate) => {
         setActiveCandidateForQualify(candidate);
@@ -84,6 +154,8 @@ export default function CandidatesEntry() {
             referralReason: candidate.referralReason,
             referralSheetId: candidate.referralSheetId,
             referralAddressText: candidate.addressText,
+            branchId: candidate.branchId,
+            assignments: candidate.assignments,
             isCandidate: false,
             candidateStatus: 'Lead'
         };
@@ -138,8 +210,13 @@ export default function CandidatesEntry() {
         return `${subArea.name} > ${neighborhood.name}`;
     };
 
+    const getCandidateAddressDisplay = (candidate: Candidate) => {
+        const savedText = candidate.addressText && candidate.addressText !== 'غير محدد' ? candidate.addressText : '';
+        return formatGeoUnitLastLevels(geoUnits, candidate.geoUnitId) || savedText || '--';
+    };
+
     return (
-        <div className="flex flex-col h-full p-8 space-y-6 overflow-hidden" dir="rtl">
+        <div className="p-8 space-y-6" dir="rtl">
             {/* Error Message Modal */}
             {errorModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
@@ -160,12 +237,16 @@ export default function CandidatesEntry() {
                         <p className="text-sm text-slate-500 mt-1">فلترة، تدقيق، وتوجيه الأسماء الجديدة</p>
                     </div>
                     <div className="flex gap-2">
+                        {canCreateNameLists && (
                         <button onClick={() => setIsCreateSheetOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-bold shadow-sm transition-all text-sm">
-                            <FilePlus2 className="w-4 h-4" /> ورقة جديدة
+                            <FilePlus2 className="w-4 h-4" /> لائحة جديدة
                         </button>
+                        )}
+                        {canCreateCandidates && (
                         <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all">
                             <UserPlus className="w-4 h-4" /> إضافة اسم
                         </button>
+                        )}
                     </div>
                 </div>
 
@@ -177,30 +258,71 @@ export default function CandidatesEntry() {
                     >
                         <List className="w-4 h-4" /> سجل الأسماء ({filteredCandidates.length})
                     </button>
+                    {canViewNameLists && (
                     <button
                         onClick={() => setActiveTab('sheets')}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'sheets' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
-                        <LayoutGrid className="w-4 h-4" /> أوراق الترشيح ({referralSheets.length})
+                        <LayoutGrid className="w-4 h-4" /> لوائح الأسماء ({filteredSheets.length})
                     </button>
+                    )}
                 </div>
             </div>
 
             {/* TAB CONTENT: Candidates List */}
             {activeTab === 'candidates' && (
                 <div className="flex flex-col border rounded-2xl border-slate-200 bg-white shadow-sm overflow-hidden">
-                    {/* Search Bar for Candidates */}
-                    <div className="p-4 border-b border-slate-100 bg-slate-50/30">
-                        <div className="relative max-w-md">
+                    {/* Filters Bar for Candidates */}
+                    <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex flex-wrap gap-3 items-center">
+                        <div className="relative flex-1 min-w-[180px]">
                             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                             <input
                                 type="text"
-                                placeholder="بحث في السجل العام (اسم، رقم، وسيط)..."
+                                placeholder="بحث (اسم، رقم، وسيط)..."
                                 value={searchQuery}
                                 onChange={(e) => { setSearchQuery(e.target.value); setCandidatePage(1); }}
                                 className="w-full pl-4 pr-10 py-2 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
                             />
                         </div>
+                        <select
+                            value={candidateStatusFilter}
+                            onChange={(e) => { setCandidateStatusFilter(e.target.value); setCandidatePage(1); }}
+                            className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
+                        >
+                            <option value="">كل الحالات</option>
+                            <option value="Suggested">مقترح</option>
+                            <option value="FollowUp">متابعة</option>
+                            <option value="Qualified">محوَّل</option>
+                            <option value="Junk">مرفوض</option>
+                        </select>
+                        {candidateSupervisors.length > 0 && (
+                            <select
+                                value={candidateSupervisorFilter}
+                                onChange={(e) => { setCandidateSupervisorFilter(e.target.value); setCandidatePage(1); }}
+                                className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
+                            >
+                                <option value="">كل المسؤولين</option>
+                                {candidateSupervisors.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        )}
+                        {candidateBranches.length > 0 && (
+                            <select
+                                value={candidateBranchFilter}
+                                onChange={(e) => { setCandidateBranchFilter(e.target.value); setCandidatePage(1); }}
+                                className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
+                            >
+                                <option value="">كل الفروع</option>
+                                {candidateBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                        )}
+                        {(searchQuery || candidateStatusFilter || candidateSupervisorFilter || candidateBranchFilter) && (
+                            <button
+                                onClick={() => { setSearchQuery(''); setCandidateStatusFilter(''); setCandidateSupervisorFilter(''); setCandidateBranchFilter(''); setCandidatePage(1); }}
+                                className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors"
+                            >
+                                <XCircle className="w-4 h-4" /> مسح الفلاتر
+                            </button>
+                        )}
                     </div>
 
                     <div className="flex-1 overflow-y-auto custom-scroll" style={{ maxHeight: '480px' }}>
@@ -208,19 +330,21 @@ export default function CandidatesEntry() {
                             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                                 <tr className="text-slate-600 font-bold text-xs uppercase tracking-wider">
                                     <th className="px-5 h-12">ID</th>
+                                    <th className="px-5 h-12">تاريخ الإضافة</th>
                                     <th className="px-5 h-12">الاسم المقترح</th>
                                     <th className="px-5 h-12">أرقام التواصل</th>
+                                    <th className="px-5 h-12">العنوان</th>
                                     <th className="px-5 h-12">اسم الوسيط</th>
                                     <th className="px-5 h-12">نوع الترشيح</th>
-                                    <th className="px-5 h-12">العنوان</th>
-                                    <th className="px-5 h-12">المهنة</th>
+                                    <th className="px-5 h-12">المسؤولون</th>
+                                    <th className="px-5 h-12">الفرع</th>
                                     <th className="px-5 h-12">الحالة</th>
                                     <th className="px-5 h-12 text-center">الإجراءات</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {paginatedCandidates.length === 0 ? (
-                                    <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400 font-medium">لا توجد بيانات</td></tr>
+                                    <tr><td colSpan={11} className="px-6 py-12 text-center text-slate-400 font-medium">لا توجد بيانات</td></tr>
                                 ) : (
                                     paginatedCandidates.map(c => {
                                         const nameStr = c.firstName
@@ -234,6 +358,9 @@ export default function CandidatesEntry() {
                                         return (
                                             <tr key={c.id} className="hover:bg-slate-50 transition-colors h-12 group">
                                                 <td className="px-5 py-2 font-mono text-xs text-slate-500">#{c.id}</td>
+                                                <td className="px-5 py-2 text-xs text-slate-600 whitespace-nowrap">
+                                                    {c.createdAt ? new Date(c.createdAt).toLocaleDateString('ar-SY') : '--'}
+                                                </td>
                                                 <td className="px-5 py-2">
                                                     <div className="font-bold text-slate-800">{nameStr}</div>
                                                 </td>
@@ -247,6 +374,12 @@ export default function CandidatesEntry() {
                                                         )}
                                                     </div>
                                                 </td>
+                                                <td className="px-5 py-2 text-xs text-slate-600">
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        <MapPin className="w-3 h-3 text-slate-400" />
+                                                        {getCandidateAddressDisplay(c)}
+                                                    </span>
+                                                </td>
                                                 <td className="px-5 py-2 text-xs font-medium text-slate-700">
                                                     {c.referralType === 'Client' && c.referralEntityId ? (
                                                         <Link to={`/clients/${c.referralEntityId}`} className="text-sky-600 hover:text-sky-800 hover:underline">
@@ -259,17 +392,39 @@ export default function CandidatesEntry() {
                                                 <td className="px-5 py-2 text-xs">
                                                     {c.referralSheetId ? (
                                                         <button onClick={() => setSheetDetailsId(c.referralSheetId!)} className="text-sky-600 hover:underline font-medium">
-                                                            ورقة ترشيح #{c.referralSheetId}
+                                                            لائحة #{c.referralSheetId}
                                                         </button>
                                                     ) : (
-                                                        <span className="text-slate-600">ترشيح مباشر</span>
+                                                        <span className="text-slate-600">مباشر</span>
                                                     )}
                                                 </td>
-                                                <td className="px-5 py-2 text-xs text-slate-600 max-w-[150px] truncate" title={getNeighborhoodHierarchy(c.geoUnitId?.toString())}>
-                                                    {getNeighborhoodHierarchy(c.geoUnitId?.toString())}
+                                                <td className="px-5 py-2 text-xs">
+                                                    {(() => {
+                                                        const list = c.assignments || [];
+                                                        if (list.length === 0) return <span className="text-slate-400">--</span>;
+                                                        const visible = list.slice(0, 2);
+                                                        const extra = list.length - visible.length;
+                                                        return (
+                                                            <div className="flex flex-col gap-0.5">
+                                                                {visible.map((a, i) => (
+                                                                    <div key={i} className="leading-4">
+                                                                        <span className="font-bold text-slate-700">{a.userName}</span>
+                                                                        {a.roleDisplayName && <span className="text-slate-400"> · {a.roleDisplayName}</span>}
+                                                                    </div>
+                                                                ))}
+                                                                {extra > 0 && <span className="text-[10px] text-sky-500 font-bold">+{extra} آخرين</span>}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
-                                                <td className="px-5 py-2 text-xs text-slate-600">
-                                                    {c.occupation || '--'}
+                                                <td className="px-5 py-2 text-xs">
+                                                    {c.branchName ? (
+                                                        <span className="flex items-center gap-1 text-slate-600">
+                                                            <Building2 className="w-3 h-3 text-slate-400" />{c.branchName}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400">--</span>
+                                                    )}
                                                 </td>
                                                 <td className="px-5 py-2 text-xs">
                                                     <span className={`px-2 py-0.5 rounded text-[10px] font-black border ${c.status === 'Suggested' ? 'bg-sky-50 text-sky-700 border-sky-100' : c.status === 'Qualified' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
@@ -278,7 +433,19 @@ export default function CandidatesEntry() {
                                                 </td>
                                                 <td className="px-5 py-2">
                                                     <div className="flex items-center justify-center gap-2">
-                                                        {(c.status === 'Suggested' || c.status === 'FollowUp') && (
+                                                        {canEditCandidates && c.status !== 'Qualified' && c.status !== 'Junk' && c.convertedToLeadId == null && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingCandidate(c);
+                                                                    setIsAddModalOpen(true);
+                                                                }}
+                                                                className="w-8 h-8 flex items-center justify-center bg-slate-50 text-slate-600 hover:bg-slate-600 hover:text-white rounded-lg border border-slate-200 transition-all"
+                                                                title="تعديل"
+                                                            >
+                                                                <Edit className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                        {canEditCandidates && (c.status === 'Suggested' || c.status === 'FollowUp') && (
                                                             <button
                                                                 onClick={() => handleOpenQualify(c)}
                                                                 className="w-8 h-8 flex items-center justify-center bg-sky-50 text-sky-600 hover:bg-sky-600 hover:text-white rounded-lg border border-sky-100 transition-all"
@@ -322,13 +489,67 @@ export default function CandidatesEntry() {
             )}
 
             {/* TAB CONTENT: Sheets List */}
-            {activeTab === 'sheets' && (
+            {activeTab === 'sheets' && canViewNameLists && (
                 <div className="flex flex-col border rounded-2xl border-slate-200 bg-white shadow-sm overflow-hidden">
+                    {/* Filters Bar for Sheets */}
+                    <div className="p-4 border-b border-slate-100 bg-amber-50/20 flex flex-wrap gap-3 items-center">
+                        <div className="relative flex-1 min-w-[180px]">
+                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <input
+                                type="text"
+                                placeholder="بحث باسم الوسيط..."
+                                value={sheetSearchQuery}
+                                onChange={(e) => { setSheetSearchQuery(e.target.value); setSheetsPage(1); }}
+                                className="w-full pl-4 pr-10 py-2 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white"
+                            />
+                        </div>
+                        <select
+                            value={sheetStatusFilter}
+                            onChange={(e) => { setSheetStatusFilter(e.target.value); setSheetsPage(1); }}
+                            className="py-2 px-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white text-slate-700"
+                        >
+                            <option value="">كل الحالات</option>
+                            <option value="New">نشط</option>
+                            <option value="Completed">مكتمل</option>
+                            <option value="Archived">مؤرشف</option>
+                        </select>
+                        {sheetSupervisors.length > 0 && (
+                            <select
+                                value={sheetSupervisorFilter}
+                                onChange={(e) => { setSheetSupervisorFilter(e.target.value); setSheetsPage(1); }}
+                                className="py-2 px-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white text-slate-700"
+                            >
+                                <option value="">كل المشرفات</option>
+                                {sheetSupervisors.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        )}
+                        {sheetBranches.length > 0 && (
+                            <select
+                                value={sheetBranchFilter}
+                                onChange={(e) => { setSheetBranchFilter(e.target.value); setSheetsPage(1); }}
+                                className="py-2 px-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white text-slate-700"
+                            >
+                                <option value="">كل الفروع</option>
+                                {sheetBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                        )}
+                        {(sheetSearchQuery || sheetStatusFilter || sheetSupervisorFilter || sheetBranchFilter) && (
+                            <button
+                                onClick={() => { setSheetSearchQuery(''); setSheetStatusFilter(''); setSheetSupervisorFilter(''); setSheetBranchFilter(''); setSheetsPage(1); }}
+                                className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors"
+                            >
+                                <XCircle className="w-4 h-4" /> مسح الفلاتر
+                            </button>
+                        )}
+                    </div>
+
                     <div className="flex-1 overflow-y-auto custom-scroll" style={{ maxHeight: '480px' }}>
                         <table className="w-full text-sm text-right border-collapse">
                             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                                 <tr className="text-slate-600 font-bold text-xs uppercase tracking-wider">
                                     <th className="px-5 h-12 text-right">رقم الورقة / المصدر</th>
+                                    <th className="px-5 h-12 text-right">المشرفة</th>
+                                    <th className="px-5 h-12 text-right">الفرع</th>
                                     <th className="px-5 h-12 text-center">الأسماء</th>
                                     <th className="px-5 h-12 text-center">الجودة</th>
                                     <th className="px-5 h-12 text-center">التحويل</th>
@@ -338,7 +559,7 @@ export default function CandidatesEntry() {
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {paginatedSheets.length === 0 ? (
-                                    <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-medium font-bold">لا توجد أوراق ترشيح مضافة بعد</td></tr>
+                                    <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-400 font-medium font-bold">لا توجد نتائج مطابقة للفلاتر المحددة</td></tr>
                                 ) : (
                                     paginatedSheets.map(sheet => (
                                         <tr key={sheet.id} className="hover:bg-amber-50/30 transition-colors h-12 group">
@@ -349,11 +570,59 @@ export default function CandidatesEntry() {
                                                     </div>
                                                     <div>
                                                         <div className="font-bold text-slate-800 group-hover:text-amber-700 transition-colors">{sheet.referralNameSnapshot}</div>
-                                                        <div className="text-[10px] text-slate-400">{sheet.referralType}</div>
+                                                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                            <span className="text-[10px] text-slate-400">{getReferralTypeLabel(sheet.referralType)}</span>
+                                                            {sheet.fieldVisitId ? (
+                                                                <Link
+                                                                    to={`/field-visits/${sheet.fieldVisitId}`}
+                                                                    className="inline-flex items-center gap-1 rounded-md border border-sky-100 bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700 hover:border-sky-200 hover:bg-sky-100"
+                                                                >
+                                                                    من زيارة #{sheet.fieldVisitId}
+                                                                </Link>
+                                                            ) : (
+                                                                <span className="inline-flex items-center rounded-md border border-slate-100 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
+                                                                    يدوي
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="px-5 py-2 text-center font-bold text-slate-700">{sheet.stats?.totalCandidates || 0}</td>
+                                            <td className="px-5 py-2 text-xs">
+                                                {sheet.assignedHrUserName ? (
+                                                    <span className="flex items-center gap-1 text-violet-700 font-medium">
+                                                        <User className="w-3 h-3" />{sheet.assignedHrUserName}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-400">--</span>
+                                                )}
+                                            </td>
+                                            <td className="px-5 py-2 text-xs">
+                                                {sheet.branchName ? (
+                                                    <span className="flex items-center gap-1 text-slate-600">
+                                                        <Building2 className="w-3 h-3 text-slate-400" />{sheet.branchName}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-400">--</span>
+                                                )}
+                                            </td>
+                                            <td className="px-5 py-2 text-center font-bold text-slate-700">
+                                                {sheet.fieldVisitId && (sheet.stats?.targetCandidates ?? 0) > 0 ? (
+                                                    <span>
+                                                        <span className={
+                                                            (sheet.stats?.totalCandidates || 0) >= (sheet.stats?.targetCandidates ?? 0)
+                                                                ? 'text-emerald-600'
+                                                                : 'text-amber-600'
+                                                        }>
+                                                            {sheet.stats?.totalCandidates || 0}
+                                                        </span>
+                                                        <span className="mx-1 font-normal text-slate-400">/</span>
+                                                        <span className="text-slate-500">{sheet.stats.targetCandidates}</span>
+                                                    </span>
+                                                ) : (
+                                                    sheet.stats?.totalCandidates || 0
+                                                )}
+                                            </td>
                                             <td className="px-5 py-2 text-center">
                                                 <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-100 font-bold text-[10px]">{sheet.stats?.qualityPercentage || 0}%</span>
                                             </td>
@@ -361,8 +630,8 @@ export default function CandidatesEntry() {
                                                 <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-100 font-bold text-[10px]">{sheet.stats?.conversionPercentage || 0}%</span>
                                             </td>
                                             <td className="px-5 py-2 text-center">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${sheet.status === 'New' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                                                    {sheet.status === 'New' ? 'نشط' : 'مؤرشف'}
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${sheet.status === 'New' ? 'bg-green-50 text-green-700 border-green-100' : sheet.status === 'Completed' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                                                    {sheet.status === 'New' ? 'نشط' : sheet.status === 'Completed' ? 'مكتمل' : 'مؤرشف'}
                                                 </span>
                                             </td>
                                             <td className="px-5 py-2 text-center">
@@ -378,10 +647,10 @@ export default function CandidatesEntry() {
                     </div>
 
                     {/* Footer Pagination */}
-                    {referralSheets.length > 0 && (
+                    {filteredSheets.length > 0 && (
                         <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex items-center justify-between">
                             <span className="text-xs font-bold text-slate-500">
-                                عرض {Math.min(referralSheets.length, (sheetsPage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(referralSheets.length, sheetsPage * ITEMS_PER_PAGE)} من {referralSheets.length}
+                                عرض {Math.min(filteredSheets.length, (sheetsPage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(filteredSheets.length, sheetsPage * ITEMS_PER_PAGE)} من {filteredSheets.length}
                             </span>
                             <div className="flex items-center gap-2">
                                 <button
@@ -411,17 +680,16 @@ export default function CandidatesEntry() {
                 initialData={editingCandidate || undefined}
                 title="إضافة اسم مقترح جديد"
             />
-            <CreateReferralSheetModal isOpen={isCreateSheetOpen} onClose={() => setIsCreateSheetOpen(false)} onSheetCreated={() => setActiveTab('sheets')} />
+            <CreateReferralSheetModal isOpen={isCreateSheetOpen} onClose={() => setIsCreateSheetOpen(false)} onSheetCreated={() => { if (canViewNameLists) setActiveTab('sheets'); }} />
             <ImportCSVModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
             <ReferralSheetDetailsModal sheetId={sheetDetailsId} isOpen={sheetDetailsId !== null} onClose={() => setSheetDetailsId(null)} />
 
             <QualificationModal
-                isOpen={isQualifyModalOpen}
+                isOpen={canEditCandidates && isQualifyModalOpen}
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}
                 onJunk={(id) => { markJunk(id); setIsQualifyModalOpen(false); }}
-                onFollowUp={(id) => { markForFollowUp(id); setIsQualifyModalOpen(false); }}
                 onLink={(candidateId, client) => {
                     linkCandidateToClient(candidateId, client.id);
                     setIsQualifyModalOpen(false);
@@ -435,6 +703,7 @@ export default function CandidatesEntry() {
                 onSave={handleSaveClient}
                 initialData={clientInitialData}
                 geoUnits={geoUnits}
+                fromCandidate={true}
             />
         </div>
     );

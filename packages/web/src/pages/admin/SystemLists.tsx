@@ -1,11 +1,14 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
+import { useRoleStore } from '../../hooks/useRoleStore';
 import type { SystemList } from '../../lib/types';
 import {
   Settings2, Plus, Edit, Trash2, Save, X, ListPlus,
   ToggleLeft, ToggleRight, Search, ChevronLeft, GraduationCap,
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
-  Info, AlertTriangle, MapPin, UserCheck, BookOpen
+  Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu, Phone,
+  Wrench, ClipboardList, DollarSign, MapPin, Bug, Package,
+  RotateCcw, Ban, Truck, Clock, Percent, Star, Snowflake, Receipt,
 } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
@@ -41,9 +44,10 @@ const CATEGORIES: CategoryMeta[] = [
   {
     id: 'job_title',
     label: 'عناوين الوظائف',
-    description: 'قائمة بالمسميات الوظيفية المتاحة عند إنشاء شاغر وظيفي. كل قيمة تُصبح خياراً في حقل "عنوان الوظيفة".',
+    description: 'قائمة المسميات الوظيفية المعتمدة. كل مسمى يرتبط بدور من الأدوار والصلاحيات — وعند إضافة موظف يُختار المسمى من هذه القائمة فيُسند الدور تلقائياً.',
     impact: 'high',
     usedIn: [
+      { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
       { label: 'إنشاء شاغر وظيفي', route: 'الوظائف ← الشواغر ← إنشاء', icon: <Briefcase className="w-3 h-3" /> },
       { label: 'تعديل الشاغر', route: 'الوظائف ← تفاصيل الشاغر ← تعديل', icon: <Briefcase className="w-3 h-3" /> },
     ],
@@ -116,6 +120,314 @@ const CATEGORIES: CategoryMeta[] = [
       { label: 'إدخال طلب يدوي', route: 'الوظائف ← الطلبات ← إدخال يدوي', icon: <FileText className="w-3 h-3" /> },
     ],
   },
+  {
+    id: 'department_type',
+    label: 'أنواع الأقسام',
+    description: 'أنواع الأقسام التنظيمية داخل الفرع (مبيعات، تسويق، صيانة...). يمكن تفعيل خيار "تخصيص أجهزة" لكل نوع بحيث يظهر حقل الأجهزة عند إنشاء قسم من هذا النوع.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إدارة أقسام الفرع', route: 'الفروع ← تفاصيل الفرع ← الأقسام', icon: <Layers className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'military_service',
+    label: 'الخدمة العسكرية',
+    description: 'القيم المعتمدة لحالة الخدمة العسكرية في ملف الموظف، وتُستخدم عند الإضافة المباشرة وعند تحويل المقبولين من طلبات التوظيف إلى سجلات موظفين.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
+      { label: 'قبول نهائي ثم إنشاء موظف', route: 'الوظائف ← تفاصيل الطلب ← إنشاء سجل موظف', icon: <Briefcase className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'telemarketing_rejection_reason',
+    label: 'أسباب رفض الجدولة',
+    description: 'أسباب إغلاق جهة الاتصال بدون حجز موعد — تظهر عند اختيار "غير مهتم" أو "رفض الجدولة" في مودال تسجيل نتيجة التواصل.',
+    impact: 'medium' as const,
+    usedIn: [
+      { label: 'مودال نتيجة التواصل — غير مهتم', route: 'التيلماركتر ← تسجيل نتيجة', icon: <Phone className="w-3 h-3" /> },
+      { label: 'نافذة الإغلاق اليدوي', route: 'التيلماركتر ← إغلاق جهة الاتصال', icon: <Phone className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'telemarketing_reschedule_reason',
+    label: 'أسباب المتابعة',
+    description: 'أسباب طلب المتابعة لاحقاً — تظهر عند اختيار "متابعة لاحقاً" في مودال تسجيل نتيجة التواصل.',
+    impact: 'low' as const,
+    usedIn: [
+      { label: 'مودال نتيجة التواصل — متابعة لاحقاً', route: 'التيلماركتر ← تسجيل نتيجة', icon: <Phone className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'contract_type',
+    label: 'أنواع العقود',
+    description: 'نوع العقد المعتمد للموظف مثل دائم أو مؤقت أو تجربة. هذه القائمة أصبحت جزءاً إلزامياً من النموذج الموحد للموظفين.',
+    impact: 'high',
+    usedIn: [
+      { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
+      { label: 'تعديل ملف موظف', route: 'الموظفون ← تفاصيل الموظف ← النموذج الكامل', icon: <Briefcase className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'foreign_language',
+    label: 'اللغات الأجنبية',
+    description: 'قائمة اللغات الأجنبية متعددة الاختيار المستخدمة في ملف الموظف، ويمكن الاستفادة منها أيضاً في نماذج التقديم والتأهيل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إضافة موظف مباشرة', route: 'الموظفون ← إضافة موظف', icon: <Users className="w-3 h-3" /> },
+      { label: 'إدخال طلب يدوي', route: 'الوظائف ← الطلبات ← إدخال يدوي', icon: <FileText className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم الزيارات والاستطلاع
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'area_evaluation_options',
+    label: 'تقييم المنطقة (استطلاع الزيارة)',
+    description: 'مستويات تقييم المنطقة جغرافياً/سكانياً التي يَختارها الفني عند تَعبئة استطلاع الزيارة الميدانية. تُغذِّي تَقارير جَودة الانتشار.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال استطلاع الزيارة', route: 'الزيارات ← تفاصيل الزيارة ← الاستطلاع', icon: <Star className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'survey_skip_reasons',
+    label: 'أسباب تَخطّي استطلاع الزيارة',
+    description: 'القيم المعتمدة عند اختيار "تَخطّي الاستطلاع" — تَضمن وجود سَبب مُهيكَل بَدَل نَص حُر، ضَرورية لإكمال إغلاق الزيارة (DEC-007 D44).',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال استطلاع الزيارة — تَخطّي', route: 'الزيارات ← تفاصيل الزيارة ← تَخطّي الاستطلاع', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'location_missing_reasons',
+    label: 'أسباب غياب GPS عند بَدء/إنهاء الزيارة',
+    description: 'الأسباب المُعتَمَدة عندما يَكون GPS غير مُتوفِّر لحظة بَدء أو إنهاء الزيارة الميدانية. شَرط إجباري في endpoint البَدء/الإنهاء.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'بَدء/إنهاء الزيارة', route: 'الزيارات ← تفاصيل الزيارة ← بدء/إنهاء', icon: <MapPin className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'visit_cancellation_reasons',
+    label: 'أسباب إلغاء الزيارة / المهمة',
+    description: 'الأسباب المعتمدة عند إلغاء زيارة تَسويق أو مَهمة صيانة طارئة ميدانياً. تَنعكس على open_task بحالة "ملغاة" و تُحفظ في `cancellation_reason`.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة الزيارة التسويقية — إلغاء', route: 'الزيارات ← نتيجة المهمة', icon: <Ban className="w-3 h-3" /> },
+      { label: 'مودال نتيجة الصيانة الطارئة — إلغاء', route: 'الزيارات ← مهمة صيانة', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'visit_not_completed_reasons',
+    label: 'أسباب عدم اكتمال الزيارة',
+    description: 'أسباب عَدم إكمال زيارة بَدأت ميدانياً لكنها لم تَنتهِ بنَجاح. تُخَزَّن على `field_visits.not_completed_reason`.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إنهاء الزيارة بدون إكمال', route: 'الزيارات ← تفاصيل الزيارة ← إنهاء', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'visit_task_reasons',
+    label: 'أسباب إضافة مهمة للزيارة',
+    description: 'الأسباب المُعتَمَدة عند إضافة مَهمة جَديدة لزيارة قائمة (خارج المَخطَّط الأصلي).',
+    impact: 'low',
+    usedIn: [
+      { label: 'إضافة مهمة لزيارة قائمة', route: 'الزيارات ← تفاصيل الزيارة ← إضافة مهمة', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'customer_followup_reasons',
+    label: 'أسباب إعادة جَدوَلَة المهمة',
+    description: 'الأسباب المعتمدة عند طَلب إعادة جَدوَلَة مَهَمَّة (الزبون غير مُتوفِّر، قطعة ناقصة، ...). تَنقُل المهمة لحالة "بحاجة مُتابعة" مع تاريخ مُتوقَّع جَديد.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة الزيارة التسويقية — إعادة جَدوَلَة', route: 'الزيارات ← نتيجة المهمة', icon: <ClipboardList className="w-3 h-3" /> },
+      { label: 'مودال نتيجة الصيانة الطارئة — إعادة جَدوَلَة', route: 'الزيارات ← مهمة صيانة', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم الصيانة الطارئة
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'diagnosis_problem_types',
+    label: 'أنواع الأعطال (التَشخيص)',
+    description: 'القاموس المعتمد لأنواع الأعطال على الأَجهزة. يَستخدمه طلبات الصيانة عند إضافة الأعطال + الفني عند اكتشاف عَطل ميدانياً.',
+    impact: 'high',
+    usedIn: [
+      { label: 'طلب صيانة جَديد — لائحة الأعطال', route: 'طلبات الصيانة ← تفاصيل الطلب', icon: <Bug className="w-3 h-3" /> },
+      { label: 'مودال الصيانة الطارئة — اكتشاف ميداني', route: 'الزيارات ← مهمة صيانة', icon: <Bug className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_resolved_reason',
+    label: 'أسباب الحَل (نَتيجة الصيانة)',
+    description: 'أسباب تَوصيف الحَل في تَكاليف الصيانة الطارئة عند `final_decision = resolved`.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — مرحلة التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_unresolved_reason',
+    label: 'أسباب عَدم الحَل (نَتيجة الصيانة)',
+    description: 'أسباب تَوصيف عَدم الحَل في تَكاليف الصيانة الطارئة عند `final_decision = unresolved`.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — مرحلة التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_followup_reason',
+    label: 'أسباب طَلب المُتابعة (نَتيجة الصيانة)',
+    description: 'أسباب اختيار "بحاجة مُتابعة" كنَتيجة في تَكاليف الصيانة الطارئة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — مرحلة التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_cancelled_reason',
+    label: 'أسباب الإلغاء (نَتيجة الصيانة)',
+    description: 'أسباب اختيار "إلغاء" كنَتيجة في تَكاليف الصيانة الطارئة من شاشة المرحلة 4 (مُختلفة عن إلغاء الزيارة).',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — مرحلة التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_unresolved_reasons',
+    label: 'أسباب عَدم الحَل (طلب الصيانة)',
+    description: 'أسباب تَوضيح عَدم الحَل المُسَجَّلة على لائحة الأعطال داخل طلب الصيانة (قبل الترقية لمهمة).',
+    impact: 'low',
+    usedIn: [
+      { label: 'طلب الصيانة ← لائحة الأعطال', route: 'طلبات الصيانة ← تفاصيل الطلب', icon: <Bug className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_partial_reasons',
+    label: 'أسباب الحَل الجُزئي (طلب الصيانة)',
+    description: 'أسباب تَوضيح الحَل الجُزئي على الأعطال داخل طلب الصيانة.',
+    impact: 'low',
+    usedIn: [
+      { label: 'طلب الصيانة ← لائحة الأعطال', route: 'طلبات الصيانة ← تفاصيل الطلب', icon: <Bug className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'reopen_reasons',
+    label: 'أسباب إعادة فَتح طلب الصيانة',
+    description: 'الأسباب المعتمدة عند إعادة فَتح طلب صيانة مُغلَق. تُسَجَّل في سجل التَدقيق.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'طلب الصيانة ← إعادة فَتح', route: 'طلبات الصيانة ← تفاصيل الطلب ← إجراءات', icon: <RotateCcw className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_uniqueness_override_reasons',
+    label: 'أسباب تَجاوز قَيد فَريد لمَهمة الطوارئ',
+    description: 'الأسباب المعتمدة عند تَجاوز قَيد "مَهمة طوارئ نَشِطة واحدة لكل جهاز" (EM-UNIQ-01). يَتَطَلَّب صَلاحية audit-admin.',
+    impact: 'high',
+    usedIn: [
+      { label: 'ترقية طلب صيانة لمَهمة طوارئ', route: 'طلبات الصيانة ← الترقية', icon: <ShieldCheck className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'part_no_retrieval_reason',
+    label: 'أسباب عَدم استرجاع القطعة المُستَبدَلة',
+    description: 'الأسباب المعتمدة عند استبدال قطعة بدون استرجاع القطعة القديمة من الزبون (تَلِفت كاملاً، رَفض الزبون، ...).',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — القطع المُستَبدَلة', route: 'الزيارات ← مهمة صيانة ← المرحلة 2', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم العقود والبيع والمَدفوعات
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'contract_sale_source',
+    label: 'مَصادر البيع (للعقود)',
+    description: 'القَناة التي أَتى منها البيع (إحالة، مَعرض، حَملة...). يُسَجَّل على `contracts.sale_source` لتَحليل قَنوات البيع.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نَموذج إنشاء/تَعديل عَقد', route: 'العقود ← نَموذج العَقد', icon: <Receipt className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'discount_reason',
+    label: 'أسباب الحَسم',
+    description: 'أسباب تَبرير حَسم نِسبة من تَكلفة الصيانة. تُسَجَّل في تَكاليف الصيانة الطارئة جَنباً مع نَسبة الحَسم.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — التكاليف', route: 'الزيارات ← مهمة صيانة ← المرحلة 4', icon: <Percent className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'transfer_company',
+    label: 'شَركات التَحويل المالي',
+    description: 'قائمة شَركات التَحويل المعتمدة (الهرم، الفؤاد، ويسترن...) المُختارة عند تَحصيل دَفعة بطريق "تَحويل". تَظهر في تَكاليف الصيانة وفي تَركيب الجهاز.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — دَفعات', route: 'الزيارات ← مهمة صيانة', icon: <Truck className="w-3 h-3" /> },
+      { label: 'مودال نتيجة التَركيب — دَفعات', route: 'الزيارات ← مهمة تَركيب', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'no_closing_reasons',
+    label: 'أسباب عَدم إغلاق العَرض',
+    description: 'الأسباب التي تَمنع إغلاق عَرض جهاز مَفتوح للزبون (الزبون مُتَردِّد، مَشغول، يَحتاج وَقت...).',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عَرض جهاز للزبون', route: 'الزبائن ← الأَجهزة المَعروضة', icon: <Tag className="w-3 h-3" /> },
+      { label: 'عَرض مُسَتقِل من شاشة الزبون', route: 'الزبائن ← عَرض جهاز', icon: <Tag className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم التَركيب
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'installation_incomplete_reason',
+    label: 'أسباب عَدم اكتمال التَركيب',
+    description: 'الأسباب المعتمدة عند تَسجيل نَتيجة "تَركيب غير مُكتَمل" — يَتَطَلَّب زيارة لاحقة لإكمال التَركيب.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التَركيب', route: 'الزيارات ← مهمة تَركيب', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'installation_refusal_reason',
+    label: 'أسباب رَفض التَركيب',
+    description: 'الأسباب التي يُقَدِّمها الزبون عند رَفضه تَركيب الجهاز ميدانياً. تُسَجَّل على نَتيجة المَهمة وتَنعكس على حالة الجهاز.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة التَركيب', route: 'الزيارات ← مهمة تَركيب', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم التَواصل وإدارة جهات الاتصال
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'not_interested_reasons',
+    label: 'أسباب عَدم اهتمام الزبون',
+    description: 'الأسباب التَفصيلية لاختيار "غير مُهتَمّ" في مودال نتيجة التَواصل (سَعر، حاجة، ...). فَرعية من قائمة "أسباب رَفض الجَدولة".',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة التَواصل — غير مهتم', route: 'التيلماركتر ← تَسجيل نتيجة', icon: <Phone className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'cooldown_manual_reasons',
+    label: 'أسباب تَجميد الزبون يَدوياً',
+    description: 'الأسباب المعتمدة عند تَجميد جهة اتصال (cooldown) يَدوياً لفَترة مُحَدَّدة — يَمنع التَواصل مَعها مُؤقَّتاً.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'بَطاقة التَحَكُّم بالتَواصل', route: 'الزبائن ← تفاصيل الزبون ← Cooldown', icon: <Snowflake className="w-3 h-3" /> },
+    ],
+  },
 ];
 
 const MAJOR_PREFIX = 'major:';
@@ -127,8 +439,10 @@ const IMPACT_CONFIG = {
 };
 
 export default function SystemLists() {
-  const { user } = useAuthStore();
+  const { user, hasPermission } = useAuthStore();
   const { lists, loading, fetchLists, createList, updateList, deleteList } = useSystemListsStore();
+  const { roles, fetchRoles } = useRoleStore();
+  const canManageSystemLists = user?.isSuperAdmin === true || hasPermission('admin.system_lists.manage');
 
   const allDbCategories = useMemo(() => {
     const cats = new Set(lists.map(l => l.category));
@@ -155,16 +469,18 @@ export default function SystemLists() {
   const [editingItem, setEditingItem] = useState<SystemList | null>(null);
   const [formValue, setFormValue] = useState('');
   const [formOrder, setFormOrder] = useState(0);
+  const [formLinkedRoleId, setFormLinkedRoleId] = useState<number | null>(null);
+  const [formCanSelectDevice, setFormCanSelectDevice] = useState(false);
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isNewCatOpen, setIsNewCatOpen] = useState(false);
   const [newCatId, setNewCatId] = useState('');
   const [newCatLabel, setNewCatLabel] = useState('');
   const [activeCertificate, setActiveCertificate] = useState<string | null>(null);
 
-  useEffect(() => { fetchLists(); }, []);
+  useEffect(() => { fetchLists(); fetchRoles(); }, []);
   useEffect(() => { setSearch(''); setActiveCertificate(null); }, [activeCategory]);
 
-  if (!user || !['HR_MANAGER', 'ADMIN'].includes(user.role)) return <Navigate to="/" replace />;
+  if (!user || (!user.isSuperAdmin && !hasPermission('admin.system_lists.view'))) return <Navigate to="/" replace />;
 
   const activeMeta = sidebarCategories.find(c => c.id === activeCategory);
   const isCertificateView = activeCategory === 'certificate';
@@ -184,33 +500,61 @@ export default function SystemLists() {
 
   const openForm = (item?: SystemList) => {
     if (item) {
-      setEditingItem(item); setFormValue(item.value); setFormOrder(item.displayOrder);
+      setEditingItem(item);
+      setFormValue(item.value);
+      setFormOrder(item.displayOrder);
+      setFormLinkedRoleId(item.linkedRoleId ?? null);
+      setFormCanSelectDevice(!!(item.metadata as any)?.canSelectDevice);
     } else {
-      setEditingItem(null); setFormValue(''); setFormOrder(filteredItems.length + 1);
+      setEditingItem(null);
+      setFormValue('');
+      setFormOrder(filteredItems.length + 1);
+      setFormLinkedRoleId(null);
+      setFormCanSelectDevice(false);
     }
     setIsItemModalOpen(true);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageSystemLists) return;
     try {
       const saveCategory = (isCertificateView && activeCertificate)
         ? `${MAJOR_PREFIX}${activeCertificate}` : activeCategory;
+      const isJobTitle = saveCategory === 'job_title';
+      const isDeptType = saveCategory === 'department_type';
+
+      const extraFields: Record<string, unknown> = {};
+      if (isJobTitle) extraFields.linkedRoleId = formLinkedRoleId;
+      if (isDeptType) extraFields.metadata = { canSelectDevice: formCanSelectDevice };
+
       if (editingItem) {
-        await updateList(editingItem.id, { value: formValue, displayOrder: formOrder });
+        await updateList(editingItem.id, {
+          value: formValue,
+          displayOrder: formOrder,
+          ...extraFields,
+        });
       } else {
-        await createList({ category: saveCategory, value: formValue, displayOrder: formOrder, isActive: true });
+        await createList({
+          category: saveCategory,
+          value: formValue,
+          displayOrder: formOrder,
+          isActive: true,
+          ...extraFields,
+        });
       }
       setIsItemModalOpen(false);
     } catch (err: any) { alert(err.message || 'حدث خطأ أثناء الحفظ'); }
   };
 
   const toggleActive = async (item: SystemList) => {
+    if (!canManageSystemLists) return;
     try { await updateList(item.id, { isActive: !item.isActive }); }
     catch (err: any) { alert(err.message || 'حدث خطأ'); }
   };
 
   const handleDelete = async (id: number) => {
+    if (!canManageSystemLists) return;
     if (!window.confirm('هل أنت متأكد؟ يُفضّل التعطيل بدلاً من الحذف لحماية السجلات.')) return;
     try { await deleteList(id); }
     catch (err: any) { alert(err.message || 'حدث خطأ أثناء الحذف'); }
@@ -362,14 +706,14 @@ export default function SystemLists() {
                     onChange={e => setSearch(e.target.value)}
                     className="pl-4 pr-9 py-2 rounded-xl border border-slate-200 text-sm w-48 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none" />
                 </div>
-                {(!isCertificateView || activeCertificate) && (
+                {canManageSystemLists && (!isCertificateView || activeCertificate) && (
                   <button onClick={() => openForm()}
                     className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm">
                     <Plus className="w-4 h-4" />
                     {isCertificateView && activeCertificate ? 'إضافة اختصاص' : 'إضافة خيار'}
                   </button>
                 )}
-                {isCertificateView && !activeCertificate && (
+                {canManageSystemLists && isCertificateView && !activeCertificate && (
                   <button onClick={() => openForm()}
                     className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm">
                     <Plus className="w-4 h-4" /> إضافة شهادة
@@ -414,11 +758,11 @@ export default function SystemLists() {
                                 className="flex items-center gap-1.5 text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed border border-violet-100">
                                 <BookOpen className="w-3.5 h-3.5" /> الاختصاصات
                               </button>
-                              <button onClick={() => toggleActive(cert)} className={`p-1.5 rounded-lg ${cert.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'}`}>
+                              <button onClick={() => toggleActive(cert)} disabled={!canManageSystemLists} className={`p-1.5 rounded-lg ${cert.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'} disabled:opacity-50`}>
                                 {cert.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
                               </button>
-                              <button onClick={() => openForm(cert)} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg"><Edit className="w-4 h-4" /></button>
-                              <button onClick={() => handleDelete(cert.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                              <button onClick={() => openForm(cert)} disabled={!canManageSystemLists} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg disabled:opacity-50"><Edit className="w-4 h-4" /></button>
+                              <button onClick={() => handleDelete(cert.id)} disabled={!canManageSystemLists} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>
                             </div>
                           </div>
                         </div>
@@ -440,21 +784,50 @@ export default function SystemLists() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {filteredItems.map(item => (
                     <div key={item.id} className={`flex items-center justify-between p-4 rounded-xl border transition-all ${item.isActive ? 'bg-white border-slate-200 hover:border-sky-300' : 'bg-slate-50 border-slate-200 opacity-70'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold font-mono">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold font-mono shrink-0">
                           {item.displayOrder}
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <span className={`font-semibold ${item.isActive ? 'text-slate-800' : 'text-slate-500 line-through'}`}>{item.value}</span>
                           {!item.isActive && <span className="text-xs text-red-500 mr-2 bg-red-50 px-2 py-0.5 rounded-full">معطل</span>}
+                          {activeCategory === 'job_title' && (
+                            <div className="mt-1">
+                              {item.linkedRoleName ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+                                  <ShieldCheck className="w-3 h-3" />
+                                  {item.linkedRoleName}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                                  لم يُربط بدور بعد
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {activeCategory === 'department_type' && (
+                            <div className="mt-1">
+                              {(item.metadata as any)?.canSelectDevice ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  <Cpu className="w-3 h-3" />
+                                  تخصيص جهاز مفعّل
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-50 text-slate-400 border border-slate-200">
+                                  <Cpu className="w-3 h-3" />
+                                  بدون أجهزة
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <button onClick={() => toggleActive(item)} className={`p-2 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'}`} title={item.isActive ? 'تعطيل' : 'تفعيل'}>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button onClick={() => toggleActive(item)} disabled={!canManageSystemLists} className={`p-2 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'} disabled:opacity-50`} title={item.isActive ? 'تعطيل' : 'تفعيل'}>
                           {item.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
                         </button>
-                        <button onClick={() => openForm(item)} className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg"><Edit className="w-4 h-4" /></button>
-                        <button onClick={() => handleDelete(item.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={() => openForm(item)} disabled={!canManageSystemLists} className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg disabled:opacity-50"><Edit className="w-4 h-4" /></button>
+                        <button onClick={() => handleDelete(item.id)} disabled={!canManageSystemLists} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </div>
                   ))}
@@ -503,6 +876,59 @@ export default function SystemLists() {
                   className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none" />
                 <p className="text-xs text-slate-400">الأرقام الأصغر تظهر أولاً في القائمة</p>
               </div>
+
+              {/* Role selector — only for job_title category */}
+              {activeCategory === 'job_title' && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-violet-500" />
+                    الدور المرتبط
+                  </label>
+                  <select
+                    value={formLinkedRoleId ?? ''}
+                    onChange={e => setFormLinkedRoleId(e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-200 outline-none"
+                  >
+                    <option value="">— بدون ربط بدور —</option>
+                    {roles.filter(r => r.isActive).map(r => (
+                      <option key={r.id} value={r.id}>{r.displayName}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-400">
+                    اختر الدور الذي يُسند تلقائياً للموظف عند اختيار هذا المسمى الوظيفي
+                  </p>
+                </div>
+              )}
+
+              {/* canSelectDevice toggle — only for department_type category */}
+              {activeCategory === 'department_type' && (
+                <div className="border border-indigo-100 bg-indigo-50/50 rounded-xl p-4 space-y-2">
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Cpu className="w-4 h-4 text-indigo-500" />
+                    سماحية تخصيص جهاز
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setFormCanSelectDevice(v => !v)}
+                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
+                      formCanSelectDevice
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'
+                    }`}
+                  >
+                    {formCanSelectDevice
+                      ? <ToggleRight className="w-5 h-5 flex-shrink-0" />
+                      : <ToggleLeft className="w-5 h-5 flex-shrink-0" />}
+                    {formCanSelectDevice
+                      ? 'مفعّل — سيظهر حقل الأجهزة عند إنشاء قسم من هذا النوع'
+                      : 'معطّل — لا يمكن تخصيص أجهزة لهذا النوع'}
+                  </button>
+                  <p className="text-xs text-slate-400">
+                    عند التفعيل، يظهر لمنشئ القسم حقل لاختيار أجهزة من كتالوج الأجهزة.
+                  </p>
+                </div>
+              )}
+
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
                 <button type="button" onClick={() => setIsItemModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl">إلغاء</button>
                 <button type="submit" className="bg-sky-500 hover:bg-sky-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm">

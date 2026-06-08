@@ -3,22 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     ChevronLeft, ChevronRight, Calendar, Users, User, Route as RouteIcon,
-    AlertTriangle, ArrowRight, ArrowLeft, ClipboardList, MapPin, Briefcase, Eye, PhoneCall, Loader2
+    AlertTriangle, ArrowRight, ArrowLeft, ClipboardList, MapPin, Briefcase, Eye, Loader2,
+    Layers, Megaphone, Wrench, Building2
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { levelNames } from '../../lib/geoConstants';
-import type { Route, GeoUnit, DaySchedule, RouteAssignmentData, Contract, Visit } from '../../lib/types';
-import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { useClientStore } from '../../hooks/useClientStore';
-import { useTelemarketingStore } from '../../hooks/useTelemarketingStore';
-import TeamDetailsModal from '../../components/planning/TeamDetailsModal';
-
-const levelColors: Record<number, { bg: string; text: string }> = {
-    1: { bg: 'bg-purple-50', text: 'text-purple-700' },
-    2: { bg: 'bg-blue-50', text: 'text-blue-700' },
-    3: { bg: 'bg-amber-50', text: 'text-amber-700' },
-    4: { bg: 'bg-emerald-50', text: 'text-emerald-700' },
-};
+import type { Route, GeoUnit, DaySchedule, RouteAssignmentData, Client } from '../../lib/types';
 
 const formatDateArabic = (dateStr: string) => {
     const d = new Date(dateStr + 'T00:00:00');
@@ -42,6 +31,29 @@ const shiftDate = (dateStr: string, days: number) => {
 
 const getToday = () => new Date().toISOString().split('T')[0];
 
+type MarketingTargetsResponse = {
+    teamKey: string;
+    leads: Client[];
+    candidates: [];
+    counts: {
+        leads: number;
+        candidates: number;
+        total: number;
+    };
+    zoneIds: number[];
+    targetStationsCount: number;
+    hasSupervisor: boolean;
+    supervisorEmployeeId: number | null;
+    supervisorHrUserId: number | null;
+    reason?: string | null;
+};
+
+const emptyMarketingLoad = {
+    total: 0,
+    candidates: [] as any[],
+    leads: [] as Client[],
+};
+
 export default function PlanOverview() {
     const navigate = useNavigate();
     const [date, setDate] = useState(getToday);
@@ -51,46 +63,29 @@ export default function PlanOverview() {
     const [savedRoutes, setSavedRoutes] = useState<Route[]>([]);
     const [currentSchedule, setCurrentSchedule] = useState<DaySchedule>({ teams: [], solos: [] });
     const [routeAssignments, setRouteAssignments] = useState<Record<string, RouteAssignmentData>>({});
-    const [clients, setClients] = useState<any[]>([]);
     const [employees, setEmployees] = useState<any[]>([]);
-    const [contracts, setContracts] = useState<Contract[]>([]);
-    const [visits, setVisits] = useState<Visit[]>([]);
-
-    const candidates = useCandidateStore(state => state.candidates);
-    const { getLeads } = useClientStore();
-    const generateTaskList = useTelemarketingStore(state => state.generateTaskList);
-
-    const [selectedModalTeam, setSelectedModalTeam] = useState<{
-        key: string;
-        label: string;
-        candidates: any[];
-        leads: any[];
-    } | null>(null);
+    const [marketingTargets, setMarketingTargets] = useState<Record<string, MarketingTargetsResponse>>({});
+    const [workScopes, setWorkScopes] = useState<Record<string, any>>({});
 
     useEffect(() => {
         let cancelled = false;
         const loadAll = async () => {
             setLoading(true);
+            setMarketingTargets({});
             try {
-                const [geo, routes, schedule, assignments, cls, emps, cts, vis] = await Promise.all([
+                const [geo, routes, schedule, assignments, emps] = await Promise.all([
                     api.geoUnits.list(),
                     api.routes.list(),
                     api.schedules.get(date),
                     api.routeAssignments.list(),
-                    api.clients.list(),
                     api.employees.list(),
-                    api.contracts.list(),
-                    api.visits.list(),
                 ]);
                 if (cancelled) return;
                 setGeoUnits(geo);
                 setSavedRoutes(routes);
                 setCurrentSchedule(schedule || { teams: [], solos: [] });
                 setRouteAssignments(assignments || {});
-                setClients(cls);
                 setEmployees(emps);
-                setContracts(cts);
-                setVisits(vis);
             } catch (err) {
                 console.error('Failed to load plan overview data:', err);
             } finally {
@@ -100,8 +95,6 @@ export default function PlanOverview() {
         loadAll();
         return () => { cancelled = true; };
     }, [date]);
-
-    const activeLeads = useMemo(() => getLeads(contracts, visits), [getLeads, contracts, visits, clients]);
 
     const isToday = date === getToday();
 
@@ -145,7 +138,7 @@ export default function PlanOverview() {
             cards.push({
                 key: soloKey,
                 type: 'solo',
-                label: tech ? `فردي: ${tech.name}` : `وحدة فردية #${idx + 1}`,
+                label: tech ? `طوارئ: ${tech.name}` : `فريق طوارئ #${idx + 1}`,
                 supervisor: null,
                 technician: tech,
                 assignment: routeAssignments[assignmentKey] || null,
@@ -155,7 +148,80 @@ export default function PlanOverview() {
         return cards;
     };
 
-    const teamCards = buildTeamCards();
+    const teamCards = useMemo(
+        () => buildTeamCards(),
+        [currentSchedule, date, employees, routeAssignments]
+    );
+
+    useEffect(() => {
+        let cancelled = false;
+        const cardsWithAssignments = teamCards.filter(card => card.assignment && card.assignment.routes.length > 0);
+
+        if (cardsWithAssignments.length === 0) {
+            setMarketingTargets({});
+            return () => { cancelled = true; };
+        }
+
+        const loadMarketingTargets = async () => {
+            const entries = await Promise.all(cardsWithAssignments.map(async (card) => {
+                try {
+                    const result = await api.planning.marketingTargets(date, card.key);
+                    if (result?.reason) {
+                        console.warn(`Marketing targets for ${card.key} returned empty: ${result.reason}`);
+                    }
+                    return [card.key, result as MarketingTargetsResponse] as const;
+                } catch (err) {
+                    console.warn(`Failed to load marketing targets for ${card.key}; using empty load only.`, err);
+                    return [card.key, {
+                        teamKey: card.key,
+                        leads: [],
+                        candidates: [],
+                        counts: { leads: 0, candidates: 0, total: 0 },
+                        zoneIds: [],
+                        targetStationsCount: 0,
+                        hasSupervisor: false,
+                        supervisorEmployeeId: null,
+                        supervisorHrUserId: null,
+                        reason: 'REQUEST_FAILED',
+                    } satisfies MarketingTargetsResponse] as const;
+                }
+            }));
+
+            if (!cancelled) {
+                setMarketingTargets(Object.fromEntries(entries));
+            }
+        };
+
+        loadMarketingTargets();
+        return () => { cancelled = true; };
+    }, [date, teamCards]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const cardsWithAssignments = teamCards.filter(card => card.assignment && card.assignment.routes.length > 0);
+        if (cardsWithAssignments.length === 0) {
+            setWorkScopes({});
+            return () => { cancelled = true; };
+        }
+
+        const loadWorkScopes = async () => {
+            const entries = await Promise.all(cardsWithAssignments.map(async (card) => {
+                try {
+                    const result = await api.workScopes.get(date, card.key);
+                    return [card.key, result] as const;
+                } catch {
+                    return [card.key, null] as const;
+                }
+            }));
+            if (!cancelled) {
+                const validEntries = entries.filter(([, v]) => v !== null);
+                setWorkScopes(Object.fromEntries(validEntries));
+            }
+        };
+
+        loadWorkScopes();
+        return () => { cancelled = true; };
+    }, [date, teamCards]);
 
     const getAssignmentDetails = (assignment: RouteAssignmentData) => {
         const results: {
@@ -184,55 +250,9 @@ export default function PlanOverview() {
         return results;
     };
 
-    const getMarketingLoad = (assignment: RouteAssignmentData) => {
-        const zoneIds = new Set<number>();
-        assignment.routes.forEach(comp => {
-            const route = savedRoutes.find(r => r.id === comp.routeId);
-            if (!route) return;
-            const stations = getRouteStations(route);
-            stations.slice(comp.startIdx, comp.endIdx + 1).forEach(s => zoneIds.add(s.id));
-        });
-        assignment.extraZones.forEach(id => zoneIds.add(id));
-
-        const matchedCandidates = candidates.filter(c =>
-            c.status === 'FollowUp' && c.geoUnitId && zoneIds.has(c.geoUnitId)
-        );
-        const matchedLeads = activeLeads.filter(c =>
-            c.neighborhood && zoneIds.has(parseInt(c.neighborhood))
-        );
-
-        return {
-            total: matchedCandidates.length + matchedLeads.length,
-            candidates: matchedCandidates,
-            leads: matchedLeads
-        };
-    };
-
-    const handleGenerateList = (teamKey: string, candList: any[], leadList: any[]) => {
-        if (!confirm(`هل أنت متأكد من توليد قائمة اتصال بـ ${candList.length + leadList.length} زبون لهذا الفريق؟`)) return;
-
-        const items = [
-            ...candList.map(c => ({
-                entityType: 'candidate' as const,
-                entityId: c.id,
-                name: `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.nickname || 'بدون اسم',
-                mobile: c.mobile,
-                addressText: c.addressText,
-                geoUnitId: c.geoUnitId
-            })),
-            ...leadList.map(l => ({
-                entityType: 'client' as const,
-                entityId: l.id,
-                name: l.name,
-                mobile: l.mobile,
-                addressText: getUnitName(parseInt(l.neighborhood)) || l.neighborhood,
-                geoUnitId: parseInt(l.neighborhood) || null
-            }))
-        ];
-
-        generateTaskList(teamKey, date, items);
-        alert('تم توليد قائمة التسويق الهاتفي بنجاح!');
-        setSelectedModalTeam(null);
+    const openContactTargetsPage = (team: { key: string; label: string }) => {
+        const query = new URLSearchParams({ date, label: team.label });
+        navigate(`/planning/contact-targets/${team.key}?${query.toString()}`);
     };
 
     const totalTeams = teamCards.length;
@@ -353,7 +373,12 @@ export default function PlanOverview() {
                     {teamCards.map((card, cardIdx) => {
                         const hasAssignment = card.assignment && card.assignment.routes.length > 0;
                         const routeDetails = hasAssignment ? getAssignmentDetails(card.assignment!) : [];
-                        const loadData = hasAssignment ? getMarketingLoad(card.assignment!) : { total: 0, candidates: [], leads: [] };
+                        const targetData = hasAssignment ? marketingTargets[card.key] : null;
+                        const loadData = targetData ? {
+                            total: targetData.counts.total,
+                            candidates: [],
+                            leads: targetData.leads || [],
+                        } : emptyMarketingLoad;
                         const extraZoneCount = card.assignment?.extraZones?.length || 0;
 
                         return (
@@ -363,11 +388,9 @@ export default function PlanOverview() {
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: cardIdx * 0.05 }}
                                 onClick={() => {
-                                    if (hasAssignment) setSelectedModalTeam({
+                                    if (hasAssignment) openContactTargetsPage({
                                         key: card.key,
                                         label: card.label,
-                                        candidates: loadData.candidates,
-                                        leads: loadData.leads
                                     });
                                 }}
                                 className={`bg-white rounded-xl shadow-sm overflow-hidden border cursor-pointer hover:border-gray-300 transition-colors ${hasAssignment
@@ -386,7 +409,7 @@ export default function PlanOverview() {
                                         <div>
                                             <p className="text-slate-900 font-bold text-sm">{card.label}</p>
                                             <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-                                                {card.type === 'solo' ? 'وحدة فردية' : 'فريق قياسي'}
+                                                {card.type === 'solo' ? 'فريق طوارئ' : 'فريق قياسي'}
                                             </p>
                                         </div>
                                     </div>
@@ -395,15 +418,21 @@ export default function PlanOverview() {
                                             <div className="flex items-center gap-1.5 text-xs">
                                                 <Briefcase className="w-3.5 h-3.5 text-emerald-600" />
                                                 <span className="text-emerald-600 font-bold">{loadData.total} مهمة</span>
-                                                <span className="text-slate-400">({loadData.candidates.length} متابعة + {loadData.leads.length} محتمل)</span>
+                                                <span className="text-slate-400">({loadData.leads.length} Lead)</span>
                                             </div>
                                             {/* Button moved to modal */}
                                             <button
-                                                onClick={() => navigate(`/planning/team-tasks/${card.key}`)}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    openContactTargetsPage({
+                                                        key: card.key,
+                                                        label: card.label,
+                                                    });
+                                                }}
                                                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[11px] font-bold transition-colors"
                                             >
                                                 <Eye className="w-3 h-3" />
-                                                <span>عرض المهام</span>
+                                                <span>أهداف الاتصال</span>
                                             </button>
                                         </div>
                                     )}
@@ -505,16 +534,73 @@ export default function PlanOverview() {
                 </div>
             )}
 
-            <TeamDetailsModal
-                isOpen={!!selectedModalTeam}
-                onClose={() => setSelectedModalTeam(null)}
-                teamKey={selectedModalTeam?.key || ''}
-                teamLabel={selectedModalTeam?.label || ''}
-                candidates={selectedModalTeam?.candidates || []}
-                leads={selectedModalTeam?.leads || []}
-                geoUnits={geoUnits}
-                onGenerate={handleGenerateList}
-            />
+            {/* Work Scope Summary Section */}
+            {Object.keys(workScopes).length > 0 && (
+                <div className="mt-8">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Layers className="w-5 h-5 text-violet-600" />
+                        <h2 className="text-base font-bold text-slate-800">نطاق العمل العام</h2>
+                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">جميع أنواع المهام</span>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {Object.entries(workScopes).map(([key, scope]) => {
+                            if (!scope) return null;
+                            const counts = scope.counts ?? { marketing: 0, emergency: 0, service: 0, other: 0, total: 0 };
+                            const card = teamCards.find(c => c.key === key);
+
+                            return (
+                                <motion.div
+                                    key={key}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="bg-white rounded-xl border border-violet-100 shadow-sm overflow-hidden"
+                                >
+                                    <div className="flex items-center justify-between px-4 py-3 bg-violet-50 border-b border-violet-100">
+                                        <div className="flex items-center gap-2">
+                                            <Layers className="w-4 h-4 text-violet-600" />
+                                            <span className="text-sm font-bold text-violet-800">
+                                                {card?.label ?? key}
+                                            </span>
+                                        </div>
+                                        <span className="text-xs font-bold text-violet-600 bg-violet-100 px-2 py-0.5 rounded-full">
+                                            {counts.total} مهمة
+                                        </span>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-3 gap-3">
+                                        <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-emerald-50 border border-emerald-100">
+                                            <Megaphone className="w-4 h-4 text-emerald-600" />
+                                            <span className="text-lg font-black text-emerald-700">{counts.marketing}</span>
+                                            <span className="text-[10px] text-emerald-600 font-medium">تسويق</span>
+                                        </div>
+                                        <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-red-50 border border-red-100">
+                                            <AlertTriangle className="w-4 h-4 text-red-500" />
+                                            <span className="text-lg font-black text-red-600">{counts.emergency}</span>
+                                            <span className="text-[10px] text-red-500 font-medium">طوارئ</span>
+                                        </div>
+                                        <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-blue-50 border border-blue-100">
+                                            <Wrench className="w-4 h-4 text-blue-500" />
+                                            <span className="text-lg font-black text-blue-600">{counts.service + counts.other}</span>
+                                            <span className="text-[10px] text-blue-500 font-medium">خدمة/أخرى</span>
+                                        </div>
+                                    </div>
+                                    {/* Company-owned task indicator */}
+                                    {scope.tasks?.some((t: any) => t.ownershipType === 'company_branch') && (
+                                        <div className="px-4 pb-3">
+                                            <div className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-1.5 border border-slate-200">
+                                                <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                                                <span>
+                                                    {scope.tasks.filter((t: any) => t.ownershipType === 'company_branch').length} مهمة مملوكة للشركة (OP/FOP/فرع)
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </motion.div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 }

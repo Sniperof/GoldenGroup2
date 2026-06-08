@@ -8,13 +8,16 @@ import {
 } from '../domain/stageEngine.js';
 import { checkVacancyCapacity, checkDuplicate } from '../utils/applicationHelpers.js';
 import { sanitizeText } from '../utils/sanitize.js';
-import { requirePermission } from '../middleware/permission.js';
-import { requireRole } from '../middleware/auth.js';
+import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
 import {
   deriveEmployeeRoleFromVacancyTitle,
   getApplicationProcessingBlockReason,
   getEmployeeAvatar,
 } from '../utils/recruitmentPolicy.js';
+import {
+  insertPreparedEmployeeProfile,
+  prepareEmployeeWriteInput,
+} from '../services/employeeService.js';
 
 const router = Router();
 
@@ -41,7 +44,7 @@ const APP_COLS = `
   ja.decision
 `;
 
-// ── Dual-write helpers: derive new columns from legacy status ──
+// -- Dual-write helpers: derive new columns from legacy status --
 function deriveStageStatusFromLegacy(stage: string, legacyStatus: string): string {
   const map: Record<string, Record<string, string>> = {
     Submitted:       { New: 'Pending', 'In Review': 'Under Review', Qualified: 'Under Review', Rejected: 'Under Review' },
@@ -51,6 +54,18 @@ function deriveStageStatusFromLegacy(stage: string, legacyStatus: string): strin
     'Final Decision': { Passed: 'Awaiting Decision', 'Final Hired': 'Awaiting Decision', 'Final Rejected': 'Awaiting Decision' },
   };
   return map[stage]?.[legacyStatus] ?? 'Pending';
+}
+
+async function assertAppBranchAccess(req: any, res: any, appId: string | number): Promise<boolean> {
+  const authContext = req.authContext!;
+  if (authContext.isSuperAdmin) return true;
+  const { rows } = await pool.query('SELECT branch_id FROM job_applications WHERE id = $1', [appId]);
+  if (!rows[0]) { res.status(404).json({ error: 'الطلب غير موجود' }); return false; }
+  if (!authContext.allowedBranchIds.includes(rows[0].branch_id)) {
+    res.status(403).json({ error: 'غير مسموح' });
+    return false;
+  }
+  return true;
 }
 
 function deriveDecisionFromLegacy(legacyStatus: string): string | null {
@@ -63,12 +78,98 @@ function deriveDecisionFromLegacy(legacyStatus: string): string | null {
 }
 
 // GET /api/admin/applications
+/**
+ * @swagger
+ * /api/admin/applications:
+ *   get:
+ *     tags: [Admin → Applications]
+ *     summary: List job applications
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: vacancyId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: branch
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: gender
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: stage
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: applicationSource
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: isArchived
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/', requirePermission('jobs.applications.view_list'), async (req, res) => {
   try {
+    const authContext = req.authContext!;
     const { vacancyId, branch, gender, stage, status, search, applicationSource, isArchived } = req.query;
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
+
+    // Branch scoping
+    if (!authContext.isSuperAdmin) {
+      conditions.push(`ja.branch_id = ANY($${idx++}::int[])`);
+      params.push(authContext.allowedBranchIds);
+    } else {
+      const hb = Number(req.header('x-branch-id'));
+      if (Number.isFinite(hb) && hb > 0) {
+        conditions.push(`ja.branch_id = $${idx++}`);
+        params.push(hb);
+      }
+    }
 
     if (vacancyId) { conditions.push(`ja.job_vacancy_id = $${idx++}`); params.push(vacancyId); }
     if (branch) { conditions.push(`jv.branch = $${idx++}`); params.push(branch); }
@@ -106,6 +207,7 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
         a.academic_qualification AS "applicantAcademicQualification",
         a.specialization AS "applicantSpecialization",
         a.driving_license AS "applicantDrivingLicense",
+        a.has_car AS "applicantHasCar",
         a.computer_skills AS "applicantComputerSkills",
         a.years_of_experience AS "applicantYearsOfExperience",
         jv.title AS "vacancyTitle",
@@ -120,6 +222,7 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
         jv.required_experience_years AS "vacancyRequiredExperienceYears",
         jv.required_skills AS "vacancyRequiredSkills",
         jv.driving_license_required AS "vacancyDrivingLicenseRequired",
+        jv.has_car_required AS "vacancyHasCarRequired",
         EXISTS (
           SELECT 1
           FROM interviews i
@@ -128,7 +231,7 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
         ) AS "hasScheduledInterview"
       FROM job_applications ja
       JOIN applicants a ON a.id = ja.applicant_id
-      JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
+      LEFT JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
       ${where}
       ORDER BY ja.created_at DESC`,
       params
@@ -141,6 +244,87 @@ router.get('/', requirePermission('jobs.applications.view_list'), async (req, re
 });
 
 // POST /api/admin/applications — manual admin entry (Internal / External Platforms)
+/**
+ * @swagger
+ * /api/admin/applications:
+ *   post:
+ *     tags: [Admin → Applications]
+ *     summary: Create job application (Internal/External entry)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [jobVacancyId, submissionType, applicationSource, applicant]
+ *             properties:
+ *               jobVacancyId:
+ *                 type: integer
+ *               submissionType:
+ *                 type: string
+ *                 enum: [Apply, Refer a Candidate]
+ *               applicationSource:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *               enteredByName:
+ *                 type: string
+ *               applicant:
+ *                 type: object
+ *                 required: [firstName, lastName, mobileNumber, dob, gender, maritalStatus, governorate, detailedAddress, hasCar]
+ *                 properties:
+ *                   firstName:
+ *                     type: string
+ *                   lastName:
+ *                     type: string
+ *                   dob:
+ *                     type: string
+ *                   gender:
+ *                     type: string
+ *                   maritalStatus:
+ *                     type: string
+ *                   email:
+ *                     type: string
+ *                   mobileNumber:
+ *                     type: string
+ *                   secondaryMobile:
+ *                     type: string
+ *                   governorate:
+ *                     type: string
+ *                   cityOrArea:
+ *                     type: string
+ *                   subArea:
+ *                     type: string
+ *                   neighborhood:
+ *                     type: string
+ *                   detailedAddress:
+ *                     type: string
+ *                   hasCar:
+ *                     type: boolean
+ *               referrer:
+ *                 type: object
+ *                 properties:
+ *                   type:
+ *                     type: string
+ *                     enum: [Client, Employee]
+ *                   fullName:
+ *                     type: string
+ *                   lastName:
+ *                     type: string
+ *                   mobileNumber:
+ *                     type: string
+ *     responses:
+ *       201:
+ *         description: Created
+ */
 router.post('/', requirePermission('jobs.applications.create'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -149,17 +333,24 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
 
     if (!a.firstName?.trim()) return res.status(400).json({ error: 'الاسم الأول مطلوب' });
     if (!a.lastName?.trim()) return res.status(400).json({ error: 'اسم العائلة مطلوب' });
-    if (!a.mobileNumber?.trim()) return res.status(400).json({ error: 'رقم الهاتف مطلوب' });
-    if (!/^\d{10,11}$/.test(a.mobileNumber)) return res.status(400).json({ error: 'رقم الهاتف يجب أن يكون 10-11 رقم' });
-    if (a.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email)) return res.status(400).json({ error: 'صيغة البريد الإلكتروني غير صحيحة' });
+    if (!a.mobileNumber?.trim()) return res.status(400).json({ error: 'رقم الجوال مطلوب' });
+    if (!/^\d{10,11}$/.test(a.mobileNumber)) return res.status(400).json({ error: 'رقم الجوال يجب أن يكون من 10 إلى 11 رقمًا' });
+    if (a.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email)) return res.status(400).json({ error: 'البريد الإلكتروني غير صالح' });
     if (!a.dob) return res.status(400).json({ error: 'تاريخ الميلاد مطلوب' });
     if (!a.gender) return res.status(400).json({ error: 'الجنس مطلوب' });
     if (!a.maritalStatus) return res.status(400).json({ error: 'الحالة الاجتماعية مطلوبة' });
     if (!a.governorate?.trim()) return res.status(400).json({ error: 'المحافظة مطلوبة' });
+    if (!a.detailedAddress?.trim()) return res.status(400).json({ error: 'العنوان التفصيلي مطلوب' });
+    if (typeof a.hasCar !== 'boolean') return res.status(400).json({ error: 'يرجى تحديد هل تمتلك سيارة' });
+
+    const jobVacancyId = Number(body.jobVacancyId);
+    if (!Number.isInteger(jobVacancyId) || jobVacancyId <= 0) {
+      return res.status(400).json({ error: 'الشاغر الوظيفي حقل إلزامي' });
+    }
 
     const submissionType = body.submissionType;
     if (!['Apply', 'Refer a Candidate'].includes(submissionType)) {
-      return res.status(400).json({ error: 'نوع التقديم غير صالح' });
+      return res.status(400).json({ error: 'نوع الإرسال غير صالح' });
     }
     const applicationSource = body.applicationSource;
     if (!applicationSource) {
@@ -167,30 +358,53 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
     }
     // enteredByUserId now comes from auth context
     if (submissionType === 'Refer a Candidate' && !body.referrer?.fullName?.trim()) {
-      return res.status(400).json({ error: 'اسم المُعرّف مطلوب عند التقديم نيابة عن مرشح' });
+      return res.status(400).json({ error: 'اسم المحيل مطلوب عند الإحالة' });
     }
 
     await client.query('BEGIN');
 
+    // Resolve branch_id: derived from vacancy if linked, otherwise from user/body
+    let applicationBranchId: number | null = null;
+
     // Vacancy: if linked, must be Open and within date range
-    if (body.jobVacancyId) {
+    if (jobVacancyId) {
       const { rows: vacRows } = await client.query(
-        `SELECT id, status FROM job_vacancies
+        `SELECT id, status, branch_id FROM job_vacancies
          WHERE id = $1 AND status = 'Open' AND CURRENT_DATE BETWEEN start_date AND end_date`,
-        [body.jobVacancyId]
+        [jobVacancyId]
       );
       if (vacRows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'الشاغر غير موجود أو غير مفتوح للتقديم أو خارج الفترة المحددة' });
+        return res.status(400).json({ error: 'الشاغر غير موجود أو غير متاح للتقديم' });
       }
+      applicationBranchId = vacRows[0].branch_id;
+      if (!applicationBranchId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'تعذر تحديد فرع الشاغر' });
+      }
+      // Branch-admin can only apply to their own branch's vacancies
+      const authContext = req.authContext!;
+      if (!authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(applicationBranchId)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'غير مسموح: فرع الشاغر خارج النطاق المسموح' });
+      }
+    } else {
+      // No vacancy: resolve from scope/body
+      const resolved = resolveTargetBranchId(req, res, body.branchId);
+      if (resolved == null) { await client.query('ROLLBACK'); return; }
+      applicationBranchId = resolved;
+    }
+    if (applicationBranchId == null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'تعذر تحديد فرع الطلب' });
     }
 
     // Duplicate check
-    const dupResult = await checkDuplicate(client, a.mobileNumber, body.jobVacancyId || null);
+    const dupResult = await checkDuplicate(client, a.mobileNumber, jobVacancyId);
     if (dupResult.blocked) {
       await client.query('ROLLBACK');
       return res.status(409).json({
-        error: body.jobVacancyId ? 'يوجد طلب نشط بالفعل لهذا الرقم والشاغر الوظيفي' : 'يوجد طلب عام نشط بالفعل لهذا الرقم',
+        error: 'يوجد طلب نشط بالفعل لهذا الرقم والشاغر الوظيفي',
         duplicateApplicationId: dupResult.duplicateApplicationId,
       });
     }
@@ -203,17 +417,18 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
         mobile_number, secondary_mobile, governorate, city_or_area,
         sub_area, neighborhood, detailed_address,
         academic_qualification, specialization, previous_employment, driving_license,
+        has_car,
         expected_salary, computer_skills, foreign_languages,
         years_of_experience, cv_url, photo_url, applicant_segment,
         has_whatsapp_primary, has_whatsapp_secondary
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
       RETURNING id`,
       [
         a.firstName, a.lastName, a.dob, a.gender, a.maritalStatus, a.email || null,
         a.mobileNumber, a.secondaryMobile || null,
         a.governorate, a.cityOrArea || null, a.subArea || null, a.neighborhood || null, a.detailedAddress || null,
         a.academicQualification || null, a.specialization || null, a.previousEmployment || null,
-        a.drivingLicense || null, a.expectedSalary ? parseInt(a.expectedSalary) : null,
+        a.drivingLicense || null, a.hasCar ?? false, a.expectedSalary ? parseInt(a.expectedSalary) : null,
         a.computerSkills || null, a.foreignLanguages || null,
         a.yearsOfExperience ? parseInt(a.yearsOfExperience) : null,
         a.cvUrl || null, a.photoUrl || null, a.applicantSegment || null,
@@ -227,15 +442,21 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
     let referrerId: number | null = null;
     if (submissionType === 'Refer a Candidate' && body.referrer) {
       const r = body.referrer;
+      const normalizedReferrerType = r.type === 'Customer' ? 'Client' : r.type;
+      const referrerEntityId = normalizedReferrerType === 'Employee'
+        ? (r.referralEntityId ?? r.employeeId ?? null)
+        : (r.referralEntityId ?? null);
       const { rows: refRows } = await client.query(
         `INSERT INTO referrers (
-          type, employee_id, full_name, last_name, mobile_number,
+          type, employee_id, referral_entity_id, full_name, last_name, mobile_number,
           governorate, city_or_area, sub_area, neighborhood,
           detailed_address, referrer_work, referrer_notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         RETURNING id`,
         [
-          r.type || 'Customer', r.employeeId || null,
+          normalizedReferrerType || 'Client',
+          normalizedReferrerType === 'Employee' ? (r.employeeId ?? null) : null,
+          referrerEntityId,
           sanitizeText(r.fullName), r.lastName ? sanitizeText(r.lastName) : null, r.mobileNumber || null,
           r.governorate ? sanitizeText(r.governorate) : null, r.cityOrArea ? sanitizeText(r.cityOrArea) : null,
           r.subArea ? sanitizeText(r.subArea) : null, r.neighborhood ? sanitizeText(r.neighborhood) : null,
@@ -253,8 +474,8 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
         job_vacancy_id, applicant_id, referrer_id, submission_type,
         application_source, entered_by_user_id, entered_by_name,
         current_stage, application_status, duplicate_flag,
-        stage_status, decision
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted','New',$8,'Pending',NULL)
+        stage_status, decision, branch_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted','New',$8,'Pending',NULL,$9)
       RETURNING id, job_vacancy_id AS "jobVacancyId", applicant_id AS "applicantId",
         referrer_id AS "referrerId", submission_type AS "submissionType",
         application_source AS "applicationSource",
@@ -263,10 +484,10 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
         duplicate_flag AS "duplicateFlag", created_at AS "createdAt",
         stage_status AS "stageStatus", decision`,
       [
-        body.jobVacancyId || null, applicantId, referrerId,
+        jobVacancyId, applicantId, referrerId,
         submissionType, applicationSource,
         enteredByUserId, body.enteredByName || null,
-        duplicateFlag,
+        duplicateFlag, applicationBranchId,
       ]
     );
 
@@ -279,7 +500,7 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
       performedByUserId: req.user!.id,
       newValue: JSON.stringify({
         applicantId, referrerId,
-        jobVacancyId: body.jobVacancyId || null,
+        jobVacancyId,
         submissionType, applicationSource, duplicateFlag,
       }),
     });
@@ -296,14 +517,43 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
 });
 
 // GET /api/admin/applications/:id
+/**
+ * @swagger
+ * /api/admin/applications/{id}:
+ *   get:
+ *     tags: [Admin → Applications]
+ *     summary: Get job application details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ *       404:
+ *         description: Not Found
+ */
 router.get('/:id', requirePermission('jobs.applications.view_detail'), async (req, res) => {
   try {
+    const authContext = req.authContext!;
     const { rows: appRows } = await pool.query(
-      `SELECT ${APP_COLS} FROM job_applications ja WHERE ja.id = $1`,
+      `SELECT ${APP_COLS}, ja.branch_id AS "branchId" FROM job_applications ja WHERE ja.id = $1`,
       [req.params.id]
     );
     if (appRows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     const app = appRows[0];
+    if (!authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(app.branchId)) {
+    res.status(403).json({ error: 'غير مسموح' });
+    }
 
     // Fetch applicant
     const { rows: applicantRows } = await pool.query(
@@ -316,6 +566,7 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
         specialization,
         previous_employment AS "previousEmployment",
         driving_license AS "drivingLicense",
+        has_car AS "hasCar",
         has_whatsapp_primary AS "hasWhatsappPrimary",
         has_whatsapp_secondary AS "hasWhatsappSecondary",
         expected_salary AS "expectedSalary",
@@ -341,6 +592,7 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
         required_experience_years AS "requiredExperienceYears",
         required_skills AS "requiredSkills", responsibilities,
         driving_license_required AS "drivingLicenseRequired",
+        has_car_required AS "hasCarRequired",
         vacancy_count AS "vacancyCount",
         start_date AS "startDate", end_date AS "endDate",
         status, created_at AS "createdAt", updated_at AS "updatedAt"
@@ -352,7 +604,7 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
     let referrer = null;
     if (app.referrerId) {
       const { rows: refRows } = await pool.query(
-        `SELECT id, type, employee_id AS "employeeId",
+        `SELECT id, type, employee_id AS "employeeId", referral_entity_id AS "referralEntityId",
           full_name AS "fullName", last_name AS "lastName",
           mobile_number AS "mobileNumber", governorate,
           city_or_area AS "cityOrArea", sub_area AS "subArea",
@@ -418,11 +670,49 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
 });
 
 // PATCH /api/admin/applications/:id/stage
+/**
+ * @swagger
+ * /api/admin/applications/{id}/stage:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Transition application to a new stage
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [stage, status]
+ *             properties:
+ *               stage:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *               internalNotes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/stage', requirePermission('jobs.applications.change_stage'), async (req, res) => {
   const client = await pool.connect();
   try {
     const { stage, status, internalNotes } = req.body;
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     const { rows: currentRows } = await client.query(
       `SELECT ja.current_stage, ja.application_status,
@@ -444,21 +734,21 @@ router.patch('/:id/stage', requirePermission('jobs.applications.change_stage'), 
     // Block: escalated applications are frozen
     if (current.is_escalated) {
       return res.status(409).json({
-        error: 'لا يمكن تغيير المرحلة: الطلب مُصعَّد. يجب حل التصعيد أولاً.',
+        error: 'لا يمكن تعديل هذا الطلب: الطلب مصعّد. راجع مسار التصعيد أولاً.',
       });
     }
 
     // Block: Training stage transitions go exclusively through the training module
     if (isTrainingManagedStage(current.current_stage)) {
       return res.status(400).json({
-        error: 'لا يمكن تغيير حالة الطلب في مرحلة التدريب إلا من خلال وحدة إدارة الدورات التدريبية',
+        error: 'لا يمكن تعديل هذا الطلب لأن المرحلة التدريبية تُدار من وحدة التدريب حصريًا.',
       });
     }
 
     // Block: Interview result transitions go exclusively through the interview module
     if (isInterviewManagedTransition(current.current_stage, current.application_status, status)) {
       return res.status(400).json({
-        error: 'يتم تحديث نتيجة المقابلة تلقائياً من خلال وحدة إدارة المقابلات فقط',
+        error: 'لا يمكن تعديل هذا الطلب لأن انتقالات نتيجة المقابلة تُدار من وحدة المقابلات حصريًا.',
       });
     }
 
@@ -528,10 +818,34 @@ router.patch('/:id/stage', requirePermission('jobs.applications.change_stage'), 
 });
 
 // PATCH /api/admin/applications/:id/hire — Final Hired (no override allowed)
+/**
+ * @swagger
+ * /api/admin/applications/{id}/hire:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Finalize hiring for an application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (req, res) => {
   const client = await pool.connect();
   try {
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     await client.query('BEGIN');
 
@@ -561,7 +875,7 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
     if (app.is_escalated) {
       await client.query('ROLLBACK');
       return res.status(409).json({
-        error: 'لا يمكن تنفيذ التوظيف: الطلب مُصعَّد. يجب حل التصعيد أولاً.',
+        error: 'لا يمكن تعديل هذا الطلب: الطلب مصعّد. راجع مسار التصعيد أولاً.',
       });
     }
 
@@ -569,7 +883,7 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
     if (app.current_stage !== 'Final Decision' || app.application_status !== 'Passed') {
       await client.query('ROLLBACK');
       return res.status(400).json({
-        error: 'يجب أن يكون الطلب في مرحلة "القرار النهائي" وحالة "ناجح" لإتمام التوظيف',
+        error: 'لا يمكن التوظيف إلا من حالة "القرار النهائي" مع حالة "مقبول".',
       });
     }
 
@@ -578,7 +892,7 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
     if (!capacity.sufficient) {
       await client.query('ROLLBACK');
       return res.status(400).json({
-        error: 'لا توجد شواغر متبقية. لا يمكن التوظيف.',
+        error: 'لا يمكن التوظيف الآن. الشاغر لا يحتوي على مقاعد كافية.',
         vacancyCount: capacity.vacancyCount,
       });
     }
@@ -634,10 +948,253 @@ router.patch('/:id/hire', requirePermission('jobs.applications.hire'), async (re
 });
 
 // PATCH /api/admin/applications/:id/decision — New decision endpoint (stage_status/decision model)
+/**
+ * @swagger
+ * /api/admin/applications/{id}/employee:
+ *   post:
+ *     tags: [Admin → Applications]
+ *     summary: Mint an employee profile for a hired candidate
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       201:
+ *         description: Created
+ */
 router.post('/:id/employee', requirePermission('employees.create'), async (req, res) => {
   const client = await pool.connect();
   try {
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
+
+    await client.query('BEGIN');
+
+    const { rows: appRows } = await client.query(
+      `SELECT ja.id, ja.current_stage, ja.application_status, ja.is_escalated,
+        ja.hired_employee_id AS "hiredEmployeeId",
+        ja.submission_type AS "submissionType",
+        ja.application_source AS "applicationSource",
+        a.first_name AS "firstName",
+        a.last_name AS "lastName",
+        a.mobile_number AS "mobileNumber",
+        a.secondary_mobile AS "secondaryMobile",
+        a.has_whatsapp_primary AS "hasWhatsappPrimary",
+        a.has_whatsapp_secondary AS "hasWhatsappSecondary",
+        a.dob AS "birthDate",
+        a.gender,
+        a.marital_status AS "maritalStatus",
+        a.email,
+        a.governorate AS "governorate",
+        a.city_or_area AS "cityOrArea",
+        a.sub_area AS "subArea",
+        a.neighborhood AS "neighborhood",
+        a.detailed_address AS "detailedAddress",
+        a.photo_url AS "photoUrl",
+        a.academic_qualification AS "academicQualification",
+        a.specialization,
+        a.previous_employment AS "previousEmployment",
+        a.driving_license AS "drivingLicense",
+        a.has_car AS "hasCar",
+        a.computer_skills AS "computerSkills",
+        a.foreign_languages AS "foreignLanguages",
+        a.years_of_experience AS "yearsOfExperience",
+        jv.title AS "vacancyTitle",
+        jv.branch AS "vacancyBranch",
+        jv.branch_id AS "vacancyBranchId",
+        jv.work_type AS "vacancyWorkType",
+        jv.has_car_required AS "vacancyHasCarRequired",
+        ja.branch_id AS "applicationBranchId",
+        r.type AS "referrerType",
+        r.full_name AS "referrerName",
+        r.referrer_notes AS "referralNotes"
+       FROM job_applications ja
+       JOIN applicants a ON a.id = ja.applicant_id
+       LEFT JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
+       LEFT JOIN referrers r ON r.id = ja.referrer_id
+       WHERE ja.id = $1
+       FOR UPDATE OF ja`,
+      [appId]
+    );
+
+    if (appRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'الطلب غير موجود' });
+    }
+
+    const app = appRows[0];
+    const blockReason = getApplicationProcessingBlockReason(req.user?.role, {
+      currentStage: app.current_stage,
+      isEscalated: app.is_escalated,
+    });
+    if (blockReason) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: blockReason });
+    }
+
+    if (app.current_stage !== 'Final Decision' || app.application_status !== 'Final Hired') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'لا يمكن إنشاء سجل موظف إلا بعد اعتماد القرار النهائي كمقبول.',
+      });
+    }
+
+    if (app.hiredEmployeeId) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'تم إنشاء سجل الموظف لهذا الطلب مسبقًا.' });
+    }
+
+    const employeeBranchId = app.vacancyBranchId ?? app.applicationBranchId ?? null;
+    if (!employeeBranchId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'تعذر تحديد فرع الموظف من الطلب' });
+    }
+
+    const fallbackContacts = [
+      app.mobileNumber ? {
+        id: 'application-contact-1',
+        type: 'mobile',
+        number: app.mobileNumber,
+        label: 'أساسي',
+        hasWhatsApp: Boolean(app.hasWhatsappPrimary),
+        status: 'active',
+      } : null,
+      app.secondaryMobile ? {
+        id: 'application-contact-2',
+        type: 'mobile',
+        number: app.secondaryMobile,
+        label: 'بديل',
+        hasWhatsApp: Boolean(app.hasWhatsappSecondary),
+        status: 'active',
+      } : null,
+    ].filter(Boolean);
+
+    const mergedBody = {
+      ...req.body,
+      firstName: req.body?.firstName ?? app.firstName ?? '',
+      lastName: req.body?.lastName ?? app.lastName ?? '',
+      mobile: req.body?.mobile ?? app.mobileNumber ?? '',
+      contacts: Array.isArray(req.body?.contacts) && req.body.contacts.length > 0 ? req.body.contacts : fallbackContacts,
+      birthDate: req.body?.birthDate ?? app.birthDate ?? '',
+      gender: req.body?.gender ?? app.gender ?? '',
+      maritalStatus: req.body?.maritalStatus ?? app.maritalStatus ?? '',
+      detailedAddress: req.body?.detailedAddress ?? app.detailedAddress ?? '',
+      avatar: req.body?.avatar ?? app.photoUrl ?? null,
+      jobTitle: req.body?.jobTitle ?? app.vacancyTitle ?? '',
+      academicQualification: req.body?.academicQualification ?? app.academicQualification ?? '',
+      specialization: req.body?.specialization ?? app.specialization ?? '',
+      yearsOfExperience: req.body?.yearsOfExperience ?? app.yearsOfExperience ?? '',
+      drivingLicense: req.body?.drivingLicense ?? app.drivingLicense ?? null,
+      jobSkills: req.body?.jobSkills ?? app.computerSkills ?? '',
+      foreignLanguages: req.body?.foreignLanguages ?? app.foreignLanguages ?? [],
+      workType: req.body?.workType ?? app.vacancyWorkType ?? '',
+      previousEmployment: req.body?.previousEmployment ?? app.previousEmployment ?? '',
+      status: req.body?.status ?? 'active',
+      referrerType: req.body?.referrerType
+        ?? app.referrerType
+        ?? (app.submissionType === 'Refer a Candidate' ? 'Unknown' : null),
+      sourceChannel: req.body?.sourceChannel ?? app.applicationSource ?? null,
+      referrerName: req.body?.referrerName ?? app.referrerName ?? null,
+      referralNotes: req.body?.referralNotes ?? app.referralNotes ?? null,
+    };
+
+    const prepared = await prepareEmployeeWriteInput(mergedBody, employeeBranchId);
+    const employeeId = await insertPreparedEmployeeProfile(client, prepared);
+
+    const { rows: employeeRows } = await client.query(
+      `SELECT
+        id,
+        employee_number AS "employeeNumber",
+        name,
+        role,
+        mobile,
+        branch,
+        branch_id AS "branchId",
+        status,
+        avatar,
+        job_title AS "jobTitle",
+        created_at AS "createdAt"
+       FROM employees
+       WHERE id = $1`,
+      [employeeId]
+    );
+
+    const employee = employeeRows[0];
+
+    await client.query(
+      `UPDATE job_applications
+       SET hired_employee_id = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [employee.id, appId]
+    );
+
+    await insertAuditLog(client, {
+      entityType: 'job_application',
+      entityId: parseInt(appId),
+      applicationId: parseInt(appId),
+      actionType: 'Employee Record Created',
+      performedByRole: req.user!.role,
+      performedByUserId: req.user!.id,
+      newValue: JSON.stringify({
+        employeeId: employee.id,
+        employeeNumber: employee.employeeNumber ?? null,
+        employeeName: employee.name,
+        role: employee.role,
+        jobTitle: employee.jobTitle,
+      }),
+    });
+
+    await client.query('COMMIT');
+    res.status(201).json(employee);
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    if (err?.status) {
+      return res.status(err.status).json(err.payload ?? { error: err.message });
+    }
+    console.error('Error creating employee from application:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/applications/{id}/employee-legacy-disabled:
+ *   post:
+ *     tags: [Admin → Applications]
+ *     summary: Legacy disabled employee endpoint
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
+router.post('/:id/employee-legacy-disabled', requirePermission('employees.create'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     await client.query('BEGIN');
 
@@ -653,7 +1210,9 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
        a.detailed_address AS "detailedAddress",
        a.photo_url AS "photoUrl",
        jv.title AS "vacancyTitle",
-       jv.branch AS "vacancyBranch"
+       jv.branch AS "vacancyBranch",
+       jv.branch_id AS "vacancyBranchId",
+       ja.branch_id AS "applicationBranchId"
        FROM job_applications ja
        JOIN applicants a ON a.id = ja.applicant_id
        LEFT JOIN job_vacancies jv ON jv.id = ja.job_vacancy_id
@@ -689,30 +1248,26 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
       return res.status(409).json({ error: 'تم إنشاء سجل الموظف لهذا الطلب مسبقًا.' });
     }
 
+    // Derive the legacy operational role — may be null for job titles outside
+    // supervisor / technician / telemarketer; that is acceptable since the DB
+    // CHECK constraint has been dropped and role is now nullable.
     const role = deriveEmployeeRoleFromVacancyTitle(app.vacancyTitle);
-    if (!role) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'عنوان الوظيفة لا يطابق الأدوار المدعومة لإنشاء موظف تلقائيًا: مشرفة، فني، تيلماركتر.',
-      });
-    }
 
     const fullName = `${app.firstName ?? ''} ${app.lastName ?? ''}`.trim();
     const avatar = getEmployeeAvatar(fullName, app.photoUrl);
-    const residence = [
-      app.governorate,
-      app.cityOrArea,
-      app.subArea,
-      app.neighborhood,
-      app.detailedAddress,
-    ].filter(Boolean).join(' - ') || null;
+
+    const employeeBranchId = app.vacancyBranchId ?? app.applicationBranchId ?? null;
+    if (!employeeBranchId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'تعذر تحديد فرع الموظف من الطلب' });
+    }
 
     const { rows: employeeRows } = await client.query(
-      `INSERT INTO employees (name, role, mobile, branch, residence, status, avatar, job_title)
-       VALUES ($1, $2, $3, $4, $5, 'active', $6, $7)
-       RETURNING id, name, role, mobile, branch, residence, status, avatar,
+      `INSERT INTO employees (name, role, mobile, branch, status, avatar, job_title, branch_id)
+       VALUES ($1, $2, $3, $4, 'active', $5, $6, $7)
+       RETURNING id, name, role, mobile, branch, status, avatar,
          job_title AS "jobTitle", created_at AS "createdAt"`,
-      [fullName, role, app.mobileNumber, app.vacancyBranch ?? null, residence, avatar, app.vacancyTitle ?? null]
+      [fullName, role, app.mobileNumber, app.vacancyBranch ?? null, avatar, app.vacancyTitle ?? null, employeeBranchId]
     );
 
     const employee = employeeRows[0];
@@ -750,6 +1305,43 @@ router.post('/:id/employee', requirePermission('employees.create'), async (req, 
   }
 });
 
+/**
+ * @swagger
+ * /api/admin/applications/{id}/decision:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Record decision on job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [stage, decision]
+ *             properties:
+ *               stage:
+ *                 type: string
+ *               decision:
+ *                 type: string
+ *               internalNotes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/decision', requirePermission('jobs.applications.record_decision'), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -757,6 +1349,7 @@ router.patch('/:id/decision', requirePermission('jobs.applications.record_decisi
     const appId = req.params.id as string;
 
     if (!decision) return res.status(400).json({ error: 'القرار مطلوب' });
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     const { rows: currentRows } = await client.query(
       `SELECT ja.current_stage, ja.application_status,
@@ -851,10 +1444,50 @@ router.patch('/:id/decision', requirePermission('jobs.applications.record_decisi
 });
 
 // PATCH /api/admin/applications/:id/escalate
+/**
+ * @swagger
+ * /api/admin/applications/{id}/escalate:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Escalate a job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [notes]
+ *             properties:
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), async (req, res) => {
   const client = await pool.connect();
   try {
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
+
+    const reason = sanitizeText(String(req.body?.reason ?? '').trim());
+    if (!reason) {
+      client.release();
+      return res.status(400).json({ error: 'سبب التصعيد مطلوب' });
+    }
 
     await client.query('BEGIN');
 
@@ -869,7 +1502,7 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'الطلب غير موجود أو مُصعَّد بالفعل' });
+      return res.status(400).json({ error: 'الطلب غير موجود أو مصعّد مسبقاً' });
     }
 
     await insertAuditLog(client, {
@@ -879,6 +1512,7 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
       actionType: 'Escalated',
       performedByRole: req.user!.role,
       performedByUserId: req.user!.id,
+      internalReason: reason,
     });
 
     await client.query('COMMIT');
@@ -893,7 +1527,43 @@ router.patch('/:id/escalate', requirePermission('jobs.applications.escalate'), a
 });
 
 // PATCH /api/admin/applications/:id/resolve-escalation
-router.patch('/:id/resolve-escalation', requireRole('HR_MANAGER'), async (req, res) => {
+/**
+ * @swagger
+ * /api/admin/applications/{id}/resolve-escalation:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Resolve escalation on a job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [notes, actionType]
+ *             properties:
+ *               notes:
+ *                 type: string
+ *               actionType:
+ *                 type: string
+ *                 enum: [resolve, reject, re_evaluate]
+ *     responses:
+ *       200:
+ *         description: Success
+ */
+router.patch('/:id/resolve-escalation', requirePermission('jobs.applications.resolve_escalation'), async (req, res) => {
   const client = await pool.connect();
   try {
     const appId = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id)!;
@@ -911,7 +1581,7 @@ router.patch('/:id/resolve-escalation', requireRole('HR_MANAGER'), async (req, r
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'الطلب غير موجود أو غير مُصعَّد' });
+      return res.status(400).json({ error: 'لا يمكن إلغاء التصعيد لأن الطلب غير مصعّد' });
     }
 
     await insertAuditLog(client, {
@@ -935,14 +1605,49 @@ router.patch('/:id/resolve-escalation', requireRole('HR_MANAGER'), async (req, r
 });
 
 // PATCH /api/admin/applications/:id/notes
+/**
+ * @swagger
+ * /api/admin/applications/{id}/notes:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Edit internal notes on a job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [internalNotes]
+ *             properties:
+ *               internalNotes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/notes', requirePermission('jobs.applications.edit_notes'), async (req, res) => {
   try {
+    const appId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!(await assertAppBranchAccess(req, res, appId!))) return;
     const { notes } = req.body;
     const { rows } = await pool.query(
       `UPDATE job_applications SET internal_notes = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING id, internal_notes AS "internalNotes"`,
-      [notes ? sanitizeText(notes) : null, req.params.id]
+      [notes ? sanitizeText(notes) : null, appId]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     res.json(rows[0]);
@@ -953,10 +1658,34 @@ router.patch('/:id/notes', requirePermission('jobs.applications.edit_notes'), as
 });
 
 // PATCH /api/admin/applications/:id/archive
+/**
+ * @swagger
+ * /api/admin/applications/{id}/archive:
+ *   patch:
+ *     tags: [Admin → Applications]
+ *     summary: Archive a job application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.patch('/:id/archive', requirePermission('jobs.applications.archive'), async (req, res) => {
   const client = await pool.connect();
   try {
     const appId = req.params.id as string;
+    if (!(await assertAppBranchAccess(req, res, appId))) { client.release(); return; }
 
     const ARCHIVABLE_STATUSES = ['Final Hired', 'Final Rejected', 'Retreated'];
 
@@ -974,7 +1703,7 @@ router.patch('/:id/archive', requirePermission('jobs.applications.archive'), asy
     if (!ARCHIVABLE_STATUSES.includes(current[0].applicationStatus)) {
       await client.query('ROLLBACK');
       return res.status(400).json({
-        error: `لا يمكن أرشفة الطلب إلا في الحالات النهائية: ${ARCHIVABLE_STATUSES.join(', ')}`,
+        error: `لا يمكن أرشفة الطلب إلا عندما تكون حالته إحدى الحالات التالية: ${ARCHIVABLE_STATUSES.join(', ')}`,
       });
     }
     if (current[0].isArchived) {
@@ -1015,6 +1744,29 @@ router.patch('/:id/archive', requirePermission('jobs.applications.archive'), asy
 });
 
 // GET /api/admin/applications/:id/audit-logs
+/**
+ * @swagger
+ * /api/admin/applications/{id}/audit-logs:
+ *   get:
+ *     tags: [Admin → Applications]
+ *     summary: View audit logs for an application
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/:id/audit-logs', requirePermission('jobs.applications.view_audit_logs'), async (req, res) => {
   try {
     const { rows } = await pool.query(

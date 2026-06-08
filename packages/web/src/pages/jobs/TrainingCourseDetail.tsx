@@ -50,7 +50,7 @@ export default function TrainingCourseDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { selectedCourse, detailLoading, detailError, fetchCourseDetail,
-    startCourse, completeCourse, recordAttendance, recordTraineeResult } = useTrainingStore();
+    startCourse, completeCourse, updateTrainingCourseEndDate, recordAttendance, recordTraineeResult } = useTrainingStore();
 
   // Attendance state
   const today = new Date().toISOString().split('T')[0];
@@ -62,6 +62,11 @@ export default function TrainingCourseDetail() {
   // Action state
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [showEndDateModal, setShowEndDateModal] = useState(false);
+  const [endDateDraft, setEndDateDraft] = useState('');
+  const [endDateError, setEndDateError] = useState('');
+  const [endDateSuccess, setEndDateSuccess] = useState('');
+  const [endDateSubmitting, setEndDateSubmitting] = useState(false);
 
   // Result dropdowns
   const [pendingResults, setPendingResults] = useState<Record<number, string>>({});
@@ -90,6 +95,11 @@ export default function TrainingCourseDetail() {
 
   const course = selectedCourse;
   const dates = generateDates(course.attendance || []);
+  const latestAttendanceDate = dates.length > 0 ? dates[dates.length - 1] : '';
+  const latestAttendanceLabel = latestAttendanceDate
+    ? new Date(latestAttendanceDate).toLocaleDateString('ar-IQ')
+    : '';
+  const minimumAllowedEndDate = latestAttendanceDate || course.startDate;
 
   // Build attendance lookup: { applicationId_date: status }
   const attMap: Record<string, 'Present' | 'Absent'> = {};
@@ -136,6 +146,39 @@ export default function TrainingCourseDetail() {
     try { await completeCourse(course.id); }
     catch (err: any) { setActionError(err.message); }
     finally { setActionLoading(false); }
+  }
+
+  function openEndDateModal() {
+    setEndDateDraft(course.endDate || '');
+    setEndDateError('');
+    setEndDateSuccess('');
+    setShowEndDateModal(true);
+  }
+
+  async function saveEndDate() {
+    setEndDateError('');
+    setEndDateSuccess('');
+    if (!endDateDraft) {
+      setEndDateError('تاريخ نهاية الدورة مطلوب');
+      return;
+    }
+    const minAllowedDate = minimumAllowedEndDate || course.startDate;
+    if (new Date(endDateDraft) < new Date(minAllowedDate)) {
+      setEndDateError(latestAttendanceDate
+        ? `يجب أن يكون تاريخ نهاية الدورة مساوياً أو بعد آخر يوم حضور مسجل (${latestAttendanceLabel})`
+        : 'يجب أن يكون تاريخ نهاية الدورة مساوياً أو بعد تاريخ البداية');
+      return;
+    }
+    setEndDateSubmitting(true);
+    try {
+      await updateTrainingCourseEndDate(course.id, endDateDraft);
+      setShowEndDateModal(false);
+      setEndDateSuccess('تم تحديث تاريخ نهاية الدورة بنجاح');
+    } catch (err: any) {
+      setEndDateError(err.message || 'تعذر تحديث تاريخ نهاية الدورة');
+    } finally {
+      setEndDateSubmitting(false);
+    }
   }
 
   async function handleRecordResult(trainee: TrainingCourseTrainee) {
@@ -220,7 +263,19 @@ export default function TrainingCourseDetail() {
         {actionError && (
           <div className="mt-4 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2 text-sm">{actionError}</div>
         )}
+        {endDateSuccess && (
+          <div className="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-2 text-sm">{endDateSuccess}</div>
+        )}
         <div className="mt-4 flex items-center gap-3 flex-wrap">
+          <PermissionGate permission="jobs.training.create">
+            <button
+              onClick={openEndDateModal}
+              className="flex items-center gap-2 px-4 py-2 bg-sky-50 text-sky-700 border border-sky-200 rounded-xl text-sm font-semibold hover:bg-sky-100 transition-colors"
+            >
+              <Calendar className="w-4 h-4" />
+              تعديل الدورة التدريبية
+            </button>
+          </PermissionGate>
           {isScheduled && (
             <PermissionGate permission="jobs.training.start">
               <button
@@ -246,6 +301,53 @@ export default function TrainingCourseDetail() {
             </PermissionGate>
           )}
         </div>
+      </div>
+
+
+      <div className={showEndDateModal ? 'fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4' : 'hidden'} onClick={() => setShowEndDateModal(false)}>
+        {showEndDateModal && (
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-slate-800">تعديل الدورة التدريبية</h3>
+              <button onClick={() => setShowEndDateModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                <XCircle className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">تاريخ نهاية الدورة</label>
+                <input
+                  type="date"
+                  value={endDateDraft}
+                  min={minimumAllowedEndDate}
+                  onChange={e => setEndDateDraft(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500"
+                />
+                <p className="mt-1 text-xs text-slate-400">
+                  {latestAttendanceDate
+                    ? `لا يمكن أن يكون التاريخ أقدم من آخر يوم حضور مسجل (${latestAttendanceLabel}).`
+                    : 'لا يمكن أن يكون التاريخ أقدم من تاريخ البداية.'}
+                </p>
+              </div>
+              {endDateError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2 text-sm">{endDateError}</div>
+              )}
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button onClick={() => setShowEndDateModal(false)} className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
+                إلغاء
+              </button>
+              <button
+                onClick={saveEndDate}
+                disabled={endDateSubmitting}
+                className="px-5 py-2.5 text-sm bg-sky-600 text-white rounded-xl hover:bg-sky-700 font-bold shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                {endDateSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
+                حفظ التعديل
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Attendance Grid */}

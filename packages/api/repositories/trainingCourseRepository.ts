@@ -184,6 +184,14 @@ export async function updateTrainingCourseStatus(client: PoolClient, courseId: s
   await client.query(`UPDATE training_courses SET training_status = $1, updated_at = NOW() WHERE id = $2`, [trainingStatus, courseId]);
 }
 
+export async function updateTrainingCourseEndDate(client: PoolClient, courseId: string | number, endDate: string) {
+  const { rows } = await client.query(
+    `UPDATE training_courses SET end_date = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+    [endDate, courseId],
+  );
+  return rows[0] ?? null;
+}
+
 export async function updateApplicationTrainingStarted(client: PoolClient, applicationId: number) {
   await client.query(
     `UPDATE job_applications SET application_status = 'Training Started', stage_status = 'In Progress', updated_at = NOW() WHERE id = $1`,

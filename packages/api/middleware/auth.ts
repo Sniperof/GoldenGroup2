@@ -18,10 +18,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول أولاً' });
   }
-  const token = authHeader.slice(7);
+
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as AuthUser;
-    req.user = payload;
+    req.user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
     next();
   } catch {
     return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
@@ -30,23 +29,24 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    // If req.user is not set yet, try to parse the JWT first
+    // Legacy guard kept for untouched routes; no new callers should be added.
     if (!req.user) {
       const authHeader = req.headers.authorization;
       if (!authHeader?.startsWith('Bearer ')) {
         return res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول أولاً' });
       }
-      const token = authHeader.slice(7);
+
       try {
-        const payload = jwt.verify(token, JWT_SECRET) as AuthUser;
-        req.user = payload;
+        req.user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
       } catch {
         return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
       }
     }
-    if (!roles.includes(req.user.role)) {
+
+    if (req.user.isSuperAdmin !== true && !roles.includes(req.user.role)) {
       return res.status(403).json({ error: 'غير مسموح: صلاحياتك لا تسمح بهذا الإجراء' });
     }
+
     next();
   };
 }

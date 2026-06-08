@@ -1,22 +1,169 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { requirePermission } from '../middleware/permission.js';
+import { areRoutePointsInsideScope, listAllGeoUnits, resolveGeoScope } from '../services/geoScopeService.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     GeoRoute:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         status:
+ *           type: string
+ *         points:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               geoUnitId:
+ *                 type: integer
+ *               level:
+ *                 type: integer
+ *               order:
+ *                 type: integer
+ */
+
+/**
+ * @swagger
+ * /api/routes:
+ *   get:
+ *     tags: [Geo Routes]
+ *     summary: Retrieve list of routes (geo routes)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/GeoRoute'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No geo.view permission or outside branch scope)
+ *       500:
+ *         description: Server error
+ */
+router.get('/', requirePermission('geo.view'), async (req, res) => {
   const { rows: routes } = await pool.query('SELECT * FROM routes ORDER BY id');
   const { rows: points } = await pool.query(
     'SELECT route_id AS "routeId", geo_unit_id AS "geoUnitId", level, point_order AS "order" FROM route_points ORDER BY route_id, point_order'
   );
-  const result = routes.map(r => ({
-    ...r,
-    points: points.filter(p => p.routeId === r.id).map(({ routeId, ...rest }) => rest)
-  }));
+  const geoUnits = await listAllGeoUnits();
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.view', geoUnits)
+    : null;
+  const result = routes
+    .map(r => ({
+      ...r,
+      points: points.filter(p => p.routeId === r.id).map(({ routeId, ...rest }) => rest)
+    }))
+    .filter(route => areRoutePointsInsideScope(route.points, scope));
   res.json(result);
 });
 
-router.post('/', async (req, res) => {
+/**
+ * @swagger
+ * /api/routes:
+ *   post:
+ *     tags: [Geo Routes]
+ *     summary: Create new route and route points
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *               points:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     geoUnitId:
+ *                       type: integer
+ *                     level:
+ *                       type: integer
+ *                     order:
+ *                       type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GeoRoute'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No geo.manage permission or outside branch geo scope)
+ *       500:
+ *         description: Server error
+ */
+router.post('/', requirePermission('geo.manage'), async (req, res) => {
   const { name, points, status } = req.body;
+  const geoUnits = await listAllGeoUnits();
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.manage', geoUnits)
+    : null;
+  if (!areRoutePointsInsideScope(points || [], scope)) {
+    return res.status(403).json({ error: 'لا يمكن إنشاء مسار خارج نطاق تغطية الفرع' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -43,9 +190,86 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+/**
+ * @swagger
+ * /api/routes/{id}:
+ *   put:
+ *     tags: [Geo Routes]
+ *     summary: Update route and points by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Route ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *               points:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     geoUnitId:
+ *                       type: integer
+ *                     level:
+ *                       type: integer
+ *                     order:
+ *                       type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GeoRoute'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No geo.manage permission or outside branch geo scope)
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
+router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
   const { name, points, status } = req.body;
-  const routeId = parseInt(req.params.id);
+  const routeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const routeId = parseInt(routeIdParam, 10);
+  const geoUnits = await listAllGeoUnits();
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.manage', geoUnits)
+    : null;
+  const existingRoute = await loadRouteForScopeCheck(routeId);
+  if (!existingRoute.exists) {
+    return res.status(404).json({ error: 'Route not found' });
+  }
+  if (!areRoutePointsInsideScope(existingRoute.points, scope)) {
+    return res.status(403).json({ error: 'لا يمكن تعديل مسار خارج نطاق تغطية الفرع' });
+  }
+  if (!areRoutePointsInsideScope(points || [], scope)) {
+    return res.status(403).json({ error: 'لا يمكن تعديل المسار ليخرج عن نطاق تغطية الفرع' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -69,9 +293,80 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
-  await pool.query('DELETE FROM routes WHERE id = $1', [req.params.id]);
+/**
+ * @swagger
+ * /api/routes/{id}:
+ *   delete:
+ *     tags: [Geo Routes]
+ *     summary: Delete route by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Route ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (No geo.manage permission or outside branch geo scope)
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
+router.delete('/:id', requirePermission('geo.manage'), async (req, res) => {
+  const routeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const routeId = parseInt(routeIdParam, 10);
+  const geoUnits = await listAllGeoUnits();
+  const scope = req.authContext
+    ? await resolveGeoScope(req.authContext, 'geo.manage', geoUnits)
+    : null;
+  const existingRoute = await loadRouteForScopeCheck(routeId);
+  if (!existingRoute.exists) {
+    return res.status(404).json({ error: 'Route not found' });
+  }
+  if (!areRoutePointsInsideScope(existingRoute.points, scope)) {
+    return res.status(403).json({ error: 'لا يمكن حذف مسار خارج نطاق تغطية الفرع' });
+  }
+
+  await pool.query('DELETE FROM routes WHERE id = $1', [routeId]);
   res.json({ success: true });
 });
+
+async function loadRouteForScopeCheck(routeId: number): Promise<{ exists: boolean; points: Array<{ geoUnitId: number }> }> {
+  if (!Number.isInteger(routeId) || routeId <= 0) return { exists: false, points: [] };
+
+  const { rows: routeRows } = await pool.query('SELECT id FROM routes WHERE id = $1', [routeId]);
+  if (!routeRows[0]) return { exists: false, points: [] };
+
+  const { rows } = await pool.query(
+    'SELECT geo_unit_id AS "geoUnitId" FROM route_points WHERE route_id = $1',
+    [routeId],
+  );
+
+  return {
+    exists: true,
+    points: rows.map(row => ({ geoUnitId: Number(row.geoUnitId) })),
+  };
+}
 
 export default router;

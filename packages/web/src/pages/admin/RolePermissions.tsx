@@ -1,8 +1,9 @@
-import { useEffect, useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { useRoleStore } from '../../hooks/useRoleStore';
-import type { Permission } from '../../hooks/useRoleStore';
-import { authFetch } from '../../lib/authFetch';
+import type { Permission, RolePermissionGrant } from '../../hooks/useRoleStore';
+import { trpc } from '../../lib/trpc';
+import { usePermissions } from '../../hooks/usePermissions';
 import {
   ShieldCheck, ChevronRight, Save, Loader2, AlertTriangle,
   CheckSquare, Square, Key, Eye, Plus, Pencil, Trash2,
@@ -10,6 +11,77 @@ import {
   Briefcase, GraduationCap, Settings, ListChecks, CheckCheck,
   UserCheck, Calendar, FileText, AlertCircle, BarChart2, ChevronDown
 } from 'lucide-react';
+
+type ScopeType = RolePermissionGrant['scopeType'];
+
+const ALL_SCOPE_OPTIONS: Array<{ value: ScopeType; label: string }> = [
+  { value: 'GLOBAL', label: 'كل الفروع' },
+  { value: 'BRANCH', label: 'فرع المستخدم' },
+  { value: 'ASSIGNED', label: 'السجلات المسندة' },
+];
+
+const ACTION_LABELS: Record<string, string> = {
+  view_list: 'عرض القائمة',
+  view_detail: 'عرض التفاصيل',
+  view_eligible: 'عرض المؤهلين',
+  view_audit_logs: 'عرض سجل التغييرات',
+  view_history: 'عرض السجل',
+  create: 'إنشاء',
+  add_trainees: 'إضافة متدربين',
+  edit: 'تعديل',
+  delete: 'حذف',
+  edit_notes: 'تعديل الملاحظات',
+  change_status: 'تغيير الحالة',
+  change_stage: 'تغيير المرحلة',
+  record_decision: 'تسجيل قرار',
+  record_result: 'تسجيل نتيجة',
+  record_attendance: 'تسجيل حضور',
+  hire: 'تعيين',
+  schedule: 'جدولة',
+  appear: 'الظهور',
+  escalate: 'تصعيد',
+  archive: 'أرشفة',
+  start: 'بدء',
+  complete: 'إتمام',
+  view: 'عرض',
+  manage: 'إدارة',
+  generate: 'توليد',
+  book: 'حجز',
+  update_result: 'تسجيل نتيجة',
+  can_be_assigned: 'قابل للإسناد',
+  conduct: 'إجراء',
+  be_trainer: 'التدريب كمدرب',
+  review: 'مراجعة',
+  reject: 'رفض',
+  promote: 'ترحيل',
+  reopen_closed: 'إعادة فتح',
+};
+
+function isLegacyPermission(perm: Permission): boolean {
+  return perm.key.startsWith('referral_sheets.') || ((perm as any).module ?? '') === 'referral_sheets';
+}
+
+function getActionLabel(action?: string | null): string {
+  if (!action) return 'إجراء';
+  return ACTION_LABELS[action] ?? 'إجراء مخصص';
+}
+
+/** Return the allowed scope options for a given permission, filtering by allowed_scopes if present. */
+function getScopeOptions(perm: Permission): Array<{ value: ScopeType; label: string }> {
+  const allowedScopes = perm.allowedScopes;
+  if (!allowedScopes || allowedScopes.length === 0) return ALL_SCOPE_OPTIONS;
+  return ALL_SCOPE_OPTIONS.filter(opt => allowedScopes.includes(opt.value));
+}
+
+/** Return the default scope for a permission — the first allowed scope, preferring BRANCH if available. */
+function getDefaultScope(perm: Permission): ScopeType {
+  const allowedScopes = perm.allowedScopes;
+  if (!allowedScopes || allowedScopes.length === 0) return 'BRANCH';
+  // Prefer BRANCH if allowed, otherwise GLOBAL, otherwise first in list
+  if (allowedScopes.includes('BRANCH')) return 'BRANCH';
+  if (allowedScopes.includes('GLOBAL')) return 'GLOBAL';
+  return allowedScopes[0] as ScopeType;
+}
 
 // ── Human-readable labels & descriptions ─────────────────────────────────────
 const PERM_LABELS: Record<string, { label: string; desc: string }> = {
@@ -37,6 +109,7 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'jobs.interviews.view_detail':    { label: 'عرض تفاصيل المقابلة',        desc: 'الاطلاع على بيانات مقابلة محددة' },
   'jobs.interviews.view_eligible':  { label: 'عرض المرشحين للمقابلة',      desc: 'رؤية قائمة المتقدمين المؤهلين لإجراء المقابلة' },
   'jobs.interviews.schedule':       { label: 'جدولة موعد مقابلة',          desc: 'تحديد تاريخ ووقت إجراء المقابلة' },
+  'jobs.interviews.conduct':        { label: 'إجراء المقابلات',            desc: 'التأهل للظهور كمقابِل داخل فرع الطلب' },
   'jobs.interviews.edit':           { label: 'تعديل بيانات المقابلة',       desc: 'تحديث تفاصيل مقابلة مجدولة' },
   'jobs.interviews.record_result':  { label: 'تسجيل نتيجة المقابلة',       desc: 'إدخال تقييم ونتيجة المقابلة بعد إجرائها' },
 
@@ -59,14 +132,20 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
 
   // Clients
   'clients.view_list':    { label: 'عرض قائمة الزبائن',     desc: 'الاطلاع على جميع سجلات الزبائن في النظام' },
+  'clients.view':         { label: 'عرض ملف الزبون',        desc: 'الدخول إلى الصفحة التفصيلية لكل زبون' },
   'clients.view_detail':  { label: 'عرض ملف الزبون',        desc: 'الدخول إلى الصفحة التفصيلية لكل زبون' },
   'clients.create':       { label: 'إضافة زبون جديد',        desc: 'إنشاء سجل زبون جديد في النظام' },
   'clients.edit':         { label: 'تعديل بيانات الزبون',    desc: 'تحديث معلومات الزبون الموجود' },
+  'clients.delete':       { label: 'حذف الزبون',             desc: 'حذف سجل زبون من النظام' },
 
   // Candidates
   'candidates.view_list': { label: 'عرض الأسماء المقترحة',   desc: 'الاطلاع على قائمة الأسماء المقترحة للتوظيف' },
   'candidates.create':    { label: 'إضافة اسم مقترح',        desc: 'إدخال اسم مقترح جديد يدوياً أو عبر الاستيراد' },
   'candidates.edit':      { label: 'تعديل الاسم المقترح',    desc: 'تحديث بيانات الاسم المقترح' },
+  'candidates.name_lists.view_list': { label: 'عرض لوائح الأسماء',  desc: 'الاطلاع على لوائح الأسماء ضمن سجل الأسماء المقترحة' },
+  'candidates.name_lists.create':    { label: 'إنشاء لائحة أسماء', desc: 'إنشاء لائحة أسماء جديدة وإسنادها للمتابعة' },
+  'candidates.name_lists.edit':      { label: 'تعديل لائحة أسماء', desc: 'تحديث بيانات لائحة الأسماء وحالتها' },
+  'candidates.name_lists.delete':    { label: 'حذف لائحة أسماء',   desc: 'حذف لائحة أسماء من سجل الأسماء المقترحة' },
 
   // Employees
   'employees.view_list':  { label: 'عرض قائمة الموظفين',     desc: 'الاطلاع على سجلات الموظفين الميدانيين' },
@@ -90,6 +169,7 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   // Planning
   'planning.view':   { label: 'عرض خطط وجداول الفرع',      desc: 'الاطلاع على ملخص الخطة وجداول الفرق' },
   'planning.manage': { label: 'إدارة الجدولة وتعيين المسارات', desc: 'إنشاء الجداول وتعيين مسارات العمل للفرق' },
+  'planning.schedule.appear': { label: 'الظهور في جدولة الفرق', desc: 'يسمح للموظفين بهذا الدور بدخول جدولة الفرق، ويكتمل ظهورهم ضمن القوائم بعد تحديد خانة الفريق لهذا الدور' },
 
   // Telemarketer
   'telemarketer.view':   { label: 'عرض إدارة المواعيد',       desc: 'الاطلاع على المواعيد والعملاء المحتملين' },
@@ -127,6 +207,7 @@ function ActionBadge({ action }: { action: string }) {
     record_attendance:{ icon: <UserCheck className="w-3 h-3" />,    color: 'bg-purple-50 text-purple-600', text: 'حضور' },
     hire:             { icon: <CheckCheck className="w-3 h-3" />,   color: 'bg-emerald-100 text-emerald-700', text: 'تعيين' },
     schedule:         { icon: <Calendar className="w-3 h-3" />,     color: 'bg-sky-50 text-sky-600',       text: 'جدولة' },
+    appear:           { icon: <Eye className="w-3 h-3" />,          color: 'bg-cyan-50 text-cyan-600',     text: 'ظهور' },
     escalate:         { icon: <AlertCircle className="w-3 h-3" />,  color: 'bg-rose-50 text-rose-600',     text: 'تصعيد' },
     archive:          { icon: <FileText className="w-3 h-3" />,     color: 'bg-slate-100 text-slate-500',  text: 'أرشفة' },
     start:            { icon: <ToggleRight className="w-3 h-3" />,  color: 'bg-emerald-50 text-emerald-600', text: 'بدء' },
@@ -134,7 +215,7 @@ function ActionBadge({ action }: { action: string }) {
     view:             { icon: <Eye className="w-3 h-3" />,          color: 'bg-blue-50 text-blue-600',     text: 'عرض' },
     manage:           { icon: <Settings className="w-3 h-3" />,     color: 'bg-rose-50 text-rose-600',     text: 'إدارة' },
   };
-  const cfg = map[action] ?? { icon: <Key className="w-3 h-3" />, color: 'bg-slate-100 text-slate-500', text: action };
+  const cfg = map[action] ?? { icon: <Key className="w-3 h-3" />, color: 'bg-slate-100 text-slate-500', text: getActionLabel(action) };
   return (
     <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${cfg.color}`}>
       {cfg.icon}{cfg.text}
@@ -157,6 +238,13 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   branches:     { label: 'الفروع',                      icon: <Users className="w-4 h-4" />,        color: 'text-fuchsia-600 bg-fuchsia-50' },
   settings:     { label: 'إعدادات النظام',              icon: <Settings className="w-4 h-4" />,     color: 'text-slate-600 bg-slate-100' },
   admin:        { label: 'إدارة النظام والصلاحيات',     icon: <Settings className="w-4 h-4" />,     color: 'text-rose-600 bg-rose-50' },
+  users:        { label: 'المستخدمون',                   icon: <Users className="w-4 h-4" />,        color: 'text-indigo-600 bg-indigo-50' },
+  departments:  { label: 'الأقسام',                      icon: <ListChecks className="w-4 h-4" />,   color: 'text-slate-600 bg-slate-100' },
+  marketing_visits: { label: 'الزيارات التسويقية',       icon: <Calendar className="w-4 h-4" />,     color: 'text-emerald-600 bg-emerald-50' },
+  telemarketing: { label: 'التيلماركتنغ',                icon: <AlertCircle className="w-4 h-4" />,  color: 'text-pink-600 bg-pink-50' },
+  field_visits: { label: 'الزيارات الميدانية',           icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
+  open_tasks:   { label: 'المهام المفتوحة',              icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
+  service_requests: { label: 'طلبات الخدمة والصيانة',    icon: <FileText className="w-4 h-4" />,     color: 'text-cyan-600 bg-cyan-50' },
 };
 
 const SUB_MODULE_LABELS: Record<string, string> = {
@@ -164,17 +252,46 @@ const SUB_MODULE_LABELS: Record<string, string> = {
   applications: 'طلبات التوظيف',
   interviews:   'المقابلات',
   training:     'الدورات التدريبية',
+  candidates:    'الأسماء المقترحة',
+  name_lists:    'لوائح الأسماء',
   roles:        'الأدوار والصلاحيات',
   system_lists: 'القوائم النظامية',
+  branch_assignments: 'فروع المستخدمين المسموحة',
+  management: 'الإدارة',
+  system: 'النظام',
+  geography: 'المناطق الجغرافية',
+  visits: 'الزيارات',
+  tasks: 'المهام',
+  targets: 'الأهداف',
+  lists: 'قوائم الاتصال',
+  calls: 'المكالمات',
+  appointments: 'المواعيد',
+  schedule: 'جدولة الفرق',
+  service_requests: 'طلبات الخدمة والصيانة',
 };
+
+function getModuleConfig(module: string) {
+  return MODULE_CONFIG[module] ?? {
+    label: 'إدارة عمل الفرع',
+    icon: <Calendar className="w-4 h-4" />,
+    color: 'text-teal-600 bg-teal-50',
+  };
+}
+
+function getSubModuleLabel(subModule: string): string {
+  return SUB_MODULE_LABELS[subModule] ?? 'مجموعة صلاحيات';
+}
 
 // ── Helper to get display name safely (snake_case & camelCase) ────────────────
 function getPermLabel(perm: Permission): string {
   const known = PERM_LABELS[perm.key];
   if (known) return known.label;
   // Fallback: API may return display_name (snake_case)
-  const raw = (perm as any).display_name ?? perm.displayName ?? perm.key;
-  return raw;
+  const raw = (perm as any).display_name ?? perm.displayName;
+  if (raw && raw !== perm.key) return raw;
+  const action = getActionLabel((perm as any).action);
+  const sub = getSubModuleLabel((perm as any).sub_module ?? (perm as any).subModule ?? '');
+  return `${action} - ${sub}`;
 }
 
 function getPermDesc(perm: Permission): string | null {
@@ -186,11 +303,15 @@ export default function RolePermissions() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const roleId = Number(id);
+  const { hasPermission } = usePermissions();
 
-  const { roles, allPermissions, fetchRoles, fetchPermissions } = useRoleStore();
+  const { roles, allPermissions, fetchRoles, fetchPermissions, updateRolePermissions } = useRoleStore();
   const role = roles.find(r => r.id === roleId);
+  const canManageRolePermissions = hasPermission('admin.roles.manage');
+  const isProtectedRole = role?.isSystem || role?.isProtected;
 
-  const [assigned, setAssigned] = useState<Set<number>>(new Set());
+  const [assigned, setAssigned] = useState<Map<number, ScopeType>>(new Map());
+  const previousScopes = useRef(new Map<number, ScopeType>());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -203,9 +324,10 @@ export default function RolePermissions() {
 
   useEffect(() => {
     if (!roleId) return;
-    authFetch(`/api/admin/roles/${roleId}/permissions`)
-      .then(res => res.ok ? res.json() : [])
-      .then((perms: Permission[]) => setAssigned(new Set(perms.map(p => p.id))))
+    trpc.roles.getPermissions.query({ id: roleId })
+      .then((perms: RolePermissionGrant[]) => {
+        setAssigned(new Map(perms.map(p => [p.id, p.scopeType ?? getDefaultScope(p)])));
+      })
       .catch(() => {});
   }, [roleId]);
 
@@ -213,6 +335,7 @@ export default function RolePermissions() {
   const grouped = useMemo(() => {
     const map: Record<string, Record<string, Permission[]>> = {};
     for (const p of allPermissions) {
+      if (isLegacyPermission(p)) continue;
       const mod = (p as any).module ?? 'other';
       const sub = (p as any).sub_module ?? (p as any).subModule ?? 'general';
       if (!map[mod]) map[mod] = {};
@@ -229,31 +352,55 @@ export default function RolePermissions() {
     setOpenModules(prev => new Set([...prev].filter(module => moduleKeys.includes(module))));
   }, [moduleKeys]);
 
-  function toggle(permId: number) {
+  function toggle(perm: Permission) {
+    if (!canManageRolePermissions || isProtectedRole) return;
     setAssigned(prev => {
-      const next = new Set(prev);
-      next.has(permId) ? next.delete(permId) : next.add(permId);
+      const next = new Map(prev);
+      if (next.has(perm.id)) {
+        previousScopes.current.set(perm.id, next.get(perm.id)!);
+        next.delete(perm.id);
+      } else {
+        const prevScope = previousScopes.current.get(perm.id);
+        next.set(perm.id, prevScope ?? getDefaultScope(perm));
+      }
+      return next;
+    });
+  }
+
+  function setScope(permId: number, scopeType: ScopeType) {
+    if (!canManageRolePermissions || isProtectedRole) return;
+    setAssigned(prev => {
+      const next = new Map(prev);
+      next.set(permId, scopeType);
       return next;
     });
   }
 
   function toggleSubModule(perms: Permission[]) {
+    if (!canManageRolePermissions || isProtectedRole) return;
     const ids = perms.map(p => p.id);
     const allSelected = ids.every(id => assigned.has(id));
     setAssigned(prev => {
-      const next = new Set(prev);
-      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => next.add(id));
+      const next = new Map(prev);
+      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => {
+        const perm = perms.find(p => p.id === id)!;
+        next.set(id, getDefaultScope(perm));
+      });
       return next;
     });
   }
 
   function toggleModule(subGroups: Record<string, Permission[]>) {
+    if (!canManageRolePermissions || isProtectedRole) return;
     const allPerms = Object.values(subGroups).flat();
     const ids = allPerms.map(p => p.id);
     const allSelected = ids.every(id => assigned.has(id));
     setAssigned(prev => {
-      const next = new Set(prev);
-      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => next.add(id));
+      const next = new Map(prev);
+      allSelected ? ids.forEach(id => next.delete(id)) : ids.forEach(id => {
+        const perm = allPerms.find(p => p.id === id)!;
+        next.set(id, getDefaultScope(perm));
+      });
       return next;
     });
   }
@@ -276,16 +423,15 @@ export default function RolePermissions() {
   }
 
   async function handleSave() {
+    if (!canManageRolePermissions || isProtectedRole) return;
     setSaving(true);
     setError('');
     setSuccess(false);
     try {
-      const res = await authFetch(`/api/admin/roles/${roleId}/permissions`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permissionIds: [...assigned] }),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+      await updateRolePermissions(
+        roleId,
+        [...assigned.entries()].map(([permissionId, scopeType]) => ({ permissionId, scopeType })),
+      );
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (e: any) {
@@ -303,7 +449,20 @@ export default function RolePermissions() {
     );
   }
 
-  const totalPerms = allPermissions.length;
+  if (!hasPermission('admin.roles.view')) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (!role) {
+    return <Navigate to="/admin/roles" replace />;
+  }
+
+  const visibleAssignedCount = Object.values(grouped)
+    .flatMap(subGroups => Object.values(subGroups).flat())
+    .filter(permission => assigned.has(permission.id)).length;
+  const totalPerms = Object.values(grouped)
+    .reduce((sum, subGroups) => sum + Object.values(subGroups).flat().length, 0);
+  const grantedPercent = totalPerms > 0 ? Math.round((visibleAssignedCount / totalPerms) * 100) : 0;
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
@@ -325,12 +484,12 @@ export default function RolePermissions() {
               صلاحيات دور: <span className="text-sky-600">{role?.displayName ?? `#${roleId}`}</span>
             </h1>
             <p className="text-xs text-slate-500">
-              {assigned.size} صلاحية مُفعَّلة من أصل {totalPerms}
+              {visibleAssignedCount} صلاحية مُفعَّلة من أصل {totalPerms}
             </p>
           </div>
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !canManageRolePermissions || !!isProtectedRole}
             className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm disabled:opacity-50 shrink-0"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -343,13 +502,13 @@ export default function RolePermissions() {
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
             <span>نسبة الصلاحيات الممنوحة</span>
             <span className="font-bold text-slate-700">
-              {totalPerms > 0 ? Math.round((assigned.size / totalPerms) * 100) : 0}%
+              {grantedPercent}%
             </span>
           </div>
           <div className="w-full bg-slate-100 rounded-full h-2">
             <div
               className="bg-sky-500 h-2 rounded-full transition-all duration-500"
-              style={{ width: totalPerms > 0 ? `${(assigned.size / totalPerms) * 100}%` : '0%' }}
+              style={{ width: `${grantedPercent}%` }}
             />
           </div>
         </div>
@@ -378,11 +537,7 @@ export default function RolePermissions() {
 
           <div className="flex flex-wrap gap-2">
             {moduleEntries.map(([module, subGroups]) => {
-              const modCfg = MODULE_CONFIG[module] ?? {
-                label: module,
-                icon: <ListChecks className="w-4 h-4" />,
-                color: 'text-slate-600 bg-slate-100',
-              };
+              const modCfg = getModuleConfig(module);
               const allModulePerms = Object.values(subGroups).flat();
               const moduleSelected = allModulePerms.filter(p => assigned.has(p.id)).length;
               const isOpen = openModules.has(module);
@@ -421,20 +576,21 @@ export default function RolePermissions() {
             <ShieldCheck className="w-4 h-4 shrink-0" />تم حفظ الصلاحيات بنجاح
           </div>
         )}
+        {isProtectedRole && (
+          <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 rounded-xl p-4">
+            <AlertTriangle className="w-4 h-4 shrink-0" />هذا الدور محمي ولا يمكن تعديل صلاحياته من الواجهة الإدارية العادية
+          </div>
+        )}
 
         {/* Permissions grouped by module → subModule */}
         {moduleEntries.map(([module, subGroups]) => {
-          const modCfg = MODULE_CONFIG[module] ?? {
-            label: module,
-            icon: <ListChecks className="w-4 h-4" />,
-            color: 'text-slate-600 bg-slate-100',
-          };
+          const modCfg = getModuleConfig(module);
           const allModulePerms = Object.values(subGroups).flat();
           const moduleSelected = allModulePerms.filter(p => assigned.has(p.id)).length;
           const moduleTotal = allModulePerms.length;
           const allModuleSelected = moduleSelected === moduleTotal;
           const isOpen = openModules.has(module);
-          const subModuleNames = Object.keys(subGroups).map(sub => SUB_MODULE_LABELS[sub] ?? sub);
+          const subModuleNames = Object.keys(subGroups).map(getSubModuleLabel);
 
           return (
             <div key={module} className={`bg-white rounded-2xl border overflow-hidden transition-all ${isOpen ? 'border-sky-200 shadow-lg shadow-sky-100/60' : 'border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200'}`}>
@@ -489,7 +645,7 @@ export default function RolePermissions() {
               {isOpen && (
               <div className="divide-y divide-slate-50">
                 {Object.entries(subGroups).map(([sub, perms]) => {
-                  const subLabel = SUB_MODULE_LABELS[sub] ?? sub;
+                  const subLabel = getSubModuleLabel(sub);
                   const subSelected = perms.filter(p => assigned.has(p.id)).length;
                   const allSubSelected = subSelected === perms.length;
 
@@ -518,39 +674,63 @@ export default function RolePermissions() {
                         .sort((a, b) => ((a as any).display_order ?? 0) - ((b as any).display_order ?? 0))
                         .map(perm => {
                           const isOn = assigned.has(perm.id);
+                          const scopeType = assigned.get(perm.id) ?? getDefaultScope(perm);
                           const desc = getPermDesc(perm);
                           const action = (perm as any).action ?? '';
+                          const scopeOptions = getScopeOptions(perm);
 
                           return (
-                            <label
+                            <div
                               key={perm.id}
-                              className={`flex items-start gap-3 px-5 py-3.5 cursor-pointer transition-colors group ${
+                              className={`flex items-start gap-3 px-5 py-3.5 transition-colors group ${
                                 isOn ? 'bg-sky-50/40 hover:bg-sky-50/70' : 'hover:bg-slate-50/80'
                               }`}
                             >
-                              <input
-                                type="checkbox"
-                                className="sr-only"
-                                checked={isOn}
-                                onChange={() => toggle(perm.id)}
-                              />
-                              <div className="mt-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => toggle(perm)}
+                                disabled={!canManageRolePermissions || !!isProtectedRole}
+                                aria-pressed={isOn}
+                                className="mt-0.5 shrink-0 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-300 disabled:cursor-not-allowed"
+                              >
                                 {isOn
                                   ? <CheckSquare className="w-4 h-4 text-sky-500" />
                                   : <Square className="w-4 h-4 text-slate-300 group-hover:text-slate-400" />}
-                              </div>
+                              </button>
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-sm font-semibold ${isOn ? 'text-slate-800' : 'text-slate-600'}`}>
-                                    {getPermLabel(perm)}
-                                  </span>
-                                  <ActionBadge action={action} />
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={`text-sm font-semibold ${isOn ? 'text-slate-800' : 'text-slate-600'}`}>
+                                        {getPermLabel(perm)}
+                                      </span>
+                                      <ActionBadge action={action} />
+                                    </div>
+                                    {desc && (
+                                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{desc}</p>
+                                    )}
+                                  </div>
+                                  {isOn && scopeOptions.length > 1 && (
+                                    <select
+                                      value={scopeType}
+                                      onClick={event => event.stopPropagation()}
+                                      onChange={event => setScope(perm.id, event.target.value as ScopeType)}
+                                      disabled={!canManageRolePermissions || !!isProtectedRole}
+                                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                                    >
+                                      {scopeOptions.map(option => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  {isOn && scopeOptions.length === 1 && (
+                                    <span className="shrink-0 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-400">
+                                      {scopeOptions[0].label}
+                                    </span>
+                                  )}
                                 </div>
-                                {desc && (
-                                  <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{desc}</p>
-                                )}
                               </div>
-                            </label>
+                            </div>
                           );
                         })}
                     </div>
@@ -573,7 +753,7 @@ export default function RolePermissions() {
         <div className="sticky bottom-4 flex justify-center pb-2">
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !canManageRolePermissions || !!isProtectedRole}
             className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-8 py-3 rounded-2xl transition-colors shadow-lg disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

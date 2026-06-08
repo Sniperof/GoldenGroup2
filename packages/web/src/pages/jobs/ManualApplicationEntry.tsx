@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import type { JobVacancy, GeoUnit, ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useNavigate } from 'react-router-dom';
-import type { JobVacancy, GeoUnit } from '../../lib/types';
 import { authFetch } from '../../lib/authFetch';
 import { uploadFile } from '../../lib/uploadFile';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
+import { api } from '../../lib/api';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, toMediatorEmployee, MediatorEmployee } from '../../lib/employeeMediatorLookup';
 import GeoSmartSearch, { GeoSelection } from '../../components/GeoSmartSearch';
 import {
   ArrowRight, Send, AlertTriangle, CheckCircle, UserPlus,
@@ -13,6 +15,9 @@ import {
   Car, Languages, Search, Building2, ClipboardCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import { SYRIAN_MOBILE_HINT, isValidSyrianMobile } from '../../lib/contactRules';
 
 // --- Types & Constants ---
 
@@ -25,6 +30,7 @@ interface ApplicantForm {
   cvFile: File | null; photoFile: File | null;
   academicQualification: string; previousEmployment: string;
   drivingLicense: string; expectedSalary: string;
+  hasCar: string;
   computerSkills: string;
   foreignLanguages: string[];
   yearsOfExperience: string; applicantSegment: string;
@@ -34,11 +40,15 @@ interface ApplicantForm {
 }
 
 interface ReferrerForm {
-  type: 'Employee' | 'Customer'; employeeId: string;
-  fullName: string; lastName: string; mobileNumber: string;
+  type: ReferralType;
+  sourceChannel: ReferralOriginChannel;
+  employeeId: string;
+  fullName: string;
+  lastName: string;
   geoSelection: GeoSelection;
   detailedAddress: string;
-  referrerWork: string; referrerNotes: string;
+  referrerWork: string;
+  referrerNotes: string;
   isReferrer: boolean;
 }
 
@@ -49,16 +59,24 @@ const emptyApplicant: ApplicantForm = {
   cvUrl: '', photoUrl: '', cvFile: null, photoFile: null,
   academicQualification: '', previousEmployment: '',
   drivingLicense: '', expectedSalary: '',
+  hasCar: '',
   computerSkills: '', foreignLanguages: [],
   yearsOfExperience: '', applicantSegment: '',
   specialization: '', hasWhatsappPrimary: false, hasWhatsappSecondary: false,
 };
 
 const emptyReferrer: ReferrerForm = {
-  isReferrer: false, type: 'Employee', employeeId: '', fullName: '', lastName: '',
-  mobileNumber: '', geoSelection: { govId: '', regionId: '', subId: '', neighborhoodId: '' },
+  isReferrer: false, type: 'Employee', sourceChannel: 'Acquaintance', employeeId: '', fullName: '', lastName: '',
+  geoSelection: { govId: '', regionId: '', subId: '', neighborhoodId: '' },
   detailedAddress: '', referrerWork: '', referrerNotes: '',
 };
+
+const referralOriginChannels: { value: ReferralOriginChannel; label: string }[] = [
+  { value: 'Acquaintance', label: 'معرفة شخصية' },
+  { value: 'PhoneCall', label: 'مكالمة هاتفية' },
+  { value: 'SocialMedia', label: 'سوشال ميديا' },
+  { value: 'Campaign', label: 'حملة إعلانية' },
+];
 
 const COMMON_LANGUAGES = ['الإنجليزية', 'الفرنسية', 'الكردية', 'التركية', 'الألمانية'];
 
@@ -188,6 +206,12 @@ export default function ManualApplicationEntry() {
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitResult, setSubmitResult] = useState<{ type: 'success' | 'error'; message: string; id?: number } | null>(null);
+  const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
+  const [allClients, setAllClients] = useState<Client[]>([]);
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientSuggestions, setClientSuggestions] = useState<Client[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
 
   useEffect(() => {
     fetchLists();
@@ -200,6 +224,20 @@ export default function ManualApplicationEntry() {
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setGeoUnits(data); })
       .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    Promise.allSettled([api.clients.list(), api.employees.list()]).then(([clientsRes, employeesRes]) => {
+      if (!active) return;
+      setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
+      setEmployees(
+        employeesRes.status === 'fulfilled'
+          ? employeesRes.value.map((item: any) => toMediatorEmployee(item))
+          : [],
+      );
+    });
+    return () => { active = false; };
   }, []);
 
   const setA = (key: keyof ApplicantForm, val: any) => {
@@ -221,6 +259,76 @@ export default function ManualApplicationEntry() {
     setR(key, cleaned);
   };
 
+  const handleReferrerTypeChange = (value: ReferralType) => {
+    const autoName = value === 'Personal'
+      ? (user?.name?.trim() || 'شخصي')
+      : value === 'Unknown'
+        ? 'مجهول'
+        : '';
+    setR('type', value);
+    setR('employeeId', '');
+    setR('fullName', autoName);
+    setR('lastName', '');
+    setR('geoSelection', { govId: '', regionId: '', subId: '', neighborhoodId: '' });
+    setR('detailedAddress', '');
+    setR('referrerWork', '');
+    setR('referrerNotes', '');
+    setSelectedClientId(null);
+    setClientSearch('');
+    setClientSuggestions([]);
+    setEmployeeFound(null);
+    delete fieldErrors.referrer_type;
+    delete fieldErrors.referrer_employeeId;
+    delete fieldErrors.referrer_fullName;
+    delete fieldErrors.referrer_lastName;
+    delete fieldErrors.referrer_geoSelection;
+    delete fieldErrors.referrer_detailedAddress;
+    delete fieldErrors.referrer_referrerWork;
+  };
+
+  const handleEmployeeLookup = async () => {
+    const raw = referrer.employeeId.trim();
+    if (!raw) return;
+    const found = findEmployeeByNumber(employees, raw);
+    if (found) {
+      setEmployeeFound(found);
+      setR('fullName', found.name);
+      setR('lastName', '');
+      setSelectedClientId(null);
+      setClientSearch('');
+      setClientSuggestions([]);
+      delete fieldErrors.referrer_employeeId;
+      delete fieldErrors.referrer_fullName;
+        return;
+    }
+    setEmployeeFound(null);
+    setFieldErrors(prev => ({ ...prev, referrer_employeeId: 'لم يتم العثور على الموظف' }));
+  };
+
+  const handleClientSearch = (text: string) => {
+    setClientSearch(text);
+    const query = text.trim();
+    const matches = allClients
+      .filter(client => !client.isCandidate)
+      .filter(client =>
+        !query ||
+        client.name.includes(query) ||
+        (client.contacts || []).some(con => con.number.includes(query)) ||
+        String(client.mobile || '').includes(query)
+      )
+      .slice(0, query ? 10 : 20);
+    setClientSuggestions(matches);
+  };
+
+  const handleSelectClient = (client: Client) => {
+    setSelectedClientId(client.id);
+    setClientSearch(client.name);
+    setClientSuggestions([]);
+    setEmployeeFound(null);
+    setR('fullName', client.name || '');
+    setR('lastName', '');
+  };
+
   const toggleLanguage = (lang: string) => {
     setApplicant(prev => {
       const current = prev.foreignLanguages;
@@ -233,6 +341,7 @@ export default function ManualApplicationEntry() {
   const validate = (): boolean => {
     const e: Record<string, string> = {};
     if (!applicationSource) e.applicationSource = 'مصدر الطلب مطلوب';
+    if (!selectedVacancyId) e.vacancy = 'الشاغر الوظيفي حقل إلزامي';
     if (!applicant.firstName.trim()) e.firstName = 'الاسم الأول مطلوب';
     if (!applicant.lastName.trim()) e.lastName = 'الكنية مطلوبة';
     if (!applicant.dob) {
@@ -247,45 +356,33 @@ export default function ManualApplicationEntry() {
       e.email = 'صيغة البريد الإلكتروني غير صحيحة';
     }
     if (!applicant.geoSelection.govId) e.geoSelection = 'المحافظة مطلوبة';
-    if (!applicant.geoSelection.regionId) e.geoSelection = 'المنطقة مطلوبة';
-    if (!applicant.geoSelection.subId) e.geoSelection = 'الناحية مطلوبة';
-    if (!applicant.geoSelection.neighborhoodId) e.geoSelection = 'الحي مطلوب';
     if (!applicant.detailedAddress.trim()) e.detailedAddress = 'العنوان التفصيلي مطلوب';
     if (!applicant.mobileNumber.trim()) e.mobileNumber = 'رقم الموبايل الرئيسي مطلوب';
-    else if (!/^\d{10}$/.test(applicant.mobileNumber)) e.mobileNumber = 'يجب أن يتكون من 10 أرقام';
-    if (applicant.secondaryMobile.trim() && !/^\d{10}$/.test(applicant.secondaryMobile)) {
-      e.secondaryMobile = 'يجب أن يتكون من 10 أرقام';
+    else if (!isValidSyrianMobile(applicant.mobileNumber)) e.mobileNumber = 'يجب أن يبدأ بـ 09 ويتكون من 10 أرقام';
+    if (applicant.secondaryMobile.trim() && !isValidSyrianMobile(applicant.secondaryMobile)) {
+      e.secondaryMobile = 'يجب أن يبدأ بـ 09 ويتكون من 10 أرقام';
     }
     if (!applicant.academicQualification) e.academicQualification = 'الشهادة العلمية مطلوبة';
     if (!applicant.previousEmployment.trim()) e.previousEmployment = 'العمل السابق مطلوب';
     if (!applicant.drivingLicense) e.drivingLicense = 'يرجى تحديد حالة الرخصة';
+    if (!applicant.hasCar) e.hasCar = 'يرجى تحديد هل تمتلك سيارة';
     if (!applicant.expectedSalary) e.expectedSalary = 'الراتب المتوقع مطلوب';
     if (!applicant.computerSkills.trim()) e.computerSkills = 'مهارات الحاسب مطلوبة';
     if (applicant.foreignLanguages.length === 0) e.foreignLanguages = 'اختر لغة واحدة على الأقل';
     if (!applicant.yearsOfExperience || parseInt(applicant.yearsOfExperience) < 0) e.yearsOfExperience = 'سنوات الخبرة مطلوبة';
-    if (!applicant.photoFile && !applicant.photoUrl) e.photoFile = 'الصورة الشخصية مطلوبة';
     if (submissionType === 'Refer a Candidate' && referrer.isReferrer) {
       if (!referrer.type) e.referrer_type = 'مطلوب';
+
       if (referrer.type === 'Employee') {
         if (!referrer.employeeId.trim()) e.referrer_employeeId = 'رقم الموظف مطلوب';
-      } else {
-        if (!referrer.fullName.trim()) e.referrer_fullName = 'اسم الوسيط مطلوب';
-        if (!referrer.lastName.trim()) e.referrer_lastName = 'الكنية مطلوبة';
-        if (!referrer.mobileNumber.trim() || !/^\d{10}$/.test(referrer.mobileNumber)) e.referrer_mobileNumber = '10 أرقام فقط';
-        if (!referrer.geoSelection.neighborhoodId) e.referrer_geoSelection = 'موقع الوسيط مطلوب';
-        if (!referrer.detailedAddress.trim()) e.referrer_detailedAddress = 'العنوان التفصيلي مطلوب';
-        if (!referrer.referrerWork.trim()) e.referrer_referrerWork = 'مهنة الوسيط مطلوبة';
+        if (!employeeFound) e.referrer_employeeId = 'لم يتم العثور على الموظف';
+      } else if (referrer.type === 'Client') {
+        if (!selectedClientId) e.referrer_fullName = 'الرجاء اختيار الزبون الوسيط';
       }
     }
-    setFieldErrors(e);
+
     if (Object.keys(e).length > 0) { window.scrollTo({ top: 0, behavior: 'smooth' }); return false; }
     return true;
-  };
-
-  const handleEmployeeLookup = async () => {
-    if (!referrer.employeeId) return;
-    setR('fullName', 'موظف تجريبي ' + referrer.employeeId);
-    setR('mobileNumber', '0799999999');
   };
 
   const handleSubmit = async () => {
@@ -323,6 +420,7 @@ export default function ManualApplicationEntry() {
           specialization: applicant.specialization.trim() || null,
           previousEmployment: applicant.previousEmployment.trim(),
           drivingLicense: applicant.drivingLicense === 'yes',
+          hasCar: applicant.hasCar === 'yes',
           expectedSalary: parseInt(applicant.expectedSalary),
           computerSkills: applicant.computerSkills.trim(),
           foreignLanguages: applicant.foreignLanguages.join(', '),
@@ -336,9 +434,12 @@ export default function ManualApplicationEntry() {
       if (submissionType === 'Refer a Candidate' && referrer.isReferrer) {
         payload.referrer = {
           type: referrer.type,
+          sourceChannel: referrer.sourceChannel,
           employeeId: referrer.employeeId ? parseInt(referrer.employeeId) : null,
+          referralEntityId: referrer.type === 'Employee'
+            ? (referrer.employeeId ? parseInt(referrer.employeeId) : null)
+            : (selectedClientId ?? null),
           fullName: referrer.fullName.trim() || null, lastName: referrer.lastName.trim() || null,
-          mobileNumber: referrer.mobileNumber.trim() || null,
           governorate: getGeoName(referrer.geoSelection.govId) || null,
           cityOrArea: getGeoName(referrer.geoSelection.regionId) || null,
           subArea: getGeoName(referrer.geoSelection.subId) || null,
@@ -425,9 +526,9 @@ export default function ManualApplicationEntry() {
           </div>
           <div className="h-px mx-6 bg-gradient-to-r from-transparent via-violet-200 to-transparent" />
           <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Field label="الشاغر الوظيفي المرتبط">
+            <Field label="الشاغر الوظيفي المرتبط" required error={fieldErrors.vacancy}>
               <SelectWrapper>
-                <select value={selectedVacancyId} onChange={e => setSelectedVacancyId(e.target.value ? Number(e.target.value) : '')} className={selectCls()}>
+                <select value={selectedVacancyId} onChange={e => setSelectedVacancyId(e.target.value ? Number(e.target.value) : '')} className={selectCls(!!fieldErrors.vacancy)}>
                   <option value="">غير مرتبط بشاغر (يُربط لاحقاً)</option>
                   {vacancies.map(v => <option key={v.id} value={v.id}>{(v.branch ? `[${v.branch}] ` : '') + v.title}</option>)}
                 </select>
@@ -506,17 +607,15 @@ export default function ManualApplicationEntry() {
         </SectionCard>
 
         {/* ─── SECTION 2: Address ─── */}
-        <SectionCard num={2} title="عنوان السكن" subtitle="التسلسل الجغرافي للموقع" icon={MapPin} colorKey={2} delay={0.08}>
+        <SectionCard num={2} title="عنوان السكن" subtitle="المحافظة إلزامية، وبقية مستويات العنوان اختيارية" icon={MapPin} colorKey={2} delay={0.08}>
           <div className={`md:col-span-2 lg:col-span-2 rounded-xl border ${fieldErrors.geoSelection ? 'border-red-300 bg-red-50/50' : 'border-slate-200 bg-white'} p-4`}>
             <GeoSmartSearch
-              label="التسلسل الهرمي للمنطقة" required
+              label="التسلسل الهرمي للمنطقة"
               geoUnits={geoUnits} value={applicant.geoSelection}
               onChange={v => { setA('geoSelection', v); delete fieldErrors.geoSelection; }}
               placeholder="المحافظة > المنطقة > الناحية > الحي"
             />
-            {fieldErrors.geoSelection && (
-              <p className="text-xs text-red-500 mt-2 flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{fieldErrors.geoSelection}</p>
-            )}
+            <p className="mt-2 text-xs text-slate-500">يمكن الحفظ بمحافظة + عنوان تفصيلي فقط، أما المنطقة والناحية والحي فهي اختيارية.</p>
           </div>
           <Field label="تفاصيل إضافية للعنوان" required error={fieldErrors.detailedAddress}>
             <textarea value={applicant.detailedAddress} onChange={e => setA('detailedAddress', e.target.value)}
@@ -536,15 +635,15 @@ export default function ManualApplicationEntry() {
           </Field>
           <div className="space-y-1">
             <Field label="رقم الموبايل الرئيسي" required error={fieldErrors.mobileNumber}>
-              <input value={applicant.mobileNumber} onChange={e => setA('mobileNumber', e.target.value)}
-                className={inputCls(!!fieldErrors.mobileNumber) + " text-left font-mono tracking-wider"} dir="ltr" maxLength={10} placeholder="07XXXXXXXX" />
+              <input value={applicant.mobileNumber} onChange={e => setA('mobileNumber', e.target.value.replace(/\D/g, '').slice(0, 10))}
+                className={inputCls(!!fieldErrors.mobileNumber) + " text-left font-mono tracking-wider"} dir="ltr" maxLength={10} placeholder={SYRIAN_MOBILE_HINT} />
             </Field>
             <WhatsappTag checked={applicant.hasWhatsappPrimary} onChange={v => setA('hasWhatsappPrimary', v)} label="يدعم واتساب" />
           </div>
           <div className="space-y-1">
             <Field label="رقم بديل" hint="اختياري" error={fieldErrors.secondaryMobile}>
-              <input value={applicant.secondaryMobile} onChange={e => setA('secondaryMobile', e.target.value)}
-                className={inputCls(!!fieldErrors.secondaryMobile) + " text-left font-mono tracking-wider"} dir="ltr" maxLength={10} placeholder="07XXXXXXXX" />
+              <input value={applicant.secondaryMobile} onChange={e => setA('secondaryMobile', e.target.value.replace(/\D/g, '').slice(0, 10))}
+                className={inputCls(!!fieldErrors.secondaryMobile) + " text-left font-mono tracking-wider"} dir="ltr" maxLength={10} placeholder={SYRIAN_MOBILE_HINT} />
             </Field>
             {applicant.secondaryMobile.trim() && (
               <WhatsappTag checked={applicant.hasWhatsappSecondary} onChange={v => setA('hasWhatsappSecondary', v)} label="الرقم البديل يدعم واتساب" />
@@ -604,6 +703,17 @@ export default function ManualApplicationEntry() {
               ))}
             </div>
           </Field>
+          <Field label="هل تمتلك سيارة" required error={fieldErrors.hasCar} className="flex flex-col">
+            <div className="flex items-center gap-3 mt-1">
+              {[{ val: 'yes', label: 'نعم' }, { val: 'no', label: 'لا' }].map(opt => (
+                <label key={opt.val} onClick={() => setA('hasCar', opt.val)}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 cursor-pointer text-sm font-semibold transition-all ${applicant.hasCar === opt.val ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'}`}>
+                  <Car className="w-3.5 h-3.5" />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </Field>
           <Field label="اللغات الأجنبية" required error={fieldErrors.foreignLanguages} className="md:col-span-2 lg:col-span-3">
             <div className="flex flex-wrap gap-2 p-3 bg-white border border-slate-200 rounded-xl">
               {langOpts.map(lang => (
@@ -646,12 +756,23 @@ export default function ManualApplicationEntry() {
         <AnimatePresence>
           {submissionType === 'Refer a Candidate' && referrer.isReferrer && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-              <SectionCard num={6} title="بيانات الوسيط" subtitle="معلومات المُعرِّف أو الوسيط" icon={UserPlus} colorKey={6}>
+              <SectionCard num={6} title="بيانات الوسيط" subtitle="نفس منطق الوسيط المعتمد في الزبون" icon={UserPlus} colorKey={6}>
                 <Field label="نوع الوسيط" required error={fieldErrors.referrer_type}>
                   <SelectWrapper>
-                    <select value={referrer.type} onChange={e => { setR('type', e.target.value); setR('employeeId', ''); setR('fullName', ''); setR('lastName', ''); setR('mobileNumber', ''); }} className={selectCls(!!fieldErrors.referrer_type)}>
+                    <select value={referrer.type} onChange={e => handleReferrerTypeChange(e.target.value as ReferralType)} className={selectCls(!!fieldErrors.referrer_type)}>
+                      <option value="Personal">شخصي</option>
+                      <option value="Unknown">مجهول</option>
                       <option value="Employee">موظف</option>
-                      <option value="Customer">زبون</option>
+                      <option value="Client">زبون</option>
+                    </select>
+                  </SelectWrapper>
+                </Field>
+                <Field label="طريقة التواصل" required>
+                  <SelectWrapper>
+                    <select value={referrer.sourceChannel} onChange={e => setR('sourceChannel', e.target.value as ReferralOriginChannel)} className={selectCls()}>
+                      {referralOriginChannels.map(channel => (
+                        <option key={channel.value} value={channel.value}>{channel.label}</option>
+                      ))}
                     </select>
                   </SelectWrapper>
                 </Field>
@@ -666,26 +787,44 @@ export default function ManualApplicationEntry() {
                       </div>
                     </Field>
                     <Field label="اسم الموظف">
-                      <input readOnly value={referrer.fullName} className={inputCls() + " bg-slate-50 text-slate-400"} placeholder="يعبأ تلقائياً" />
+                      <input disabled value={referrer.fullName || (employeeFound ? formatEmployeeMediatorLabel(employeeFound) : '')} className={inputCls() + " bg-slate-50 text-slate-400 cursor-not-allowed"} placeholder="يعبأ تلقائياً" />
                     </Field>
-                    <Field label="رقم الجوال">
-                      <input readOnly value={referrer.mobileNumber} className={inputCls() + " bg-slate-50 text-slate-400 text-left"} dir="ltr" placeholder="يعبأ تلقائياً" />
-                    </Field>
+                  </>
+                ) : referrer.type === 'Client' ? (
+                  <>
+                    <div className="md:col-span-2 lg:col-span-3 relative">
+                      <Field label="البحث عن الزبون الوسيط" required error={fieldErrors.referrer_fullName}>
+                        <input value={clientSearch} onChange={e => handleClientSearch(e.target.value)} className={inputCls(!!fieldErrors.referrer_fullName)} placeholder="ابحث بالاسم أو رقم الموبايل" />
+                      </Field>
+                      {clientSuggestions.length > 0 && (
+                        <div className="absolute z-20 mt-2 w-full rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden max-h-64 overflow-y-auto">
+                          {clientSuggestions.map(client => (
+                            <button key={client.id} type="button" onClick={() => handleSelectClient(client)} className="w-full text-right px-4 py-3 hover:bg-sky-50 border-b border-slate-100 last:border-b-0">
+                              <div className="font-bold text-slate-800">{client.name}</div>
+                              <div className="text-xs text-slate-400">{client.mobile || client.contacts?.find(c => c.isPrimary)?.number || client.contacts?.[0]?.number || '--'}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <>
-                    <Field label="اسم الوسيط" required error={fieldErrors.referrer_fullName}><input value={referrer.fullName} onChange={e => handleReferrerNameInput(e.target.value, 'fullName')} className={inputCls(!!fieldErrors.referrer_fullName)} /></Field>
-                    <Field label="الكنية" required error={fieldErrors.referrer_lastName}><input value={referrer.lastName} onChange={e => handleReferrerNameInput(e.target.value, 'lastName')} className={inputCls(!!fieldErrors.referrer_lastName)} /></Field>
-                    <Field label="رقم موبايل الوسيط" required error={fieldErrors.referrer_mobileNumber}><input value={referrer.mobileNumber} onChange={e => setR('mobileNumber', e.target.value)} maxLength={10} className={inputCls(!!fieldErrors.referrer_mobileNumber) + " text-left"} dir="ltr" /></Field>
-                    <div className={`md:col-span-2 lg:col-span-3 rounded-xl border ${fieldErrors.referrer_geoSelection ? 'border-red-300 bg-red-50/50' : 'border-slate-200 bg-white'} p-4`}>
-                      <GeoSmartSearch label="موقع الوسيط" required geoUnits={geoUnits} value={referrer.geoSelection} onChange={v => { setR('geoSelection', v); delete fieldErrors.referrer_geoSelection; }} />
-                      {fieldErrors.referrer_geoSelection && <p className="text-xs text-red-500 mt-2 flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{fieldErrors.referrer_geoSelection}</p>}
-                    </div>
-                    <Field label="العنوان التفصيلي" required error={fieldErrors.referrer_detailedAddress}><input value={referrer.detailedAddress} onChange={e => setR('detailedAddress', e.target.value)} className={inputCls(!!fieldErrors.referrer_detailedAddress)} /></Field>
-                    <Field label="مهنة الوسيط" required error={fieldErrors.referrer_referrerWork}><input value={referrer.referrerWork} onChange={e => setR('referrerWork', e.target.value)} className={inputCls(!!fieldErrors.referrer_referrerWork)} /></Field>
-                    <Field label="ملاحظات"><input value={referrer.referrerNotes} onChange={e => setR('referrerNotes', e.target.value)} className={inputCls()} /></Field>
+                    <Field label="اسم الوسيط">
+                      <input readOnly value={referrer.fullName} className={inputCls() + " bg-slate-50 text-slate-400"} placeholder={referrer.type === 'Personal' ? 'شخصي' : 'مجهول'} />
+                    </Field>
                   </>
                 )}
+
+                <div className="mt-2 md:col-span-2 lg:col-span-3">
+                  <label className="block text-xs font-bold text-slate-500 mb-1.5 mr-1">ملاحظات الوسيط</label>
+                  <ReactQuill
+                    theme="snow"
+                    value={referrer.referrerNotes}
+                    onChange={(value) => setR('referrerNotes', value)}
+                    className="bg-white rounded-xl overflow-hidden"
+                  />
+                </div>
               </SectionCard>
             </motion.div>
           )}

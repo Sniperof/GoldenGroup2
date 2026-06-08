@@ -8,10 +8,10 @@ interface CandidateState {
 
     fetchData: () => Promise<void>;
 
-    addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats'>) => Promise<number>;
+    addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats' | 'ownerUserId' | 'createdBy'> & { ownerUserId?: number; createdBy?: number }) => Promise<number>;
     closeReferralSheet: (sheetId: number) => Promise<void>;
 
-    addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null }) => Promise<void>;
+    addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null; assignmentUserIds?: number[] }) => Promise<void>;
     qualifyCandidate: (candidateId: number, clientData?: any) => Promise<void>;
     linkCandidateToClient: (candidateId: number, clientId: number) => Promise<void>;
     markJunk: (candidateId: number) => Promise<void>;
@@ -26,11 +26,19 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
     referralSheets: [],
 
     fetchData: async () => {
-        const [candidates, referralSheets] = await Promise.all([
+        const [candidatesResult, referralSheetsResult] = await Promise.allSettled([
             api.candidates.list(),
             api.referralSheets.list()
         ]);
-        set({ candidates, referralSheets });
+
+        if (candidatesResult.status === 'rejected') {
+            throw candidatesResult.reason;
+        }
+
+        set({
+            candidates: candidatesResult.value,
+            referralSheets: referralSheetsResult.status === 'fulfilled' ? referralSheetsResult.value : []
+        });
     },
 
     addReferralSheet: async (sheetData) => {
@@ -42,7 +50,7 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
         );
 
         if (existingSheet) {
-            throw new Error('يوجد ورقة ترشيح مطابقة لنفس الوسيط والتاريخ والمشرفة!');
+            throw new Error('يوجد لائحة أسماء مطابقة لنفس الوسيط والتاريخ والمشرفة!');
         }
 
         const newSheet = await api.referralSheets.create({
@@ -159,6 +167,8 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
         if (clientData) {
             savedClient = await api.clients.create({
                 ...clientData,
+                branchId: clientData.branchId ?? candidate.branchId ?? undefined,
+                assignmentUserIds: clientData.assignmentUserIds ?? candidate.assignments?.map(a => a.userId) ?? undefined,
                 isCandidate: false,
                 candidateStatus: 'Suggested'
             });
@@ -195,6 +205,8 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
                 referralReason: candidate.referralReason,
                 referralSheetId: candidate.referralSheetId,
                 referralAddressText: candidate.addressText,
+                branchId: candidate.branchId ?? undefined,
+                assignmentUserIds: candidate.assignments?.map(a => a.userId) ?? undefined,
                 isCandidate: false,
                 candidateStatus: 'Suggested'
             });
@@ -214,51 +226,7 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
     },
 
     linkCandidateToClient: async (candidateId, clientId) => {
-        const state = get();
-        const candidate = state.candidates.find(c => c.id === candidateId);
-
-        if (candidate) {
-            const clients = await api.clients.list();
-            const client = clients.find((c: any) => c.id === clientId);
-
-            if (client) {
-                const existingReferrers = client.referrers || [];
-
-                const newReferrer = {
-                    id: Date.now().toString(),
-                    referrerType: candidate.referralType,
-                    referralEntityId: candidate.referralEntityId,
-                    referrerName: candidate.referralNameSnapshot,
-                    sourceChannel: candidate.referralOriginChannel,
-                    referralDate: candidate.referralDate,
-                    referralReason: candidate.referralReason,
-                    referralSheetId: candidate.referralSheetId
-                };
-
-                const updateData: any = {
-                    referrers: [...existingReferrers, newReferrer]
-                };
-
-                if (!client.referrerName) {
-                    updateData.referrerName = newReferrer.referrerName;
-                    updateData.referrerType = newReferrer.referrerType;
-                    updateData.sourceChannel = newReferrer.sourceChannel;
-                    updateData.referralEntityId = newReferrer.referralEntityId;
-                    updateData.referralDate = newReferrer.referralDate;
-                    updateData.referralReason = newReferrer.referralReason;
-                    updateData.referralSheetId = newReferrer.referralSheetId;
-                }
-
-                await api.clients.update(clientId, updateData);
-            }
-        }
-
-        await api.candidates.update(candidateId, {
-            ...(candidate || {}),
-            status: 'Qualified',
-            convertedToLeadId: clientId,
-            duplicateFlag: true
-        });
+        await api.candidates.linkToClient(candidateId, clientId);
 
         await get().fetchData();
 
@@ -306,6 +274,9 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
         const state = get();
         const candidate = state.candidates.find(c => c.id === candidateId);
         if (!candidate) return;
+        if (candidate.status === 'Qualified' || candidate.status === 'Junk' || candidate.convertedToLeadId != null) {
+            throw new Error('لا يمكن تعديل الاسم المقترح بعد الربط أو الرفض أو التحويل');
+        }
 
         const updatedData = { ...candidate, ...data };
 

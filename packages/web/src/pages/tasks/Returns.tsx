@@ -63,7 +63,7 @@ export default function Returns() {
     }
 
     return (
-        <div className="p-8 h-full flex flex-col overflow-hidden">
+        <div className="p-8">
             <SmartTable<Task>
                 title="المرتجعات"
                 icon={RotateCcw}

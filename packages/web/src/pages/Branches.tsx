@@ -1,14 +1,16 @@
 import { useEffect, useState, useMemo } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useBranchStore } from '../hooks/useBranchStore';
 import { api } from '../lib/api';
 import type { Branch, BranchContact, BranchContactType, BranchDepartment, GeoUnit } from '../lib/types';
+import { usePermissions } from '../hooks/usePermissions';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
 import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } from '../components/GeoSmartSearch';
 import {
   MapPin, Building2, Plus, Edit, Trash2, X, Network,
   Mail, Phone, Smartphone, Globe, Users, Briefcase,
-  CircleUser, BadgeDollarSign, ChevronDown,
+  CircleUser, BadgeDollarSign, ChevronDown, Layers,
 } from 'lucide-react';
 
 // ─── Contact metadata ────────────────────────────────────────────────────────
@@ -52,15 +54,34 @@ function newContact(): BranchContact {
   };
 }
 
+function buildGeoSelectionFromId(geoUnits: GeoUnit[], id?: number | null): GeoSelection {
+  const path: GeoUnit[] = [];
+  let cursor = id ? geoUnits.find(unit => unit.id === id) : undefined;
+  while (cursor) {
+    path.unshift(cursor);
+    cursor = cursor.parentId ? geoUnits.find(unit => unit.id === cursor!.parentId) : undefined;
+  }
+  return {
+    govId: path[0]?.id.toString() || '',
+    regionId: path[1]?.id.toString() || '',
+    subId: path[2]?.id.toString() || '',
+    neighborhoodId: path[3]?.id.toString() || '',
+  };
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function Branches() {
+  const navigate = useNavigate();
+  const { hasPermission } = usePermissions();
   const { branches, loading, fetchBranches, createBranch, updateBranch, deleteBranch } = useBranchStore();
+  const canManageBranches = hasPermission('branches.manage');
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
 
   const [name, setName] = useState('');
+  const [detailedAddress, setDetailedAddress] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [locationSelection, setLocationSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
   const [coveredSelections, setCoveredSelections] = useState<GeoSelection[]>([]);
@@ -71,17 +92,18 @@ export default function Branches() {
     api.geoUnits.list().then(setGeoUnits).catch(console.error);
   }, []);
 
+  if (!hasPermission('branches.view')) {
+    return <Navigate to="/" replace />;
+  }
+
   const openForm = (branch?: Branch) => {
     if (branch) {
       setEditingBranch(branch);
       setName(branch.name);
+      setDetailedAddress(branch.detailedAddress || '');
       setStatus(branch.status);
       setContacts(branch.contactInfo || []);
-      if (branch.locationGeoId) {
-        setLocationSelection({ govId: '', regionId: '', subId: '', neighborhoodId: branch.locationGeoId.toString() });
-      } else {
-        setLocationSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
-      }
+      setLocationSelection(buildGeoSelectionFromId(geoUnits, branch.locationGeoId));
       const covered: GeoSelection[] = (branch.coveredGeoIds || []).map(id => ({
         govId: '', regionId: '', subId: '', neighborhoodId: id.toString()
       }));
@@ -89,6 +111,7 @@ export default function Branches() {
     } else {
       setEditingBranch(null);
       setName('');
+      setDetailedAddress('');
       setStatus('active');
       setLocationSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
       setCoveredSelections([]);
@@ -104,12 +127,17 @@ export default function Branches() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageBranches) return;
     const locationGeoId = getDeepestId(locationSelection);
     const coveredGeoIds = coveredSelections.map(getDeepestId).filter(Boolean) as number[];
+    if (!locationSelection.subId && !locationSelection.neighborhoodId) {
+      alert('يجب اختيار ناحية أو حي على الأقل في العنوان.');
+      return;
+    }
     // Validate contacts have values
     const validContacts = contacts.filter(c => c.value.trim());
 
-    const payload = { name, status, locationGeoId, coveredGeoIds, contactInfo: validContacts };
+    const payload = { name, status, locationGeoId, detailedAddress: detailedAddress.trim() || null, coveredGeoIds, contactInfo: validContacts };
     try {
       if (editingBranch) {
         await updateBranch(editingBranch.id, payload);
@@ -130,6 +158,7 @@ export default function Branches() {
   };
 
   const handleDelete = async (id: number) => {
+    if (!canManageBranches) return;
     if (!confirm('هل أنت متأكد من حذف هذا الفرع؟')) return;
     try { await deleteBranch(id); }
     catch { alert('لا يمكن حذف الفرع لاحتمال وجود سجلات مرتبطة به'); }
@@ -190,7 +219,7 @@ export default function Branches() {
   ];
 
   return (
-    <div className="flex flex-col h-full p-8 space-y-6 overflow-hidden" dir="rtl">
+    <div className="p-8 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -201,13 +230,13 @@ export default function Branches() {
           <p className="text-sm text-slate-500 mt-1">إضافة الفروع وتحديد معلومات التواصل ونطاق التغطية الجغرافية</p>
         </div>
         <button onClick={() => openForm()}
+          disabled={!canManageBranches}
           className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95">
           <Plus className="w-4 h-4" /> إضافة فرع جديد
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-        <SmartTable<Branch>
+      <SmartTable<Branch>
           title="سجل الفروع"
           icon={Building2}
           data={branches}
@@ -215,16 +244,22 @@ export default function Branches() {
           getId={(b) => b.id}
           actions={(b) => (
             <div className="flex items-center gap-1">
-              <button onClick={() => openForm(b)} className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500" title="تعديل">
+              <button
+                onClick={() => navigate(`/branches/${b.id}`)}
+                className="p-1.5 rounded-md hover:bg-emerald-50 text-slate-400 hover:text-emerald-600"
+                title="الأقسام"
+              >
+                <Layers className="w-4 h-4" />
+              </button>
+              <button onClick={() => openForm(b)} disabled={!canManageBranches} className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50" title="تعديل">
                 <Edit className="w-4 h-4" />
               </button>
-              <button onClick={() => handleDelete(b.id)} className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500" title="حذف">
+              <button onClick={() => handleDelete(b.id)} disabled={!canManageBranches} className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50" title="حذف">
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
           )}
         />
-      </div>
 
       {/* ── Modal ── */}
       {isModalOpen && (
@@ -265,11 +300,28 @@ export default function Branches() {
                 {/* Location */}
                 <div className="border border-slate-100 bg-slate-50/50 rounded-2xl p-5 space-y-4">
                   <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2 border-b border-slate-200 pb-3">
-                    <MapPin className="w-4 h-4 text-emerald-500" /> الموقع الجغرافي الأساسي
+                    <MapPin className="w-4 h-4 text-emerald-500" /> العنوان
                   </h4>
-                  <GeoSmartSearch label="موقع الفرع" geoUnits={geoUnits} required
+                  <GeoSmartSearch label="العنوان" geoUnits={geoUnits} required
                     value={locationSelection} onChange={setLocationSelection}
-                    placeholder="ابحث عن موقع الفرع الجغرافي..." />
+                    placeholder="ابحث عن ناحية أو حي..."
+                    minSelectableLevel={3} />
+                  {!locationSelection.subId && !locationSelection.neighborhoodId && (
+                    <p className="text-[11px] text-amber-600 font-medium">
+                      يجب اختيار ناحية أو حي على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
+                    </p>
+                  )}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-slate-700">العنوان التفصيلي</label>
+                    <textarea
+                      value={detailedAddress}
+                      onChange={e => setDetailedAddress(e.target.value)}
+                      disabled={!canManageBranches}
+                      rows={3}
+                      placeholder="مثال: الشارع، البناء، الطابق، أقرب نقطة دالة..."
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none resize-none disabled:bg-gray-50"
+                    />
+                  </div>
                 </div>
 
                 {/* ── Contact Info ── */}
@@ -282,7 +334,8 @@ export default function Branches() {
                         <span className="text-xs bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full font-bold">{contacts.length}</span>
                       )}
                     </h4>
-                    <button type="button" onClick={addContact}
+                <button type="button" onClick={addContact}
+                      disabled={!canManageBranches}
                       className="text-xs font-bold text-violet-600 hover:text-violet-700 flex items-center gap-1 bg-violet-100 hover:bg-violet-200 px-3 py-1.5 rounded-lg transition-colors">
                       <Plus className="w-3.5 h-3.5" /> إضافة وسيلة تواصل
                     </button>
@@ -293,6 +346,7 @@ export default function Branches() {
                       <Phone className="w-8 h-8 text-violet-200" />
                       لم تُضف معلومات تواصل بعد
                       <button type="button" onClick={addContact}
+                        disabled={!canManageBranches}
                         className="text-xs font-bold text-violet-500 bg-violet-50 hover:bg-violet-100 px-4 py-1.5 rounded-lg transition-colors">
                         + إضافة أول وسيلة تواصل
                       </button>
@@ -316,6 +370,7 @@ export default function Branches() {
                                       type: e.target.value as BranchContactType,
                                       value: '', // reset value when type changes
                                     })}
+                                    disabled={!canManageBranches}
                                     className="w-full appearance-none bg-white border border-slate-200 rounded-xl pl-8 pr-4 py-2 text-sm focus:border-violet-400 focus:ring-2 focus:ring-violet-100 outline-none"
                                   >
                                     {CONTACT_TYPES.map(t => (
@@ -334,6 +389,7 @@ export default function Branches() {
                                 <select
                                   value={contact.department}
                                   onChange={e => updateContact(contact.id, { department: e.target.value as BranchDepartment })}
+                                  disabled={!canManageBranches}
                                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:border-violet-400 focus:ring-2 focus:ring-violet-100 outline-none"
                                 >
                                   {DEPARTMENTS.map(d => (
@@ -357,6 +413,7 @@ export default function Branches() {
                                     type={typeMeta.inputType}
                                     value={contact.value}
                                     onChange={e => updateContact(contact.id, { value: e.target.value })}
+                                    disabled={!canManageBranches}
                                     placeholder={typeMeta.placeholder}
                                     className="flex-1 text-sm outline-none bg-transparent"
                                     dir={contact.type === 'website' || contact.type === 'email' ? 'ltr' : 'rtl'}
@@ -370,12 +427,13 @@ export default function Branches() {
                                   type="text"
                                   value={contact.label || ''}
                                   onChange={e => updateContact(contact.id, { label: e.target.value })}
+                                  disabled={!canManageBranches}
                                   placeholder="مثال: للتوظيف فقط"
                                   className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
                                 />
                               </div>
 
-                              <button type="button" onClick={() => removeContact(contact.id)}
+                              <button type="button" onClick={() => removeContact(contact.id)} disabled={!canManageBranches}
                                 className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors rounded-xl border border-red-100 mb-0.5">
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -409,6 +467,7 @@ export default function Branches() {
                       نطاق التغطية والمناطق التابعة
                     </h4>
                     <button type="button" onClick={addCoveredRange}
+                      disabled={!canManageBranches}
                       className="text-xs font-bold text-sky-600 hover:text-sky-700 flex items-center gap-1 bg-sky-100 px-3 py-1.5 rounded-lg transition-colors">
                       <Plus className="w-3.5 h-3.5" /> إضافة منطقة
                     </button>
@@ -428,9 +487,10 @@ export default function Branches() {
                                 arr[idx] = newSel;
                                 setCoveredSelections(arr);
                               }}
+                              disabled={!canManageBranches}
                               placeholder="اختر المحافظة، المنطقة أو الحي..." />
                           </div>
-                          <button type="button" onClick={() => removeCoveredRange(idx)}
+                          <button type="button" onClick={() => removeCoveredRange(idx)} disabled={!canManageBranches}
                             className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-red-50 text-red-500 hover:bg-red-100 rounded-xl border border-red-100 mb-0.5">
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -449,7 +509,8 @@ export default function Branches() {
                   إلغاء
                 </button>
                 <button type="submit" disabled={loading}
-                  className="bg-sky-500 hover:bg-sky-600 active:scale-95 transition-all text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 disabled:opacity-50">
+                  className="bg-sky-500 hover:bg-sky-600 active:scale-95 transition-all text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 disabled:opacity-50"
+                  >
                   {loading ? 'جاري الحفظ...' : `حفظ الفرع${contacts.filter(c => c.value).length > 0 ? ` (${contacts.filter(c => c.value).length} وسيلة تواصل)` : ''}`}
                 </button>
               </div>

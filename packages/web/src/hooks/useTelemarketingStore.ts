@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import { TaskList, TaskListItem, Appointment, CallLog, CallOutcome } from '../lib/types';
+import { TaskList, TaskListItem, Appointment, CallLog } from '../lib/types';
+import type { TelemarketingOutcomeCode } from '@golden-crm/shared';
+import type { SelectedTaskEntry } from '../components/telemarketing/AppointmentSchedulerModal';
 import { api } from '../lib/api';
 
 function simpleUUID() {
@@ -14,11 +16,12 @@ interface TelemarketingStore {
     taskLists: TaskList[];
     appointments: Appointment[];
     callLogs: CallLog[];
-    loadData: () => Promise<void>;
+    loadData: (date?: string) => Promise<void>;
     generateTaskList: (teamKey: string, date: string, items: Omit<TaskListItem, 'id' | 'status'>[]) => Promise<void>;
     addCallLog: (log: Omit<CallLog, 'id' | 'timestamp'>) => Promise<void>;
-    addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>) => Promise<void>;
-    updateTaskListItemStatus: (taskListId: string, itemId: string, status: TaskListItem['status'], outcome?: CallOutcome) => Promise<void>;
+    addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries?: SelectedTaskEntry[]) => Promise<void>;
+    addDirectAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries: SelectedTaskEntry[]) => Promise<void>;
+    updateTaskListItemStatus: (taskListId: string, itemId: string, status: TaskListItem['status'], outcome?: TelemarketingOutcomeCode) => Promise<void>;
     getTaskList: (teamKey: string, date: string) => TaskList | undefined;
     getAppointmentsForTeamDate: (teamKey: string, date: string) => Appointment[];
     getBookedSlots: (teamKey: string, date: string) => Set<string>;
@@ -30,9 +33,9 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
     appointments: [],
     callLogs: [],
 
-    loadData: async () => {
+    loadData: async (date?: string) => {
         try {
-            const snapshot = await api.telemarketing.snapshot();
+            const snapshot = await api.telemarketing.snapshot(date);
             set({
                 taskLists: snapshot.taskLists,
                 appointments: snapshot.appointments,
@@ -77,15 +80,11 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
             timestamp: new Date().toISOString(),
         };
 
-        try {
-            const saved = await api.telemarketing.createCallLog(newLog);
-            set((state) => ({ callLogs: [saved, ...state.callLogs] }));
-        } catch (error) {
-            console.error('Failed to save telemarketing call log:', error);
-        }
+        const saved = await api.telemarketing.createCallLog(newLog);
+        set((state) => ({ callLogs: [saved, ...state.callLogs] }));
     },
 
-    addAppointment: async (appointmentInput) => {
+    addAppointment: async (appointmentInput, selectedTaskEntries) => {
         const isBooked = get().appointments.some(
             (appointment) =>
                 appointment.teamKey === appointmentInput.teamKey &&
@@ -97,13 +96,111 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
             throw new Error('هذا الموعد محجوز مسبقاً للفريق في نفس الوقت.');
         }
 
-        const newAppointment: Appointment = {
+        let saved: Appointment;
+
+        if (appointmentInput.entityType === 'client') {
+            const selectedOpenTasks = (selectedTaskEntries ?? [])
+                .filter((entry) => entry.openTaskId != null)
+                .map((entry) => ({
+                    openTaskId: entry.openTaskId!,
+                    taskType: entry.taskType,
+                }));
+
+            if (selectedOpenTasks.length === 0) {
+                throw new Error('لا يمكن حجز موعد دون مهمة مفتوحة مرتبطة.');
+            }
+
+            const result = await api.telemarketing.bookVisit({
+                clientId: appointmentInput.entityId,
+                date: appointmentInput.date,
+                timeSlot: appointmentInput.timeSlot,
+                teamKey: appointmentInput.teamKey,
+                taskListId: appointmentInput.taskListId,
+                taskListItemId: appointmentInput.taskListItemId,
+                selectedOpenTasks,
+                customerSnapshot: {
+                    name: appointmentInput.customerName,
+                    mobile: appointmentInput.customerMobile,
+                    addressText: appointmentInput.customerAddress,
+                    occupation: appointmentInput.occupation,
+                    waterSource: appointmentInput.waterSource,
+                },
+                notes: appointmentInput.notes,
+            });
+
+            saved = {
+                ...appointmentInput,
+                id: `fv_${result.fieldVisitId}`,
+                createdAt: new Date().toISOString(),
+                contactTargetId: result.contactTargetId ?? appointmentInput.contactTargetId,
+                marketingVisitId: String(result.fieldVisitId),
+            };
+        } else {
+            const newAppointment: Appointment = {
+                ...appointmentInput,
+                id: simpleUUID(),
+                createdAt: new Date().toISOString(),
+            };
+            const payload = selectedTaskEntries && selectedTaskEntries.length > 0
+                ? { ...newAppointment, selectedOpenTasks: selectedTaskEntries }
+                : newAppointment;
+            saved = await api.telemarketing.createAppointment(payload);
+        }
+
+        set((state) => ({ appointments: [...state.appointments, saved] }));
+    },
+
+    addDirectAppointment: async (appointmentInput, selectedTaskEntries) => {
+        const isBooked = get().appointments.some(
+            (appointment) =>
+                appointment.teamKey === appointmentInput.teamKey &&
+                appointment.date === appointmentInput.date &&
+                appointment.timeSlot === appointmentInput.timeSlot,
+        );
+
+        if (isBooked) {
+            throw new Error('هذا الموعد محجوز مسبقا للفريق في نفس الوقت.');
+        }
+
+        const selectedOpenTasks = selectedTaskEntries
+            .filter((entry) => entry.openTaskId != null)
+            .map((entry) => ({
+                openTaskId: entry.openTaskId!,
+                taskType: entry.taskType,
+            }));
+
+        if (selectedOpenTasks.length === 0) {
+            throw new Error('لا يمكن حجز موعد دون مهمة مفتوحة مرتبطة.');
+        }
+
+        const sourceTaskId = selectedOpenTasks[0].openTaskId;
+        const result = await api.openTasks.scheduleFromExpected(sourceTaskId, {
+            date: appointmentInput.date,
+            timeSlot: appointmentInput.timeSlot,
+            teamKey: appointmentInput.teamKey,
+            taskListId: appointmentInput.taskListId,
+            taskListItemId: appointmentInput.taskListItemId,
+            taskListItemIds: selectedTaskEntries.map((entry) => entry.taskListItemId),
+            contactTargetId: appointmentInput.contactTargetId ?? null,
+            selectedOpenTasks,
+            customerSnapshot: {
+                name: appointmentInput.customerName,
+                mobile: appointmentInput.customerMobile,
+                addressText: appointmentInput.customerAddress,
+                occupation: appointmentInput.occupation,
+                waterSource: appointmentInput.waterSource,
+            },
+            notes: appointmentInput.notes,
+        });
+
+        const saved: Appointment = {
             ...appointmentInput,
-            id: simpleUUID(),
+            id: `fv_${result.fieldVisitId}`,
             createdAt: new Date().toISOString(),
+            contactTargetId: result.contactTargetId ?? appointmentInput.contactTargetId,
+            marketingVisitId: String(result.fieldVisitId),
         };
 
-        const saved = await api.telemarketing.createAppointment(newAppointment);
         set((state) => ({ appointments: [...state.appointments, saved] }));
     },
 

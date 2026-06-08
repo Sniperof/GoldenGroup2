@@ -1,59 +1,61 @@
-import { initTRPC, TRPCError } from '@trpc/server';
+﻿import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateExpressContextOptions } from '@trpc/server/adapters/express';
 import jwt from 'jsonwebtoken';
+import type { AuthContext, AuthUser } from '@golden-crm/shared';
 import { JWT_SECRET } from '../middleware/auth.js';
-import { loadPermissions } from '../middleware/permission.js';
-import type { AuthUser } from '@golden-crm/shared';
-
-// ── Context ────────────────────────────────────────────────────────────────
+import { authorize, buildAuthContext } from '../services/authorizationService.js';
 
 export type Context = {
   user: AuthUser | null;
+  authContext: AuthContext | null;
+  xBranchId: number | null;
 };
 
 export async function createContext({ req }: CreateExpressContextOptions): Promise<Context> {
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return { user: null };
+  const hb = Number(req.headers['x-branch-id']);
+  const xBranchId = Number.isFinite(hb) && hb > 0 ? hb : null;
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return { user: null, authContext: null, xBranchId };
+  }
+
   try {
     const user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
-    return { user };
+    return { user, authContext: null, xBranchId };
   } catch {
-    return { user: null };
+    return { user: null, authContext: null, xBranchId };
   }
 }
-
-// ── tRPC instance ──────────────────────────────────────────────────────────
 
 const t = initTRPC.context<Context>().create();
 
 export const router = t.router;
 
-// ── Reusable procedure builders ────────────────────────────────────────────
-
-/** Requires a valid JWT — throws UNAUTHORIZED otherwise. */
 const isAuthed = t.middleware(({ ctx, next }) => {
   if (!ctx.user) {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'غير مصرح: يجب تسجيل الدخول أولاً' });
   }
-  return next({ ctx: { user: ctx.user } });
+
+  return next({ ctx: { user: ctx.user, authContext: ctx.authContext, xBranchId: ctx.xBranchId } });
 });
 
 const authedProcedure = t.procedure.use(isAuthed);
 
-/**
- * Returns a procedure that requires the caller to hold at least one of the
- * given permission keys.  Reuses the same DB-backed cache as the existing
- * Express `requirePermission` middleware.
- */
 export function withPermission(...keys: string[]) {
   return authedProcedure.use(async ({ ctx, next }) => {
-    const perms = await loadPermissions(ctx.user.id);
-    if (!keys.some(k => perms.has(k))) {
+    const authContext = await buildAuthContext({
+      user: ctx.user,
+      headerBranchId: ctx.xBranchId,
+    });
+
+    if (!keys.some(key => authorize(authContext, { permission: key }).allowed)) {
       throw new TRPCError({
         code: 'FORBIDDEN',
         message: 'غير مسموح: صلاحياتك لا تسمح بهذا الإجراء',
       });
     }
-    return next({ ctx });
+
+    return next({ ctx: { ...ctx, authContext } });
   });
 }

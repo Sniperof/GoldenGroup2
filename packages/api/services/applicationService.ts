@@ -1,4 +1,4 @@
-import pool from '../db.js';
+﻿import pool from '../db.js';
 import { insertAuditLog } from '../utils/auditLog.js';
 import {
   checkPublicApplicationDuplicate,
@@ -13,6 +13,7 @@ type PublicApplicationResult = {
   jobVacancyId: number;
   applicantId: number;
   referrerId: number | null;
+  branchId: number;
   submissionType: string;
   applicationSource: string;
   currentStage: string;
@@ -38,27 +39,29 @@ export async function createPublicApplication(body: any): Promise<PublicApplicat
   try {
     const a = body.applicant || {};
 
-    if (!a.firstName?.trim()) throw createServiceError(400, { error: 'Ã˜Â§Ã™â€žÃ˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ˜Â£Ã™Ë†Ã™â€ž Ã™â€¦Ã˜Â·Ã™â€žÃ™Ë†Ã˜Â¨' });
-    if (!a.lastName?.trim()) throw createServiceError(400, { error: 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ˜Â¹Ã˜Â§Ã˜Â¦Ã™â€žÃ˜Â© Ã™â€¦Ã˜Â·Ã™â€žÃ™Ë†Ã˜Â¨' });
-    if (!a.mobileNumber?.trim()) throw createServiceError(400, { error: 'Ã˜Â±Ã™â€šÃ™â€¦ Ã˜Â§Ã™â€žÃ™â€¡Ã˜Â§Ã˜ÂªÃ™Â Ã™â€¦Ã˜Â·Ã™â€žÃ™Ë†Ã˜Â¨' });
-    if (!/^\d{10,11}$/.test(a.mobileNumber)) throw createServiceError(400, { error: 'Ã˜Â±Ã™â€šÃ™â€¦ Ã˜Â§Ã™â€žÃ™â€¡Ã˜Â§Ã˜ÂªÃ™Â Ã™Å Ã˜Â¬Ã˜Â¨ Ã˜Â£Ã™â€  Ã™Å Ã™Æ’Ã™Ë†Ã™â€  10-11 Ã˜Â±Ã™â€šÃ™â€¦' });
-    if (a.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email)) throw createServiceError(400, { error: 'Ã˜ÂµÃ™Å Ã˜ÂºÃ˜Â© Ã˜Â§Ã™â€žÃ˜Â¨Ã˜Â±Ã™Å Ã˜Â¯ Ã˜Â§Ã™â€žÃ˜Â¥Ã™â€žÃ™Æ’Ã˜ÂªÃ˜Â±Ã™Ë†Ã™â€ Ã™Å  Ã˜ÂºÃ™Å Ã˜Â± Ã˜ÂµÃ˜Â­Ã™Å Ã˜Â­Ã˜Â©' });
-    if (!a.dob) throw createServiceError(400, { error: 'Ã˜ÂªÃ˜Â§Ã˜Â±Ã™Å Ã˜Â® Ã˜Â§Ã™â€žÃ™â€¦Ã™Å Ã™â€žÃ˜Â§Ã˜Â¯ Ã™â€¦Ã˜Â·Ã™â€žÃ™Ë†Ã˜Â¨' });
-    if (!a.gender) throw createServiceError(400, { error: 'Ã˜Â§Ã™â€žÃ˜Â¬Ã™â€ Ã˜Â³ Ã™â€¦Ã˜Â·Ã™â€žÃ™Ë†Ã˜Â¨' });
-    if (!a.maritalStatus) throw createServiceError(400, { error: 'Ã˜Â§Ã™â€žÃ˜Â­Ã˜Â§Ã™â€žÃ˜Â© Ã˜Â§Ã™â€žÃ˜Â§Ã˜Â¬Ã˜ÂªÃ™â€¦Ã˜Â§Ã˜Â¹Ã™Å Ã˜Â© Ã™â€¦Ã˜Â·Ã™â€žÃ™Ë†Ã˜Â¨Ã˜Â©' });
-    if (!a.governorate?.trim()) throw createServiceError(400, { error: 'Ã˜Â§Ã™â€žÃ™â€¦Ã˜Â­Ã˜Â§Ã™ÂÃ˜Â¸Ã˜Â© Ã™â€¦Ã˜Â·Ã™â€žÃ™Ë†Ã˜Â¨Ã˜Â©' });
-    if (!body.jobVacancyId) throw createServiceError(400, { error: 'Ã™â€¦Ã˜Â¹Ã˜Â±Ã™â€˜Ã™Â Ã˜Â§Ã™â€žÃ˜Â´Ã˜Â§Ã˜ÂºÃ˜Â± Ã˜Â§Ã™â€žÃ™Ë†Ã˜Â¸Ã™Å Ã™ÂÃ™Å  Ã™â€¦Ã˜Â·Ã™â€žÃ™Ë†Ã˜Â¨' });
+    if (!a.firstName?.trim()) throw createServiceError(400, { error: 'الاسم الأول مطلوب' });
+    if (!a.lastName?.trim()) throw createServiceError(400, { error: 'اسم العائلة مطلوب' });
+    if (!a.mobileNumber?.trim()) throw createServiceError(400, { error: 'رقم الهاتف مطلوب' });
+    if (!/^\d{10,11}$/.test(a.mobileNumber)) throw createServiceError(400, { error: 'رقم الهاتف يجب أن يكون 10-11 رقم' });
+    if (a.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email)) throw createServiceError(400, { error: 'صيغة البريد الإلكتروني غير صحيحة' });
+    if (!a.dob) throw createServiceError(400, { error: 'تاريخ الميلاد مطلوب' });
+    if (!a.gender) throw createServiceError(400, { error: 'الجنس مطلوب' });
+    if (!a.maritalStatus) throw createServiceError(400, { error: 'الحالة الاجتماعية مطلوبة' });
+    if (!a.governorate?.trim()) throw createServiceError(400, { error: 'المحافظة مطلوبة' });
+    if (!a.detailedAddress?.trim()) throw createServiceError(400, { error: 'العنوان التفصيلي مطلوب' });
+    if (typeof a.hasCar !== 'boolean') throw createServiceError(400, { error: 'يرجى تحديد هل تمتلك سيارة' });
+    if (!body.jobVacancyId) throw createServiceError(400, { error: 'الشاغر الوظيفي حقل إلزامي' });
 
     const submissionType = body.submissionType;
     if (!['Apply', 'Refer a Candidate'].includes(submissionType)) {
-      throw createServiceError(400, { error: 'Ã™â€ Ã™Ë†Ã˜Â¹ Ã˜Â§Ã™â€žÃ˜ÂªÃ™â€šÃ˜Â¯Ã™Å Ã™â€¦ Ã˜ÂºÃ™Å Ã˜Â± Ã˜ÂµÃ˜Â§Ã™â€žÃ˜Â­' });
+      throw createServiceError(400, { error: 'نوع التقديم غير صالح' });
     }
     const applicationSource = body.applicationSource || 'Website';
     if (!['Mobile App', 'Website', 'External Platforms', 'Internal'].includes(applicationSource)) {
-      throw createServiceError(400, { error: 'Ã™â€¦Ã˜ÂµÃ˜Â¯Ã˜Â± Ã˜Â§Ã™â€žÃ˜Â·Ã™â€žÃ˜Â¨ Ã˜ÂºÃ™Å Ã˜Â± Ã˜ÂµÃ˜Â§Ã™â€žÃ˜Â­' });
+      throw createServiceError(400, { error: 'مصدر الطلب غير صالح' });
     }
     if (submissionType === 'Refer a Candidate' && !body.referrer?.fullName?.trim()) {
-      throw createServiceError(400, { error: 'Ã˜Â§Ã˜Â³Ã™â€¦ Ã˜Â§Ã™â€žÃ™â€¦Ã™ÂÃ˜Â¹Ã˜Â±Ã™â€˜Ã™Â Ã™â€¦Ã˜Â·Ã™â€žÃ™Ë†Ã˜Â¨ Ã˜Â¹Ã™â€ Ã˜Â¯ Ã˜Â§Ã™â€žÃ˜ÂªÃ™â€šÃ˜Â¯Ã™Å Ã™â€¦ Ã™â€ Ã™Å Ã˜Â§Ã˜Â¨Ã˜Â© Ã˜Â¹Ã™â€  Ã™â€¦Ã˜Â±Ã˜Â´Ã˜Â­' });
+      throw createServiceError(400, { error: 'اسم المُعرّف مطلوب عند التقديم نيابة عن مرشح' });
     }
 
     await client.query('BEGIN');
@@ -66,18 +69,23 @@ export async function createPublicApplication(body: any): Promise<PublicApplicat
     const vacancy = await findVacancyById(client, body.jobVacancyId);
     if (!vacancy) {
       await client.query('ROLLBACK');
-      throw createServiceError(404, { error: 'Ã˜Â§Ã™â€žÃ˜Â´Ã˜Â§Ã˜ÂºÃ˜Â± Ã˜Â§Ã™â€žÃ™Ë†Ã˜Â¸Ã™Å Ã™ÂÃ™Å  Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã™Ë†Ã˜Â¬Ã™Ë†Ã˜Â¯' });
+      throw createServiceError(404, { error: 'الشاغر الوظيفي غير موجود' });
     }
     if (vacancy.status !== 'Open') {
       await client.query('ROLLBACK');
-      throw createServiceError(400, { error: 'Ã˜Â§Ã™â€žÃ˜Â´Ã˜Â§Ã˜ÂºÃ˜Â± Ã˜Â§Ã™â€žÃ™Ë†Ã˜Â¸Ã™Å Ã™ÂÃ™Å  Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã™ÂÃ˜ÂªÃ™Ë†Ã˜Â­ Ã™â€žÃ™â€žÃ˜ÂªÃ™â€šÃ˜Â¯Ã™Å Ã™â€¦' });
+      throw createServiceError(400, { error: 'الشاغر الوظيفي غير مفتوح للتقديم' });
+    }
+
+    if (!vacancy.branchId) {
+      await client.query('ROLLBACK');
+      throw createServiceError(400, { error: '?? ???? ????? ??? ???? ?????? ??? ?????? ??? ????? ????.' });
     }
 
     const dupResult = await checkPublicApplicationDuplicate(client, a.mobileNumber, body.jobVacancyId);
     if (dupResult.blocked) {
       await client.query('ROLLBACK');
       throw createServiceError(409, {
-        error: 'Ã™Å Ã™Ë†Ã˜Â¬Ã˜Â¯ Ã˜Â·Ã™â€žÃ˜Â¨ Ã™â€ Ã˜Â´Ã˜Â· Ã˜Â¨Ã˜Â§Ã™â€žÃ™ÂÃ˜Â¹Ã™â€ž Ã™â€žÃ™â€¡Ã˜Â°Ã˜Â§ Ã˜Â§Ã™â€žÃ˜Â±Ã™â€šÃ™â€¦ Ã™Ë†Ã˜Â§Ã™â€žÃ˜Â´Ã˜Â§Ã˜ÂºÃ˜Â± Ã˜Â§Ã™â€žÃ™Ë†Ã˜Â¸Ã™Å Ã™ÂÃ™Å ',
+        error: 'يوجد طلب نشط بالفعل لهذا الرقم والشاغر الوظيفي',
         duplicateApplicationId: dupResult.duplicateApplicationId,
       });
     }
@@ -99,6 +107,7 @@ export async function createPublicApplication(body: any): Promise<PublicApplicat
       enteredByUserId: body.enteredByUserId || null,
       enteredByName: body.enteredByName || null,
       duplicateFlag,
+      branchId: vacancy.branchId,
     });
 
     await insertAuditLog(client, {

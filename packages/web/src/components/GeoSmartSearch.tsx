@@ -27,6 +27,8 @@ interface GeoSmartSearchProps {
     required?: boolean;
     placeholder?: string;
     disabled?: boolean;
+    minSelectableLevel?: number;
+    invalid?: boolean;
 }
 
 export function getLevelName(geoUnits: GeoUnit[], idStr: string | undefined): string | null {
@@ -85,13 +87,25 @@ function formatShort(path: GeoUnit[]): { gov: string; detail: string } {
     return { gov, detail: parts.join('، ') || path[1]?.name || '' };
 }
 
+export function formatGeoUnitLastLevels(geoUnits: GeoUnit[], geoUnitId?: number | string | null): string {
+    if (geoUnitId == null || geoUnitId === '') return '';
+    const unitsMap = new Map<number, GeoUnit>();
+    geoUnits.forEach(u => unitsMap.set(u.id, u));
+    const unit = unitsMap.get(Number(geoUnitId));
+    if (!unit) return '';
+    const path = buildPath(unit, unitsMap);
+    const displayParts = path.length <= 2 ? path : path.slice(-2);
+    return displayParts.map(item => item.name).filter(Boolean).join(' > ');
+}
+
 /* ------------------------------------------------------------------ */
 /*  GeoSmartSearch Component                                            */
 /* ------------------------------------------------------------------ */
 
-export default function GeoSmartSearch({ geoUnits, value, onChange, label, required, placeholder, disabled }: GeoSmartSearchProps) {
+export default function GeoSmartSearch({ geoUnits, value, onChange, label, required, placeholder, disabled, minSelectableLevel = 1, invalid = false }: GeoSmartSearchProps) {
     const [search, setSearch] = useState('');
     const [isOpen, setIsOpen] = useState(false);
+    const [openUpward, setOpenUpward] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -114,34 +128,37 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
 
     // Search suggestions
     const suggestions = useMemo((): GeoSuggestion[] => {
+        if (!isOpen) return [];
+
         if (!search.trim()) {
-            // Show all level-4 neighborhoods when empty
-            return geoUnits
-                .filter(u => u.level === 4)
-                .map(u => {
-                    const path = buildPath(u, unitsMap);
-                    return { unit: u, path, score: 0 };
-                })
-                .slice(0, 30);
+            // Keep the closed-field transition cheap. When opened without a
+            // search term, surface only a small default window instead of
+            // traversing the full geo tree.
+            const defaults: GeoSuggestion[] = [];
+            for (const unit of geoUnits) {
+                if (unit.level < minSelectableLevel) continue;
+                defaults.push({ unit, path: buildPath(unit, unitsMap), score: 0 });
+                if (defaults.length >= 30) break;
+            }
+            return defaults.sort((a, b) => a.unit.level - b.unit.level);
         }
 
         const q = search.trim().toLowerCase();
         const results: GeoSuggestion[] = [];
 
-        // Search all units
         geoUnits.forEach(u => {
+            if (u.level < minSelectableLevel) return;
             const name = u.name.toLowerCase();
             if (!name.includes(q)) return;
             const path = buildPath(u, unitsMap);
-            // Exact prefix match = best score
             const score = name.startsWith(q) ? 0 : name.indexOf(q) + 1;
             results.push({ unit: u, path, score });
         });
 
-        // Sort by score, then by level (deeper = more specific = better)
-        results.sort((a, b) => a.score - b.score || b.unit.level - a.unit.level);
+        // Sort by score, then by level ascending (more general first when tied)
+        results.sort((a, b) => a.score - b.score || a.unit.level - b.unit.level);
         return results.slice(0, 15);
-    }, [search, geoUnits, unitsMap]);
+    }, [search, geoUnits, unitsMap, minSelectableLevel, isOpen]);
 
     // Selection handler
     const handleSelect = useCallback((suggestion: GeoSuggestion) => {
@@ -157,6 +174,25 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
         setSearch('');
         inputRef.current?.focus();
     }, [onChange]);
+
+    // Compute direction then open — called synchronously before any render
+    const openWithDirection = useCallback(() => {
+        if (containerRef.current) {
+            const rect = containerRef.current.getBoundingClientRect();
+            let scrollParent: Element | null = containerRef.current.parentElement;
+            let viewportBottom = window.innerHeight;
+            while (scrollParent) {
+                const style = window.getComputedStyle(scrollParent);
+                if (/auto|scroll/.test(style.overflow + style.overflowY)) {
+                    viewportBottom = scrollParent.getBoundingClientRect().bottom;
+                    break;
+                }
+                scrollParent = scrollParent.parentElement;
+            }
+            setOpenUpward(viewportBottom - rect.bottom < 280);
+        }
+        setIsOpen(true);
+    }, []);
 
     // Outside click
     useEffect(() => {
@@ -185,8 +221,8 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                 {/* Selected State */}
                 {selectedPath && !isOpen ? (
                     <div
-                        onClick={() => !disabled && setIsOpen(true)}
-                        className={`flex items-center gap-2 w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 ${disabled ? 'cursor-not-allowed bg-gray-50' : 'cursor-pointer hover:border-sky-300'} transition-all group`}
+                        onClick={() => !disabled && openWithDirection()}
+                        className={`flex items-center gap-2 w-full bg-white border rounded-xl px-3 py-2.5 ${invalid ? 'border-red-300 bg-red-50/40' : 'border-gray-200'} ${disabled ? 'cursor-not-allowed bg-gray-50' : invalid ? 'cursor-pointer hover:border-red-400' : 'cursor-pointer hover:border-sky-300'} transition-all group`}
                     >
                         <MapPin className="w-4 h-4 text-sky-500 shrink-0" />
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
@@ -214,17 +250,17 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                             type="text"
                             value={search}
                             disabled={disabled}
-                            onChange={e => { setSearch(e.target.value); setIsOpen(true); }}
-                            onFocus={() => setIsOpen(true)}
-                            placeholder={placeholder || 'ابحث عن محافظة، منطقة، حي...'}
-                            className={`w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm placeholder:text-gray-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/10 focus:outline-none transition-all ${disabled ? 'cursor-not-allowed bg-gray-50' : ''}`}
+                            onChange={e => { setSearch(e.target.value); openWithDirection(); }}
+                            onFocus={() => openWithDirection()}
+                            placeholder={placeholder || 'ابحث عن محافظة أو منطقة أو حي...'}
+                            className={`w-full bg-white border rounded-xl px-3 py-2.5 pr-10 text-sm placeholder:text-gray-300 focus:ring-2 focus:outline-none transition-all ${invalid ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-sky-400 focus:ring-sky-400/10'} ${disabled ? 'cursor-not-allowed bg-gray-50' : ''}`}
                         />
                     </div>
                 )}
 
                 {/* Dropdown */}
                 {isOpen && (
-                    <div className="absolute z-50 top-full mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                    <div className={`absolute z-50 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-64 overflow-y-auto ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
                         {suggestions.length === 0 ? (
                             <div className="p-4 text-center text-sm text-slate-400">لا توجد نتائج</div>
                         ) : (

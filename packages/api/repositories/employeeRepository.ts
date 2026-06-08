@@ -2,6 +2,13 @@ import pool from '../db.js';
 
 const HIRED_APPLICATION_JOINS = `
   FROM employees e
+  LEFT JOIN branches b ON b.id = e.branch_id
+  LEFT JOIN departments d ON d.id = e.department_id
+  LEFT JOIN employees dm ON dm.id = e.direct_manager_id
+  LEFT JOIN geo_units gov ON gov.id = e.residence_governorate_id
+  LEFT JOIN geo_units region ON region.id = e.residence_region_id
+  LEFT JOIN geo_units sub ON sub.id = e.residence_sub_area_id
+  LEFT JOIN geo_units neigh ON neigh.id = e.residence_neighborhood_id
   LEFT JOIN LATERAL (
     SELECT ja.id, ja.applicant_id, ja.job_vacancy_id
     FROM job_applications ja
@@ -13,26 +20,26 @@ const HIRED_APPLICATION_JOINS = `
   LEFT JOIN job_vacancies jv ON jv.id = linked_app.job_vacancy_id
 `;
 
-const APPLICANT_RESIDENCE_SQL = `
+const EMPLOYEE_RESIDENCE_SQL = `
   NULLIF(
     CONCAT_WS(
       ' - ',
-      NULLIF(a.governorate, ''),
-      NULLIF(a.city_or_area, ''),
-      NULLIF(a.sub_area, ''),
-      NULLIF(a.neighborhood, ''),
-      NULLIF(a.detailed_address, '')
+      COALESCE(NULLIF(gov.name, ''), NULLIF(a.governorate, '')),
+      COALESCE(NULLIF(region.name, ''), NULLIF(a.city_or_area, '')),
+      COALESCE(NULLIF(sub.name, ''), NULLIF(a.sub_area, '')),
+      COALESCE(NULLIF(neigh.name, ''), NULLIF(a.neighborhood, '')),
+      COALESCE(NULLIF(e.detailed_address, ''), NULLIF(a.detailed_address, ''))
     ),
     ''
   )
 `;
 
-const APPLICANT_RESIDENCE_SHORT_SQL = `
+const EMPLOYEE_RESIDENCE_SHORT_SQL = `
   NULLIF(
     CONCAT_WS(
       ' - ',
-      NULLIF(a.sub_area, ''),
-      NULLIF(a.neighborhood, '')
+      COALESCE(NULLIF(sub.name, ''), NULLIF(a.sub_area, '')),
+      COALESCE(NULLIF(neigh.name, ''), NULLIF(a.neighborhood, ''))
     ),
     ''
   )
@@ -40,20 +47,67 @@ const APPLICANT_RESIDENCE_SHORT_SQL = `
 
 const EMPLOYEE_SELECT_COLS = `
   e.id,
+  e.employee_number AS "employeeNumber",
   e.name,
+  COALESCE(NULLIF(e.first_name, ''), NULLIF(a.first_name, '')) AS "firstName",
+  NULLIF(e.father_name, '') AS "fatherName",
+  COALESCE(NULLIF(e.last_name, ''), NULLIF(a.last_name, '')) AS "lastName",
   e.role,
-  e.mobile,
-  COALESCE(NULLIF(jv.branch, ''), e.branch) AS branch,
-  COALESCE(${APPLICANT_RESIDENCE_SQL}, e.residence) AS residence,
-  ${APPLICANT_RESIDENCE_SHORT_SQL} AS "residenceShort",
+  COALESCE(NULLIF(e.mobile, ''), NULLIF(a.mobile_number, '')) AS mobile,
+  e.branch_id AS "branchId",
+  COALESCE(NULLIF(b.name, ''), NULLIF(e.branch, ''), NULLIF(jv.branch, '')) AS branch,
+  e.department_id AS "departmentId",
+  d.name AS "departmentName",
+  ${EMPLOYEE_RESIDENCE_SQL} AS residence,
+  ${EMPLOYEE_RESIDENCE_SHORT_SQL} AS "residenceShort",
   e.status,
   e.avatar,
-  COALESCE(NULLIF(jv.title, ''), e.job_title) AS "jobTitle",
+  COALESCE(NULLIF(e.job_title, ''), NULLIF(jv.title, '')) AS "jobTitle",
   e.created_at AS "createdAt"
 `;
 
 const EMPLOYEE_DETAIL_COLS = `
   ${EMPLOYEE_SELECT_COLS},
+  COALESCE(e.contacts, '[]'::jsonb) AS contacts,
+  COALESCE(e.birth_date, a.dob) AS "birthDate",
+  COALESCE(NULLIF(e.gender, ''), NULLIF(a.gender, '')) AS gender,
+  COALESCE(NULLIF(e.marital_status, ''), NULLIF(a.marital_status, '')) AS "maritalStatus",
+  NULLIF(e.military_service, '') AS "militaryService",
+  e.residence_governorate_id AS "residenceGovernorateId",
+  COALESCE(NULLIF(gov.name, ''), NULLIF(a.governorate, '')) AS "residenceGovernorate",
+  e.residence_region_id AS "residenceRegionId",
+  COALESCE(NULLIF(region.name, ''), NULLIF(a.city_or_area, '')) AS "residenceRegion",
+  e.residence_sub_area_id AS "residenceSubAreaId",
+  COALESCE(NULLIF(sub.name, ''), NULLIF(a.sub_area, '')) AS "residenceSubArea",
+  e.residence_neighborhood_id AS "residenceNeighborhoodId",
+  COALESCE(NULLIF(neigh.name, ''), NULLIF(a.neighborhood, '')) AS "residenceNeighborhood",
+  COALESCE(NULLIF(e.detailed_address, ''), NULLIF(a.detailed_address, '')) AS "detailedAddress",
+  COALESCE(NULLIF(e.academic_qualification, ''), NULLIF(a.academic_qualification, '')) AS "academicQualification",
+  COALESCE(NULLIF(e.specialization, ''), NULLIF(a.specialization, '')) AS specialization,
+  COALESCE(e.years_of_experience, a.years_of_experience) AS "yearsOfExperience",
+  COALESCE(e.driving_license, CASE
+    WHEN a.driving_license IN ('true', 'TRUE', 'yes', 'YES', '1') THEN TRUE
+    WHEN a.driving_license IN ('false', 'FALSE', 'no', 'NO', '0') THEN FALSE
+    ELSE NULL
+  END) AS "drivingLicense",
+  COALESCE(e.has_car, CASE
+    WHEN a.has_car = TRUE THEN TRUE
+    WHEN a.has_car = FALSE THEN FALSE
+    ELSE NULL
+  END) AS "hasCar",
+  COALESCE(NULLIF(e.job_skills, ''), NULLIF(a.computer_skills, '')) AS "jobSkills",
+  COALESCE(e.foreign_languages, '[]'::jsonb) AS "foreignLanguages",
+  e.hire_date AS "hireDate",
+  e.start_work_date AS "startWorkDate",
+  NULLIF(e.contract_type, '') AS "contractType",
+  NULLIF(e.work_type, '') AS "workType",
+  COALESCE(NULLIF(e.previous_employment, ''), NULLIF(a.previous_employment, '')) AS "previousEmployment",
+  e.direct_manager_id AS "directManagerId",
+  dm.name AS "directManagerName",
+  NULLIF(e.referrer_type, '') AS "referrerType",
+  NULLIF(e.source_channel, '') AS "sourceChannel",
+  NULLIF(e.referrer_name, '') AS "referrerName",
+  NULLIF(e.referral_notes, '') AS "referralNotes",
   u.id AS "systemUserId",
   u.username AS "systemUsername",
   u.is_active AS "systemIsActive",
@@ -82,16 +136,56 @@ const APP_COLS = `
   ja.is_archived AS "isArchived",
   ja.archived_at AS "archivedAt",
   ja.stage_status AS "stageStatus",
-  ja.decision
+  ja.decision,
+  ja.branch_id AS "branchId"
 `;
 
-export async function listEmployees() {
+export async function listEmployees(filter?: {
+  branchId?: number | null;
+  includeScheduleAppearanceFlag?: boolean;
+}) {
+  const scheduleAppearanceSelect = filter?.includeScheduleAppearanceFlag
+    ? `, EXISTS (
+         SELECT 1
+           FROM hr_users su
+           JOIN role_permission_grants srpg ON srpg.role_id = su.role_id
+           JOIN permissions sp ON sp.id = srpg.permission_id
+          WHERE su.employee_id = e.id
+            AND su.is_active = TRUE
+            AND sp.key = 'planning.schedule.appear'
+       ) AS "canAppearInSchedule",
+       (SELECT r2.team_slot_type
+          FROM hr_users u2
+          JOIN roles r2 ON r2.id = u2.role_id
+         WHERE u2.employee_id = e.id
+           AND u2.is_active = TRUE
+         LIMIT 1) AS "teamSlotType"`
+    : '';
+
+  if (filter?.branchId != null) {
+    const { rows } = await pool.query(
+      `SELECT ${EMPLOYEE_SELECT_COLS}
+              ${scheduleAppearanceSelect}
+       ${HIRED_APPLICATION_JOINS}
+       WHERE e.branch_id = $1
+       ORDER BY e.created_at DESC NULLS LAST, e.id DESC`,
+      [filter.branchId]
+    );
+    return rows;
+  }
+
   const { rows } = await pool.query(
     `SELECT ${EMPLOYEE_SELECT_COLS}
+            ${scheduleAppearanceSelect}
      ${HIRED_APPLICATION_JOINS}
      ORDER BY e.created_at DESC NULLS LAST, e.id DESC`
   );
   return rows;
+}
+
+export async function getEmployeeBranchId(employeeId: number | string): Promise<number | null> {
+  const { rows } = await pool.query('SELECT branch_id FROM employees WHERE id = $1', [employeeId]);
+  return rows[0]?.branch_id ?? null;
 }
 
 export async function fetchEmployeeListItem(employeeId: number | string) {
@@ -233,28 +327,9 @@ export async function fetchApplicationTrainings(applicationId: number) {
   return rows;
 }
 
-export async function createEmployee(input: {
-  name: string;
-  role: string;
-  mobile: string | null;
-  branch: string | null;
-  residence: string | null;
-  status: string;
-  avatar: string;
-  jobTitle: string | null;
-}) {
-  const { rows } = await pool.query(
-    `INSERT INTO employees (name, role, mobile, branch, residence, status, avatar, job_title)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING id`,
-    [input.name, input.role, input.mobile, input.branch, input.residence, input.status, input.avatar, input.jobTitle]
-  );
-  return rows[0].id as number;
-}
-
 export async function findEmployeeAvatarRecord(employeeId: number | string) {
   const { rows } = await pool.query(
-    `SELECT id, avatar
+    `SELECT id, avatar, branch_id AS "branchId"
      FROM employees
      WHERE id = $1`,
     [employeeId]
@@ -262,38 +337,95 @@ export async function findEmployeeAvatarRecord(employeeId: number | string) {
   return rows[0] ?? null;
 }
 
-export async function updateEmployee(input: {
-  employeeId: number | string;
-  name: string;
-  role: string;
-  mobile: string | null;
-  branch: string | null;
-  residence: string | null;
-  status: string;
-  avatar: string;
-  jobTitle: string | null;
-}) {
-  await pool.query(
-    `UPDATE employees
-     SET name = $1, role = $2, mobile = $3, branch = $4, residence = $5, status = $6, avatar = $7, job_title = $8
-     WHERE id = $9
-     RETURNING id`,
-    [input.name, input.role, input.mobile, input.branch, input.residence, input.status, input.avatar, input.jobTitle, input.employeeId]
-  );
-}
-
 export async function updateHrUserNameByEmployeeId(name: string, employeeId: number | string) {
   await pool.query('UPDATE hr_users SET name = $1 WHERE employee_id = $2', [name, employeeId]);
 }
 
 export async function findEmployeeBasic(employeeId: number) {
-  const { rows } = await pool.query('SELECT id, name FROM employees WHERE id = $1', [employeeId]);
+  const { rows } = await pool.query(
+    `SELECT id, name, branch_id AS "branchId", department_id AS "departmentId"
+     FROM employees
+     WHERE id = $1`,
+    [employeeId]
+  );
   return rows[0] ?? null;
 }
 
 export async function findRoleById(roleId: number) {
-  const { rows } = await pool.query('SELECT id, name, display_name, is_active FROM roles WHERE id = $1', [roleId]);
+  const { rows } = await pool.query(
+    'SELECT id, name, display_name, is_active, branch_id, is_template FROM roles WHERE id = $1',
+    [roleId]
+  );
   return rows[0] ?? null;
+}
+
+export async function findBranchById(branchId: number) {
+  const { rows } = await pool.query(
+    'SELECT id, name FROM branches WHERE id = $1',
+    [branchId]
+  );
+  return rows[0] ?? null;
+}
+
+export async function findDepartmentInBranch(departmentId: number, branchId: number) {
+  const { rows } = await pool.query(
+    `SELECT id, name, branch_id AS "branchId"
+     FROM departments
+     WHERE id = $1 AND branch_id = $2`,
+    [departmentId, branchId]
+  );
+  return rows[0] ?? null;
+}
+
+export async function findGeoUnitsByIds(ids: number[]) {
+  if (ids.length === 0) return [];
+  const { rows } = await pool.query(
+    `SELECT id, name
+     FROM geo_units
+     WHERE id = ANY($1::int[])`,
+    [ids]
+  );
+  return rows;
+}
+
+export async function findEmployeeDuplicateByContactNumbers(
+  contactNumbers: string[],
+  excludeEmployeeId?: number | string | null,
+) {
+  if (contactNumbers.length === 0) return null;
+
+  const params: Array<string[] | number | string> = [contactNumbers];
+  let where = `
+    (
+      e.mobile = ANY($1::text[])
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(COALESCE(e.contacts, '[]'::jsonb)) AS c
+        WHERE c->>'number' = ANY($1::text[])
+      )
+    )
+  `;
+
+  if (excludeEmployeeId != null) {
+    params.push(excludeEmployeeId);
+    where += ` AND e.id <> $2`;
+  }
+
+  const { rows } = await pool.query(
+    `SELECT e.id, e.name, e.employee_number AS "employeeNumber"
+     FROM employees e
+     WHERE ${where}
+     ORDER BY e.id
+     LIMIT 1`,
+    params
+  );
+
+  return rows[0] ?? null;
+}
+
+export async function findEmployeeBranchId(employeeId: number): Promise<number | null> {
+  const { rows } = await pool.query('SELECT branch_id FROM employees WHERE id = $1', [employeeId]);
+  return (rows[0]?.branch_id as number) ?? null;
 }
 
 export async function findEmployeeSystemAccount(employeeId: number) {
@@ -304,6 +436,72 @@ export async function findEmployeeSystemAccount(employeeId: number) {
     [employeeId]
   );
   return rows[0] ?? null;
+}
+
+export async function listEmployeeManagerCandidates(branchId: number, departmentId?: number | null) {
+  const { rows } = await pool.query(
+    `SELECT
+      e.id,
+      e.name,
+      COALESCE(NULLIF(e.job_title, ''), r.display_name) AS "jobTitle",
+      e.department_id AS "departmentId",
+      d.name AS "departmentName",
+      r.display_name AS "roleDisplayName",
+      (
+        (CASE WHEN $2::int IS NOT NULL AND e.department_id = $2 THEN 1 ELSE 0 END)
+        +
+        (CASE
+          WHEN COALESCE(r.display_name, '') ILIKE '%مدير%'
+            OR COALESCE(r.name, '') ILIKE '%manager%'
+            OR COALESCE(e.job_title, '') ILIKE '%مدير%'
+            OR COALESCE(e.job_title, '') ILIKE '%manager%'
+          THEN 1 ELSE 0
+        END)
+      ) > 0 AS "isRecommendedManager"
+    FROM employees e
+    JOIN hr_users u ON u.employee_id = e.id AND u.is_active = TRUE
+    LEFT JOIN roles r ON r.id = u.role_id
+    LEFT JOIN departments d ON d.id = e.department_id
+    WHERE e.branch_id = $1
+      AND e.status = 'active'
+    ORDER BY
+      "isRecommendedManager" DESC,
+      CASE WHEN $2::int IS NOT NULL AND e.department_id = $2 THEN 0 ELSE 1 END,
+      e.name ASC`,
+    [branchId, departmentId ?? null]
+  );
+  return rows;
+}
+
+export async function listScopedEmployeeManagerCandidates(branchId: number, departmentId?: number | null) {
+  const { rows } = await pool.query(
+    `SELECT
+      e.id,
+      e.name,
+      COALESCE(NULLIF(e.job_title, ''), r.display_name) AS "jobTitle",
+      e.department_id AS "departmentId",
+      d.name AS "departmentName",
+      r.display_name AS "roleDisplayName",
+      ($2::int IS NOT NULL AND e.department_id = $2) AS "isRecommendedManager"
+    FROM employees e
+    JOIN hr_users u ON u.employee_id = e.id AND u.is_active = TRUE
+    LEFT JOIN roles r ON r.id = u.role_id
+    LEFT JOIN departments d ON d.id = e.department_id
+    WHERE e.branch_id = $1
+      AND e.status = 'active'
+      AND (
+        COALESCE(r.display_name, '') ILIKE '%مدير%'
+        OR COALESCE(r.name, '') ILIKE '%manager%'
+        OR COALESCE(e.job_title, '') ILIKE '%مدير%'
+        OR COALESCE(e.job_title, '') ILIKE '%manager%'
+      )
+      AND ($2::int IS NULL OR e.department_id = $2)
+    ORDER BY
+      "isRecommendedManager" DESC,
+      e.name ASC`,
+    [branchId, departmentId ?? null]
+  );
+  return rows;
 }
 
 export async function insertEmployeeSystemAccount(input: {

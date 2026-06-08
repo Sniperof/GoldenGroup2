@@ -14,9 +14,10 @@ body {
 }
 
 
-/* Custom scrollbar — light theme */
+/* Custom scrollbar — light theme (both vertical & horizontal) */
 .custom-scroll::-webkit-scrollbar {
     width: 6px;
+    height: 6px;   /* horizontal scrollbar height */
 }
 
 .custom-scroll::-webkit-scrollbar-track {
@@ -33,6 +34,12 @@ body {
 .custom-scroll::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
     /* slate-400 */
+}
+
+/* Firefox */
+.custom-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
 }
 
 /* Range slider for route stations */

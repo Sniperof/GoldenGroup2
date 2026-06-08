@@ -1,4 +1,4 @@
-# env
+﻿# env
 .env
 .env.*
 !.env.example
@@ -37,7 +37,22 @@ ts_out.txt
 build_utf8.txt
 server_run_err.txt
 
+# local agent/tool state
+.claude/
+.antigravitycli/
+.hermes-evidence/
+
+# local-only backups and pre-launch archives
+local-backups/
+migrations-archive-pre-squash/
+migrations/archive/
+*.dump
+*_before_squash*.sql
+*current_schema_for_baseline*.sql
+
 packages/*/*.tsbuildinfo
 *.tsbuildinfo
 
 production.env
+nul
+

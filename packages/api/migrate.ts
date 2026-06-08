@@ -25,6 +25,42 @@ import pool from './db.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // migrations/ lives at project root: packages/api/../../migrations
 const MIGRATIONS_DIR = path.resolve(__dirname, '..', '..', 'migrations');
+const BASELINE_MIGRATION = '001_initial_schema.sql';
+
+async function adoptExistingBaselineIfPresent(applied: Set<string>, allFiles: string[]) {
+  if (!allFiles.includes(BASELINE_MIGRATION) || applied.has(BASELINE_MIGRATION)) {
+    return;
+  }
+
+  const { rows } = await pool.query<{
+    has_branches: boolean;
+    has_contracts: boolean;
+    has_installed_devices: boolean;
+    has_auto_create_device: boolean;
+  }>(`
+    SELECT
+      to_regclass('public.branches') IS NOT NULL AS has_branches,
+      to_regclass('public.contracts') IS NOT NULL AS has_contracts,
+      to_regclass('public.installed_devices') IS NOT NULL AS has_installed_devices,
+      to_regprocedure('public.auto_create_installed_device()') IS NOT NULL AS has_auto_create_device
+  `);
+
+  const baselineAlreadyExists = Object.values(rows[0] ?? {}).every(Boolean);
+
+  if (!baselineAlreadyExists) {
+    return;
+  }
+
+  await pool.query(
+    'INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT (filename) DO NOTHING',
+    [BASELINE_MIGRATION]
+  );
+  applied.add(BASELINE_MIGRATION);
+
+  console.log(
+    `Adopted existing pre-squash schema as ${BASELINE_MIGRATION}; continuing with later migrations.\n`
+  );
+}
 
 async function runMigrations() {
   console.log('=== Golden CRM — Database Migration Runner ===\n');
@@ -54,6 +90,7 @@ async function runMigrations() {
     'SELECT filename FROM schema_migrations ORDER BY filename'
   );
   const applied = new Set(rows.map(r => r.filename));
+  await adoptExistingBaselineIfPresent(applied, allFiles);
 
   const pending = allFiles.filter(f => !applied.has(f));
 

@@ -2,18 +2,62 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2 } from 'lucide-react';
 import { api } from '../lib/api';
-import type { Client, GeoUnit, Visit, Contract } from '../lib/types';
+import type { Client, CustomerOwnership, GeoUnit, Contract } from '../lib/types';
 import ClientModal from '../components/ClientModal';
+import ClientAvatar from '../components/ClientAvatar';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
 import ManualSearchModal from '../components/candidates/ManualSearchModal';
 import QualificationModal from '../components/candidates/QualificationModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import { useCandidateStore } from '../hooks/useCandidateStore';
+import { useAuthStore } from '../hooks/useAuthStore';
+
+function extractApiPayload(error: unknown): any | null {
+    if (!(error instanceof Error)) {
+        return null;
+    }
+
+    const prefix = error.message.match(/^API Error \d+: ([\s\S]+)$/);
+    if (!prefix) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(prefix[1]);
+    } catch {
+        return null;
+    }
+}
+
+function OwnershipCell({ ownership }: { ownership?: CustomerOwnership | null }) {
+    const label = ownership?.ownerLabel || 'الشركة العامة';
+    const isPersonal = (ownership?.ownerType ?? '').startsWith('personal');
+    const personalAssignments = ownership?.personalAssignments || [];
+
+    return (
+        <div className="flex flex-col gap-0.5">
+            <span className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-bold ${
+                isPersonal
+                    ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                    : 'border-slate-200 bg-slate-50 text-slate-600'
+            }`}>
+                {label}
+            </span>
+            {isPersonal && personalAssignments.length > 1 ? (
+                <span className="text-[10px] font-bold text-slate-400">{personalAssignments.length} إسنادات شخصية فعالة</span>
+            ) : null}
+        </div>
+    );
+}
 
 export default function Clients() {
+    const getPermissionScope = useAuthStore(s => s.getPermissionScope);
+    // Show assignments only for GLOBAL or BRANCH scope — ASSIGNED scope users must not see who else is assigned
+    const clientsViewScope = getPermissionScope('clients.view_list');
+    const canSeeAssignments = clientsViewScope === 'GLOBAL' || clientsViewScope === 'BRANCH';
+
     const [clients, setClients] = useState<Client[]>([]);
-    const [visits, setVisits] = useState<Visit[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
@@ -23,6 +67,7 @@ export default function Clients() {
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [isPreAddModalOpen, setIsPreAddModalOpen] = useState(false);
     const [activeCandidateForSearch, setActiveCandidateForSearch] = useState<any>(null);
+    const [verifiedPhone, setVerifiedPhone] = useState('');
     const [isAddCandidateModalOpen, setIsAddCandidateModalOpen] = useState(false);
     const qualifyCandidate = useCandidateStore((state: any) => state.qualifyCandidate);
 
@@ -43,16 +88,14 @@ export default function Clients() {
         const fetchAll = async () => {
             try {
                 setLoading(true);
-                const [clientsData, visitsData, contractsData, geoUnitsData] = await Promise.all([
+                // Use allSettled so a permission failure on contracts
+                // does NOT prevent the client list from loading.
+                const [clientsRes, contractsRes] = await Promise.allSettled([
                     api.clients.list(),
-                    api.visits.list(),
                     api.contracts.list(),
-                    api.geoUnits.list(),
                 ]);
-                setClients(clientsData);
-                setVisits(visitsData);
-                setContracts(contractsData);
-                setGeoUnits(geoUnitsData);
+                if (clientsRes.status === 'fulfilled') setClients(clientsRes.value);
+                if (contractsRes.status === 'fulfilled') setContracts(contractsRes.value);
             } catch (err) {
                 console.error('Failed to fetch data:', err);
             } finally {
@@ -62,11 +105,20 @@ export default function Clients() {
         fetchAll();
     }, []);
 
+    // Geo units are global reference data — fetched independently so a
+    // permission failure on clients/contracts does NOT blank the map.
+    useEffect(() => {
+        api.geoUnits.list()
+            .then(setGeoUnits)
+            .catch(() => setGeoUnits([]));
+    }, []);
+
     const getLifecycleStage = useCallback((client: Client) => {
+        const serverStage = (client as any).lifecycleStage;
+        if (serverStage === 'OP' || serverStage === 'FOP') return serverStage;
         if (contracts.some(c => c.customerId === client.id)) return 'OP';
-        if (visits.some(v => v.customerId === client.id)) return 'FOP';
         return 'Lead';
-    }, [contracts, visits]);
+    }, [contracts]);
 
     // ─── Computed Lists ───
     const mainList = useMemo(() => {
@@ -85,7 +137,10 @@ export default function Clients() {
                 return fullName.includes(q) ||
                     hasPhone ||
                     c.id.toString().includes(q) ||
-                    (c.referrerName || '').toLowerCase().includes(q);
+                    (c.referrerName || '').toLowerCase().includes(q) ||
+                    (c.branchName || '').toLowerCase().includes(q) ||
+                    (c.assignments || []).some(a => a.userName.toLowerCase().includes(q)) ||
+                    (c.ownership?.ownerLabel || '').toLowerCase().includes(q);
             });
         }
 
@@ -102,7 +157,6 @@ export default function Clients() {
         return list;
     }, [clients, getLifecycleStage, searchTerm, filterClass, filterMediator, filterArea, geoUnits]);
 
-    const candidateList = useMemo(() => clients.filter(c => c.isCandidate), [clients]);
 
     // ─── KPI Calculations ───
     const kpis = useMemo(() => {
@@ -128,11 +182,15 @@ export default function Clients() {
     };
 
     const deleteClient = async (id: number) => {
-        if (!confirm('حذف هذا العميل؟')) return;
+        const client = clients.find(c => c.id === id);
+        const clientName = client?.name ?? `#${id}`;
+        if (!confirm(`حذف الزبون "${clientName}"؟\n\nملاحظة: لا يمكن الحذف إذا كان للزبون عقود أو سجل زيارات أو مهام مكتملة.`)) return;
         try {
             await api.clients.delete(id);
             await fetchClients();
-        } catch (err) {
+        } catch (err: any) {
+            const msg = err?.response?.data?.error || err?.message || 'تعذر حذف الزبون';
+            alert(msg);
             console.error('Failed to delete client:', err);
         }
     };
@@ -150,6 +208,18 @@ export default function Clients() {
     const handleSaveClient = async (clientData: Client) => {
         try {
             if (editingClient) {
+                // Warn about branch change implications
+                if (editingClient.branchId && clientData.branchId && editingClient.branchId !== clientData.branchId) {
+                    const ok = confirm('تغيير الفرع سيؤثر على تعيينات المهام. تأكيد؟');
+                    if (!ok) return;
+                }
+                // Warn about OP/FOP transition
+                const wasOpFop = ['OP', 'FOP'].includes(editingClient.candidateStatus ?? '');
+                const nowOpFop = ['OP', 'FOP'].includes(clientData.candidateStatus ?? '');
+                if (!wasOpFop && nowOpFop) {
+                    const ok = confirm('تغيير الحالة إلى OP/FOP سيحذف جميع التعيينات الشخصية ويلغي المهام التسويقية. تأكيد؟');
+                    if (!ok) return;
+                }
                 await api.clients.update(clientData.id, clientData);
             } else {
                 await api.clients.create({
@@ -160,12 +230,25 @@ export default function Clients() {
                 });
             }
             await fetchClients();
+            setIsModalOpen(false);
+            setIsAddCandidateModalOpen(false);
+            setEditingClient(null);
         } catch (err) {
+            const payload = extractApiPayload(err);
+            if (payload?.status === 'MATCH_RESTRICTED') {
+                alert(payload.message || 'الرقم موجود مسبقاً في النظام ولا يمكنك عرض تفاصيله.');
+                return;
+            }
+
+            if (payload?.status === 'MATCH_VISIBLE') {
+                alert(`الرقم موجود مسبقاً للزبون: ${payload.client?.name || `#${payload.client?.id}`}`);
+                return;
+            }
+
+            const serverMsg = (err as any)?.response?.data?.error || (err as any)?.message;
             console.error('Failed to save client:', err);
+            alert(serverMsg || 'تعذر حفظ الزبون حالياً.');
         }
-        setIsModalOpen(false);
-        setIsAddCandidateModalOpen(false);
-        setEditingClient(null);
     };
 
     const openEditModal = (client: Client) => { setEditingClient(client); setIsModalOpen(true); };
@@ -185,9 +268,7 @@ export default function Clients() {
             key: 'name', label: 'الاسم الكامل', sortable: true,
             render: (c) => (
                 <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-sky-50 flex items-center justify-center text-sky-600 font-bold text-xs border border-sky-100">
-                        {c.firstName?.[0] || 'Z'}{c.lastName?.[0] || ''}
-                    </div>
+                    <ClientAvatar gender={c.gender} dataQuality={c.dataQuality} size="sm" />
                     <div>
                         <span className="block text-slate-800 font-semibold text-sm">{c.firstName} {c.fatherName} {c.lastName}</span>
                         {c.nickname && <span className="block text-[10px] text-slate-400">({c.nickname})</span>}
@@ -202,7 +283,7 @@ export default function Clients() {
             }
         },
         { key: 'neighborhood', label: 'العنوان', sortable: true, render: (c) => <span className="text-sm text-slate-600 font-medium">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
-        { key: 'occupation', label: 'المهنة', sortable: true, render: (c) => <span className="text-sm text-slate-600">{c.occupation || '--'}</span> },
+        { key: 'occupation', label: 'العنوان', sortable: true, render: (c) => <span className="text-sm text-slate-600">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
         {
             key: 'status', label: 'التصنيف', sortable: true,
             render: (c) => {
@@ -238,6 +319,34 @@ export default function Clients() {
         { key: 'referrerName', label: 'اسم الوسيط', sortable: true, render: (c) => <span className="text-sm font-medium text-slate-700">{c.referrerName || '--'}</span> },
     ];
 
+    const visibleClientColumns: ColumnDef<Client & { lifecycleStage: string }>[] = [
+        clientColumns[0],
+        clientColumns[1],
+        clientColumns[2],
+        {
+            key: 'branchName',
+            label: 'فرع التسجيل',
+            sortable: true,
+            render: (c) => (
+                <span className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700">
+                    {c.branchName || '--'}
+                </span>
+            ),
+            getValue: (c) => c.branchName || '',
+        },
+        // Only GLOBAL and BRANCH scope users may see assignment info
+        ...(canSeeAssignments ? [{
+            key: 'ownership' as const,
+            label: 'الملكية',
+            sortable: false,
+            render: (c: Client & { lifecycleStage: string }) => {
+                return <OwnershipCell ownership={c.ownership} />;
+            },
+            getValue: (c: Client & { lifecycleStage: string }) => c.ownership?.ownerLabel || '',
+        }] : []),
+        ...clientColumns.slice(4),
+    ];
+
     const candidateColumns: ColumnDef<Client>[] = [
         { key: 'name', label: 'الاسم المرشح', sortable: true, render: (c) => <span className="font-semibold text-slate-700">{c.name}</span> },
         { key: 'mobile', label: 'رقم الهاتف', sortable: true, render: (c) => <span className="font-mono text-slate-600">{c.mobile}</span> },
@@ -254,7 +363,7 @@ export default function Clients() {
     }
 
     return (
-        <div className="flex flex-col h-full p-8 space-y-6 overflow-hidden">
+        <div className="p-8 space-y-6">
             {/* 1. Page Title */}
             <div className="flex items-center justify-between">
                 <div>
@@ -360,47 +469,48 @@ export default function Clients() {
             </div >
 
             {/* 4. Main Data Table */}
-            < div className="flex-1 min-h-0 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col" >
-                <SmartTable<Client & { lifecycleStage: string }>
-                    title="جدول بيانات الزبائن"
-                    icon={Users}
-                    hideFilterBar={true}
-                    data={mainList}
-                    columns={clientColumns}
-                    getId={(c) => c.id}
-                    onRowClick={(c) => navigate(`/clients/${c.id}`)}
-                    bulkActions={[
-                        { label: 'حذف', icon: Trash2, variant: 'danger', onClick: (items) => { if (confirm(`حذف ${items.length} عملاء؟`)) bulkDelete(items); } },
-                    ]}
-                    actions={(c) => (
-                        <div className="flex items-center gap-1">
-                            <button onClick={(e) => { e.stopPropagation(); openEditModal(c as any); }} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-400 hover:text-sky-500 transition-all border border-transparent hover:border-gray-100" title="تعديل بيانات الزبون">
-                                <Pencil className="w-4 h-4" />
-                            </button>
-                        </div>
-                    )}
-                    emptyIcon={Users}
-                    emptyMessage="لا يوجد سجلات زبائن حالياً"
-                />
-            </div >
+            <SmartTable<Client & { lifecycleStage: string }>
+                title="جدول بيانات الزبائن"
+                icon={Users}
+                hideFilterBar={true}
+                data={mainList}
+                columns={visibleClientColumns}
+                tableMinWidth={980}
+                getId={(c) => c.id}
+                defaultSortKey="id"
+                defaultSortDir="desc"
+                onRowClick={(c) => navigate(`/clients/${c.id}`)}
+                bulkActions={[
+                    { label: 'حذف', icon: Trash2, variant: 'danger', onClick: (items) => { if (confirm(`حذف ${items.length} عملاء؟`)) bulkDelete(items); } },
+                ]}
+                actions={(c) => (
+                    <div className="flex items-center gap-1">
+                        <button onClick={(e) => { e.stopPropagation(); openEditModal(c as any); }} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-400 hover:text-sky-500 transition-all border border-transparent hover:border-gray-100" title="تعديل بيانات الزبون">
+                            <Pencil className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
+                emptyIcon={Users}
+                emptyMessage="لا يوجد سجلات زبائن حالياً"
+            />
 
             <ClientModal
                 isOpen={isModalOpen || isAddCandidateModalOpen}
                 onClose={() => {
                     setIsModalOpen(false);
                     setIsAddCandidateModalOpen(false);
+                    setVerifiedPhone('');
                 }}
                 onSave={handleSaveClient}
                 initialData={editingClient}
                 geoUnits={geoUnits}
+                lockedPhone={isAddCandidateModalOpen ? verifiedPhone : undefined}
             />
 
             <ManualSearchModal
                 isOpen={isPreAddModalOpen}
                 onClose={() => setIsPreAddModalOpen(false)}
                 candidate={activeCandidateForSearch || {}}
-                clients={clients}
-                candidates={candidateList}
                 onLink={(entity, type) => {
                     setIsPreAddModalOpen(false);
                     if (type === 'Client') {
@@ -409,7 +519,8 @@ export default function Clients() {
                         navigate(`/candidates`);
                     }
                 }}
-                onNoMatch={() => {
+                onNoMatch={(mobile) => {
+                    setVerifiedPhone(mobile);
                     setIsPreAddModalOpen(false);
                     setIsAddCandidateModalOpen(true);
                 }}

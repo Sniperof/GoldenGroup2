@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { JobApplicationDetail, AuditLog, ApplicationStage } from '../../lib/types';
+import type { JobApplicationDetail, AuditLog, ApplicationStage, ContactEntry, InterviewerOption } from '../../lib/types';
 import { authFetch } from '../../lib/authFetch';
 import { useInterviewStore } from '../../hooks/useInterviewStore';
+import EmployeeFormModal, { type EmployeeFormInitialValues } from '../../components/employees/EmployeeFormModal';
 import {
   ArrowRight, User, Briefcase, MapPin, Phone, Mail, Calendar, Users, GraduationCap,
   FileText, Clock, CheckCircle, XCircle, UserPlus, AlertTriangle, Award,
@@ -16,6 +17,7 @@ import PermissionGate from '../../components/PermissionGate';
 import { calculateJobMatchScore } from '../../lib/jobMatch';
 import { getUnifiedApplicationState } from '../../lib/applicationState';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { fetchInterviewersForApplication } from './interviewerLookup';
 
 const STAGE_LABELS: Record<ApplicationStage, string> = {
   'Submitted': 'استلام الطلب', 'Shortlisted': 'القائمة القصيرة',
@@ -104,9 +106,7 @@ function getDecisionActions(stage: ApplicationStage, status: string): WorkflowAc
       ];
       return [];
     case 'Training':
-      if (status === 'Training Started') return [
-        { label: 'إعادة تدريب', description: 'يحتاج المتدرب لدورة إضافية', newStage: 'Training', newStatus: 'Retraining', icon: RotateCcw, variant: 'warning' },
-      ];
+      // أثناء التدريب الجاري لا يظهر أي قرار؛ القرار/النتيجة تُتاح فقط بعد اكتمال الدورة.
       if (status === 'Training Completed') return [
         { label: 'ناجح — تحويل للقرار النهائي', description: 'اجتاز التدريب بتفوق', newStage: 'Final Decision', newStatus: 'Passed', icon: Sparkles, variant: 'success' },
       ];
@@ -121,10 +121,104 @@ function getDecisionActions(stage: ApplicationStage, status: string): WorkflowAc
   }
 }
 
+function buildApplicationContacts(detail: JobApplicationDetail): ContactEntry[] {
+  const contacts: ContactEntry[] = [];
+  const primary = String(detail.applicant?.mobileNumber ?? '').replace(/\D/g, '');
+  const secondary = String(detail.applicant?.secondaryMobile ?? '').replace(/\D/g, '');
+
+  if (primary) {
+    contacts.push({
+      id: 'application-primary',
+      type: 'mobile',
+      number: primary,
+      label: 'أساسي',
+      hasWhatsApp: Boolean(detail.applicant?.hasWhatsappPrimary),
+      isPrimary: false,
+      status: 'active',
+    });
+  }
+
+  if (secondary) {
+    contacts.push({
+      id: 'application-secondary',
+      type: 'mobile',
+      number: secondary,
+      label: 'بديل',
+      hasWhatsApp: Boolean(detail.applicant?.hasWhatsappSecondary),
+      isPrimary: false,
+      status: 'active',
+    });
+  }
+
+  return contacts;
+}
+
+function normalizeDrivingLicense(value: unknown): '' | 'yes' | 'no' {
+  if (value == null || value === '') return '';
+  if (value === true) return 'yes';
+  if (value === false) return 'no';
+  const raw = String(value).trim().toLowerCase();
+  if (['yes', 'true', '1', 'نعم'].includes(raw)) return 'yes';
+  if (['no', 'false', '0', 'لا'].includes(raw)) return 'no';
+  return '';
+}
+
+function buildApplicationAddressHint(detail: JobApplicationDetail) {
+  return [
+    detail.applicant?.governorate,
+    detail.applicant?.cityOrArea,
+    detail.applicant?.subArea,
+    detail.applicant?.neighborhood,
+    detail.applicant?.detailedAddress,
+  ].filter(Boolean).join(' - ');
+}
+
+function buildEmployeeInitialValuesFromApplication(detail: JobApplicationDetail): EmployeeFormInitialValues {
+  return {
+    firstName: detail.applicant?.firstName ?? '',
+    lastName: detail.applicant?.lastName ?? '',
+    birthDate: detail.applicant?.dob ?? '',
+    gender: detail.applicant?.gender === 'male' || detail.applicant?.gender === 'female'
+      ? detail.applicant.gender
+      : detail.applicant?.gender === 'ذكر'
+        ? 'male'
+        : detail.applicant?.gender === 'أنثى'
+          ? 'female'
+          : '',
+    maritalStatus: detail.applicant?.maritalStatus ?? '',
+    detailedAddress: detail.applicant?.detailedAddress ?? '',
+    applicantGovernorate: detail.applicant?.governorate ?? '',
+    applicantCityOrArea: detail.applicant?.cityOrArea ?? '',
+    applicantSubArea: detail.applicant?.subArea ?? '',
+    applicantNeighborhood: detail.applicant?.neighborhood ?? '',
+    contacts: buildApplicationContacts(detail),
+    academicQualification: detail.applicant?.academicQualification ?? '',
+    specialization: detail.applicant?.specialization ?? '',
+    yearsOfExperience: detail.applicant?.yearsOfExperience != null ? String(detail.applicant.yearsOfExperience) : '',
+    drivingLicense: normalizeDrivingLicense(detail.applicant?.drivingLicense),
+    jobSkills: detail.applicant?.computerSkills ?? '',
+    foreignLanguages: typeof detail.applicant?.foreignLanguages === 'string'
+      ? detail.applicant.foreignLanguages.split(',').map((item) => item.trim()).filter(Boolean)
+      : [],
+    branchId: detail.branchId ?? null,
+    workType: detail.vacancy?.workType ?? '',
+    previousEmployment: detail.applicant?.previousEmployment ?? '',
+    jobTitle: detail.vacancy?.title ?? '',
+    referrerType: detail.referrer?.type === 'Customer'
+      ? 'Client'
+      : detail.referrer?.type ?? (detail.submissionType === 'Refer a Candidate' ? 'Unknown' : ''),
+    sourceChannel: detail.applicationSource ?? '',
+    referrerName: detail.referrer?.fullName ?? '',
+    referralNotes: detail.referrer?.referrerNotes ?? '',
+    referralEntityId: detail.referrer?.referralEntityId ?? detail.referrer?.employeeId ?? null,
+  };
+}
+
 export default function ApplicationDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const authUser = useAuthStore(s => s.user);
+  const hasPermission = useAuthStore(s => s.hasPermission);
   const actorRole = authUser?.role || 'HR_MANAGER';
   const { scheduleInterview: storeScheduleInterview, fetchInterviews } = useInterviewStore();
   const [detail, setDetail] = useState<JobApplicationDetail | null>(null);
@@ -144,21 +238,17 @@ export default function ApplicationDetail() {
   const [interviewForm, setInterviewForm] = useState({
     interviewType: 'HR Interview' as 'HR Interview' | 'Technical Interview',
     interviewNumber: 'First Interview' as 'First Interview' | 'Second Interview',
-    interviewerName: '',
+    interviewerUserId: '',
     interviewDate: '',
     interviewTime: '',
     internalNotes: '',
   });
   const [interviewFormError, setInterviewFormError] = useState('');
   const [interviewSubmitting, setInterviewSubmitting] = useState(false);
+  const [interviewerOptions, setInterviewerOptions] = useState<InterviewerOption[]>([]);
+  const [loadingInterviewers, setLoadingInterviewers] = useState(false);
 
-  // ── Create Training Course inline ──
-  const [showCreateTrainingModal, setShowCreateTrainingModal] = useState(false);
-  const [trainingForm, setTrainingForm] = useState({
-    training_name: '', branch: '', device_name: '', trainer: '', start_date: '', end_date: '', notes: '',
-  });
-  const [trainingFormError, setTrainingFormError] = useState('');
-  const [trainingSubmitting, setTrainingSubmitting] = useState(false);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [employeeLoading, setEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState('');
 
@@ -174,7 +264,30 @@ export default function ApplicationDetail() {
     }).catch(() => setLoading(false));
   };
 
+  const loadInterviewerOptions = async () => {
+    if (!id) return;
+    setLoadingInterviewers(true);
+    setInterviewerOptions([]);
+    setInterviewFormError('');
+    try {
+      const rows = await fetchInterviewersForApplication(Number(id));
+      setInterviewerOptions(rows);
+      if (rows.length === 0) {
+        setInterviewFormError('لا يوجد مستخدمون مؤهلون لإجراء مقابلات ضمن هذا الفرع.');
+      }
+    } catch (err: any) {
+      setInterviewFormError(err.message || 'تعذر تحميل قائمة المقابلين المؤهلين.');
+    } finally {
+      setLoadingInterviewers(false);
+    }
+  };
+
   useEffect(() => { fetchDetail(); }, [id]);
+  useEffect(() => {
+    if (showScheduleInterviewModal) {
+      void loadInterviewerOptions();
+    }
+  }, [showScheduleInterviewModal]);
 
   const handleStageAction = async (newStage: string, newStatus: string, reason?: string) => {
     setActionLoading(true);
@@ -239,68 +352,30 @@ export default function ApplicationDetail() {
   };
 
   const handleScheduleInterview = async () => {
-    if (!interviewForm.interviewerName.trim()) { setInterviewFormError('اسم المقابِل مطلوب'); return; }
+    if (!interviewForm.interviewerUserId) { setInterviewFormError('يجب اختيار المقابِل من القائمة'); return; }
     if (!interviewForm.interviewDate) { setInterviewFormError('تاريخ المقابلة مطلوب'); return; }
     if (!interviewForm.interviewTime) { setInterviewFormError('وقت المقابلة مطلوب'); return; }
     setInterviewFormError('');
     setInterviewSubmitting(true);
     try {
-      // Use the store's scheduleInterview so the Interviews list page reflects the new entry immediately
       await storeScheduleInterview({
+        jobVacancyId: Number(detail?.vacancy?.id),
         applicationId: Number(id),
         interviewType: interviewForm.interviewType,
         interviewNumber: interviewForm.interviewNumber,
-        interviewerName: interviewForm.interviewerName,
+        interviewerUserId: Number(interviewForm.interviewerUserId),
         interviewDate: interviewForm.interviewDate,
         interviewTime: interviewForm.interviewTime,
         internalNotes: interviewForm.internalNotes || undefined,
       } as any);
-      // Re-fetch the store with joined fields (applicantName, vacancyTitle)
       fetchInterviews();
       setShowScheduleInterviewModal(false);
-      setInterviewForm({ interviewType: 'HR Interview', interviewNumber: 'First Interview', interviewerName: '', interviewDate: '', interviewTime: '', internalNotes: '' });
+      setInterviewForm({ interviewType: 'HR Interview', interviewNumber: 'First Interview', interviewerUserId: '', interviewDate: '', interviewTime: '', internalNotes: '' });
       fetchDetail();
     } catch (err: any) {
       setInterviewFormError(err.message);
     } finally {
       setInterviewSubmitting(false);
-    }
-  };
-
-  const handleCreateTraining = async () => {
-    if (!detail) return;
-    if (!trainingForm.training_name.trim()) { setTrainingFormError('اسم الدورة مطلوب'); return; }
-    if (!trainingForm.branch.trim()) { setTrainingFormError('الفرع مطلوب'); return; }
-    if (!trainingForm.trainer.trim()) { setTrainingFormError('اسم المدرب مطلوب'); return; }
-    if (!trainingForm.start_date || !trainingForm.end_date) { setTrainingFormError('تواريخ الدورة مطلوبة'); return; }
-    setTrainingFormError('');
-    setTrainingSubmitting(true);
-    try {
-      const res = await authFetch('/api/admin/training-courses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          training_name: trainingForm.training_name,
-          job_vacancy_id: detail.jobVacancyId,
-          branch: trainingForm.branch,
-          device_name: trainingForm.device_name || undefined,
-          trainer: trainingForm.trainer,
-          start_date: trainingForm.start_date,
-          end_date: trainingForm.end_date,
-          notes: trainingForm.notes || undefined,
-          trainee_application_ids: [Number(id)],
-        }),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-      const data = await res.json();
-      setShowCreateTrainingModal(false);
-      setTrainingForm({ training_name: '', branch: '', device_name: '', trainer: '', start_date: '', end_date: '', notes: '' });
-      fetchDetail();
-      navigate(`/jobs/training-courses/${data.id}`);
-    } catch (err: any) {
-      setTrainingFormError(err.message);
-    } finally {
-      setTrainingSubmitting(false);
     }
   };
 
@@ -357,14 +432,45 @@ export default function ApplicationDetail() {
   };
 
   const [showEscalateConfirm, setShowEscalateConfirm] = useState(false);
+  const [escalateReason, setEscalateReason] = useState('');
   const [escalateLoading, setEscalateLoading] = useState(false);
   const [escalateError, setEscalateError] = useState('');
+  const [resolveEscalationLoading, setResolveEscalationLoading] = useState(false);
+  const [resolveEscalationError, setResolveEscalationError] = useState('');
 
   const handleEscalate = async () => {
+    const reason = escalateReason.trim();
+    if (!reason) {
+      setEscalateError('سبب التصعيد مطلوب');
+      return;
+    }
     setEscalateLoading(true);
     setEscalateError('');
     try {
       const res = await authFetch(`/api/admin/applications/${id}/escalate`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setShowEscalateConfirm(false);
+      setEscalateReason('');
+      fetchDetail();
+    } catch (err: any) {
+      setEscalateError(err.message);
+    } finally {
+      setEscalateLoading(false);
+    }
+  };
+
+  const handleResolveEscalation = async () => {
+    setResolveEscalationLoading(true);
+    setResolveEscalationError('');
+    try {
+      const res = await authFetch(`/api/admin/applications/${id}/resolve-escalation`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -372,12 +478,11 @@ export default function ApplicationDetail() {
         const err = await res.json();
         throw new Error(err.error);
       }
-      setShowEscalateConfirm(false);
       fetchDetail();
     } catch (err: any) {
-      setEscalateError(err.message);
+      setResolveEscalationError(err.message);
     } finally {
-      setEscalateLoading(false);
+      setResolveEscalationLoading(false);
     }
   };
 
@@ -404,18 +509,30 @@ export default function ApplicationDetail() {
     }
   };
 
-  const handleCreateEmployeeRecord = async () => {
+  const employeeInitialValues = useMemo(
+    () => (detail ? buildEmployeeInitialValuesFromApplication(detail) : undefined),
+    [detail],
+  );
+
+  const applicationAddressHint = useMemo(
+    () => (detail ? buildApplicationAddressHint(detail) : ''),
+    [detail],
+  );
+
+  const handleCreateEmployeeRecord = async (payload: Record<string, unknown>) => {
     setEmployeeLoading(true);
     setEmployeeError('');
     try {
       const res = await authFetch(`/api/admin/applications/${id}/employee`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error);
       }
+      setShowEmployeeModal(false);
       fetchDetail();
     } catch (err: any) {
       setEmployeeError(err.message);
@@ -443,11 +560,11 @@ export default function ApplicationDetail() {
   const currentStageIdx = STAGES_ORDER.indexOf(detail.currentStage);
   const workflowActions = getWorkflowActions(detail.currentStage, detail.applicationStatus);
   const decisionActions = getDecisionActions(detail.currentStage, detail.applicationStatus);
-  const isFinalDecision = detail.currentStage === 'Final Decision';
   const isTerminal = TERMINAL_STATUSES.includes(detail.applicationStatus);
   const isAssistantEscalationLock = authUser?.role === 'HR_ASSISTANT' && detail.isEscalated;
   const isAssistantFinalDecisionLock = authUser?.role === 'HR_ASSISTANT' && detail.currentStage === 'Final Decision';
   const isAssistantWorkflowLocked = isAssistantEscalationLock || isAssistantFinalDecisionLock;
+  const canResolveEscalation = detail.isEscalated;
   const assistantLockMessage = isAssistantEscalationLock
     ? 'تم تصعيد الطلب للإدارة، ولا يمكن لمساعد الموارد البشرية متابعة هذا الطلب بعد الآن.'
     : isAssistantFinalDecisionLock
@@ -701,7 +818,7 @@ export default function ApplicationDetail() {
                 <InfoRow label="سنوات الخبرة" value={detail.applicant?.yearsOfExperience != null ? `${detail.applicant.yearsOfExperience} سنة` : '—'} />
                 <InfoRow label="جهة العمل السابقة" value={detail.applicant?.previousEmployment || '—'} />
               </div>
-              <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-3 gap-3">
+              <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-slate-50 rounded-xl p-3">
                   <p className="text-[10px] text-slate-400 mb-1 flex items-center gap-1"><Monitor className="w-3 h-3" /> مهارات الحاسب</p>
                   <p className="text-xs text-slate-700 font-medium leading-relaxed">{detail.applicant?.computerSkills || '—'}</p>
@@ -716,6 +833,16 @@ export default function ApplicationDetail() {
                     {detail.applicant?.drivingLicense && detail.applicant.drivingLicense !== 'false'
                       ? <span className="text-emerald-600">نعم</span>
                       : <span className="text-slate-400">لا</span>}
+                  </p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] text-slate-400 mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> هل تمتلك سيارة</p>
+                  <p className="text-xs font-bold">
+                    {detail.applicant?.hasCar === true
+                      ? <span className="text-emerald-600">نعم</span>
+                      : detail.applicant?.hasCar === false
+                        ? <span className="text-slate-400">لا</span>
+                        : <span className="text-slate-400">—</span>}
                   </p>
                 </div>
               </div>
@@ -977,15 +1104,18 @@ export default function ApplicationDetail() {
                       <div className="rounded-xl border border-emerald-200 bg-white/70 px-3 py-3 text-sm text-emerald-800 flex items-center justify-between gap-3">
                         <span>تم إنشاء سجل الموظف وربطه بهذا الطلب برقم #{detail.hiredEmployeeId}.</span>
                         <button
-                          onClick={() => navigate('/employees')}
+                          onClick={() => navigate(`/employees/${detail.hiredEmployeeId}`)}
                           className="shrink-0 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
                         >
-                          فتح السجلات
+                          فتح ملف الموظف
                         </button>
                       </div>
                     ) : (
                       <button
-                        onClick={handleCreateEmployeeRecord}
+                        onClick={() => {
+                          setEmployeeError('');
+                          setShowEmployeeModal(true);
+                        }}
                         disabled={employeeLoading}
                         className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all disabled:opacity-50"
                       >
@@ -1093,7 +1223,7 @@ export default function ApplicationDetail() {
               };
               const info = enrollment ? statusMap[enrollment.trainingStatus] : null;
               return (
-                <PermissionGate permission="jobs.training.create">
+                <PermissionGate anyOf={["jobs.training.view_detail", "jobs.training.create"]}>
                   <div className="bg-cyan-50 border border-cyan-200 rounded-2xl p-5 space-y-3">
                     <h3 className="text-[11px] font-bold text-cyan-600 uppercase tracking-widest flex items-center gap-2">
                       <BookOpen className="w-3.5 h-3.5" /> مرحلة التدريب
@@ -1117,17 +1247,9 @@ export default function ApplicationDetail() {
                         </button>
                       </>
                     ) : (
-                      <>
-                        <p className="text-xs text-cyan-700 leading-relaxed">
-                          لم يُسجَّل في دورة تدريبية بعد — يمكنك إنشاء دورة تدريبية مباشرةً من هنا أو من تاب التدريب.
-                        </p>
-                        <button
-                          onClick={() => { setTrainingForm(f => ({ ...f, branch: detail.vacancy?.branch || '' })); setShowCreateTrainingModal(true); }}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-600 text-white transition-all"
-                        >
-                          <Plus className="w-3.5 h-3.5" /> إنشاء دورة تدريبية الآن
-                        </button>
-                      </>
+                      <p className="text-xs text-cyan-700 leading-relaxed">
+                        لم يُسجَّل في دورة تدريبية بعد — يمكنك متابعة الدورات من صفحة إدارة الدورات التدريبية.
+                      </p>
                     )}
                   </div>
                 </PermissionGate>
@@ -1230,13 +1352,13 @@ export default function ApplicationDetail() {
             )}
 
             {/* ── Secondary actions row ── */}
-            {!isTerminal && !isFinalDecision && !isAssistantWorkflowLocked && (
+            {!isTerminal && !isAssistantWorkflowLocked && (
               <div className="flex gap-2">
                 {/* Escalate */}
                 {!detail.isEscalated && (
                   <PermissionGate permission="jobs.applications.escalate">
                     <button
-                      onClick={() => { setEscalateError(''); setShowEscalateConfirm(true); }}
+                      onClick={() => { setEscalateError(''); setEscalateReason(''); setShowEscalateConfirm(true); }}
                       disabled={actionLoading}
                       className="flex-1 py-2.5 px-3 rounded-xl text-xs font-medium border border-dashed border-orange-300 text-orange-400 hover:text-orange-600 hover:border-orange-400 hover:bg-orange-50 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
                     >
@@ -1245,6 +1367,7 @@ export default function ApplicationDetail() {
                     </button>
                   </PermissionGate>
                 )}
+
                 {/* Retreat */}
                 <PermissionGate permission="jobs.applications.change_stage">
                   <button
@@ -1259,11 +1382,39 @@ export default function ApplicationDetail() {
               </div>
             )}
 
+            {canResolveEscalation && !isAssistantWorkflowLocked && (authUser?.isSuperAdmin === true || authUser?.role === 'branch_manager' || hasPermission('jobs.applications.resolve_escalation')) && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <h3 className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-2">
+                      <RotateCcw className="w-3.5 h-3.5" /> فك التصعيد
+                    </h3>
+                    <p className="text-xs text-emerald-700 mt-1 leading-relaxed">
+                      الطلب مصعّد حالياً ويمكن فك التصعيد فقط من خلال هذه الصلاحية.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleResolveEscalation}
+                    disabled={resolveEscalationLoading}
+                    className="py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {resolveEscalationLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                    فك التصعيد
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Internal Notes */}
             {detail.internalNotes && (
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
                 <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">ملاحظات داخلية</h3>
                 <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{detail.internalNotes}</p>
+              </div>
+            )}
+            {resolveEscalationError && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 mt-3 text-xs text-red-700 flex items-center gap-2">
+                <XCircle className="w-4 h-4 shrink-0" />{resolveEscalationError}
               </div>
             )}
           </div>
@@ -1275,14 +1426,7 @@ export default function ApplicationDetail() {
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
               <Users className="w-4 h-4 text-sky-500" /> المقابلات
             </h3>
-            <PermissionGate permission="jobs.interviews.schedule">
-              <button
-                onClick={() => setShowScheduleInterviewModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-xs font-bold transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" /> جدولة مقابلة
-              </button>
-            </PermissionGate>
+
           </div>
           {!detail.interviews || detail.interviews.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">لا توجد مقابلات مسجلة</p>
@@ -1334,14 +1478,6 @@ export default function ApplicationDetail() {
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-sky-500" /> سجل التدريب
             </h3>
-            <PermissionGate permission="jobs.training.create">
-              <button
-                onClick={() => { setTrainingForm(f => ({ ...f, branch: detail.vacancy?.branch || '' })); setShowCreateTrainingModal(true); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg text-xs font-bold transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" /> إنشاء دورة تدريبية
-              </button>
-            </PermissionGate>
           </div>
           {!detail.trainings || detail.trainings.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">لم يُسجَّل في أي دورة تدريبية بعد</p>
@@ -1595,6 +1731,10 @@ export default function ApplicationDetail() {
                       app.drivingLicense ? 'match' : 'mismatch';
                     if (dlMatch === 'match') score += 10;
 
+                    const carMatch: MatchLevel = !vac.hasCarRequired ? 'neutral' :
+                      app.hasCar ? 'match' : 'mismatch';
+                    if (carMatch === 'match') score += 0;
+
                     // 8. Skills (Bonus up to 25 pts)
                     const appSkills = (app.computerSkills || '').toLowerCase();
                     const vacSkills = (vac.requiredSkills || '').split(/[,،\n]/).map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -1606,6 +1746,7 @@ export default function ApplicationDetail() {
                   };
 
                   const { score, certMatch, specMatch, expMatch, locMatch, genderMatch, ageMatch, dlMatch, appAge, vacSkills, appSkills } = calculateMatchScore();
+                  const carMatch: MatchLevel = !vac.hasCarRequired ? 'neutral' : app.hasCar ? 'match' : 'mismatch';
 
                   const rows = [
                     { label: 'المؤهل العلمي', applicant: app.academicQualification || '—', vacancy: vac.requiredCertificate || 'لا يهم', level: certMatch },
@@ -1615,6 +1756,7 @@ export default function ApplicationDetail() {
                     { label: 'الجنس', applicant: app.gender || '—', vacancy: vac.requiredGender || 'لا يهم', level: genderMatch },
                     { label: 'العمر', applicant: appAge != null ? `${appAge} سنة` : '—', vacancy: (vac.requiredAgeMin || vac.requiredAgeMax) ? `${vac.requiredAgeMin || '—'} – ${vac.requiredAgeMax || '—'} سنة` : 'لا يهم', level: ageMatch },
                     { label: 'رخصة القيادة', applicant: app.drivingLicense ? 'نعم' : 'لا', vacancy: vac.drivingLicenseRequired ? 'مطلوبة' : 'غير مطلوبة', level: dlMatch },
+                    { label: 'هل يمتلك سيارة', applicant: app.hasCar ? 'نعم' : 'لا', vacancy: vac.hasCarRequired ? 'مطلوب' : 'غير مطلوب', level: carMatch },
                   ];
 
                   return (
@@ -1711,7 +1853,7 @@ export default function ApplicationDetail() {
                         </div>
                         <div className="bg-indigo-50/30 border border-indigo-100 rounded-2xl p-5 flex flex-col">
                           <h4 className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                            <FileText className="w-4 h-4" /> ملاحظات المراجعة البشرية
+                            <FileText className="w-4 h-4" /> ملاحظات عامة
                           </h4>
                           <textarea
                             placeholder="سجل ملاحظاتك هنا أثناء المراجعة للمرجعية المستقبلية..."
@@ -1749,6 +1891,25 @@ export default function ApplicationDetail() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <EmployeeFormModal
+        isOpen={showEmployeeModal}
+        title="استكمال بيانات الموظف المقبول"
+        description="تمت تعبئة الحقول المتاحة من طلب التوظيف تلقائيًا. أكمل البيانات الناقصة قبل إنشاء سجل الموظف النهائي وربطه بهذا الطلب."
+        submitLabel="إنشاء سجل الموظف"
+        submitting={employeeLoading}
+        error={employeeError}
+        initialValues={employeeInitialValues}
+        fixedBranchId={detail?.branchId ?? null}
+        fixedBranchName={detail?.vacancy?.branch ?? ''}
+        branchLocked
+        addressHint={applicationAddressHint}
+        onClose={() => {
+          if (employeeLoading) return;
+          setShowEmployeeModal(false);
+        }}
+        onSubmit={handleCreateEmployeeRecord}
+      />
 
       {/* ── Schedule Interview Modal ── */}
       <AnimatePresence>
@@ -1795,12 +1956,28 @@ export default function ApplicationDetail() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">اسم المقابِل <span className="text-red-400">*</span></label>
-                  <input type="text" value={interviewForm.interviewerName}
-                    onChange={e => setInterviewForm(f => ({ ...f, interviewerName: e.target.value }))}
-                    placeholder="أدخل اسم المقابِل..."
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500"
-                  />
+                  <label className="text-xs font-bold text-slate-500 block mb-1.5">المقابِل <span className="text-red-400">*</span></label>
+                  <select
+                    value={interviewForm.interviewerUserId}
+                    onChange={e => setInterviewForm(f => ({ ...f, interviewerUserId: e.target.value }))}
+                    disabled={loadingInterviewers || interviewerOptions.length === 0}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white disabled:bg-slate-50 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {loadingInterviewers
+                        ? 'جاري تحميل المقابلين...'
+                        : interviewerOptions.length === 0
+                          ? 'لا يوجد مقابِلون مؤهلون لهذا الفرع'
+                          : 'اختر المقابِل...'}
+                    </option>
+                    {interviewerOptions.map(opt => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.name}
+                        {opt.username ? ` (@${opt.username})` : ''}
+                        {opt.roleDisplayName ? ` — ${opt.roleDisplayName}` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -1848,108 +2025,6 @@ export default function ApplicationDetail() {
         )}
       </AnimatePresence>
 
-      {/* ── Create Training Course Modal ── */}
-      <AnimatePresence>
-        {showCreateTrainingModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={() => setShowCreateTrainingModal(false)}
-          >
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]" dir="rtl"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-cyan-500" /> إنشاء دورة تدريبية
-                </h3>
-                <div className="flex flex-col gap-0.5 text-right">
-                  <span className="text-xs text-slate-500">المتدرب: <span className="font-bold text-slate-700">{detail.applicant?.firstName} {detail.applicant?.lastName}</span></span>
-                  <span className="text-xs text-slate-500">الشاغر: <span className="font-bold text-slate-700">{detail.vacancy?.title}</span></span>
-                </div>
-              </div>
-
-              <div className="px-6 py-5 overflow-y-auto space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">اسم الدورة <span className="text-red-400">*</span></label>
-                  <input type="text" value={trainingForm.training_name}
-                    onChange={e => setTrainingForm(f => ({ ...f, training_name: e.target.value }))}
-                    placeholder="أدخل اسم الدورة التدريبية..."
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 block mb-1.5">الفرع <span className="text-red-400">*</span></label>
-                    <input type="text" value={trainingForm.branch}
-                      onChange={e => setTrainingForm(f => ({ ...f, branch: e.target.value }))}
-                      placeholder="الفرع..."
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 block mb-1.5">اسم المدرب <span className="text-red-400">*</span></label>
-                    <input type="text" value={trainingForm.trainer}
-                      onChange={e => setTrainingForm(f => ({ ...f, trainer: e.target.value }))}
-                      placeholder="اسم المدرب..."
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">الجهاز / الجهاز المستخدم</label>
-                  <input type="text" value={trainingForm.device_name}
-                    onChange={e => setTrainingForm(f => ({ ...f, device_name: e.target.value }))}
-                    placeholder="اسم الجهاز (اختياري)..."
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 block mb-1.5">تاريخ البداية <span className="text-red-400">*</span></label>
-                    <input type="date" value={trainingForm.start_date}
-                      onChange={e => setTrainingForm(f => ({ ...f, start_date: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 block mb-1.5">تاريخ النهاية <span className="text-red-400">*</span></label>
-                    <input type="date" value={trainingForm.end_date}
-                      onChange={e => setTrainingForm(f => ({ ...f, end_date: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">ملاحظات</label>
-                  <textarea value={trainingForm.notes}
-                    onChange={e => setTrainingForm(f => ({ ...f, notes: e.target.value }))}
-                    rows={3} placeholder="ملاحظات إضافية (اختياري)..."
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-cyan-500 resize-none"
-                  />
-                </div>
-                {trainingFormError && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />{trainingFormError}
-                  </div>
-                )}
-              </div>
-
-              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
-                <button onClick={() => setShowCreateTrainingModal(false)}
-                  className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
-                  إلغاء
-                </button>
-                <button onClick={handleCreateTraining} disabled={trainingSubmitting}
-                  className="px-6 py-2.5 text-sm font-bold text-white bg-cyan-500 hover:bg-cyan-600 rounded-xl shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
-                  {trainingSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري...</> : <><BookOpen className="w-4 h-4" /> إنشاء الدورة</>}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* ── Escalate Confirm Modal ── */}
       <AnimatePresence>
         {showEscalateConfirm && (
@@ -1975,16 +2050,24 @@ export default function ApplicationDetail() {
                   <span className="font-bold">{detail.applicant?.firstName} {detail.applicant?.lastName}</span>
                   {' — '}{detail.vacancy?.title}
                   <br />
-                  <span className="text-orange-500 mt-1 block">هذا الإجراء لا يمكن التراجع عنه. هل أنت متأكد؟</span>
+                  <span className="text-orange-500 mt-1 block">هذا الإجراء لا يمكن التراجع عنه. الرجاء كتابة سبب التصعيد.</span>
                 </p>
               </div>
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">سبب التصعيد</label>
+              <textarea
+                value={escalateReason}
+                onChange={e => setEscalateReason(e.target.value)}
+                rows={4}
+                placeholder="اكتب سبب التصعيد هنا..."
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500 mb-4 resize-none"
+              />
               {escalateError && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-700 flex items-center gap-2">
                   <XCircle className="w-4 h-4 shrink-0" />{escalateError}
                 </div>
               )}
               <div className="flex gap-3">
-                <button onClick={() => setShowEscalateConfirm(false)}
+                <button onClick={() => { setShowEscalateConfirm(false); setEscalateReason(''); }}
                   className="flex-1 px-4 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors font-medium">
                   إلغاء
                 </button>

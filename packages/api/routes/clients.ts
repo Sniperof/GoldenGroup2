@@ -1,42 +1,106 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/permission.js';
+import { authorize, resolveActingBranch } from '../services/authorizationService.js';
+import { assertGeoUnitInScope } from '../services/geoScopeService.js';
+import {
+  canCreateClient,
+  canDeleteClient,
+  canEditClient,
+  canViewClient,
+  getClientListAccessPlan,
+} from '../policies/clientPolicy.js';
+import {
+  getCanonicalContactNumber,
+  normalizeContactsForWrite,
+  normalizePhone as normalizeContactPhone,
+} from '../utils/contactValidation.js';
+import {
+  buildCustomerOwnershipSelectColumns,
+  buildCustomerOwnershipSql,
+  buildClientLifecycleStatusSql,
+  mapCustomerOwnership,
+  redactPersonalAssignments,
+} from '../services/customerOwnership.js';
 
 const router = Router();
+router.use(requireAuth);
 
 const CLIENT_SELECT = `
   SELECT
-    id,
-    first_name AS "firstName",
-    father_name AS "fatherName",
-    last_name AS "lastName",
-    nickname,
-    name,
-    mobile,
-    contacts,
-    governorate,
-    district,
-    neighborhood,
-    detailed_address AS "detailedAddress",
-    gps_coordinates AS "gpsCoordinates",
-    occupation,
-    water_source AS "waterSource",
-    notes,
-    rating,
-    source_channel AS "sourceChannel",
-    referrer_type AS "referrerType",
-    referrer_id AS "referrerId",
-    referrer_name AS "referrerName",
-    referrers,
-    referral_entity_id AS "referralEntityId",
-    referral_date AS "referralDate",
-    referral_reason AS "referralReason",
-    referral_sheet_id AS "referralSheetId",
-    referral_address_text AS "referralAddressText",
-    created_at AS "createdAt",
-    is_candidate AS "isCandidate",
-    target_client AS "targetClient",
-    candidate_status AS "candidateStatus"
-  FROM clients
+    c.id,
+    c.first_name AS "firstName",
+    c.father_name AS "fatherName",
+    c.last_name AS "lastName",
+    c.nickname,
+    c.name,
+    c.mobile,
+    c.contacts,
+    c.governorate,
+    c.district,
+    c.neighborhood,
+    c.detailed_address AS "detailedAddress",
+    c.gps_coordinates AS "gpsCoordinates",
+    c.gender,
+    c.national_id AS "nationalId",
+    c.birth_date AS "birthDate",
+    c.mother_name AS "motherName",
+    c.national_id_registry AS "nationalIdRegistry",
+    c.national_id_issued_by AS "nationalIdIssuedBy",
+    c.national_id_issue_date AS "nationalIdIssueDate",
+    c.national_id_box AS "nationalIdBox",
+    c.occupation,
+    c.spouse_occupation AS "spouseOccupation",
+    c.data_quality AS "dataQuality",
+    c.water_source AS "waterSource",
+    c.notes,
+    c.rating,
+    c.source_channel AS "sourceChannel",
+    c.referrer_type AS "referrerType",
+    c.referrer_id AS "referrerId",
+    c.referrer_name AS "referrerName",
+    c.referral_notes AS "referralNotes",
+    c.referrers,
+    c.referral_entity_id AS "referralEntityId",
+    c.referral_date AS "referralDate",
+    c.referral_reason AS "referralReason",
+    c.referral_sheet_id AS "referralSheetId",
+    c.referral_address_text AS "referralAddressText",
+    c.created_at AS "createdAt",
+    c.is_candidate AS "isCandidate",
+    c.target_client AS "targetClient",
+    c.candidate_status AS "candidateStatus",
+    ${buildClientLifecycleStatusSql('c')} AS "lifecycleStage",
+    -- DEC-005 D29 contact-control fields
+    c.do_not_contact AS "doNotContact",
+    c.cooldown_until AS "cooldownUntil",
+    c.cooldown_reason AS "cooldownReason",
+    c.cooldown_set_by AS "cooldownSetBy",
+    c.cooldown_set_at AS "cooldownSetAt",
+    c.branch_id AS "branchId",
+    b.name AS "branchName",
+    c.created_by AS "createdByUserId",
+    cb.name AS "createdByUserName",
+    COALESCE(rcb.display_name, cb.role) AS "createdByRoleDisplayName",
+    COALESCE(
+      (SELECT json_agg(json_build_object(
+           'userId',          u2.id,
+           'userName',        u2.name,
+           'roleDisplayName', COALESCE(r2.display_name, u2.role)
+         ) ORDER BY ca.assigned_at)
+       FROM client_assignments ca
+       JOIN hr_users u2  ON u2.id  = ca.hr_user_id
+       LEFT JOIN roles r2 ON r2.id = u2.role_id
+       WHERE ca.client_id = c.id),
+      '[]'::json
+    ) AS "assignments",
+    ${buildCustomerOwnershipSelectColumns()}
+  FROM clients c
+  LEFT JOIN branches b   ON b.id  = c.branch_id
+  LEFT JOIN hr_users cb  ON cb.id = c.created_by
+  LEFT JOIN roles    rcb ON rcb.id = cb.role_id
+  ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'b.name' })}
 `;
 
 const CLIENT_MUTATION_RETURNING = `
@@ -54,7 +118,17 @@ const CLIENT_MUTATION_RETURNING = `
     neighborhood,
     detailed_address AS "detailedAddress",
     gps_coordinates AS "gpsCoordinates",
+    gender,
+    national_id AS "nationalId",
+    birth_date AS "birthDate",
+    mother_name AS "motherName",
+    national_id_registry AS "nationalIdRegistry",
+    national_id_issued_by AS "nationalIdIssuedBy",
+    national_id_issue_date AS "nationalIdIssueDate",
+    national_id_box AS "nationalIdBox",
     occupation,
+    spouse_occupation AS "spouseOccupation",
+    data_quality AS "dataQuality",
     water_source AS "waterSource",
     notes,
     rating,
@@ -62,6 +136,7 @@ const CLIENT_MUTATION_RETURNING = `
     referrer_type AS "referrerType",
     referrer_id AS "referrerId",
     referrer_name AS "referrerName",
+    referral_notes AS "referralNotes",
     referrers,
     referral_entity_id AS "referralEntityId",
     referral_date AS "referralDate",
@@ -71,143 +146,1780 @@ const CLIENT_MUTATION_RETURNING = `
     created_at AS "createdAt",
     is_candidate AS "isCandidate",
     target_client AS "targetClient",
-    candidate_status AS "candidateStatus"
+    candidate_status AS "candidateStatus",
+    branch_id AS "branchId",
+    created_by AS "createdByUserId"
 `;
 
 const toJson = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fallback);
 
-router.get('/', async (_req, res) => {
-  const { rows } = await pool.query(`${CLIENT_SELECT} ORDER BY id`);
-  res.json(rows);
-});
+function mapClientRow(row: any) {
+  return {
+    ...row,
+    ownership: mapCustomerOwnership(row),
+  };
+}
 
-router.get('/:id', async (req, res) => {
-  const { rows } = await pool.query(`${CLIENT_SELECT} WHERE id = $1`, [req.params.id]);
-  if (!rows[0]) {
-    res.status(404).json({ message: 'الزبون غير موجود' });
-    return;
+type ClientSubject = {
+  branchId: number | null;
+  assignedUserIds: number[];
+};
+
+type SmartMatchResponse =
+  | {
+      status: 'NO_MATCH';
+      matched: false;
+      visible: false;
+      normalizedPhone: string;
+      message: string;
+      submittedName?: string | null;
+    }
+  | {
+      status: 'MATCH_VISIBLE';
+      matched: true;
+      visible: true;
+      normalizedPhone: string;
+      submittedName?: string | null;
+      nameMatch?: {
+        checked: boolean;
+        matches: boolean | null;
+        submittedName: string | null;
+        existingName: string | null;
+      };
+      client: {
+        id: number;
+        name: string;
+        phone: string;
+        branchName: string | null;
+        assignedUserName: string | null;
+      };
+    }
+  | {
+      status: 'MATCH_RESTRICTED';
+      matched: true;
+      visible: false;
+      normalizedPhone: string;
+      submittedName?: string | null;
+      nameMatch?: {
+        checked: boolean;
+        matches: boolean | null;
+        submittedName: string | null;
+        existingName: string | null;
+      };
+      reason: 'OUT_OF_SCOPE';
+      message: string;
+      client: {
+        id: number;
+        name: string;
+        phone: string;
+        branchName: string | null;
+        assignedUserName: string | null;
+      };
+    };
+
+type ClientContactInput = {
+  number?: unknown;
+  [key: string]: unknown;
+};
+
+const RESTRICTED_SMART_MATCH_MESSAGE =
+  'هذا الرقم موجود مسبقاً في النظام ولا يمكنك عرض تفاصيله. يرجى مراجعة الإدارة أو مدير الفرع.';
+
+const NO_MATCH_SMART_MATCH_MESSAGE = 'لا توجد نتائج مطابقة';
+
+function normalizePhone(value: unknown): string {
+  return normalizeContactPhone(value);
+}
+
+function normalizeSmartMatchName(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي');
+}
+
+function buildNameMatch(submittedName: string | null, existingName: string | null) {
+  if (!submittedName) {
+    return {
+      checked: false,
+      matches: null,
+      submittedName: null,
+      existingName,
+    };
   }
-  res.json(rows[0]);
-});
 
-router.post('/', async (req, res) => {
-  const c = req.body;
-  const { rows } = await pool.query(
-    `INSERT INTO clients (
-      first_name, father_name, last_name, nickname,
-      name, mobile, contacts, governorate, district, neighborhood,
-      detailed_address, gps_coordinates, occupation, water_source, notes, rating,
-      source_channel, referrer_type, referrer_id, referrer_name, referrers, referral_entity_id,
-      referral_date, referral_reason, referral_sheet_id, referral_address_text,
-      is_candidate, target_client, candidate_status
-    )
-    VALUES (
-      $1,$2,$3,$4,
-      $5,$6,$7,$8,$9,$10,
-      $11,$12,$13,$14,$15,$16,
-      $17,$18,$19,$20,$21,$22,
-      $23,$24,$25,$26,
-      $27,$28,$29
-    )
-    ${CLIENT_MUTATION_RETURNING}`,
-    [
-      c.firstName || null,
-      c.fatherName || null,
-      c.lastName || null,
-      c.nickname || null,
-      c.name,
-      c.mobile,
-      toJson(c.contacts, []),
-      c.governorate || '',
-      c.district || '',
-      c.neighborhood || '',
-      c.detailedAddress || null,
-      c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
-      c.occupation || null,
-      c.waterSource || null,
-      c.notes || null,
-      c.rating || null,
-      c.sourceChannel || null,
-      c.referrerType || null,
-      c.referrerId || null,
-      c.referrerName || null,
-      toJson(c.referrers, []),
-      c.referralEntityId || null,
-      c.referralDate || null,
-      c.referralReason || null,
-      c.referralSheetId || null,
-      c.referralAddressText || null,
-      c.isCandidate || false,
-      c.targetClient || null,
-      c.candidateStatus || null,
-    ],
-  );
-  res.json(rows[0]);
-});
+  const submitted = normalizeSmartMatchName(submittedName);
+  const existing = normalizeSmartMatchName(existingName);
+  const matches = Boolean(submitted && existing && (submitted === existing || existing.includes(submitted) || submitted.includes(existing)));
 
-router.put('/:id', async (req, res) => {
-  const c = req.body;
-  const { rows } = await pool.query(
-    `UPDATE clients SET
-      first_name=$1, father_name=$2, last_name=$3, nickname=$4,
-      name=$5, mobile=$6, contacts=$7, governorate=$8, district=$9, neighborhood=$10,
-      detailed_address=$11, gps_coordinates=$12, occupation=$13, water_source=$14, notes=$15, rating=$16,
-      source_channel=$17, referrer_type=$18, referrer_id=$19, referrer_name=$20, referrers=$21, referral_entity_id=$22,
-      referral_date=$23, referral_reason=$24, referral_sheet_id=$25, referral_address_text=$26,
-      is_candidate=$27, target_client=$28, candidate_status=$29
-    WHERE id=$30
-    ${CLIENT_MUTATION_RETURNING}`,
-    [
-      c.firstName || null,
-      c.fatherName || null,
-      c.lastName || null,
-      c.nickname || null,
-      c.name,
-      c.mobile,
-      toJson(c.contacts, []),
-      c.governorate || '',
-      c.district || '',
-      c.neighborhood || '',
-      c.detailedAddress || null,
-      c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
-      c.occupation || null,
-      c.waterSource || null,
-      c.notes || null,
-      c.rating || null,
-      c.sourceChannel || null,
-      c.referrerType || null,
-      c.referrerId || null,
-      c.referrerName || null,
-      toJson(c.referrers, []),
-      c.referralEntityId || null,
-      c.referralDate || null,
-      c.referralReason || null,
-      c.referralSheetId || null,
-      c.referralAddressText || null,
-      c.isCandidate || false,
-      c.targetClient || null,
-      c.candidateStatus || null,
-      req.params.id,
-    ],
-  );
-  if (!rows[0]) {
-    res.status(404).json({ message: 'الزبون غير موجود' });
-    return;
+  return {
+    checked: true,
+    matches,
+    submittedName,
+    existingName,
+  };
+}
+
+function normalizeClientContacts(rawContacts: unknown): ClientContactInput[] {
+  return normalizeContactsForWrite(rawContacts) as unknown as ClientContactInput[];
+}
+
+function normalizeClientPayload<T extends Record<string, any>>(payload: T): T & {
+  mobile: string;
+  contacts: ClientContactInput[];
+} {
+  const contacts = normalizeClientContacts(payload.contacts);
+  const effectiveContacts: ClientContactInput[] = (contacts.length > 0
+    ? contacts
+    : normalizeContactsForWrite(payload.mobile
+        ? [{ id: 'client-contact-1', type: 'mobile', number: payload.mobile, isPrimary: true, status: 'active' }]
+        : [])) as unknown as ClientContactInput[];
+  return {
+    ...payload,
+    mobile: effectiveContacts.length > 0 ? getCanonicalContactNumber(effectiveContacts as any) : normalizePhone(payload.mobile),
+    contacts: effectiveContacts,
+  };
+}
+
+function enforcePersonalReferrer<T extends Record<string, any>>(
+  payload: T,
+  currentUser: { id: number; name: string },
+): T {
+  const referrerType = typeof payload.referrerType === 'string' ? payload.referrerType : null;
+  if (referrerType !== 'Personal') {
+    return payload;
   }
-  res.json(rows[0]);
+
+  return {
+    ...payload,
+    referrerName: currentUser.name,
+    referrerId: null,
+    referralEntityId: null,
+  };
+}
+
+function phoneNormalizationSql(expression: string): string {
+  const digits = `regexp_replace(COALESCE(${expression}, ''), '\\D', '', 'g')`;
+  return `
+    CASE
+      WHEN ${digits} ~ '^009639\\d{8}$' THEN '0' || right(${digits}, 9)
+      WHEN ${digits} ~ '^9639\\d{8}$' THEN '0' || right(${digits}, 9)
+      WHEN ${digits} ~ '^9\\d{8}$' THEN '0' || ${digits}
+      ELSE ${digits}
+    END
+  `;
+}
+
+async function findDuplicateClientByPhone(
+  normalizedPhone: string,
+  excludeClientId?: number | null,
+): Promise<{
+  id: number;
+  name: string;
+  phone: string;
+  branchId: number | null;
+  branchName: string | null;
+  assignedUserIds: number[];
+  assignedUserName: string | null;
+} | null> {
+  if (!normalizedPhone) {
+    return null;
+  }
+
+  const { rows } = await pool.query(
+    `
+      SELECT
+        c.id,
+        c.name,
+        c.mobile AS phone,
+        c.branch_id AS "branchId",
+        b.name AS "branchName",
+        COALESCE(
+          (SELECT array_agg(hr_user_id)
+             FROM client_assignments
+            WHERE client_id = c.id),
+          '{}'::int[]
+        ) AS "assignedUserIds",
+        (
+          SELECT u.name
+            FROM client_assignments ca
+            JOIN hr_users u ON u.id = ca.hr_user_id
+           WHERE ca.client_id = c.id
+           ORDER BY ca.assigned_at, ca.id
+           LIMIT 1
+        ) AS "assignedUserName"
+      FROM clients c
+      LEFT JOIN branches b ON b.id = c.branch_id
+      WHERE c.is_candidate = FALSE
+        AND ($2::int IS NULL OR c.id <> $2)
+        AND (
+          ${phoneNormalizationSql('c.mobile')} = $1
+          OR EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) AS contact
+            WHERE ${phoneNormalizationSql(`contact->>'number'`)} = $1
+          )
+        )
+      ORDER BY c.id ASC
+      LIMIT 1
+    `,
+    [normalizedPhone, excludeClientId ?? null],
+  );
+
+  return rows[0] ?? null;
+}
+
+function buildSmartMatchResponse(
+  authContext: any,
+  duplicate: Awaited<ReturnType<typeof findDuplicateClientByPhone>>,
+  normalizedPhone: string,
+  submittedName: string | null = null,
+): SmartMatchResponse {
+  if (!duplicate) {
+    return {
+      status: 'NO_MATCH',
+      matched: false,
+      visible: false,
+      normalizedPhone,
+      submittedName,
+      message: NO_MATCH_SMART_MATCH_MESSAGE,
+    };
+  }
+
+  const access = canViewClient(authContext, {
+    branchId: duplicate.branchId,
+    assignedUserIds: duplicate.assignedUserIds,
+  });
+
+  if (!access.allowed) {
+    return {
+      status: 'MATCH_RESTRICTED',
+      matched: true,
+      visible: false,
+      normalizedPhone,
+      submittedName,
+      nameMatch: buildNameMatch(submittedName, duplicate.name),
+      reason: 'OUT_OF_SCOPE',
+      message: RESTRICTED_SMART_MATCH_MESSAGE,
+      client: {
+        id: duplicate.id,
+        name: duplicate.name,
+        phone: duplicate.phone,
+        branchName: duplicate.branchName,
+        assignedUserName: duplicate.assignedUserName,
+      },
+    };
+  }
+
+  return {
+    status: 'MATCH_VISIBLE',
+    matched: true,
+    visible: true,
+    normalizedPhone,
+    submittedName,
+    nameMatch: buildNameMatch(submittedName, duplicate.name),
+    client: {
+      id: duplicate.id,
+      name: duplicate.name,
+      phone: duplicate.phone,
+      branchName: duplicate.branchName,
+      assignedUserName: duplicate.assignedUserName,
+    },
+  };
+}
+
+function getRequiredAuthContext(req: any) {
+  if (!req.authContext) {
+    throw new Error('AuthContext is required after requirePermission');
+  }
+
+  return req.authContext;
+}
+
+function forbidClientAccess(res: any, reason?: string) {
+  if (reason === 'MISSING_BRANCH_CONTEXT') {
+    return res.status(400).json({ error: 'يجب تحديد الفرع المطلوب لهذه العملية' });
+  }
+
+  return res.status(403).json({ error: 'غير مسموح' });
+}
+
+function resolveClientTargetBranch(req: any, requestedBranchId?: number | string | null): number | null {
+  const authContext = getRequiredAuthContext(req);
+
+  return resolveActingBranch({
+    headerBranchId: requestedBranchId ?? req.header('x-branch-id'),
+    primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
+    allowedBranchIds: authContext.allowedBranchIds,
+    isSuperAdmin: authContext.isSuperAdmin,
+  });
+}
+
+function canManageClientAssignments(authContext: ReturnType<typeof getRequiredAuthContext>, branchId: number | null): boolean {
+  if (authContext.isSuperAdmin) return true;
+  const grant = authContext.grants.find(item => item.permission === 'clients.edit');
+  if (grant?.scope === 'GLOBAL') return true;
+  if (grant?.scope === 'BRANCH' && branchId != null) {
+    return authContext.allowedBranchIds.includes(branchId);
+  }
+  return false;
+}
+
+function resolveClientListBranchFilter(req: any): number | null {
+  const requestedBranchId = req.header('x-branch-id');
+  if (requestedBranchId == null || requestedBranchId === '') {
+    return null;
+  }
+
+  const normalized = Number(requestedBranchId);
+  return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
+}
+
+function clientVisibleInBranchesCondition(paramRef: string): string {
+  return `(
+    c.branch_id = ANY(${paramRef}::int[])
+    OR EXISTS (
+      SELECT 1
+        FROM installed_devices d
+       WHERE d.customer_id = c.id
+         AND d.branch_id = ANY(${paramRef}::int[])
+    )
+    OR EXISTS (
+      SELECT 1
+        FROM contracts ct
+       WHERE ct.customer_id = c.id
+         AND ct.branch_id = ANY(${paramRef}::int[])
+    )
+  )`;
+}
+
+function hasBranchScopedClientGrant(authContext: any, permission: string): boolean {
+  if (authContext.isSuperAdmin) return true;
+  const grant = authContext.grants?.find((item: any) => item.permission === permission);
+  return grant?.scope === 'GLOBAL' || grant?.scope === 'BRANCH';
+}
+
+async function hasClientDeviceOrContractInBranches(
+  clientId: string | number,
+  branchIds: number[],
+): Promise<boolean> {
+  if (branchIds.length === 0) return false;
+
+  const { rows } = await pool.query(
+    `SELECT 1
+       FROM installed_devices d
+      WHERE d.customer_id = $1
+        AND d.branch_id = ANY($2::int[])
+     UNION
+     SELECT 1
+       FROM contracts ct
+      WHERE ct.customer_id = $1
+        AND ct.branch_id = ANY($2::int[])
+     LIMIT 1`,
+    [clientId, branchIds],
+  );
+
+  return rows.length > 0;
+}
+
+async function loadClientSubject(clientId: string | number): Promise<ClientSubject | null> {
+  const { rows } = await pool.query(
+    `SELECT
+       c.branch_id AS "branchId",
+       COALESCE(
+         (SELECT array_agg(hr_user_id)
+            FROM client_assignments
+           WHERE client_id = c.id),
+         '{}'::int[]
+       ) AS "assignedUserIds"
+     FROM clients c
+    WHERE c.id = $1`,
+    [clientId],
+  );
+
+  return rows[0] ?? null;
+}
+
+async function resolveAssignmentUserIds(
+  rawIds: unknown,
+  selfId: number,
+  isSuperAdmin: boolean,
+): Promise<number[] | { error: string }> {
+  const ids: number[] = Array.isArray(rawIds)
+    ? rawIds.map(Number).filter(n => Number.isInteger(n) && n > 0)
+    : [];
+
+  // Non-super-admin must always be in their own client's assignments
+  if (!isSuperAdmin && !ids.includes(selfId)) {
+    ids.push(selfId);
+  }
+
+  if (ids.length === 0) return [];
+
+  const { rows } = await pool.query(
+    'SELECT id FROM hr_users WHERE id = ANY($1)',
+    [ids],
+  );
+  const validIds = new Set<number>(rows.map((r: any) => r.id));
+  const invalid = ids.find(id => !validIds.has(id));
+  if (invalid != null) {
+    return { error: `المستخدم رقم ${invalid} غير موجود في النظام` };
+  }
+
+  return ids;
+}
+
+async function insertClientAssignments(
+  clientId: number,
+  userIds: number[],
+  assignedBy: number,
+): Promise<void> {
+  if (userIds.length === 0) return;
+  const values = userIds
+    .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`)
+    .join(', ');
+  const params = userIds.flatMap(uid => [clientId, uid, assignedBy]);
+  await pool.query(
+    `INSERT INTO client_assignments (client_id, hr_user_id, assigned_by)
+     VALUES ${values}
+     ON CONFLICT (client_id, hr_user_id) DO NOTHING`,
+    params,
+  );
+}
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Client:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         firstName:
+ *           type: string
+ *         fatherName:
+ *           type: string
+ *         lastName:
+ *           type: string
+ *         nickname:
+ *           type: string
+ *         mobile:
+ *           type: string
+ *         contacts:
+ *           type: array
+ *           items:
+ *             type: object
+ *         governorate:
+ *           type: string
+ *         district:
+ *           type: string
+ *         neighborhood:
+ *           type: string
+ *         detailedAddress:
+ *           type: string
+ *         gpsCoordinates:
+ *           type: object
+ *         gender:
+ *           type: string
+ *         nationalId:
+ *           type: string
+ *         birthDate:
+ *           type: string
+ *         occupation:
+ *           type: string
+ *         spouseOccupation:
+ *           type: string
+ *         dataQuality:
+ *           type: string
+ *         waterSource:
+ *           type: string
+ *         notes:
+ *           type: string
+ *         rating:
+ *           type: integer
+ *         sourceChannel:
+ *           type: string
+ *         referrerType:
+ *           type: string
+ *         referrerId:
+ *           type: integer
+ *         referrerName:
+ *           type: string
+ *         createdAt:
+ *           type: string
+ *         branchId:
+ *           type: integer
+ *         branchName:
+ *           type: string
+ *         assignments:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               userId:
+ *                 type: integer
+ *               userName:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *               assignedAt:
+ *                 type: string
+ *         ownershipType:
+ *           type: string
+ */
+
+/**
+ * @swagger
+ * /api/clients:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Retrieve list of clients
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: dataQuality
+ *         schema:
+ *           type: string
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Client'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
+router.get('/', requirePermission('clients.view_list'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const requestedBranchId = resolveClientListBranchFilter(req);
+    const listAccess = getClientListAccessPlan(authContext);
+
+    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
+      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
+    }
+
+    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+      return forbidClientAccess(res, 'BRANCH_FORBIDDEN');
+    }
+
+    if (listAccess.scope === 'NONE') {
+      return forbidClientAccess(res, 'MISSING_PERMISSION');
+    }
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (requestedBranchId != null) {
+      params.push([requestedBranchId]);
+      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+    } else if (listAccess.scope === 'BRANCH') {
+      params.push(authContext.allowedBranchIds);
+      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+    }
+
+    if (listAccess.scope === 'ASSIGNED') {
+      params.push(authContext.userId);
+      conditions.push(`EXISTS (SELECT 1 FROM client_assignments WHERE client_id = c.id AND hr_user_id = $${params.length})`);
+      params.push(requestedBranchId != null ? [requestedBranchId] : authContext.allowedBranchIds);
+      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+    }
+
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await pool.query(`${CLIENT_SELECT}${where} ORDER BY c.id`, params);
+
+    // Defense-in-depth: ASSIGNED-scope users must not see other assignees' identities.
+    // Strip both the raw assignments list and ownership.personalAssignments.
+    const responseRows = listAccess.scope === 'ASSIGNED'
+      ? rows.map((r: any) => {
+          const mapped = mapClientRow({ ...r, assignments: [] });
+          mapped.ownership = redactPersonalAssignments(mapped.ownership);
+          return mapped;
+        })
+      : rows.map(mapClientRow);
+
+    res.json(responseRows);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
-router.delete('/:id', async (req, res) => {
-  await pool.query('DELETE FROM clients WHERE id = $1', [req.params.id]);
-  res.json({ success: true });
+/**
+ * @swagger
+ * /api/clients/smart-match:
+ *   post:
+ *     tags: [Clients]
+ *     summary: Smart match client duplication check
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               phone:
+ *                 type: string
+ *               nationalId:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                 matched:
+ *                   type: boolean
+ *                 visible:
+ *                   type: boolean
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.post('/smart-match', requirePermission('clients.create'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const rawPhoneDigits = String(req.body?.phone ?? req.body?.mobile ?? '').replace(/\D/g, '');
+    const normalizedPhone = normalizePhone(rawPhoneDigits);
+    const submittedName = typeof req.body?.name === 'string' && req.body.name.trim()
+      ? req.body.name.trim()
+      : null;
+
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: 'رقم الموبايل مطلوب للتحقق الذكي' });
+    }
+
+    if (!/^09\d{8}$/.test(rawPhoneDigits)) {
+      return res.status(400).json({ error: 'رقم الموبايل يجب أن يتألف من 10 خانات ويبدأ بـ 09' });
+    }
+
+    const duplicate = await findDuplicateClientByPhone(normalizedPhone);
+    return res.json(buildSmartMatchResponse(authContext, duplicate, normalizedPhone, submittedName));
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/bulk-delete', async (req, res) => {
-  const { ids } = req.body;
-  if (ids && ids.length > 0) {
+/**
+ * @swagger
+ * /api/clients/{id}:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get client details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Client ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Client'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/:id/account-statement', requirePermission('clients.account_statement.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const subject = await loadClientSubject(clientId!);
+    if (!subject) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const access = canViewClient(authContext, subject);
+    if (!access.allowed) {
+      const branchIdsForRelatedAccess = authContext.actingBranchId != null
+        ? [authContext.actingBranchId]
+        : authContext.allowedBranchIds;
+      const canReadViaRelatedBranch =
+        hasBranchScopedClientGrant(authContext, 'clients.account_statement.view') &&
+        await hasClientDeviceOrContractInBranches(clientId!, branchIdsForRelatedAccess);
+
+      if (!canReadViaRelatedBranch) {
+        return forbidClientAccess(res, access.reason);
+      }
+    }
+
+    const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+    const to = typeof req.query.to === 'string' ? req.query.to : undefined;
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    if ((from && !datePattern.test(from)) || (to && !datePattern.test(to))) {
+      return res.status(400).json({ error: 'صيغة التاريخ غير صالحة' });
+    }
+    if (from && to && from > to) {
+      return res.status(400).json({ error: 'تاريخ البداية يجب أن يسبق تاريخ النهاية' });
+    }
+
+    const allowedTypes = new Set([
+      'contract_payment',
+      'maintenance_payment',
+      'contract_installment',
+      'contract_discount',
+      'refund',
+      'opening_balance',
+    ]);
+    const types = typeof req.query.types === 'string'
+      ? req.query.types.split(',').map(type => type.trim()).filter(Boolean)
+      : [];
+    if (types.some(type => !allowedTypes.has(type))) {
+      return res.status(400).json({ error: 'نوع الحركة المالية غير صالح' });
+    }
+
+    const filters = ['client_id = $1'];
+    const params: Array<string | string[]> = [clientId!];
+    if (from) {
+      params.push(from);
+      filters.push(`entry_date >= $${params.length}::date`);
+    }
+    if (to) {
+      params.push(to);
+      filters.push(`entry_date < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+    if (types.length > 0) {
+      params.push(types);
+      filters.push(`entry_type = ANY($${params.length}::varchar[])`);
+    }
+
+    const [entriesResult, summaryResult] = await Promise.all([
+      pool.query(
+        `SELECT
+           id,
+           entry_date,
+           entry_type,
+           source_type,
+           source_id,
+           description,
+           reference_no,
+           debit_amount,
+           credit_amount,
+           running_balance
+         FROM client_ledger_entries
+         WHERE ${filters.join(' AND ')}
+         ORDER BY entry_date ASC, id ASC`,
+        params,
+      ),
+      pool.query(
+        `SELECT
+           COALESCE(SUM(l.debit_amount), 0) AS total_owed,
+           COALESCE(SUM(l.credit_amount), 0) AS total_paid,
+           COALESCE((
+             SELECT running_balance
+             FROM client_ledger_entries
+             WHERE client_id = $1
+             ORDER BY entry_date DESC, id DESC
+             LIMIT 1
+           ), 0) AS current_balance,
+           COALESCE(SUM(
+             CASE
+               WHEN l.entry_type = 'contract_installment' AND l.entry_date < NOW()
+                 THEN GREATEST(l.debit_amount - COALESCE(i.paid_amount, 0), 0)
+               ELSE 0
+             END
+           ), 0) AS overdue_amount
+         FROM client_ledger_entries l
+         LEFT JOIN contract_installments i
+           ON l.entry_type = 'contract_installment'
+          AND i.id = l.source_entry_id
+         WHERE l.client_id = $1`,
+        [clientId],
+      ),
+    ]);
+
+    const summary = summaryResult.rows[0];
+    res.json({
+      summary: {
+        total_owed: Number(summary.total_owed),
+        total_paid: Number(summary.total_paid),
+        current_balance: Number(summary.current_balance),
+        overdue_amount: Number(summary.overdue_amount),
+      },
+      entries: entriesResult.rows.map(row => ({
+        ...row,
+        debit_amount: Number(row.debit_amount),
+        credit_amount: Number(row.credit_amount),
+        running_balance: Number(row.running_balance),
+      })),
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.get('/:id', requirePermission('clients.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const subject = await loadClientSubject(clientId!);
+    if (!subject) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const access = canViewClient(authContext, subject);
+    if (!access.allowed) {
+      const branchIdsForRelatedAccess = authContext.actingBranchId != null
+        ? [authContext.actingBranchId]
+        : authContext.allowedBranchIds;
+      const canReadViaRelatedBranch =
+        hasBranchScopedClientGrant(authContext, 'clients.view') &&
+        await hasClientDeviceOrContractInBranches(clientId!, branchIdsForRelatedAccess);
+
+      if (!canReadViaRelatedBranch) {
+        return forbidClientAccess(res, access.reason);
+      }
+    }
+
+    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
+    res.json(mapClientRow(rows[0]));
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/{id}/network:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Get client referral network
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/:id/network', requirePermission('clients.network.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const subject = await loadClientSubject(clientId!);
+    if (!subject) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const access = canViewClient(authContext, subject);
+    if (!access.allowed) {
+      const branchIdsForRelatedAccess = authContext.actingBranchId != null
+        ? [authContext.actingBranchId]
+        : authContext.allowedBranchIds;
+      const canReadViaRelatedBranch =
+        hasBranchScopedClientGrant(authContext, 'clients.network.view') &&
+        await hasClientDeviceOrContractInBranches(clientId!, branchIdsForRelatedAccess);
+
+      if (!canReadViaRelatedBranch) {
+        return forbidClientAccess(res, access.reason);
+      }
+    }
+
+    // Incoming (who referred this client)
+    const { rows: incomingRows } = await pool.query(
+      `SELECT
+        c.referral_entity_id as id,
+        c.referrer_name as name,
+        c.referrer_type as type,
+        c.referral_date as referral_date,
+        c.referral_address_text as address,
+        c.referrers as referrers_json
+      FROM clients c
+      WHERE c.id = $1`,
+      [clientId],
+    );
+
+    const incoming: Array<{
+      id: number | null;
+      name: string;
+      type: string;
+      referralDate: string | null;
+      address: string | null;
+      mobile: string | null;
+    }> = [];
+
+    const incomingRow = incomingRows[0];
+    if (incomingRow) {
+      const referrerList = Array.isArray(incomingRow.referrers_json) && incomingRow.referrers_json.length > 0
+        ? incomingRow.referrers_json
+        : (incomingRow.name ? [{ id: incomingRow.id, name: incomingRow.name, type: incomingRow.type }] : []);
+
+      for (const ref of referrerList) {
+        const rawReferrerClientId = ref.referralEntityId ?? ref.id ?? null;
+        const referrerClientId = Number(rawReferrerClientId);
+        const linkedClientId = Number.isInteger(referrerClientId) && referrerClientId > 0
+          ? referrerClientId
+          : null;
+        const referralDate = ref.referralDate ?? incomingRow.referral_date ?? null;
+        let mobile = null;
+        if (linkedClientId != null) {
+          const { rows: mobileRows } = await pool.query(
+            'SELECT mobile FROM clients WHERE id = $1',
+            [linkedClientId],
+          );
+          mobile = mobileRows[0]?.mobile ?? null;
+        }
+        incoming.push({
+          id: linkedClientId,
+          name: ref.name ?? ref.referrerName ?? ref.referralName ?? '',
+          type: ref.type ?? ref.referrerType ?? 'unknown',
+          referralDate: referralDate
+            ? new Date(referralDate).toISOString().split('T')[0]
+            : null,
+          address: ref.address ?? ref.referralAddressText ?? incomingRow.address ?? null,
+          mobile,
+        });
+      }
+    }
+
+    // Outgoing (who this client referred)
+    const { rows: outgoingRows } = await pool.query(
+      `SELECT
+        rs.id as sheet_id,
+        rs.referral_date,
+        rs.referral_address_text,
+        COALESCE(cli.id, can.id) as id,
+        COALESCE(cli.name, NULLIF(TRIM(CONCAT_WS(' ', can.first_name, can.last_name)), '')) as name,
+        COALESCE(cli.mobile, can.mobile) as mobile,
+        COALESCE(cli.detailed_address, can.address_text) as address,
+        CASE WHEN cli.id IS NOT NULL THEN true ELSE false END as is_client,
+        COALESCE(cli.candidate_status, can.status) as status
+      FROM referral_sheets rs
+      LEFT JOIN candidates can ON can.referral_sheet_id = rs.id
+      LEFT JOIN clients cli ON cli.referral_sheet_id = rs.id
+      WHERE rs.referral_entity_id = $1 AND rs.referral_type = 'Client'
+      ORDER BY rs.referral_date DESC`,
+      [clientId],
+    );
+
+    const outgoing = outgoingRows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      mobile: r.mobile ?? null,
+      address: r.address ?? null,
+      status: r.status ?? 'Unknown',
+      referralDate: r.referral_date
+        ? new Date(r.referral_date).toISOString().split('T')[0]
+        : null,
+      isClient: r.is_client,
+    }));
+
+    res.json({ incoming, outgoing });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients:
+ *   post:
+ *     tags: [Clients]
+ *     summary: Create new client
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               fatherName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               mobile:
+ *                 type: string
+ *               branchId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Client'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       409:
+ *         description: Duplicate phone conflict
+ *       500:
+ *         description: Server error
+ */
+router.post('/', requirePermission('clients.create'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const targetBranchId = resolveClientTargetBranch(req, req.body?.branchId);
+    if (targetBranchId == null) {
+      return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
+    }
+
+    const { rows: branchStatus } = await pool.query(
+      'SELECT status FROM branches WHERE id = $1',
+      [targetBranchId],
+    );
+    if (branchStatus[0]?.status === 'inactive') {
+      return res.status(400).json({ error: 'لا يمكن تسجيل زبون جديد — الفرع المحدد موقوف عن العمل' });
+    }
+
+    // Resolve the list of users this client will be assigned to.
+    // Non-super-admin is always included in their own assignments (self-assign).
+    const canManageAssignments = canManageClientAssignments(authContext, targetBranchId);
+    const resolvedAssignees = await resolveAssignmentUserIds(
+      canManageAssignments ? req.body?.assignmentUserIds : undefined,
+      authContext.userId,
+      authContext.isSuperAdmin,
+    );
+    if ('error' in resolvedAssignees) {
+      return res.status(400).json({ error: resolvedAssignees.error });
+    }
+
+    const createAccess = canCreateClient(authContext, {
+      branchId: targetBranchId,
+      assignedUserIds: resolvedAssignees,
+    });
+    if (!createAccess.allowed) {
+      return forbidClientAccess(res, createAccess.reason);
+    }
+
+    const c = enforcePersonalReferrer(
+      normalizeClientPayload(req.body ?? {}),
+      { id: authContext.userId, name: req.user?.name || '' },
+    );
+    if (!c.mobile) {
+      return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
+    }
+    const duplicate = await findDuplicateClientByPhone(c.mobile);
+    if (duplicate) {
+      return res.status(409).json({
+        error: 'DUPLICATE_CLIENT_PHONE',
+        ...buildSmartMatchResponse(authContext, duplicate, c.mobile),
+      });
+    }
+
+    // Geo-coverage enforcement — neighborhood is the deepest geo unit on a
+    // client; serviceGeoIds includes all descendants of branch coverage so
+    // checking the leaf is sufficient. Enforce against the TARGET branch
+    // (not the actor's acting branch) so cross-branch creates respect the
+    // target branch's coverage.
+    if (c.neighborhood) {
+      const geoCheck = await assertGeoUnitInScope(authContext, c.neighborhood, 'geo.view', targetBranchId);
+      if (!geoCheck.allowed) {
+        return res.status(403).json({
+          error: 'العَنوان الجغرافي للزبون خارج نِطاق تَغطية الفَرع المُستهدف',
+          code: geoCheck.reason,
+        });
+      }
+    }
+
+    const { rows: [inserted] } = await pool.query(
+      `INSERT INTO clients (
+        first_name, father_name, last_name, nickname,
+        name, mobile, contacts, governorate, district, neighborhood,
+        detailed_address, gps_coordinates, gender, national_id, birth_date, occupation, spouse_occupation, data_quality, water_source, notes, rating,
+        source_channel, referrer_type, referrer_id, referrer_name, referral_notes, referrers, referral_entity_id,
+        referral_date, referral_reason, referral_sheet_id, referral_address_text,
+        is_candidate, target_client, candidate_status,
+        mother_name, national_id_registry, national_id_issued_by, national_id_issue_date, national_id_box,
+        branch_id, created_by
+      )
+      VALUES (
+        $1,$2,$3,$4,
+        $5,$6,$7,$8,$9,$10,
+        $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+        $22,$23,$24,$25,$26,$27,$28,
+        $29,$30,$31,$32,
+        $33,$34,$35,
+        $36,$37,$38,$39,$40,
+        $41,$42
+      )
+      RETURNING id`,
+      [
+        c.firstName || null, c.fatherName || null, c.lastName || null, c.nickname || null,
+        c.name, c.mobile, toJson(c.contacts, []), Number(c.governorate) || null, Number(c.district) || null, Number(c.neighborhood) || null,
+        c.detailedAddress || null, c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
+        c.gender || null, c.nationalId || null, c.birthDate || null, c.occupation || null,
+        c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null, c.rating || null,
+        c.sourceChannel || null, c.referrerType || null, c.referrerId || null, c.referrerName || null,
+        c.referralNotes || null, toJson(c.referrers, []), c.referralEntityId || null,
+        c.referralDate || null, c.referralReason || null, c.referralSheetId || null, c.referralAddressText || null,
+        c.isCandidate || false, c.targetClient || null, c.candidateStatus || null,
+        c.motherName || null, c.nationalIdRegistry || null, c.nationalIdIssuedBy || null,
+        c.nationalIdIssueDate || null, c.nationalIdBox || null,
+        targetBranchId, authContext.userId,
+      ],
+    );
+
+    await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId);
+
+    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
+    res.json(mapClientRow(rows[0]));
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/{id}:
+ *   put:
+ *     tags: [Clients]
+ *     summary: Update client details by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Client ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               fatherName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               mobile:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Client'
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       409:
+ *         description: Duplicate phone conflict
+ *       500:
+ *         description: Server error
+ */
+router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const subject = await loadClientSubject(clientId!);
+    if (!subject) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const bodyKeys = Object.keys(req.body ?? {});
+    const isContactsOnlyUpdate =
+      bodyKeys.length === 1 &&
+      Object.prototype.hasOwnProperty.call(req.body ?? {}, 'contacts');
+
+    if (isContactsOnlyUpdate) {
+      const access = authorize(authContext, { permission: 'clients.contacts.edit', branchId: subject.branchId });
+      if (!access.allowed) {
+        return forbidClientAccess(res, access.reason);
+      }
+
+      const contacts = normalizeContactsForWrite(req.body?.contacts);
+      await pool.query('UPDATE clients SET contacts = $1 WHERE id = $2', [toJson(contacts, []), clientId]);
+      const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
+      return res.json(mapClientRow(rows[0]));
+    }
+
+    const access = canEditClient(authContext, subject);
+    if (!access.allowed) {
+      return forbidClientAccess(res, access.reason);
+    }
+
+    // Load existing client for comparison / audit
+    const { rows: existingRows } = await pool.query(
+      'SELECT branch_id, candidate_status, is_active FROM clients WHERE id = $1',
+      [clientId],
+    );
+    const existing = existingRows[0];
+
+    const c = enforcePersonalReferrer(
+      normalizeClientPayload(req.body ?? {}),
+      { id: authContext.userId, name: req.user?.name || '' },
+    );
+    if (!c.mobile) {
+      return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
+    }
+
+    // Geo-coverage enforcement on edit — guard against moving the client's
+    // address into a geo unit outside the owning branch's coverage.
+    if (c.neighborhood) {
+      const geoCheck = await assertGeoUnitInScope(authContext, c.neighborhood, 'geo.view', existing?.branch_id ?? null);
+      if (!geoCheck.allowed) {
+        return res.status(403).json({
+          error: 'العَنوان الجغرافي للزبون خارج نِطاق تَغطية فَرع الزبون',
+          code: geoCheck.reason,
+        });
+      }
+    }
+
+    const duplicate = await findDuplicateClientByPhone(c.mobile, Number(clientId));
+    if (duplicate) {
+      return res.status(409).json({
+        error: 'DUPLICATE_CLIENT_PHONE',
+        ...buildSmartMatchResponse(authContext, duplicate, c.mobile),
+      });
+    }
+
+    // Guard: block branch change if client has in-progress or scheduled visits
+    const newBranchId = req.body?.branchId ?? existing?.branch_id;
+    if (newBranchId && existing?.branch_id && Number(newBranchId) !== Number(existing.branch_id)) {
+      const { rows: activeVisits } = await pool.query(
+        `SELECT 1 FROM field_visits WHERE client_id = $1 AND status IN ('in_progress', 'scheduled') LIMIT 1`,
+        [clientId],
+      );
+      if (activeVisits.length > 0) {
+        return res.status(400).json({
+          error: 'لا يمكن تغيير الفرع: الزبون لديه زيارة نشطة أو مجدولة',
+        });
+      }
+    }
+
+    // Resolve assignment changes only if the caller explicitly provided a new list
+    let newAssigneeIds: number[] | null = null;
+    const assignmentBranchId = newBranchId == null || newBranchId === '' ? null : Number(newBranchId);
+    const canManageAssignments = canManageClientAssignments(
+      authContext,
+      Number.isInteger(assignmentBranchId) ? assignmentBranchId : null,
+    );
+    if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
+      const resolved = await resolveAssignmentUserIds(
+        req.body.assignmentUserIds,
+        authContext.userId,
+        authContext.isSuperAdmin,
+      );
+      if ('error' in resolved) {
+        return res.status(400).json({ error: resolved.error });
+      }
+      newAssigneeIds = resolved;
+    }
+
+    const transitioningToOpFop =
+      c.candidateStatus &&
+      ['OP', 'FOP'].includes(c.candidateStatus) &&
+      existing?.candidate_status &&
+      !['OP', 'FOP'].includes(existing.candidate_status);
+
+    await pool.query(
+      `UPDATE clients SET
+        first_name=$1, father_name=$2, last_name=$3, nickname=$4,
+        name=$5, mobile=$6, contacts=$7, governorate=$8, district=$9, neighborhood=$10,
+        detailed_address=$11, gps_coordinates=$12, gender=$13, national_id=$14, birth_date=$15, occupation=$16, spouse_occupation=$17, data_quality=$18, water_source=$19, notes=$20, rating=$21,
+        source_channel=$22, referrer_type=$23, referrer_id=$24, referrer_name=$25, referral_notes=$26, referrers=$27, referral_entity_id=$28,
+        referral_date=$29, referral_reason=$30, referral_sheet_id=$31, referral_address_text=$32,
+        is_candidate=$33, target_client=$34, candidate_status=$35,
+        mother_name=$36, national_id_registry=$37, national_id_issued_by=$38, national_id_issue_date=$39, national_id_box=$40
+      WHERE id=$41`,
+      [
+        c.firstName || null, c.fatherName || null, c.lastName || null, c.nickname || null,
+        c.name, c.mobile, toJson(c.contacts, []), Number(c.governorate) || null, Number(c.district) || null, Number(c.neighborhood) || null,
+        c.detailedAddress || null, c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
+        c.gender || null, c.nationalId || null, c.birthDate || null, c.occupation || null,
+        c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null, c.rating || null,
+        c.sourceChannel || null, c.referrerType || null, c.referrerId || null, c.referrerName || null,
+        c.referralNotes || null, toJson(c.referrers, []), c.referralEntityId || null,
+        c.referralDate || null, c.referralReason || null, c.referralSheetId || null, c.referralAddressText || null,
+        c.isCandidate || false, c.targetClient || null, c.candidateStatus || null,
+        c.motherName || null, c.nationalIdRegistry || null, c.nationalIdIssuedBy || null,
+        c.nationalIdIssueDate || null, c.nationalIdBox || null,
+        clientId,
+      ],
+    );
+
+    // If transitioning to OP/FOP: drop personal assignments + cancel marketing tasks
+    if (transitioningToOpFop) {
+      await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+      await pool.query(
+        `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
+         WHERE client_id = $1 AND task_family = 'marketing'
+           AND status NOT IN ('completed', 'cancelled')`,
+        [clientId],
+      );
+    } else if (newAssigneeIds !== null) {
+      await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+      await insertClientAssignments(Number(clientId), newAssigneeIds, authContext.userId);
+    }
+
+    // Audit log: record meaningful field changes
+    const auditFields: Array<{ field: string; oldVal: string | null; newVal: string | null }> = [];
+    if (existing) {
+      if (c.candidateStatus !== undefined && String(c.candidateStatus ?? '') !== String(existing.candidate_status ?? '')) {
+        auditFields.push({ field: 'candidate_status', oldVal: existing.candidate_status, newVal: c.candidateStatus ?? null });
+      }
+      if (newBranchId && existing.branch_id && Number(newBranchId) !== Number(existing.branch_id)) {
+        auditFields.push({ field: 'branch_id', oldVal: String(existing.branch_id), newVal: String(newBranchId) });
+      }
+    }
+    for (const af of auditFields) {
+      await pool.query(
+        `INSERT INTO client_audit_log (client_id, field_name, old_value, new_value, changed_by, changed_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [clientId, af.field, af.oldVal, af.newVal, authContext.userId],
+      );
+    }
+
+    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
+    res.json(mapClientRow(rows[0]));
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/{id}:
+ *   delete:
+ *     tags: [Clients]
+ *     summary: Delete client by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Client ID
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ *       500:
+ *         description: Server error
+ */
+router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const subject = await loadClientSubject(clientId!);
+    if (!subject) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const access = canDeleteClient(authContext, subject);
+    if (!access.allowed) {
+      return forbidClientAccess(res, access.reason);
+    }
+
+    // Guard: block if client has contracts
+    const { rows: contractRows } = await pool.query(
+      'SELECT 1 FROM contracts WHERE customer_id = $1 LIMIT 1',
+      [clientId],
+    );
+    if (contractRows.length > 0) {
+      return res.status(400).json({ error: 'لا يمكن حذف الزبون: لديه عقود مسجلة في النظام' });
+    }
+
+    // Guard: block if client has field visit history
+    const { rows: visitRows } = await pool.query(
+      'SELECT 1 FROM field_visits WHERE client_id = $1 LIMIT 1',
+      [clientId],
+    );
+    if (visitRows.length > 0) {
+      return res.status(400).json({ error: 'لا يمكن حذف الزبون: لديه سجل زيارات ميدانية' });
+    }
+
+    // Guard: block if client has any completed task results
+    const { rows: taskResultRows } = await pool.query(
+      `SELECT 1 FROM open_tasks ot
+       WHERE ot.client_id = $1 AND ot.status = 'completed' LIMIT 1`,
+      [clientId],
+    );
+    if (taskResultRows.length > 0) {
+      return res.status(400).json({ error: 'لا يمكن حذف الزبون: لديه مهام مكتملة في السجل' });
+    }
+
+    // Soft delete: cascade cancel open tasks, clean up assignments and appointments
+    await pool.query(
+      `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
+       WHERE client_id = $1 AND status NOT IN ('completed', 'cancelled')`,
+      [clientId],
+    );
+    await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+    await pool.query('DELETE FROM contact_targets WHERE target_type = $1 AND target_id = $2', ['client', clientId]);
+    await pool.query(
+      `UPDATE telemarketing_appointments
+       SET status = 'cancelled', updated_at = NOW()
+       WHERE entity_type = 'client' AND entity_id = $1
+         AND status NOT IN ('cancelled', 'completed')`,
+      [clientId],
+    );
+    await pool.query(
+      `UPDATE clients
+       SET deleted_at = NOW(), deleted_by = $1, is_active = FALSE
+       WHERE id = $2`,
+      [authContext.userId, clientId],
+    );
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/bulk-delete:
+ *   post:
+ *     tags: [Clients]
+ *     summary: Bulk delete clients
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Branch context
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [ids]
+ *             properties:
+ *               ids:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
+router.post('/bulk-delete', requirePermission('clients.delete'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (ids.length === 0) {
+      return res.json({ success: true });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT
+         c.id,
+         c.branch_id AS "branchId",
+         COALESCE(
+           (SELECT array_agg(hr_user_id)
+              FROM client_assignments
+             WHERE client_id = c.id),
+           '{}'::int[]
+         ) AS "assignedUserIds"
+       FROM clients c
+      WHERE c.id = ANY($1)`,
+      [ids],
+    );
+
+    for (const row of rows) {
+      const access = canDeleteClient(authContext, {
+        branchId: row.branchId,
+        assignedUserIds: row.assignedUserIds,
+      });
+      if (!access.allowed) {
+        return forbidClientAccess(res, access.reason);
+      }
+    }
+
     await pool.query('DELETE FROM clients WHERE id = ANY($1)', [ids]);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ success: true });
+});
+
+// ============================================================================
+// Cooldown + do_not_contact endpoints (DEC-005 D29, DEC-006 D32)
+// ============================================================================
+
+/**
+ * @swagger
+ * /api/clients/{id}/cooldown:
+ *   post:
+ *     tags: [Clients]
+ *     summary: Activate or extend cooldown on a client (manual)
+ *     description: |
+ *       DEC-005 D29: cooldown blocks the client from contact_targets across all
+ *       task types for `days` days. Reason is required. Automatic activation on
+ *       `not_interested` outcome is handled separately in telemarketing.ts.
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/:id/cooldown', requirePermission('clients.contact_control.edit'), async (req, res) => {
+  try {
+    const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId غير صالح' });
+    }
+    const authContext = getRequiredAuthContext(req);
+    const { days, reason } = req.body as { days?: number; reason?: string };
+
+    if (!Number.isFinite(days) || !days || days <= 0) {
+      return res.status(400).json({ error: 'يجب تحديد عدد أيام التهدئة (days)' });
+    }
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
+      return res.status(400).json({ error: 'سبب التهدئة مطلوب (reason)' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE clients
+          SET cooldown_until  = CURRENT_DATE + ($1 || ' days')::INTERVAL,
+              cooldown_reason = $2,
+              cooldown_set_by = $3,
+              cooldown_set_at = NOW()
+        WHERE id = $4
+        RETURNING id,
+                  cooldown_until  AS "cooldownUntil",
+                  cooldown_reason AS "cooldownReason",
+                  cooldown_set_by AS "cooldownSetBy",
+                  cooldown_set_at AS "cooldownSetAt"`,
+      [Math.floor(days), reason.trim(), authContext.userId ?? null, clientId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'الزبون غير موجود' });
+    }
+    return res.json(rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/{id}/cooldown:
+ *   delete:
+ *     tags: [Clients]
+ *     summary: Lift cooldown immediately
+ *     description: |
+ *       DEC-006 D32: requires the `clients.cooldown_unlock` permission, which
+ *       is granted to branch_manager only (not to telemarketers or supervisors).
+ *     security:
+ *       - bearerAuth: []
+ */
+router.delete('/:id/cooldown', requirePermission('clients.cooldown_unlock'), async (req, res) => {
+  try {
+    const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId غير صالح' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE clients
+          SET cooldown_until  = NULL,
+              cooldown_reason = NULL,
+              cooldown_set_by = NULL,
+              cooldown_set_at = NULL
+        WHERE id = $1
+        RETURNING id`,
+      [clientId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'الزبون غير موجود' });
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/{id}/do-not-contact:
+ *   patch:
+ *     tags: [Clients]
+ *     summary: Toggle do_not_contact flag (permanent block)
+ *     description: |
+ *       DEC-005 D29: do_not_contact is the permanent counterpart to cooldown.
+ *       Treated as an always-on block in syncAssignedTasks filters.
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch('/:id/do-not-contact', requirePermission('clients.contact_control.edit'), async (req, res) => {
+  try {
+    const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId غير صالح' });
+    }
+    const { doNotContact } = req.body as { doNotContact?: boolean };
+    if (typeof doNotContact !== 'boolean') {
+      return res.status(400).json({ error: 'doNotContact (boolean) مطلوب' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE clients
+          SET do_not_contact = $1
+        WHERE id = $2
+        RETURNING id, do_not_contact AS "doNotContact"`,
+      [doNotContact, clientId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'الزبون غير موجود' });
+    }
+    return res.json(rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

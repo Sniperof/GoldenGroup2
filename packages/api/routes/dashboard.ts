@@ -3,6 +3,49 @@ import pool from '../db.js';
 
 const router = Router();
 
+/**
+ * @swagger
+ * /api/dashboard:
+ *   get:
+ *     tags: [Dashboard]
+ *     summary: Get dashboard summary statistics
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dashboard statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalClients:
+ *                   type: integer
+ *                 activeEmployees:
+ *                   type: integer
+ *                 totalRoutes:
+ *                   type: integer
+ *                 coveredNeighborhoods:
+ *                   type: integer
+ *                 recentClients:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       mobile:
+ *                         type: string
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/', async (_req, res) => {
   const [clientsRes, employeesRes, routesRes, geoRes, recentClientsRes] = await Promise.all([
     pool.query('SELECT COUNT(*) FROM clients'),

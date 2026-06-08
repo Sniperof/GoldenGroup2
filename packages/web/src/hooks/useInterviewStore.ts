@@ -43,7 +43,7 @@ const useInterviewList = createFetchStore(async () => {
 
 // ── Mutations ──────────────────────────────────────────────────────────────
 
-async function scheduleInterview(data: Partial<Interview>): Promise<Interview> {
+async function scheduleInterview(data: Partial<Interview> & Record<string, unknown>): Promise<Interview> {
   const res = await authFetch(API_BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -51,11 +51,16 @@ async function scheduleInterview(data: Partial<Interview>): Promise<Interview> {
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.error || 'Failed to schedule interview');
+    const message = err.message || err.error || 'Failed to schedule interview';
+    const apiError = new Error(message) as Error & { code?: string; field?: string; payload?: unknown };
+    apiError.code = err.code;
+    apiError.field = err.field;
+    apiError.payload = err;
+    throw apiError;
   }
   const interview: EnrichedInterview = await res.json();
-  useInterviewList.setState((s) => ({ data: [interview, ...s.data] }));
-  return interview;
+  await useInterviewList.getState().fetch();
+  return useInterviewList.getState().data.find((i) => i.id === interview.id) ?? interview;
 }
 
 async function recordResult(

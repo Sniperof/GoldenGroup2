@@ -1,0 +1,98 @@
+All tasks complete. Here is the final report:
+
+---
+
+## Final Report
+
+### 1. Files Modified
+
+| File | Change |
+|------|--------|
+| `packages/api/services/planningMarketingTargets.ts` | Added daily task-list fields to leads query (dailyTaskListItemId, dailyTaskListId, dailyItemStatus, dailyCallOutcome, queuedInCurrentTeamToday, queuedInAnotherTeamToday, queuedTeamKeyToday) |
+| `packages/api/routes/telemarketing.ts` | Replaced call logs filter with date-scoped task_list_id based filtering; removed "no date column" comment |
+| `packages/web/src/pages/planning/PlanningContactTargets.tsx` | Rebuilt: replaced "حالة هدف الاتصال" column with "الحالة اليومية" showing daily state; replaced static callOutcomeLabels with `getOutcomeMeta`; added detailed error messages for generation failures including skipped reasons |
+| `packages/web/src/pages/TelemarketerWorkspace.tsx` | Added `setSelectedTaskId(null)` on date change; clear `currentSchedule` to `{ teams: [], solos: [] }` before loading new schedule; uses `getOutcomeMeta` and `getOutcomeDisplay` for all outcome rendering |
+| `migrations/049_cleanup_null_branch_telemarketing_data.sql` | **NEW** — deletes null-branch telemarketing data in safe dependency order |
+
+### 2. Root Cause Confirmed
+
+- **Bug 1** (PlanningContactTargets): The "حالة هدف الاتصال" column showed `contact_targets.status` (general/historical) as if it were daily state. Yesterday's `contacted` or `closed` appeared as today's status.
+- **Bug 2** (Workspace): Call logs filtered only by `branch_id` + `team_key` with no date scoping, so logs from all dates mixed into the view. Also, `selectedTaskId` and `currentSchedule` persisted across date changes.
+
+### 3. How Daily Fields Were Added to Marketing Targets
+
+In `planningMarketingTargets.ts`, the leads query now includes LEFT JOINs to:
+- `telemarketing_task_lists daily_tl` on `branch_id = $1 AND date = $4 AND team_key = $5`
+- `telemarketing_task_list_items daily_item` on `daily_item.task_list_id = daily_tl.id AND entity_type = 'client' AND entity_id = c.id`
+- A LATERAL subquery that checks if the same client is queued in another team on the same branch+date
+
+This returns: `dailyTaskListItemId`, `dailyTaskListId`, `dailyItemStatus`, `dailyCallOutcome`, `queuedInCurrentTeamToday`, `queuedInAnotherTeamToday`, `queuedTeamKeyToday`.
+
+### 4. How PlanningContactTargets Now Separates Daily Status from Historical
+
+- The **"الحالة اليومية"** column displays:
+  - `queuedInCurrentTeamToday + pending` → "بالانتظار"
+  - `queuedInCurrentTeamToday + called + closed outcome` → "مغلق لهذا اليوم"
+  - `queuedInCurrentTeamToday + called` → "تم الاتصال"
+  - `queuedInCurrentTeamToday + booked` → "تم حجز موعد"
+  - `queuedInAnotherTeamToday` → "ضمن قائمة [teamKey] اليوم"
+  - No daily item → "جاهز للتوليد"
+- The **"آخر نتيجة اتصال"** column shows `latestCallOutcome` via `getOutcomeMeta` (historical)
+- The **"آخر موعد"** column shows appointment date/timeslot (historical)
+- **"حالة هدف الاتصال"** (historical contact_targets.status) and **"نوع الزيارة"/"مهام الزيارة"** columns were removed since they were confusing
+
+### 5. How Snapshot Call Logs Are Now Date/List Scoped
+
+In the snapshot endpoint, when `dateParam` is provided:
+1. Query all `telemarketing_task_lists` for that `date + branch_id`
+2. If telemarketer scope: further filter to accessible team keys → get `accessibleIds`
+3. Filter call logs by `task_list_id = ANY(accessibleIds/dateTaskListIds)`
+4. If no task lists exist for that date, return empty `callLogs: []`
+
+When no `dateParam` (legacy mode): keep existing branch+team_key filtering.
+
+### 6. How Stale Workspace UI State Was Cleared
+
+Two fixes in `TelemarketerWorkspace.tsx`:
+1. On date change (`useEffect` with `[date]` dependency for `loadData`): `setSelectedTaskId(null)` so the stale task is deselected immediately
+2. On date change (`useEffect` for schedule): `setCurrentSchedule({ teams: [], solos: [] })` before fetching new schedule, so old team names don't visually persist during loading
+
+### 7. How Generation Errors Are Displayed
+
+`handleGenerateContactList` now:
+- Parses `result.skipped` array for detailed reasons (e.g., `already_queued_today` shows which team)
+- Shows actionable Arabic messages per skip reason
+- Catches backend error messages and maps common ones to Arabic (Branch context, No schedule found, etc.)
+- Falls back to the server message if no specific mapping exists
+
+### 8. Cleanup Migration Details
+
+**`migrations/049_cleanup_null_branch_telemarketing_data.sql`**
+
+Tables cleaned, in dependency order:
+1. `telemarketing_call_logs` — deleted where `task_list_id IN (null-branch lists)` OR `branch_id IS NULL`
+2. `telemarketing_appointments` — deleted where `task_list_id IN (null-branch lists)` OR `task_list_id IS NULL` OR `branch_id IS NULL`
+3. `telemarketing_task_list_items` — deleted where `task_list_id IN (null-branch lists)`
+4. `telemarketing_task_lists` — deleted where `branch_id IS NULL`
+5. `contact_targets` — `latest_task_list_item_id` and `latest_appointment_id` nullified where they point to deleted items/appointments
+
+**NOT deleted:** `contact_targets`, `clients`, or any records with `branch_id IS NOT NULL`
+
+### 9. TM-4A Security Confirmation
+
+- The migration **deletes** null-branch data rather than allowing it
+- No authorization was weakened — `isSuperAdminOrGlobal`, `BRANCH_LEVEL_ACCESS_ROLES`, and `canAccessTaskList` checks remain unchanged
+- `branch_id IS NULL` records are gone, so there's nothing to accidentally show
+
+### 10. TypeScript Results
+
+All three packages pass `tsc --noEmit` clean:
+- `packages/shared` ✅
+- `packages/api` ✅
+- `packages/web` ✅
+
+### 11. Remaining Data Caveats
+
+- Clients with `branch_id IS NULL` still exist (correct — they're core business data)
+- `contact_targets.latest_task_list_item_id` may contain stale VARCHAR references, but the migration nulls those that point to deleted items
+- Historical `contact_targets.status` values (new, queued, contacted, closed, booked, cancelled) remain unchanged — the UI now distinguishes daily status from historical status

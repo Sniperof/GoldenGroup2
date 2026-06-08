@@ -4,7 +4,7 @@ import { sanitizeText } from '../utils/sanitize.js';
 
 export async function findVacancyById(client: PoolClient, vacancyId: number) {
   const { rows } = await client.query(
-    `SELECT id, status FROM job_vacancies WHERE id = $1`,
+    `SELECT id, status, branch_id AS "branchId" FROM job_vacancies WHERE id = $1`,
     [vacancyId]
   );
 
@@ -26,17 +26,18 @@ export async function insertApplicant(client: PoolClient, applicant: any) {
       mobile_number, secondary_mobile, governorate, city_or_area,
       sub_area, neighborhood, detailed_address,
       academic_qualification, specialization, previous_employment, driving_license,
+      has_car,
       expected_salary, computer_skills, foreign_languages,
       years_of_experience, cv_url, photo_url, applicant_segment,
       has_whatsapp_primary, has_whatsapp_secondary
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
     RETURNING id`,
     [
       applicant.firstName, applicant.lastName, applicant.dob, applicant.gender, applicant.maritalStatus, applicant.email || null,
       applicant.mobileNumber, applicant.secondaryMobile || null,
       applicant.governorate, applicant.cityOrArea || null, applicant.subArea || null, applicant.neighborhood || null, applicant.detailedAddress || null,
       applicant.academicQualification || null, applicant.specialization || null, applicant.previousEmployment || null,
-      applicant.drivingLicense || null, applicant.expectedSalary ? parseInt(applicant.expectedSalary) : null,
+      applicant.drivingLicense || null, applicant.hasCar ?? false, applicant.expectedSalary ? parseInt(applicant.expectedSalary) : null,
       applicant.computerSkills || null, applicant.foreignLanguages || null,
       applicant.yearsOfExperience ? parseInt(applicant.yearsOfExperience) : null,
       applicant.cvUrl || null, applicant.photoUrl || null, applicant.applicantSegment || null,
@@ -50,13 +51,15 @@ export async function insertApplicant(client: PoolClient, applicant: any) {
 export async function insertReferrer(client: PoolClient, referrer: any) {
   const { rows } = await client.query(
     `INSERT INTO referrers (
-      type, employee_id, full_name, last_name, mobile_number,
+      type, employee_id, referral_entity_id, full_name, last_name, mobile_number,
       governorate, city_or_area, sub_area, neighborhood,
       detailed_address, referrer_work, referrer_notes
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
     RETURNING id`,
     [
-      referrer.type || 'Customer', referrer.employeeId || null,
+      (referrer.type === 'Customer' ? 'Client' : referrer.type) || 'Client',
+      (referrer.type === 'Employee' ? (referrer.employeeId ?? null) : null),
+      referrer.referralEntityId ?? (referrer.type === 'Employee' ? (referrer.employeeId ?? null) : null) ?? null,
       sanitizeText(referrer.fullName), referrer.lastName ? sanitizeText(referrer.lastName) : null, referrer.mobileNumber || null,
       referrer.governorate ? sanitizeText(referrer.governorate) : null, referrer.cityOrArea ? sanitizeText(referrer.cityOrArea) : null,
       referrer.subArea ? sanitizeText(referrer.subArea) : null, referrer.neighborhood ? sanitizeText(referrer.neighborhood) : null,
@@ -80,24 +83,25 @@ export async function insertJobApplication(
     enteredByUserId?: number | null;
     enteredByName?: string | null;
     duplicateFlag?: boolean;
+    branchId: number;
   },
 ) {
   const { rows } = await client.query(
     `INSERT INTO job_applications (
       job_vacancy_id, applicant_id, referrer_id, submission_type,
       application_source, entered_by_user_id, entered_by_name,
-      current_stage, application_status, duplicate_flag
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted','New',$8)
+      current_stage, application_status, duplicate_flag, branch_id
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted','New',$8,$9)
     RETURNING id, job_vacancy_id AS "jobVacancyId", applicant_id AS "applicantId",
       referrer_id AS "referrerId", submission_type AS "submissionType",
       application_source AS "applicationSource",
       current_stage AS "currentStage", application_status AS "applicationStatus",
-      duplicate_flag AS "duplicateFlag", created_at AS "createdAt"`,
+      duplicate_flag AS "duplicateFlag", branch_id AS "branchId", created_at AS "createdAt"`,
     [
       input.jobVacancyId, input.applicantId, input.referrerId,
       input.submissionType, input.applicationSource,
       input.enteredByUserId || null, input.enteredByName || null,
-      input.duplicateFlag,
+      input.duplicateFlag, input.branchId,
     ]
   );
 

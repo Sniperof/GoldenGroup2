@@ -16,6 +16,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
+    "noEmitOnError": false,
     "jsx": "react-jsx",
     /* Linting - إعدادات صارمة ولكن سريعة */
     "strict": true,

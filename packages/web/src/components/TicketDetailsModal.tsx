@@ -122,7 +122,7 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                         </InfoCard>
                         <InfoCard icon={Wrench} label="الجهاز" value={ticket.deviceModelName || 'غير محدد'} />
                         <InfoCard icon={Calendar} label="التاريخ" value={`${createdDate.toLocaleDateString('ar-SY')} ${createdDate.toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' })}`} />
-                        <InfoCard icon={User} label="مستقبل المكالمة" value={ticket.callReceiver} />
+                        <InfoCard icon={User} label="مستقبل المكالمة" value={ticket.callReceiver ?? '—'} />
                         {assignedTech && (
                             <InfoCard icon={User} label="الفني المعيّن" value={assignedTech.name} />
                         )}

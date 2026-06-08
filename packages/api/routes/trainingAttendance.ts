@@ -3,7 +3,59 @@ import pool from '../db.js';
 
 const router = Router();
 
-// GET /api/admin/training-attendance?courseId=&applicationId=&date=
+/**
+ * @swagger
+ * /api/admin/training-attendance:
+ *   get:
+ *     tags: [HR → Training Attendance]
+ *     summary: Retrieve training attendance records
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: courseId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: applicationId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.get('/', async (req, res) => {
   try {
     const { courseId, applicationId, date } = req.query;
@@ -35,7 +87,41 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/admin/training-attendance — record single attendance
+/**
+ * @swagger
+ * /api/admin/training-attendance:
+ *   post:
+ *     tags: [HR → Training Attendance]
+ *     summary: Record single attendance
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [trainingCourseId, applicationId, attendanceDate, status]
+ *             properties:
+ *               trainingCourseId:
+ *                 type: integer
+ *               applicationId:
+ *                 type: integer
+ *               attendanceDate:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *                 enum: [Present, Absent]
+ *     responses:
+ *       201:
+ *         description: Created
+ */
 router.post('/', async (req, res) => {
   try {
     const { trainingCourseId, applicationId, attendanceDate, status } = req.body;
@@ -63,7 +149,47 @@ router.post('/', async (req, res) => {
   }
 });
 
-// POST /api/admin/training-attendance/bulk — bulk upsert attendance for a course on a date
+/**
+ * @swagger
+ * /api/admin/training-attendance/bulk:
+ *   post:
+ *     tags: [HR → Training Attendance]
+ *     summary: Bulk upsert attendance records
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema:
+ *           type: integer
+ *         required: false
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [trainingCourseId, attendanceDate, records]
+ *             properties:
+ *               trainingCourseId:
+ *                 type: integer
+ *               attendanceDate:
+ *                 type: string
+ *               records:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [applicationId, status]
+ *                   properties:
+ *                     applicationId:
+ *                       type: integer
+ *                     status:
+ *                       type: string
+ *                       enum: [Present, Absent]
+ *     responses:
+ *       200:
+ *         description: Success
+ */
 router.post('/bulk', async (req, res) => {
   const client = await pool.connect();
   try {
