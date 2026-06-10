@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
+import { requirePermission, resolveTargetBranchId, getOrBuildAuthContext } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
@@ -1537,11 +1537,105 @@ async function applyDevicePayloadToInstalledDevice(dbClient: any, contractId: nu
   }
 }
 
+// Plan 2026-06-10 (revised) — server-side mirror of the form's "active-required"
+// validation. Approval flips status draft→active so we must guarantee here, in
+// the transaction, that every field that ContractForm enforces for active is
+// actually populated. This protects against drafts saved before the financial
+// rule was tightened, or against clients that bypass the form entirely.
+async function collectApprovalIssues(
+  pgClient: any,
+  contractId: number,
+): Promise<string[]> {
+  const issues: string[] = [];
+  const { rows } = await pgClient.query(
+    `SELECT c.id, c.payment_type, c.sale_subtype, c.sale_source,
+            c.final_price, c.source_open_task_id,
+            c.buyer_mother_name, c.buyer_gender, c.buyer_birth_date,
+            c.buyer_national_id_registry, c.buyer_national_id_issued_by,
+            c.buyer_national_id_issue_date, c.buyer_national_id_box,
+            COALESCE(d.serial_number, c.draft_device_payload->>'serialNumber') AS serial_number,
+            COALESCE(d.installation_geo_unit_id,
+                     NULLIF(c.draft_device_payload->>'installationGeoUnitId', '')::int) AS geo_unit_id,
+            (SELECT cu.father_name FROM clients cu WHERE cu.id = c.customer_id) AS father_name,
+            (SELECT cu.national_id  FROM clients cu WHERE cu.id = c.customer_id) AS national_id
+       FROM contracts c
+       LEFT JOIN installed_devices d ON d.contract_id = c.id
+      WHERE c.id = $1`,
+    [contractId],
+  );
+  const c = rows[0];
+  if (!c) return ['العقد غير موجود'];
+
+  if (!c.serial_number || !String(c.serial_number).trim()) {
+    issues.push('الرقم التسلسلي للجهاز مطلوب');
+  }
+  if (!c.geo_unit_id) issues.push('عنوان التركيب (المحافظة + الحي) مطلوب');
+
+  const finalPrice = Number(c.final_price) || 0;
+  const subtypeWaives = c.sale_subtype === 'temporary' || c.sale_subtype === 'free';
+
+  if (!subtypeWaives) {
+    if (c.sale_source === 'device_demo_task' && !c.source_open_task_id) {
+      issues.push('زيارة عرض الجهاز المرتبطة غير محددة');
+    }
+
+    // contract_payment_entries has no `confirmed` column — an entry's mere
+    // existence in the table is the confirmation (the frontend "confirm"
+    // step is what persists the row). So we only need the sum and presence.
+    const { rows: pe } = await pgClient.query(
+      `SELECT amount_syp FROM contract_payment_entries WHERE contract_id = $1`,
+      [contractId],
+    );
+    const sumPayments = pe.reduce((s: number, r: any) => s + Number(r.amount_syp || 0), 0);
+
+    const { rows: ins } = await pgClient.query(
+      `SELECT amount_syp, confirmed FROM contract_installments WHERE contract_id = $1`,
+      [contractId],
+    );
+    const sumInstallments = ins.reduce((s: number, r: any) => s + Number(r.amount_syp || 0), 0);
+    const installmentsConfirmed = ins.length > 0 && ins.some((r: any) => r.confirmed === true);
+
+    if (c.payment_type === 'cash') {
+      if (pe.length === 0) issues.push('عقد كاش — لا توجد دفعات');
+      else if (Math.abs(sumPayments - finalPrice) > 1) {
+        issues.push(`عقد كاش — مجموع الدفعات (${sumPayments}) لا يساوي الإجمالي (${finalPrice})`);
+      }
+    } else if (c.payment_type === 'installment') {
+      if (ins.length === 0) issues.push('عقد تقسيط — لا يوجد جدول أقساط');
+      else if (!installmentsConfirmed) issues.push('عقد تقسيط — جدول الأقساط غير مؤكَّد');
+      if (Math.abs(sumPayments + sumInstallments - finalPrice) > 1) {
+        issues.push(`عقد تقسيط — مجموع الأقساط + المقدم (${sumPayments + sumInstallments}) لا يساوي الإجمالي (${finalPrice})`);
+      }
+    }
+
+    if (c.payment_type === 'installment') {
+      const legalMissing: string[] = [];
+      if (!c.father_name || !String(c.father_name).trim()) legalMissing.push('اسم الأب');
+      if (!c.national_id || !/^\d{11}$/.test(String(c.national_id).trim())) legalMissing.push('الرقم الوطني (11 رقم)');
+      if (!c.buyer_mother_name || !String(c.buyer_mother_name).trim()) legalMissing.push('اسم الأم');
+      if (!c.buyer_gender) legalMissing.push('الجنس');
+      if (!c.buyer_birth_date) legalMissing.push('تاريخ الميلاد');
+      if (!c.buyer_national_id_registry || !String(c.buyer_national_id_registry).trim()) legalMissing.push('القيد');
+      if (!c.buyer_national_id_issued_by || !String(c.buyer_national_id_issued_by).trim()) legalMissing.push('أمانة السجل');
+      if (!c.buyer_national_id_issue_date) legalMissing.push('تاريخ منح الهوية');
+      if (!c.buyer_national_id_box || !String(c.buyer_national_id_box).trim()) legalMissing.push('الخانة');
+      if (legalMissing.length > 0) {
+        issues.push(`عقد تقسيط — البيانات القانونية الناقصة: ${legalMissing.join('، ')}`);
+      }
+    }
+  }
+
+  return issues;
+}
+
 // NOTE: /approve uses requireAuth only (no requirePermission middleware) so that
 // either contracts.approve OR contracts.close is sufficient — see plan §5.
 router.post('/:id/approve', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
-  const authContext = req.authContext!;
+  // /approve skips requirePermission middleware (because either contracts.approve
+  // OR contracts.close is acceptable), so req.authContext is not pre-populated.
+  // Build it here so authorize() below has a real context to read.
+  const authContext = await getOrBuildAuthContext(req as any);
   const contractId = Number(req.params.id);
   if (!Number.isInteger(contractId) || contractId <= 0) {
     return res.status(400).json({ error: 'id غير صالح' });
@@ -1593,6 +1687,19 @@ router.post('/:id/approve', async (req, res) => {
     if (!closerId) {
       await pgClient.query('ROLLBACK');
       return res.status(400).json({ error: 'closingEmployeeId مطلوب للموافقة على العقد' });
+    }
+
+    // Plan 2026-06-10 (revised) — re-validate the contract against the
+    // active-required rules before flipping status. If anything is missing,
+    // return 400 with the per-field issue list so the UI can guide the user
+    // back to the form to complete what's needed.
+    const issues = await collectApprovalIssues(pgClient, contractId);
+    if (issues.length > 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'لا يمكن اعتماد العقد — البيانات المطلوبة غير مكتملة',
+        issues,
+      });
     }
 
     // Plan §4 — Approve is the freeze point for sale_owner_id. The approver may
@@ -1670,8 +1777,14 @@ router.post('/:id/approve', async (req, res) => {
   }
 });
 
-router.post('/:id/reject', requirePermission('contracts.approve'), async (req, res) => {
-  const authContext = req.authContext!;
+// Plan 2026-06-10 §5 — reject uses requireAuth only (no requirePermission
+// middleware) so that either contracts.approve OR contracts.close is enough,
+// matching the approve route's gating.
+router.post('/:id/reject', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
+  // Same as /approve: this route bypasses requirePermission, so build the
+  // auth context manually before calling authorize().
+  const authContext = await getOrBuildAuthContext(req as any);
   const contractId = Number(req.params.id);
   if (!Number.isInteger(contractId) || contractId <= 0) {
     return res.status(400).json({ error: 'id غير صالح' });
@@ -1691,10 +1804,11 @@ router.post('/:id/reject', requirePermission('contracts.approve'), async (req, r
     }
     const c = cur[0];
 
-    const access = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
-    if (!access.allowed) {
+    const closeAccess = authorize(authContext, { permission: 'contracts.close', branchId: c.branch_id });
+    const approveAccess = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
+    if (!closeAccess.allowed && !approveAccess.allowed) {
       await pgClient.query('ROLLBACK');
-      return res.status(403).json({ error: 'غير مسموح' });
+      return res.status(403).json({ error: 'غير مسموح — يتطلب contracts.approve أو contracts.close' });
     }
 
     if (c.status !== 'draft') {

@@ -164,6 +164,15 @@ export default function ContractDetail() {
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [closers, setClosers] = useState<any[]>([]);
   const [approvalCloserId, setApprovalCloserId] = useState<number | ''>('');
+  // Replaces window.alert() for approval/reject failures so the user gets a
+  // styled, RTL-friendly dialog with per-field issues instead of a blocking
+  // native popup.
+  const [approvalError, setApprovalError] = useState<{
+    title: string;
+    intro: string;
+    issues: string[];
+    detail?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (data && activateFinalPrice === 0) setActivateFinalPrice(Number(data.finalPrice) || 0);
@@ -177,15 +186,20 @@ export default function ContractDetail() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  // Plan 2026-06-10 §5 — approve is gated by EITHER contracts.approve OR
+  // contracts.close (the close permission was split out to let supervisors
+  // close drafts without owning the broader approve permission).
+  const canApproveDraft = hasPermission('contracts.approve') || hasPermission('contracts.close');
+
   useEffect(() => {
-    if (data?.status !== 'draft' || !hasPermission('contracts.approve')) return;
+    if (data?.status !== 'draft' || !canApproveDraft) return;
     api.employees.closers()
       .then((rows) => {
         setClosers(rows);
         if (data.closingEmployeeId) setApprovalCloserId(Number(data.closingEmployeeId));
       })
       .catch(() => setClosers([]));
-  }, [data?.status, data?.closingEmployeeId, hasPermission]);
+  }, [data?.status, data?.closingEmployeeId, canApproveDraft]);
 
   const handleCancelContract = async () => {
     if (!window.confirm('هل أنت متأكد من إلغاء هذا العقد؟')) return;
@@ -203,6 +217,35 @@ export default function ContractDetail() {
   // DEC-CT-01 follow-up:
   // Approving a draft fires the materialization triggers DB-side (211)
   // and then refreshes the contract so the UI reflects the new active state.
+  // Parses thrown Error messages of the form "API Error 400: {…json…}" into
+  // a structured payload the dialog can render. Two distinct shapes from the
+  // backend:
+  //   • 400 with `issues[]` → field-level validation failures
+  //   • 500 with `detail`   → unexpected runtime/server error
+  const parseApprovalError = (err: any, title: string): NonNullable<typeof approvalError> => {
+    const raw = String(err?.message || err || '');
+    const jsonStart = raw.indexOf('{');
+    if (jsonStart >= 0) {
+      try {
+        const parsed = JSON.parse(raw.slice(jsonStart));
+        if (Array.isArray(parsed.issues) && parsed.issues.length > 0) {
+          return {
+            title,
+            intro: parsed.error || 'لا يمكن اعتماد العقد — البيانات المطلوبة غير مكتملة',
+            issues: parsed.issues,
+          };
+        }
+        return {
+          title,
+          intro: parsed.error || title,
+          issues: [],
+          detail: parsed.detail,
+        };
+      } catch { /* fall through */ }
+    }
+    return { title, intro: title, issues: [], detail: raw };
+  };
+
   const handleApprove = async () => {
     if (!data) return;
     const selectedCloserId = Number(approvalCloserId);
@@ -214,7 +257,7 @@ export default function ContractDetail() {
         setData(fresh);
         setShowApprovalModal(false);
       } catch (err: any) {
-        alert('فشل اعتماد العقد: ' + (err.message || err));
+        setApprovalError(parseApprovalError(err, 'فشل اعتماد العقد'));
       } finally {
         setApprovalLoading(null);
       }
@@ -235,7 +278,7 @@ export default function ContractDetail() {
       setData(fresh);
       setShowApprovalModal(false);
     } catch (err: any) {
-      alert('فشل اعتماد العقد: ' + (err.message || err));
+      setApprovalError(parseApprovalError(err, 'فشل اعتماد العقد'));
     } finally {
       setApprovalLoading(null);
     }
@@ -251,7 +294,7 @@ export default function ContractDetail() {
       const fresh = await api.contracts.get(Number(id));
       setData(fresh);
     } catch (err: any) {
-      alert('فشل رفض العقد: ' + (err.message || err));
+      setApprovalError(parseApprovalError(err, 'فشل رفض العقد'));
     } finally {
       setApprovalLoading(null);
     }
@@ -380,7 +423,7 @@ export default function ContractDetail() {
                   : <> لا يوجد موظف تسكير محدد بعد.</>}
               </p>
             </div>
-            {hasPermission('contracts.approve') ? (
+            {canApproveDraft ? (
               <div className="flex items-center gap-3 shrink-0">
                 <button
                   disabled={approvalLoading !== null}
@@ -399,7 +442,7 @@ export default function ContractDetail() {
               </div>
             ) : (
               <span className="text-[11px] text-indigo-500 italic shrink-0">
-                لا تملك صلاحية الاعتماد (contracts.approve).
+                لا تملك صلاحية اعتماد العقود (contracts.approve أو contracts.close).
               </span>
             )}
           </div>
@@ -1015,6 +1058,67 @@ export default function ContractDetail() {
                   إلغاء
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {approvalError && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+          onClick={() => setApprovalError(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-t-4 border-rose-500"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xl font-bold shrink-0">!</div>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-slate-800 leading-tight">{approvalError.title}</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">{approvalError.intro}</p>
+              </div>
+            </div>
+
+            {approvalError.issues.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+                <p className="text-xs font-bold text-amber-800 mb-2">الحقول التي تحتاج إكمال:</p>
+                <ul className="text-[12px] text-amber-900 space-y-1 list-disc pr-5 leading-relaxed">
+                  {approvalError.issues.map((issue, i) => (
+                    <li key={i}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {approvalError.detail && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
+                <p className="text-[11px] font-bold text-slate-500 mb-1">التفاصيل الفنية</p>
+                <p className="text-[11px] text-slate-700 font-mono break-all leading-relaxed">{approvalError.detail}</p>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              {approvalError.issues.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setApprovalError(null);
+                    setShowApprovalModal(false);
+                    navigate(`/contracts/${id}/edit`);
+                  }}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2.5 text-sm font-bold transition-colors"
+                >
+                  فتح العقد لإكمال البيانات
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setApprovalError(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-2.5 text-sm font-bold transition-colors"
+              >
+                حسناً
+              </button>
             </div>
           </div>
         </div>

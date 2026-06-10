@@ -38,7 +38,10 @@ function attachScope(req: Request, authContext: AuthContext) {
   };
 }
 
-async function getOrBuildAuthContext(req: Request & { user: AuthUser }): Promise<AuthContext> {
+// Exported so routes that skip requirePermission (e.g. /approve, /reject —
+// gated by "either-or" permissions checked inline) can still get the same
+// cached AuthContext that the middleware would have built.
+export async function getOrBuildAuthContext(req: Request & { user: AuthUser }): Promise<AuthContext> {
   if (req.authContext) {
     return req.authContext;
   }

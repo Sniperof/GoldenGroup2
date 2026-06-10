@@ -104,6 +104,10 @@ function Section({ title, icon: Icon, children, defaultOpen = true, badge, statu
     status?: 'valid' | 'warning' | 'error';
 }) {
     const [open, setOpen] = useState(defaultOpen);
+    // overflow-hidden is only needed while the collapse height animation
+    // is running. After it finishes we drop it so descendants like the
+    // customer/device search dropdowns can render above the next section.
+    const [isAnimating, setIsAnimating] = useState(false);
     const statusColors = {
         valid: 'border-emerald-200 bg-emerald-50',
         warning: 'border-amber-200 bg-amber-50',
@@ -143,7 +147,9 @@ function Section({ title, icon: Icon, children, defaultOpen = true, badge, statu
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="overflow-hidden"
+                        onAnimationStart={() => setIsAnimating(true)}
+                        onAnimationComplete={() => setIsAnimating(false)}
+                        className={isAnimating ? 'overflow-hidden' : 'overflow-visible'}
                     >
                         <div className="px-5 pb-5 space-y-4 border-t border-gray-100 pt-4">
                             {children}
@@ -916,44 +922,87 @@ export default function ContractForm() {
     }, [installmentCount, grandTotal, totalPaidSyp, hasDownPayment, contractDate]);
 
     // ─── Validity ───
-    const isValid = useMemo(() => {
+    // Plan 2026-06-10 — return a list of human-readable issues instead of a
+    // bare boolean so the user always knows exactly which field is blocking
+    // submission. isValid is derived from the list being empty.
+    const validationIssues = useMemo<string[]>(() => {
+        const issues: string[] = [];
+
         // Base fields — required for both draft and active.
-        if (!selectedCustomer) return false;
-        if (!deviceModelId) return false;
-        if (!serialNumber.trim()) return false;
-        if (!geoSelection.govId || !geoSelection.neighborhoodId) return false;
+        if (!selectedCustomer) issues.push('اختر الزبون');
+        if (!deviceModelId) issues.push('اختر نموذج الجهاز');
+        if (!serialNumber.trim()) issues.push('أدخل الرقم التسلسلي للجهاز');
+        if (!geoSelection.govId) issues.push('اختر المحافظة في عنوان التركيب');
+        else if (!geoSelection.neighborhoodId) issues.push('اختر الحي (الموقع التفصيلي) في عنوان التركيب');
 
-        // Draft: minimum is enough; the rest is completed at approval time.
-        if (isDraftMode) return true;
+        // National ID format applies always when entered (even in draft).
+        if (!nidIsValid) issues.push('الرقم الوطني يجب أن يكون 11 رقم بالضبط');
 
-        // Active contract — full validation below.
-        if (legalMissing && !legalResolved) return false;
-        if (saleSubtype === 'temporary' || saleSubtype === 'free') {
-            return true;
-        }
-
-        // Sale contract validation
-        if (saleSource === 'device_demo_task' && !sourceTaskId.trim()) return false;
-        if (paymentType === 'cash') {
-            if (paymentEntries.length === 0) return false;
-            if (confirmedEntries.size !== paymentEntries.length) return false;
-            if (Math.abs(totalPaidSyp - grandTotal) > 1) return false;
-        }
-        if (paymentType === 'installment') {
-            if (!installmentsConfirmed) return false;
-            if (hasDownPayment) {
-                if (paymentEntries.length === 0) return false;
-                if (confirmedEntries.size !== paymentEntries.length) return false;
+        // Plan 2026-06-10 (revised) — Financials are required even for drafts.
+        // Without complete financial info the draft cannot be approved later
+        // without re-opening it; we make this a hard requirement up-front so
+        // approval from ContractDetail can succeed in one click.
+        if (saleSubtype !== 'temporary' && saleSubtype !== 'free') {
+            if (saleSource === 'device_demo_task' && !sourceTaskId.trim()) {
+                issues.push('اختر زيارة عرض الجهاز المرتبطة');
             }
-            if (Math.abs(totalInstallmentSyp + (hasDownPayment ? totalPaidSyp : 0) - grandTotal) > 1) return false;
+            if (paymentType === 'cash') {
+                if (paymentEntries.length === 0) {
+                    issues.push('عقد كاش — أضف دفعة واحدة على الأقل');
+                } else {
+                    if (confirmedEntries.size !== paymentEntries.length) {
+                        issues.push('عقد كاش — أكّد كل الدفعات المُدخَلة');
+                    }
+                    if (Math.abs(totalPaidSyp - grandTotal) > 1) {
+                        issues.push(`عقد كاش — مجموع الدفعات (${totalPaidSyp}) لا يساوي الإجمالي (${grandTotal})`);
+                    }
+                }
+            }
+            if (paymentType === 'installment') {
+                if (!installmentsConfirmed) issues.push('عقد تقسيط — أكّد جدول الأقساط');
+                if (hasDownPayment) {
+                    if (paymentEntries.length === 0) {
+                        issues.push('عقد تقسيط — أدخل دفعة المقدم');
+                    } else if (confirmedEntries.size !== paymentEntries.length) {
+                        issues.push('عقد تقسيط — أكّد دفعة المقدم');
+                    }
+                }
+                const sumDown = hasDownPayment ? totalPaidSyp : 0;
+                if (Math.abs(totalInstallmentSyp + sumDown - grandTotal) > 1) {
+                    issues.push(`عقد تقسيط — مجموع الأقساط${hasDownPayment ? ' + المقدم' : ''} (${totalInstallmentSyp + sumDown}) لا يساوي الإجمالي (${grandTotal})`);
+                }
+            }
         }
-        return true;
+
+        // Draft: financials enforced above; legal info is deferred to approval.
+        if (isDraftMode) return issues;
+
+        // Active contract — additional legal validation for installment.
+        if (legalRequiredForActive && !legalFieldsPresent) {
+            if (!fatherNameOverride.trim()) issues.push('عقد تقسيط — اسم الأب مطلوب');
+            if (!nationalIdOverride.trim()) issues.push('عقد تقسيط — الرقم الوطني مطلوب');
+            if (!buyerMotherName.trim()) issues.push('عقد تقسيط — اسم الأم مطلوب');
+            if (!buyerGender) issues.push('عقد تقسيط — الجنس مطلوب');
+            if (!buyerBirthDate) issues.push('عقد تقسيط — تاريخ الميلاد مطلوب');
+            if (!buyerNationalIdRegistry.trim()) issues.push('عقد تقسيط — القيد مطلوب');
+            if (!buyerNationalIdIssuedBy.trim()) issues.push('عقد تقسيط — أمانة السجل مطلوبة');
+            if (!buyerNationalIdIssueDate) issues.push('عقد تقسيط — تاريخ منح الهوية مطلوب');
+            if (!buyerNationalIdBox.trim()) issues.push('عقد تقسيط — الخانة مطلوبة');
+        }
+
+        // Financial validation already enforced above (applies to draft + active alike).
+        return issues;
     }, [
-        selectedCustomer, legalMissing, legalResolved, deviceModelId, serialNumber,
-        geoSelection, saleSource, sourceTaskId, paymentType, paymentEntries,
-        confirmedEntries, totalPaidSyp, grandTotal, hasDownPayment, installmentsConfirmed,
-        saleSubtype, isDraftMode, noClosingReasonId, totalInstallmentSyp, installmentDrafts
+        selectedCustomer, deviceModelId, serialNumber, geoSelection,
+        isDraftMode, nidIsValid, legalRequiredForActive, legalFieldsPresent,
+        fatherNameOverride, nationalIdOverride, buyerMotherName, buyerGender,
+        buyerBirthDate, buyerNationalIdRegistry, buyerNationalIdIssuedBy,
+        buyerNationalIdIssueDate, buyerNationalIdBox, saleSubtype, saleSource,
+        sourceTaskId, paymentType, paymentEntries, confirmedEntries,
+        totalPaidSyp, grandTotal, hasDownPayment, installmentsConfirmed,
+        totalInstallmentSyp,
     ]);
+    const isValid = validationIssues.length === 0;
 
     const handleSubmit = useCallback(async () => {
         if (!isValid || saving) return;
@@ -1223,19 +1272,28 @@ export default function ContractForm() {
                             <RotateCcw className="w-4 h-4" /><span>إعادة تعيين</span>
                         </button>
                         <button onClick={handleSubmit} disabled={!isValid || saving}
+                            title={!isValid ? validationIssues.join(' • ') : (isDraftMode ? 'حفظ كمسودة' : 'حفظ العقد')}
                             className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-bold transition-colors shadow-sm disabled:shadow-none">
-                            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>{saving ? 'جاري الحفظ...' : 'حفظ العقد'}</span>
+                            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>{saving ? 'جاري الحفظ...' : (isDraftMode ? 'حفظ كمسودة' : 'حفظ العقد')}</span>
                         </button>
                     </div>
                 </div>
-                {!paymentsValid && paymentType === 'cash' && paymentEntries.length > 0 && (
-                    <p className="text-[11px] text-red-500 text-center">يرجى تأكيد جميع الدفعات والتأكد من تطابق المجموع مع الإجمالي</p>
-                )}
-                {!paymentsValid && paymentType === 'installment' && hasDownPayment && paymentEntries.length > 0 && (
-                    <p className="text-[11px] text-red-500 text-center">يرجى تأكيد دفعة المقدم والتأكد من أنها أقل من الإجمالي</p>
-                )}
-                {paymentType === 'installment' && !installmentsConfirmed && installmentDrafts.length > 0 && (
-                    <p className="text-[11px] text-red-500 text-center">يرجى تأكيد جدول الأقساط</p>
+                {validationIssues.length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                        <div className="flex items-start gap-2">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                            <div className="flex-1">
+                                <p className="text-xs font-bold text-amber-800 mb-1">
+                                    {isDraftMode ? 'لحفظ المسودة أكمل ما يلي:' : 'لحفظ العقد كنشط أكمل ما يلي:'}
+                                </p>
+                                <ul className="text-[11px] text-amber-700 space-y-0.5 list-disc pr-4">
+                                    {validationIssues.map((issue, i) => (
+                                        <li key={i}>{issue}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
                 )}
 
                 {/* ═══════════════════════════════════════════════════════ */}
@@ -2400,61 +2458,14 @@ export default function ContractForm() {
                     </Section>
                 )}
 
-                {/* Standalone Closing Section */}
-                <Section title="تسكير العقد" icon={CheckCircle2}>
-                    <div className={`rounded-xl border px-4 py-3 text-xs ${closingEmployeeId
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-                        {closingEmployeeId
-                            ? 'تم اختيار موظف التسكير، وسيحفظ العقد كعقد معتمد.'
-                            : 'يمكن ترك موظف التسكير فارغاً، وعندها سيحفظ العقد كمسودة لحين الاعتماد لاحقاً.'}
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <Field label="موظف التسكير">
-                            <select
-                                value={closingEmployeeId}
-                                onChange={e => {
-                                    const val = e.target.value;
-                                    setClosingEmployeeId(val ? Number(val) : '');
-                                    if (val) {
-                                        setNoClosingReasonId('');
-                                    }
-                                }}
-                                className={selectClass}
-                            >
-                                <option value="">اختر الموظف...</option>
-                                {closers.map(employee => (
-                                    <option key={employee.id} value={employee.id}>
-                                        {employee.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </Field>
-
-                        <Field label="سبب عدم التسكير">
-                            <select
-                                value={noClosingReasonId}
-                                onChange={e => {
-                                    const val = e.target.value;
-                                    setNoClosingReasonId(val ? Number(val) : '');
-                                    if (val) {
-                                        setClosingEmployeeId('');
-                                    }
-                                }}
-                                className={selectClass}
-                                disabled={Boolean(closingEmployeeId)}
-                            >
-                                <option value="">اختر سبب عدم التسكير...</option>
-                                {noClosingReasons.map(reason => (
-                                    <option key={reason.id} value={reason.id}>
-                                        {reason.value}
-                                    </option>
-                                ))}
-                            </select>
-                        </Field>
-                    </div>
-
-                    <Field label="ملاحظات الفاتورة">
+                {/* Plan 2026-06-10 — Closing Section removed from the form.
+                    The form now always saves as a draft; the closing employee
+                    is chosen exclusively from the approval flow in
+                    ContractDetail.tsx (which calls POST /contracts/:id/approve
+                    with closingEmployeeId). Invoice notes moved to a small
+                    optional input near the submit button. */}
+                <Section title="ملاحظات الفاتورة" icon={CheckCircle2} defaultOpen={false}>
+                    <Field label="ملاحظات الفاتورة (اختياري)">
                         <textarea
                             value={invoiceNotes}
                             onChange={e => setInvoiceNotes(e.target.value)}
