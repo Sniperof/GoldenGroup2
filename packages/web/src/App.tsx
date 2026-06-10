@@ -16,13 +16,9 @@ import TeamScheduler from './pages/planning/TeamScheduler';
 import RouteAssigner from './pages/planning/RouteAssigner';
 import PlanOverview from './pages/planning/PlanOverview';
 import PlanningContactTargets from './pages/planning/PlanningContactTargets';
-import TodaysTasks from './pages/tasks/TodaysTasks';
 import EmergencyTasks from './pages/tasks/EmergencyTasks';
 import EmergencyTaskDetail from './pages/tasks/EmergencyTaskDetail';
 import Dues from './pages/tasks/Dues';
-import Periodic from './pages/tasks/Periodic';
-import Returns from './pages/tasks/Returns';
-import FollowUp from './pages/tasks/FollowUp';
 import DeviceManagement from './pages/DeviceManagement';
 import DeviceDetail from './pages/DeviceDetail';
 import DeviceProfilePage from './pages/devices/DeviceProfilePage'; // DEC-CT plan §2
@@ -91,13 +87,9 @@ export default function App() {
                         <Route path="/planning/overview" element={<PlanOverview />} />
                         <Route path="/planning/contact-targets/:teamKey" element={<PlanningContactTargets />} />
                         <Route path="/planning/team-tasks/:teamKey" element={<TeamTasksDetail />} />
-                        <Route path="/tasks/today" element={<TodaysTasks />} />
                         <Route path="/tasks/emergency" element={<EmergencyTasks />} />
                         <Route path="/tasks/emergency/:id" element={<EmergencyTaskDetail />} />
                         <Route path="/tasks/dues" element={<Dues />} />
-                        <Route path="/tasks/periodic" element={<Periodic />} />
-                        <Route path="/tasks/returns" element={<Returns />} />
-                        <Route path="/tasks/followup" element={<FollowUp />} />
                         <Route path="/tasks/open" element={<OpenTasks />} />
                         <Route path="/tasks/device-demo" element={<DeviceDemo />} />
                         <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />

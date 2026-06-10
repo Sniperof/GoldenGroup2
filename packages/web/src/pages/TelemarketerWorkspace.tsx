@@ -271,17 +271,21 @@ export default function TelemarketerWorkspace() {
         loadClients();
         loadData(date);
         setSelectedCustomerKey(null);
+        // Legacy bulk `api.visits.list()` removed — the modern field_visits
+        // endpoint is per-client. We load contracts/employees/etc. globally
+        // and then fetch visits for the selected customer in a dedicated
+        // effect below.
         Promise.all([
             api.contracts.list(),
-            api.visits.list(),
             api.maintenanceRequests.list(),
             api.employees.list(),
             api.geoUnits.list(),
-        ]).then(([c, v, m, e, g]) => {
-            setContracts(c); setVisits(v); setMaintenanceRequests(m); setEmployees(e); setGeoUnits(g);
+        ]).then(([c, m, e, g]) => {
+            setContracts(c); setMaintenanceRequests(m); setEmployees(e); setGeoUnits(g);
         }).catch(() => {
-            setContracts([]); setVisits([]); setMaintenanceRequests([]); setEmployees([]); setGeoUnits([]);
+            setContracts([]); setMaintenanceRequests([]); setEmployees([]); setGeoUnits([]);
         });
+        setVisits([]); // reset while a new date/customer set is loading
     }, [loadClients, loadData, date]);
 
     useEffect(() => {
@@ -449,6 +453,39 @@ export default function TelemarketerWorkspace() {
     const [crossTeamLoading, setCrossTeamLoading] = useState(false);
 
     const selectedCustomer = useMemo(() => filteredGroups.find(cg => cg.key === selectedCustomerKey) || null, [filteredGroups, selectedCustomerKey]);
+
+    // Replaces the legacy bulk `api.visits.list()` load. The new field_visits
+    // endpoint requires a clientId (or date) filter — so we fetch visits per
+    // selected customer and adapt the shape to what the timeline below
+    // expects (Visit interface in @golden-crm/shared).
+    useEffect(() => {
+        if (!selectedCustomer || selectedCustomer.entityType !== 'client') {
+            setVisits([]);
+            return;
+        }
+        let cancelled = false;
+        api.fieldVisits.list({ clientId: selectedCustomer.entityId })
+            .then((rows: any[]) => {
+                if (cancelled) return;
+                const adapted: Visit[] = (rows || []).map((fv: any) => ({
+                    id: String(fv.id),
+                    date: fv.scheduledDate || '',
+                    customerId: Number(fv.clientId) || selectedCustomer.entityId,
+                    employeeId: 0,
+                    employeeName: fv?.team?.teamName || '',
+                    outcome:
+                        fv.status === 'completed' || fv.status === 'closed'
+                            ? 'Completed'
+                            : fv.status === 'cancelled'
+                                ? 'Cancelled'
+                                : 'Pending',
+                    notes: fv.fieldNotes || undefined,
+                }));
+                setVisits(adapted);
+            })
+            .catch(() => { if (!cancelled) setVisits([]); });
+        return () => { cancelled = true; };
+    }, [selectedCustomer]);
     const selectedAppointment = useMemo(() => selectedCustomer ? getCustomerAppointment(selectedCustomer) : null, [selectedCustomer, getCustomerAppointment]);
     const selectedCrossTeamTargets = useMemo(() => {
         if (!selectedCustomer || selectedCustomer.entityType !== 'client') return [];

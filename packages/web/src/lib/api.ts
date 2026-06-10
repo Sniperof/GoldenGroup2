@@ -223,12 +223,11 @@ export const api = {
     update: (id: number, data: any) => request<any>(`/routes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/routes/${id}`, { method: 'DELETE' }),
   },
-  tasks: {
-    list: () => request<any[]>('/tasks'),
-    create: (data: any) => request<any>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: number, data: any) => request<any>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id: number) => request<any>(`/tasks/${id}`, { method: 'DELETE' }),
-  },
+  // Legacy `tasks` wrapper removed 2026-06-10 — the old monolithic `tasks`
+  // table is being retired in favour of `open_tasks` + `visit_tasks`. Pages
+  // that consumed `api.tasks.list()` (TodaysTasks/Periodic/Returns/FollowUp)
+  // were deleted in the same change. Use `api.openTasks` for current work.
+
   contracts: {
     list: (params?: { customerId?: number }) => {
       const qs = params?.customerId ? `?customerId=${params.customerId}` : '';
@@ -452,11 +451,11 @@ export const api = {
       body: JSON.stringify(data),
     }),
   },
-  visits: {
-    list: () => request<any[]>('/visits'),
-    create: (data: any) => request<any>('/visits', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: any) => request<any>(`/visits/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  },
+  // Legacy `visits` wrapper removed 2026-06-10 — replaced by `fieldVisits`
+  // (multi-stakeholder visits, FK-enforced, integer IDs). The single
+  // consumer (TelemarketerWorkspace timeline) was migrated to
+  // `api.fieldVisits.list({ clientId })` in the same change.
+
   schedules: {
     get: (date: string) => request<any>(`/schedules/${date}`),
     save: (date: string, data: any) => request<any>(`/schedules/${date}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -528,11 +527,11 @@ export const api = {
       request<any>(`/field-visits/${id}/close`, { method: 'POST' }),
     getGeo: (id: number) => request<any>(`/field-visits/${id}/geo`),
     getSource: (id: number) => request<any>(`/field-visits/${id}/source`),
-    createNameCollection: (taskId: number, data: { proposed_count: number }) =>
-      request<any>(`/field-visits/visit-tasks/${taskId}/name-collection`, { method: 'POST', body: JSON.stringify(data) }),
-    recordNames: (ncId: number, data: { actual_count: number; notes?: string }) =>
-      request<any>(`/field-visits/name-collections/${ncId}/record-names`, { method: 'PUT', body: JSON.stringify(data) }),
-    getNameCollection: (ncId: number) => request<any>(`/field-visits/name-collections/${ncId}`),
+    // Legacy name-collection wrappers removed 2026-06-10 — replaced by
+    // referral_sheets per DEC-007 D40/D41. The only consumer
+    // (NameCollectionModal.tsx) was deleted in the same change; current UI
+    // uses ReferralSheetModal via the /referral-sheets endpoints below.
+
     addDirectSuggestion: (taskId: number, data: { name: string; phone?: string; notes?: string }) =>
       request<any>(`/field-visits/visit-tasks/${taskId}/direct-suggestions`, { method: 'POST', body: JSON.stringify(data) }),
     listDirectSuggestions: (taskId: number) =>
@@ -738,8 +737,9 @@ export const api = {
         items: any[];
       }>(`/telemarketing/customer/${customerId}/all-targets-today${qs}`);
     },
-    /** @deprecated since DEC-003 D2 — use bookVisit. Kept for callers not yet migrated. */
-    createAppointment: (data: any) => request<any>('/telemarketing/appointments', { method: 'POST', body: JSON.stringify(data) }),
+    // createAppointment removed 2026-06-10 (Phase 1.2) — backend endpoint
+    // POST /telemarketing/appointments returns 410 Gone. All callers now go
+    // through bookVisit below per DEC-003 D2.
     /** DEC-003 D2 canonical booking endpoint — creates field_visit directly. */
     bookVisit: (data: {
       clientId?: number;
