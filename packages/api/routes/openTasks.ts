@@ -3573,22 +3573,12 @@ router.get('/:id/devices', requirePermission('open_tasks.view'), async (req, res
     );
     if (rows.length > 0) return res.json(rows);
 
-    // Fallback 1: telemarketing_appointments with direct open_task_id link
-    const { rows: taRows } = await pool.query(
-      `SELECT
-        ta.id,
-        ta.requested_device_model_id AS "deviceModelId",
-        ta.requested_device_name AS "deviceName",
-        1 AS quantity
-      FROM telemarketing_appointments ta
-      WHERE ta.open_task_id = $1
-        AND ta.requested_device_name IS NOT NULL
-      ORDER BY ta.created_at`,
-      [id],
-    );
-    if (taRows.length > 0) return res.json(taRows);
+    // Plan 2026-06-10 Phase 2.3 — telemarketing_appointments fallback removed.
+    // open_task_devices is 100% reliable (verified 2026-06-10: 24/24 device_demo
+    // tasks have device rows, 0 orphans). The remaining fallback below covers
+    // the field_visits.customer_snapshot path for legacy snapshots.
 
-    // Fallback 2: field_visits device name via visit_tasks link
+    // Fallback: field_visits device name via visit_tasks link
     const { rows: mvRows } = await pool.query(
       `SELECT
         fv.id,

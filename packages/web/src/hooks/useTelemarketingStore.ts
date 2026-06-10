@@ -136,15 +136,10 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
                 marketingVisitId: String(result.fieldVisitId),
             };
         } else {
-            const newAppointment: Appointment = {
-                ...appointmentInput,
-                id: simpleUUID(),
-                createdAt: new Date().toISOString(),
-            };
-            const payload = selectedTaskEntries && selectedTaskEntries.length > 0
-                ? { ...newAppointment, selectedOpenTasks: selectedTaskEntries }
-                : newAppointment;
-            saved = await api.telemarketing.createAppointment(payload);
+            // 2026-06-10 Phase 1 — candidate appointments retired (product
+            // decision Q1). Field visits live on the clients model only;
+            // candidates must be converted to clients before any booking.
+            throw new Error('يجب تحويل المرشح إلى زبون قبل حجز موعد ميداني.');
         }
 
         set((state) => ({ appointments: [...state.appointments, saved] }));

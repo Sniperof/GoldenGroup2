@@ -91,18 +91,22 @@ const marketingTargetSelect = `
     ORDER BY r.id ASC
     LIMIT 1
   ) route_match ON TRUE
+  -- Plan 2026-06-10 Phase 2.1 — read "latest appointment" from field_visits
+  -- (origin_type='telemarketing') instead of the legacy telemarketing_appointments
+  -- table. The 3 historic rows were migrated to field_visits in Phase 0
+  -- (migration 270) so this LATERAL is now the single source of truth.
   LEFT JOIN LATERAL (
     SELECT json_build_object(
-      'id', a.id,
-      'date', a.date,
-      'timeSlot', a.time_slot,
-      'teamKey', a.team_key
+      'id', fv.id,
+      'date', fv.scheduled_date,
+      'timeSlot', fv.scheduled_time,
+      'teamKey', fv.team_snapshot->>'teamKey'
     ) AS "latestAppointment"
-    FROM telemarketing_appointments a
-    WHERE a.entity_type = 'client'
-      AND a.entity_id = c.id
-      AND a.branch_id = ct.branch_id
-    ORDER BY a.created_at DESC
+    FROM field_visits fv
+    WHERE fv.origin_type = 'telemarketing'
+      AND fv.client_id = c.id
+      AND fv.branch_id = ct.branch_id
+    ORDER BY fv.created_at DESC
     LIMIT 1
   ) latest_appointment ON TRUE
   WHERE ct.branch_id = $1

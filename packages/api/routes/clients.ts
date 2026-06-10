@@ -1685,13 +1685,11 @@ router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
     );
     await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
     await pool.query('DELETE FROM contact_targets WHERE target_type = $1 AND target_id = $2', ['client', clientId]);
-    await pool.query(
-      `UPDATE telemarketing_appointments
-       SET status = 'cancelled', updated_at = NOW()
-       WHERE entity_type = 'client' AND entity_id = $1
-         AND status NOT IN ('cancelled', 'completed')`,
-      [clientId],
-    );
+    // Plan 2026-06-10 Phase 2.5 — the UPDATE on telemarketing_appointments
+    // that used to live here was dead code (column `status` does not exist
+    // on that table; the query would error silently on production). Removed
+    // as part of the telemarketing_appointments retirement. The legacy table
+    // is being frozen in Phase 4, so no cascade is needed here anyway.
     await pool.query(
       `UPDATE clients
        SET deleted_at = NOW(), deleted_by = $1, is_active = FALSE

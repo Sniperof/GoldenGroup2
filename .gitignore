@@ -18,6 +18,9 @@ logs/
 tmp/
 *.log
 
+# local DB snapshots / dumps (taken before migrations for rollback)
+db-snapshots/
+
 # secrets
 *.pem
 *.key

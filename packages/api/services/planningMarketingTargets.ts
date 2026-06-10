@@ -634,18 +634,21 @@ export async function getPlanningMarketingTargets(params: {
        -- DEC-005 D30: target_stage / source_type dropped (or pinned to 'lead'
        -- via CHECK). The JOIN no longer references them.
        AND contact_target.visit_type = 'marketing'
+      -- Plan 2026-06-10 Phase 2.2 — switched from telemarketing_appointments
+      -- to field_visits (origin_type='telemarketing'). Mirrors the same
+      -- migration in routes/contactTargets.ts.
       LEFT JOIN LATERAL (
         SELECT json_build_object(
-          'id', a.id,
-          'date', a.date,
-          'timeSlot', a.time_slot,
-          'teamKey', a.team_key
+          'id', fv.id,
+          'date', fv.scheduled_date,
+          'timeSlot', fv.scheduled_time,
+          'teamKey', fv.team_snapshot->>'teamKey'
         ) AS "latestAppointment"
-        FROM telemarketing_appointments a
-        WHERE a.entity_type = 'client'
-          AND a.entity_id = c.id
-          AND a.branch_id = c.branch_id
-        ORDER BY a.created_at DESC
+        FROM field_visits fv
+        WHERE fv.origin_type = 'telemarketing'
+          AND fv.client_id = c.id
+          AND fv.branch_id = c.branch_id
+        ORDER BY fv.created_at DESC
         LIMIT 1
       ) latest_appointment ON TRUE
       LEFT JOIN telemarketing_task_lists daily_tl
