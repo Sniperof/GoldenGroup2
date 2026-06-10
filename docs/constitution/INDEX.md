@@ -105,6 +105,7 @@
 |---|---|---|
 | 2026-05-11 | [handoffs/2026-05-11-planning-appointments-handoff.md](handoffs/2026-05-11-planning-appointments-handoff.md) | Planning & Appointments |
 | 2026-05-12 | [handoffs/2026-05-12-p1-p4-findings-handoff.md](handoffs/2026-05-12-p1-p4-findings-handoff.md) | P1-P4 Findings |
+| 2026-06-10 | [handoffs/2026-06-10-legacy-cleanup-handoff.md](handoffs/2026-06-10-legacy-cleanup-handoff.md) | تنظيف Legacy + Phase 0-2 telemarketing_appointments + Action items لـ 2026-06-24 |
 
 ---
 
@@ -204,3 +205,4 @@
 |---|---|---|
 | 2026-05-11 | [handoffs/2026-05-11-planning-appointments-handoff.md](handoffs/2026-05-11-planning-appointments-handoff.md) | Planning & Appointments |
 | 2026-05-12 | [handoffs/2026-05-12-p1-p4-findings-handoff.md](handoffs/2026-05-12-p1-p4-findings-handoff.md) | P1-P4 Findings |
+| 2026-06-10 | [handoffs/2026-06-10-legacy-cleanup-handoff.md](handoffs/2026-06-10-legacy-cleanup-handoff.md) | تنظيف Legacy + Phase 0-2 telemarketing_appointments + Action items لـ 2026-06-24 |

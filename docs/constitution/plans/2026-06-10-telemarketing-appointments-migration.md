@@ -1,6 +1,8 @@
 # خطة ترحيل `telemarketing_appointments` — 2026-06-10
 
-> **الحالة:** ⏳ قيد التنفيذ — Phase 0 + 1 في الجلسة 2026-06-10.
+> **الحالة:** ⏳ قيد التنفيذ — Phase 0 + 1 + 2 مكتملة (commit `be52055`). Phase 3 (soak) جارٍ.
+> **Soak يبدأ:** 2026-06-10. السماح بـ Phase 4 من: **2026-06-24**.
+> **راجع:** [`handoffs/2026-06-10-legacy-cleanup-handoff.md`](../handoffs/2026-06-10-legacy-cleanup-handoff.md) §4 للـ action items التفصيلية.
 > **قرارات صاحب المنتج (Ibrahim، 2026-06-10):**
 > 1. ❌ لا ندعم حجز candidates — يُحوَّل لزبون أولاً
 > 2. 🗑️ Phase 5 (DROP بعد الأرشفة) ضمن النطاق

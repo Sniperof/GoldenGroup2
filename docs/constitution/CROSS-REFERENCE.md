@@ -471,9 +471,31 @@ erDiagram
 
 ## 6. الجداول اللي لساتون Legacy أو Deprecated
 
-| الجدول | البديل | الحالة |
+> **آخر مزامنة: 2026-06-10** — راجع [`handoffs/2026-06-10-legacy-cleanup-handoff.md`](handoffs/2026-06-10-legacy-cleanup-handoff.md) لتفاصيل التنفيذ.
+
+| الجدول | البديل | الحالة الحالية | الخطوة التالية |
+|---|---|---|---|
+| `assigned_hr_user_id` (clients) | `client_assignments` | ✅ **DROPped** (migration 269، 2026-06-10) | لا شيء — مكتمل |
+| `tasks` | `open_tasks` + `visit_tasks` | 🟡 **Frontend + routes تم فصلهم** (commit dc1b2f6). الجدول و routes/tasks.ts موجودان على القرص. n_live_tup=0 | بعد 14 يوم staging مستقر → migration 271: DROP TABLE + حذف routes/tasks.ts + حذف 4 صلاحيات (tasks.view_list/create/edit/delete) |
+| `visits` | `field_visits` | 🟡 **Frontend + routes تم فصلهم** (commit dc1b2f6). الجدول و routes/visits.ts موجودان على القرص. n_live_tup=0 | بعد 14 يوم staging مستقر → migration 271: DROP TABLE + حذف routes/visits.ts |
+| `visit_name_collections` | `referral_sheets` (DEC-007 D40/D41) | 🟡 **Endpoints تردّ 410 Gone، Modal محذوف** (commit dc1b2f6). الجدول معزول. n_live_tup=0 | بعد 14 يوم staging مستقر → migration 272: DROP TABLE + حذف 3 stubs في fieldVisits.ts |
+| `marketing_visits` | `field_visits` | ✅ **DROPped سابقاً** (migration 152) | لا شيء — مكتمل |
+| `telemarketing_appointments` | `field_visits` (origin_type='telemarketing') | 🟡 **Phase 0-2 مكتملتان** (commit be52055): 3 صفوف تاريخية مهاجَرة، writes موقوفة، reads مُحوَّلة. الجدول معزول runtime لكن البيانات موجودة | راجع §6.1 — Phase 3/4/5 موثَّقة في [`plans/2026-06-10-telemarketing-appointments-migration.md`](plans/2026-06-10-telemarketing-appointments-migration.md) |
+| `emergency_result_costs`, `emergency_result_parts`, `emergency_payment_entries`, `emergency_installments` | معالَجة موحَّدة عبر open_tasks payload | ⛔ **خارج نطاق التنظيف** (قرار صاحب المنتج 2026-06-10) | جلسة منفصلة |
+
+### 6.1 المراحل المتبقية لـ `telemarketing_appointments`
+
+| المرحلة | الزمن | الإجراء |
 |---|---|---|
-| `tasks` | `open_tasks` + `visit_tasks` | ⚠️ قديم — بده migration |
-| `visits` | `field_visits` | ⚠️ قديم — بده migration |
-| `marketing_visits` | `field_visits` | ⚠️ قديم — migration جارية |
-| `assigned_hr_user_id` (clients) | `client_assignments` | ⚠️ deprecated — لازم يُحذف |
+| **Phase 3 — Soak** | 14 يوم من 2026-06-10 (حتى 2026-06-24) | مراقبة `pg_stat_user_tables` للجدول. أي `n_tup_ins > 28` أو `idx_scan > 7128` يكشف مرجعاً مفقوداً |
+| **Phase 4 — Freeze** | يوم واحد بعد Phase 3 الناجح | trigger `BEFORE INSERT/UPDATE/DELETE` يرفع EXCEPTION + COMMENT توثيقي + view archive |
+| **Phase 5 — DROP** | 30 يوم بعد Phase 4 | `pg_dump --table` للأرشيف الخارجي، ثم `DROP TABLE` |
+
+### 6.2 جدول الـ migrations المتوقعة (بعد soak)
+
+| رقم | عنوان | المُحفِّز |
+|---|---|---|
+| 271 | `drop_legacy_tasks_and_visits.sql` | 14 يوم بعد 2026-06-10 |
+| 272 | `drop_visit_name_collections.sql` | 14 يوم بعد 2026-06-10 |
+| 273 | `freeze_telemarketing_appointments_readonly.sql` | 14 يوم بعد 2026-06-10 (Phase 4) |
+| 274 | `drop_telemarketing_appointments.sql` | 30 يوم بعد migration 273 (Phase 5) |
