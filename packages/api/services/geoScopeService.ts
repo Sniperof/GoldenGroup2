@@ -41,9 +41,7 @@ export async function resolveGeoScope(
   allUnits?: GeoUnitRow[],
 ): Promise<GeoScope | null> {
   if (authContext.isSuperAdmin) {
-    if (authContext.actingBranchId == null) {
-      return null;
-    }
+    return null;
   } else {
     const check = authorize(authContext, { permission });
     if (!check.allowed || check.grant?.scope === 'GLOBAL') {
