@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -10,9 +10,11 @@ import {
     ExternalLink, Smartphone, Clipboard, Loader2
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useAuthStore } from '../../hooks/useAuthStore';
 import MapPicker from '../../components/MapPicker';
-import GeoSmartSearch from '../../components/GeoSmartSearch';
+import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathToSelection } from '../../components/GeoSmartSearch';
 import type { GeoSelection } from '../../components/GeoSmartSearch';
+import type { GeoUnit } from '../../lib/types';
 import type { ClientReferrer } from '@golden-crm/shared';
 
 /* ------------------------------------------------------------------ */
@@ -181,6 +183,8 @@ export default function ContractForm() {
     const navigate = useNavigate();
     const { id: editId } = useParams<{ id: string }>();
     const isEdit = Boolean(editId);
+    const currentUser = useAuthStore(s => s.user);
+    const hasPermission = useAuthStore(s => s.hasPermission);
     // ─── API Data ───
     const [customers, setCustomers] = useState<MockCustomer[]>([]);
     const [deviceModels, setDeviceModels] = useState<any[]>([]);
@@ -211,6 +215,7 @@ export default function ContractForm() {
     const [selectedOfferTaskId, setSelectedOfferTaskId] = useState<string | null>(null);
 
     useEffect(() => {
+        setCanAssignSaleOwner(hasPermission('contracts.assign_sale_owner'));
         const baseRequests: Promise<any>[] = [
             api.clients.list(),
             api.deviceModels.list(),
@@ -219,11 +224,13 @@ export default function ContractForm() {
             api.employees.closers(),
             api.systemLists.list({ category: 'no_closing_reasons' }),
             api.systemLists.list({ category: 'contract_sale_source' }),
+            api.employees.list().catch(() => []),
         ];
         if (isEdit && editId) baseRequests.push(api.contracts.get(Number(editId)));
 
         Promise.all(baseRequests)
-            .then(([clientsData, modelsData, geoData, partsData, closersData, reasonsData, sourcesData, existingContract]) => {
+            .then(([clientsData, modelsData, geoData, partsData, closersData, reasonsData, sourcesData, employeesData, existingContract]) => {
+                setBranchEmployees(Array.isArray(employeesData) ? employeesData : []);
                 const mappedCustomers = clientsData.map((c: any) => ({
                     id: c.id,
                     name: c.name,
@@ -283,17 +290,43 @@ export default function ContractForm() {
                     setBuyerNationalIdIssuedBy(c.buyerNationalIdIssuedBy || '');
                     setBuyerNationalIdIssueDate(c.buyerNationalIdIssueDate?.slice(0, 10) || '');
                     setBuyerNationalIdBox(c.buyerNationalIdBox || '');
-                    setGeoSelection({
-                        govId: String(c.governorateId || ''),
-                        regionId: String(c.regionId || ''),
-                        subId: String(c.subDistrictId || ''),
-                        neighborhoodId: String(c.neighborhoodId || c.installationGeoUnitId || ''),
-                    });
+
+                    // Plan §2.1 — reconstruct full geo selection from the single
+                    // installationGeoUnitId returned by the API. The contract API
+                    // does not return the full geo hierarchy, so we walk up the
+                    // tree locally using the geoUnits already loaded.
+                    const leafGeoId = Number(c.installationGeoUnitId || 0);
+                    if (leafGeoId > 0) {
+                        const unitsMap = new Map<number, GeoUnit>();
+                        (geoData as GeoUnit[]).forEach(u => unitsMap.set(u.id, u));
+                        const leaf = unitsMap.get(leafGeoId);
+                        if (leaf) {
+                            const path = buildGeoPath(leaf, unitsMap);
+                            setGeoSelection(geoPathToSelection(path));
+                        } else {
+                            setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: String(leafGeoId) });
+                        }
+                    }
+
                     if (c.customerId) {
                         const match = mappedCustomers.find((m: any) => m.id === c.customerId);
                         if (match) setSelectedCustomer(match);
                     }
-                    if (c.selectedDiscountId) setSelectedDiscountId(c.selectedDiscountId);
+
+                    // Plan §2.2 — discount: API returns discountId / appliedDeviceDiscountId,
+                    // not selectedDiscountId. Read the correct field.
+                    const restoredDiscountId = c.appliedDeviceDiscountId ?? c.discountId ?? null;
+                    if (restoredDiscountId) setSelectedDiscountId(Number(restoredDiscountId));
+
+                    // Plan §2.3 — warranty months/visits. The device-change effect
+                    // (zeroing logic below) is now opt-out on initial load so this
+                    // value survives.
+                    if (c.warrantyMonths) setWarrantyMonths(Number(c.warrantyMonths) || 0);
+                    if (c.warrantyVisits) setWarrantyVisits(Number(c.warrantyVisits) || 0);
+
+                    // Plan §4 — sale owner (the deal originator).
+                    if (c.saleOwnerId) setSaleOwnerId(Number(c.saleOwnerId));
+
                     if (Array.isArray(c.lineItems)) setLineItems(c.lineItems.map((li: any) => ({
                         itemType: li.itemType,
                         description: li.description,
@@ -317,6 +350,20 @@ export default function ContractForm() {
                         }));
                         setPaymentEntries(entries);
                         setConfirmedEntries(new Set(entries.map((_, i) => i)));
+                        setHasDownPayment(true);
+                    }
+
+                    // Plan §2.4 — installment drafts. The schedule and its confirmed
+                    // state must be restored or the user can never re-save a TPL contract.
+                    if (Array.isArray(c.installments) && c.installments.length > 0) {
+                        setInstallmentDrafts(c.installments.map((inst: any) => ({
+                            id: inst.id,
+                            installmentNumber: inst.installmentNumber,
+                            dueDate: inst.dueDate?.slice(0, 10) || '',
+                            amountSyp: String(inst.amountSyp || 0),
+                        })));
+                        setInstallmentsConfirmed(c.installments.some((i: any) => i.confirmed));
+                        setInstallmentCount(String(c.installments.length));
                     }
                 }
             })
@@ -374,6 +421,14 @@ export default function ContractForm() {
     const [closingEmployeeId, setClosingEmployeeId] = useState<number | ''>('');
     const [invoiceNotes, setInvoiceNotes] = useState('');
 
+    // Plan 2026-06-10 §4 — sale_owner_id is the deal originator and may differ
+    // from the data-entry user. Defaults to the latest device-demo team leader
+    // for the client when one exists; otherwise stays empty (= data-entry user
+    // on save). Editable while draft and frozen at approval time.
+    const [saleOwnerId, setSaleOwnerId] = useState<number | ''>('');
+    const [branchEmployees, setBranchEmployees] = useState<any[]>([]);
+    const [canAssignSaleOwner, setCanAssignSaleOwner] = useState(false);
+
     // ─── 5. Discounts & Line Items ───
     const [spareParts, setSpareParts] = useState<any[]>([]);
     const [deviceDiscounts, setDeviceDiscounts] = useState<any[]>([]);
@@ -398,9 +453,20 @@ export default function ContractForm() {
     }, [deviceModelId]);
 
     // ─── Effect: reset warranty selection when device changes ───
+    // Plan §2.3 — On edit mode initial load, the device id is set from the saved
+    // contract and we must NOT zero the warranty values we just restored. Only
+    // genuine user-driven device changes (subsequent transitions) should reset.
+    const prevDeviceModelIdRef = useRef<number | '' | null>(null);
     useEffect(() => {
-        setWarrantyMonths(0);
-        setWarrantyVisits(0);
+        if (prevDeviceModelIdRef.current === null) {
+            prevDeviceModelIdRef.current = deviceModelId;
+            return;
+        }
+        if (prevDeviceModelIdRef.current !== deviceModelId) {
+            setWarrantyMonths(0);
+            setWarrantyVisits(0);
+            prevDeviceModelIdRef.current = deviceModelId;
+        }
     }, [deviceModelId]);
 
     // ─── Effect: auto-update device line item ───
@@ -434,8 +500,19 @@ export default function ContractForm() {
     }, [selectedDevice, selectedDiscountId, deviceDiscounts, isOfferLocked, saleSubtype, selectedOffer, deviceModelId]);
 
     // ─── Effect: auto-populate legal fields from selected customer ───
+    // Plan §2 — In edit mode the buyer info was frozen on the contract and
+    // restored above; do NOT overwrite it with the current client profile,
+    // which may have diverged. Only run the auto-populate when the user
+    // picks a customer manually (after the initial restore window closes).
+    const customerAutoPopulateLockedRef = useRef<boolean>(isEdit);
     useEffect(() => {
         if (!selectedCustomer) return;
+        if (customerAutoPopulateLockedRef.current) {
+            // First selection in edit mode is the restored client — unlock so any
+            // subsequent (rare) customer change still auto-populates as before.
+            customerAutoPopulateLockedRef.current = false;
+            return;
+        }
         setBuyerBirthDate(selectedCustomer.birthDate?.slice(0, 10) || '');
         setBuyerGender(selectedCustomer.gender || '');
         setBuyerMotherName(selectedCustomer.motherName || '');
@@ -446,7 +523,7 @@ export default function ContractForm() {
         setFatherNameOverride(selectedCustomer.fatherName || '');
         setNationalIdOverride(selectedCustomer.nationalId || '');
         setSelectedReferrerIds([]);
-    }, [selectedCustomer]);
+    }, [selectedCustomer, isEdit]);
 
     const getTaskSourceOpenTaskId = (task: any) =>
         task?.sourceOpenTaskId ?? task?.source_open_task_id ?? task?.source_open_taskId ?? null;
@@ -524,6 +601,24 @@ export default function ContractForm() {
                     getTaskOffers(task).some(isAcceptedUnlinkedOffer)
                 );
                 setClientTasks(filteredTasks);
+
+                // Plan 2026-06-10 §4 — auto-fill sale_owner_id with the latest
+                // device-demo team supervisor (مسؤول الفريق) regardless of saleSource.
+                // Only apply when the field is still empty (create mode) so we
+                // never clobber a restored value or an explicit user pick.
+                if (!isEdit) {
+                    const tasksWithTeam = detailedTasks
+                        .filter((t: any) => t?.teamSnapshot?.supervisor?.id)
+                        .sort((a: any, b: any) => {
+                            const da = new Date(a.completedAt || a.updatedAt || a.createdAt || 0).getTime();
+                            const db = new Date(b.completedAt || b.updatedAt || b.createdAt || 0).getTime();
+                            return db - da;
+                        });
+                    const leaderId = tasksWithTeam[0]?.teamSnapshot?.supervisor?.id;
+                    if (leaderId) {
+                        setSaleOwnerId(prev => prev === '' ? Number(leaderId) : prev);
+                    }
+                }
             })
             .catch((err: any) => console.error('Failed to load client tasks & visits:', err))
             .finally(() => setLoadingTasks(false));
@@ -768,11 +863,34 @@ export default function ContractForm() {
             .slice(0, 25);
     }, [customerSearch, customers, showCustomerDropdown]);
 
-    // Legal info missing?
-    const needsFatherName = selectedCustomer && !selectedCustomer.fatherName;
-    const needsNationalId = selectedCustomer && !selectedCustomer.nationalId;
-    const legalMissing = needsFatherName || needsNationalId;
-    const legalResolved = (!needsFatherName || fatherNameOverride.trim().length > 0) && (!needsNationalId || nationalIdOverride.trim().length > 0);
+    // Plan 2026-06-10 §1 — mirror backend deriveContractStatus:
+    // a contract with no closing employee is saved as a draft, which DEC-CT-01
+    // declares to have zero side effects. Drafts therefore need only the minimal
+    // fields required to identify the deal; full validation kicks in only for
+    // active contracts.
+    const isDraftMode = !closingEmployeeId;
+
+    // Plan 2026-06-10 §3 — legal info constraint is governed by payment type:
+    //   • cash (active)    → documentary only, all 9 optional
+    //   • installment      → legally binding, all 9 required
+    //   • draft            → always optional (completed at approval time)
+    // National ID, if entered, must be exactly 11 digits — this rule is
+    // independent of required-ness ("if you enter something it must be valid").
+    const nidIsValid = nationalIdOverride.trim().length === 0 || /^\d{11}$/.test(nationalIdOverride.trim());
+    const legalRequiredForActive = !isDraftMode && paymentType === 'installment'
+        && saleSubtype !== 'temporary' && saleSubtype !== 'free';
+    const legalFieldsPresent =
+        fatherNameOverride.trim().length > 0
+        && nationalIdOverride.trim().length > 0
+        && buyerMotherName.trim().length > 0
+        && Boolean(buyerGender)
+        && buyerBirthDate.length > 0
+        && buyerNationalIdRegistry.trim().length > 0
+        && buyerNationalIdIssuedBy.trim().length > 0
+        && buyerNationalIdIssueDate.length > 0
+        && buyerNationalIdBox.trim().length > 0;
+    const legalMissing = legalRequiredForActive;
+    const legalResolved = legalRequiredForActive ? (legalFieldsPresent && nidIsValid) : nidIsValid;
 
     const formatPrice = (n: number) => `${String(n)} ل.س`;
 
@@ -799,12 +917,17 @@ export default function ContractForm() {
 
     // ─── Validity ───
     const isValid = useMemo(() => {
+        // Base fields — required for both draft and active.
         if (!selectedCustomer) return false;
-        if (legalMissing && !legalResolved) return false;
         if (!deviceModelId) return false;
         if (!serialNumber.trim()) return false;
         if (!geoSelection.govId || !geoSelection.neighborhoodId) return false;
 
+        // Draft: minimum is enough; the rest is completed at approval time.
+        if (isDraftMode) return true;
+
+        // Active contract — full validation below.
+        if (legalMissing && !legalResolved) return false;
         if (saleSubtype === 'temporary' || saleSubtype === 'free') {
             return true;
         }
@@ -829,7 +952,7 @@ export default function ContractForm() {
         selectedCustomer, legalMissing, legalResolved, deviceModelId, serialNumber,
         geoSelection, saleSource, sourceTaskId, paymentType, paymentEntries,
         confirmedEntries, totalPaidSyp, grandTotal, hasDownPayment, installmentsConfirmed,
-        saleSubtype, closingEmployeeId, noClosingReasonId, totalInstallmentSyp, installmentDrafts
+        saleSubtype, isDraftMode, noClosingReasonId, totalInstallmentSyp, installmentDrafts
     ]);
 
     const handleSubmit = useCallback(async () => {
@@ -893,6 +1016,9 @@ export default function ContractForm() {
                 sourceOpenTaskId: sourceOpenTaskId || null,
                 sourceTaskOfferId: sourceTaskOfferId || null,
                 saleReferenceNumber: saleReferenceNumber || null,
+                // Plan 2026-06-10 §4 — sale_owner_id = deal originator
+                // (defaults to data-entry user on backend when null).
+                saleOwnerId: saleOwnerId ? Number(saleOwnerId) : null,
                 lineItems: isFreeSale ? [] : lineItems.map(item => ({
                     itemType: item.itemType,
                     sparePartId: item.sparePartId || null,
@@ -952,7 +1078,10 @@ export default function ContractForm() {
         paymentType, grandTotal, basePrice, installmentDrafts, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
         nationalIdOverride, saleSubtype, selectedReferrerIds, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber,
-        selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, navigate
+        selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, saleOwnerId, navigate,
+        warrantyMonths, warrantyVisits, deliveryDate, installationDate,
+        buyerBirthDate, buyerGender, buyerMotherName, buyerNationalIdRegistry,
+        buyerNationalIdIssuedBy, buyerNationalIdIssueDate, buyerNationalIdBox,
     ]);
 
     const handleSaleSubtypeChange = (subtype: 'definitive' | 'temporary' | 'free') => {
@@ -993,6 +1122,9 @@ export default function ContractForm() {
         setSaleReferenceNumber(null);
         setSelectedOfferVisitId(null);
         setSelectedOfferTaskId(null);
+        setSaleOwnerId('');
+        setWarrantyMonths(0);
+        setWarrantyVisits(0);
     };
 
     const handleLocationSelect = useCallback((lat: number, lng: number) => {
@@ -1171,103 +1303,165 @@ export default function ContractForm() {
                         </div>
                     </Field>
 
-                    {/* Unified legal identity section — always shown when a customer is selected */}
-                    {selectedCustomer && (
-                        <div className={`rounded-xl border p-4 space-y-3 ${legalMissing && !legalResolved ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                    {legalMissing && !legalResolved
-                                        ? <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                                        : <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                                    }
-                                    <span className={`text-xs font-bold ${legalMissing && !legalResolved ? 'text-amber-700' : 'text-slate-600'}`}>
-                                        البيانات القانونية للعقد
-                                    </span>
-                                </div>
-                                {legalMissing && legalResolved && (
-                                    <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
-                                        <CheckCircle2 className="w-3.5 h-3.5" /> تم استكمال البيانات
-                                    </span>
-                                )}
-                            </div>
+                    {/* Plan §3 — Unified legal identity section. Required-ness is
+                        driven by payment type: cash = documentary (all optional);
+                        installment = legally binding (all 9 required). Drafts
+                        always treat this section as optional. */}
+                    {selectedCustomer && (() => {
+                        const required = legalRequiredForActive;
+                        const inputCls = (filled: boolean) => required && !filled
+                            ? 'w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm placeholder:text-amber-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/10 focus:outline-none'
+                            : inputClass;
+                        const labelCls = (filled: boolean) => `text-[11px] font-semibold ${required && !filled ? 'text-amber-700' : 'text-slate-600'}`;
+                        const star = (filled: boolean) => required && !filled ? <span className="text-red-400">*</span> : null;
+                        const nidFilled = nationalIdOverride.trim().length > 0;
+                        const nidLengthWrong = nidFilled && !nidIsValid;
+                        const sectionColor = required && !legalFieldsPresent
+                            ? 'bg-amber-50 border-amber-200'
+                            : 'bg-slate-50 border-slate-200';
 
-                            <div className="grid grid-cols-2 gap-3">
-                                {/* اسم الأب — required; amber-styled if missing */}
-                                <div className="space-y-1">
-                                    <label className={`text-[11px] font-semibold ${needsFatherName ? 'text-amber-700' : 'text-slate-600'}`}>
-                                        اسم الأب {needsFatherName && <span className="text-red-400">*</span>}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={fatherNameOverride}
-                                        onChange={e => setFatherNameOverride(e.target.value)}
-                                        placeholder={needsFatherName ? 'مطلوب لإتمام العقد' : 'اسم الأب'}
-                                        className={needsFatherName
-                                            ? 'w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm placeholder:text-amber-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/10 focus:outline-none'
-                                            : inputClass}
-                                    />
-                                </div>
-
-                                {/* رقم الهوية — required; amber-styled if missing */}
-                                <div className="space-y-1">
-                                    <label className={`text-[11px] font-semibold ${needsNationalId ? 'text-amber-700' : 'text-slate-600'}`}>
-                                        رقم الهوية الوطنية {needsNationalId && <span className="text-red-400">*</span>}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={nationalIdOverride}
-                                        onChange={e => setNationalIdOverride(e.target.value)}
-                                        placeholder={needsNationalId ? 'مطلوب لإتمام العقد' : 'رقم الهوية'}
-                                        dir="ltr"
-                                        className={needsNationalId
-                                            ? 'w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm font-mono placeholder:text-amber-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/10 focus:outline-none'
-                                            : `${inputClass} font-mono`}
-                                    />
-                                </div>
-
-                                <Field label="الجنس">
-                                    <div className="flex gap-2">
-                                        <button type="button" onClick={() => setBuyerGender(buyerGender === 'male' ? '' : 'male')}
-                                            className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${buyerGender === 'male' ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-slate-500'}`}>
-                                            ذكر
-                                        </button>
-                                        <button type="button" onClick={() => setBuyerGender(buyerGender === 'female' ? '' : 'female')}
-                                            className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${buyerGender === 'female' ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-slate-500'}`}>
-                                            أنثى
-                                        </button>
+                        return (
+                            <div className={`rounded-xl border p-4 space-y-3 ${sectionColor}`}>
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        {required && !legalFieldsPresent
+                                            ? <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                            : <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                                        }
+                                        <span className={`text-xs font-bold ${required && !legalFieldsPresent ? 'text-amber-700' : 'text-slate-600'}`}>
+                                            البيانات القانونية للعقد
+                                        </span>
                                     </div>
-                                </Field>
+                                    <span className="text-[10px] text-slate-400">
+                                        {isDraftMode
+                                            ? 'مسودة — البيانات اختيارية وتُكمل عند الاعتماد'
+                                            : required
+                                                ? 'مطلوبة لعقد التقسيط'
+                                                : 'توثيقية — اختيارية في عقد الكاش'}
+                                    </span>
+                                </div>
 
-                                <Field label="تاريخ الميلاد">
-                                    <input type="date" value={buyerBirthDate} onChange={e => setBuyerBirthDate(e.target.value)} className={inputClass} />
-                                </Field>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {/* صف 1: الأب | الأم */}
+                                    <div className="space-y-1">
+                                        <label className={labelCls(fatherNameOverride.trim().length > 0)}>
+                                            اسم الأب {star(fatherNameOverride.trim().length > 0)}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={fatherNameOverride}
+                                            onChange={e => setFatherNameOverride(e.target.value)}
+                                            placeholder="اسم الأب"
+                                            className={inputCls(fatherNameOverride.trim().length > 0)}
+                                        />
+                                    </div>
 
-                                <Field label="اسم الأم">
-                                    <input type="text" value={buyerMotherName} onChange={e => setBuyerMotherName(e.target.value)}
-                                        placeholder="اسم الأم" className={inputClass} />
-                                </Field>
+                                    <div className="space-y-1">
+                                        <label className={labelCls(buyerMotherName.trim().length > 0)}>
+                                            اسم الأم {star(buyerMotherName.trim().length > 0)}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={buyerMotherName}
+                                            onChange={e => setBuyerMotherName(e.target.value)}
+                                            placeholder="اسم الأم"
+                                            className={inputCls(buyerMotherName.trim().length > 0)}
+                                        />
+                                    </div>
 
-                                <Field label="القيد">
-                                    <input type="text" value={buyerNationalIdRegistry} onChange={e => setBuyerNationalIdRegistry(e.target.value)}
-                                        placeholder="رقم القيد" className={inputClass} />
-                                </Field>
+                                    {/* صف 2: الرقم الوطني | الجنس */}
+                                    <div className="space-y-1">
+                                        <label className={`${labelCls(nidFilled && !nidLengthWrong)} ${nidLengthWrong ? 'text-red-600' : ''}`}>
+                                            الرقم الوطني (11 رقم) {star(nidFilled && !nidLengthWrong)}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={nationalIdOverride}
+                                            onChange={e => setNationalIdOverride(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                                            placeholder="11 رقم"
+                                            dir="ltr"
+                                            maxLength={11}
+                                            inputMode="numeric"
+                                            pattern="\d{11}"
+                                            className={`${nidLengthWrong
+                                                ? 'w-full bg-white border border-red-300 rounded-lg px-3 py-2 text-sm font-mono focus:border-red-400 focus:ring-2 focus:ring-red-400/10 focus:outline-none'
+                                                : inputCls(nidFilled)} font-mono`}
+                                        />
+                                        {nidLengthWrong && (
+                                            <p className="text-[10px] text-red-600">يجب أن يكون 11 رقماً بالضبط</p>
+                                        )}
+                                    </div>
 
-                                <Field label="أمانة السجل المدني">
-                                    <input type="text" value={buyerNationalIdIssuedBy} onChange={e => setBuyerNationalIdIssuedBy(e.target.value)}
-                                        placeholder="أمين السجل المدني" className={inputClass} />
-                                </Field>
+                                    <div className="space-y-1">
+                                        <label className={labelCls(Boolean(buyerGender))}>
+                                            الجنس {star(Boolean(buyerGender))}
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <button type="button" onClick={() => setBuyerGender(buyerGender === 'male' ? '' : 'male')}
+                                                className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${buyerGender === 'male' ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-slate-500'}`}>
+                                                ذكر
+                                            </button>
+                                            <button type="button" onClick={() => setBuyerGender(buyerGender === 'female' ? '' : 'female')}
+                                                className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${buyerGender === 'female' ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-slate-500'}`}>
+                                                أنثى
+                                            </button>
+                                        </div>
+                                    </div>
 
-                                <Field label="تاريخ منح الهوية">
-                                    <input type="date" value={buyerNationalIdIssueDate} onChange={e => setBuyerNationalIdIssueDate(e.target.value)} className={inputClass} />
-                                </Field>
+                                    {/* صف 3: تاريخ الميلاد | القيد */}
+                                    <div className="space-y-1">
+                                        <label className={labelCls(buyerBirthDate.length > 0)}>
+                                            تاريخ الميلاد {star(buyerBirthDate.length > 0)}
+                                        </label>
+                                        <input type="date" value={buyerBirthDate}
+                                            onChange={e => setBuyerBirthDate(e.target.value)}
+                                            className={inputCls(buyerBirthDate.length > 0)} />
+                                    </div>
 
-                                <Field label="الخانة">
-                                    <input type="text" value={buyerNationalIdBox} onChange={e => setBuyerNationalIdBox(e.target.value)}
-                                        placeholder="رقم أو اسم الخانة" className={inputClass} />
-                                </Field>
+                                    <div className="space-y-1">
+                                        <label className={labelCls(buyerNationalIdRegistry.trim().length > 0)}>
+                                            القيد {star(buyerNationalIdRegistry.trim().length > 0)}
+                                        </label>
+                                        <input type="text" value={buyerNationalIdRegistry}
+                                            onChange={e => setBuyerNationalIdRegistry(e.target.value)}
+                                            placeholder="رقم القيد"
+                                            className={inputCls(buyerNationalIdRegistry.trim().length > 0)} />
+                                    </div>
+
+                                    {/* صف 4: أمانة السجل | تاريخ منح الهوية */}
+                                    <div className="space-y-1">
+                                        <label className={labelCls(buyerNationalIdIssuedBy.trim().length > 0)}>
+                                            أمانة السجل المدني {star(buyerNationalIdIssuedBy.trim().length > 0)}
+                                        </label>
+                                        <input type="text" value={buyerNationalIdIssuedBy}
+                                            onChange={e => setBuyerNationalIdIssuedBy(e.target.value)}
+                                            placeholder="أمين السجل المدني"
+                                            className={inputCls(buyerNationalIdIssuedBy.trim().length > 0)} />
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className={labelCls(buyerNationalIdIssueDate.length > 0)}>
+                                            تاريخ منح الهوية {star(buyerNationalIdIssueDate.length > 0)}
+                                        </label>
+                                        <input type="date" value={buyerNationalIdIssueDate}
+                                            onChange={e => setBuyerNationalIdIssueDate(e.target.value)}
+                                            className={inputCls(buyerNationalIdIssueDate.length > 0)} />
+                                    </div>
+
+                                    {/* صف 5: الخانة (بمفردها) */}
+                                    <div className="space-y-1">
+                                        <label className={labelCls(buyerNationalIdBox.trim().length > 0)}>
+                                            الخانة {star(buyerNationalIdBox.trim().length > 0)}
+                                        </label>
+                                        <input type="text" value={buyerNationalIdBox}
+                                            onChange={e => setBuyerNationalIdBox(e.target.value)}
+                                            placeholder="رقم أو اسم الخانة"
+                                            className={inputCls(buyerNationalIdBox.trim().length > 0)} />
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        );
+                    })()}
 
                     {selectedCustomer && (selectedCustomer.referrers?.length || 0) > 0 && (
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
@@ -1408,6 +1602,43 @@ export default function ContractForm() {
                                 </select>
                             </Field>
                         </div>
+
+                        {/* Plan 2026-06-10 §4 — Sale owner (موظف نسبة البيعة).
+                            Auto-fills from the latest device-demo team supervisor
+                            for this client. Read-only unless the user has the
+                            contracts.assign_sale_owner permission. Frozen once
+                            the contract is approved (status !== 'draft'). */}
+                        {selectedCustomer && (() => {
+                            const saleOwnerFrozen = isEdit && !isDraftMode;
+                            const canEdit = canAssignSaleOwner && !saleOwnerFrozen;
+                            const selectedEmp = branchEmployees.find((e: any) => Number(e.id) === Number(saleOwnerId));
+                            const fallbackLabel = currentUser?.name ? `${currentUser.name} (المُدخِل نفسه)` : 'المُدخِل نفسه';
+                            return (
+                                <div className="grid grid-cols-1 gap-4 border-t border-slate-100 pt-4">
+                                    <Field label="موظف نسبة البيعة" hint={saleOwnerFrozen ? 'مُجمَّد — البيعة منسوبة عند الاعتماد' : (canEdit ? 'يمكنك تغييره' : 'يُحدَّد تلقائياً من فريق العرض')}>
+                                        {canEdit ? (
+                                            <select
+                                                value={saleOwnerId}
+                                                onChange={e => setSaleOwnerId(e.target.value ? Number(e.target.value) : '')}
+                                                className={selectClass}
+                                            >
+                                                <option value="">{fallbackLabel}</option>
+                                                {branchEmployees.map((emp: any) => (
+                                                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <div className={`w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm flex items-center gap-2 ${saleOwnerFrozen ? 'text-slate-500' : 'text-slate-700'}`}>
+                                                <User className="w-4 h-4 text-slate-400" />
+                                                <span className="flex-1">{selectedEmp?.name || fallbackLabel}</span>
+                                                {saleOwnerFrozen && <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded">مُجمَّد</span>}
+                                                {!saleOwnerFrozen && saleOwnerId && <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded">تلقائي</span>}
+                                            </div>
+                                        )}
+                                    </Field>
+                                </div>
+                            );
+                        })()}
 
                         {/* Two-Step Verification Wizard */}
                         <AnimatePresence>

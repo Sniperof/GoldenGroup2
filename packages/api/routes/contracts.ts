@@ -92,6 +92,31 @@ function deriveContractStatus(
   return closingEmployeeId ? 'active' : 'draft';
 }
 
+// Plan 2026-06-10 §C — buyer national ID must be exactly 11 digits when present.
+// Empty/null is allowed (the field itself is optional in draft + cash modes).
+function normalizeNationalId(value: unknown): { ok: boolean; value: string | null } {
+  if (value === undefined || value === null) return { ok: true, value: null };
+  const str = String(value).trim();
+  if (!str) return { ok: true, value: null };
+  if (!/^\d{11}$/.test(str)) return { ok: false, value: str };
+  return { ok: true, value: str };
+}
+
+// Plan 2026-06-10 §4 — sale_owner_id is the deal originator and can differ
+// from the data-entry user. Setting a value other than the current user
+// requires the contracts.assign_sale_owner permission.
+function canAssignSaleOwner(
+  authContext: any,
+  branchId: number | null,
+  currentUserId: number | null,
+  desiredOwnerId: number | null,
+): boolean {
+  if (desiredOwnerId == null) return true;
+  if (currentUserId != null && desiredOwnerId === currentUserId) return true;
+  const check = authorize(authContext, { permission: 'contracts.assign_sale_owner', branchId });
+  return check.allowed;
+}
+
 function computeContractWarrantySnapshot(
   activatedAt: unknown,
   warrantyMonths: number | null,
@@ -663,6 +688,20 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
   if (targetBranchId == null) return;
 
+  // Plan §3 — NID length guard (always, when provided).
+  const nidCheck = normalizeNationalId(c.nationalId ?? c.buyerNationalId);
+  if (!nidCheck.ok) {
+    return res.status(400).json({ error: 'الرقم الوطني يجب أن يكون 11 رقماً.' });
+  }
+
+  // Plan §4 — sale_owner_id assignment requires contracts.assign_sale_owner
+  // unless the value matches the authenticated user.
+  const requestedSaleOwnerId = c.saleOwnerId ? Number(c.saleOwnerId) : null;
+  const currentUserId = (req as any).user?.id ?? null;
+  if (!canAssignSaleOwner((req as any).authContext, targetBranchId, currentUserId, requestedSaleOwnerId)) {
+    return res.status(403).json({ error: 'لا تملك صلاحية نسبة البيعة لموظف آخر' });
+  }
+
   const { rows: branchStatus } = await pool.query(
     'SELECT status FROM branches WHERE id = $1',
     [targetBranchId],
@@ -727,8 +766,9 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        c.contractType || 'sale_contract', c.sourceOpenTaskId || null, c.sourceTaskOfferId || null, c.saleReferenceNumber || null,
        c.noClosingReasonId || null, c.saleSubtype || 'definitive',
        (req as any).user?.id || null,
-       // DEC-CT-11 / DEC-CT-13 — frozen at creation; never updated later via this path.
-       c.saleOwnerId || null,
+       // Plan 2026-06-10 §4 — sale_owner_id is editable while draft and frozen at approve.
+       // Permission already enforced at the route entry via canAssignSaleOwner().
+       requestedSaleOwnerId,
        c.offerTeamSnapshot ? JSON.stringify(c.offerTeamSnapshot) : null,
        Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]',
        derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null]
@@ -896,6 +936,24 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
   const draftDevicePayload = buildDraftDevicePayload(c);
 
+  // Plan §3 — NID length guard (always, when provided).
+  const nidCheck = normalizeNationalId(c.nationalId ?? c.buyerNationalId);
+  if (!nidCheck.ok) {
+    return res.status(400).json({ error: 'الرقم الوطني يجب أن يكون 11 رقماً.' });
+  }
+
+  // Plan §4 — sale_owner_id is frozen once the contract leaves draft.
+  //   • while draft        → editable subject to contracts.assign_sale_owner
+  //   • once active+       → frozen; payload value is ignored entirely.
+  const requestedSaleOwnerId = c.saleOwnerId ? Number(c.saleOwnerId) : null;
+  const saleOwnerFrozen = prevStatus !== 'draft';
+  if (!saleOwnerFrozen) {
+    const currentUserId = (req as any).user?.id ?? null;
+    if (!canAssignSaleOwner(authContext, existing[0].branch_id, currentUserId, requestedSaleOwnerId)) {
+      return res.status(403).json({ error: 'لا تملك صلاحية نسبة البيعة لموظف آخر' });
+    }
+  }
+
   // Geo-coverage enforcement — see POST /contracts. Use the contract's own
   // owning branch (existing[0].branch_id) since edits don't move branches.
   const installationGeoUnitForCheck =
@@ -934,9 +992,10 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
         buyer_birth_date=$25, buyer_gender=$26,
         contract_type=$27, source_open_task_id=$28, source_task_offer_id=$29,
         sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32,
-        sale_owner_id=$33, contract_referrers=$34, draft_device_payload=$35
+        sale_owner_id = CASE WHEN $33::boolean THEN sale_owner_id ELSE $34 END,
+        contract_referrers=$35, draft_device_payload=$36
         -- offer_team_snapshot is deliberately NOT updated here: DEC-CT-13 freezes it at creation.
-      WHERE id=$36`,
+      WHERE id=$37`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
@@ -954,7 +1013,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        c.saleReferenceNumber || null,
        c.noClosingReasonId || null,
        c.saleSubtype || 'definitive',
-       c.saleOwnerId || null,
+       saleOwnerFrozen,
+       requestedSaleOwnerId,
        Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]',
        derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null,
        req.params.id]
@@ -1477,7 +1537,10 @@ async function applyDevicePayloadToInstalledDevice(dbClient: any, contractId: nu
   }
 }
 
-router.post('/:id/approve', requirePermission('contracts.approve'), async (req, res) => {
+// NOTE: /approve uses requireAuth only (no requirePermission middleware) so that
+// either contracts.approve OR contracts.close is sufficient — see plan §5.
+router.post('/:id/approve', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
   const authContext = req.authContext!;
   const contractId = Number(req.params.id);
   if (!Number.isInteger(contractId) || contractId <= 0) {
@@ -1491,6 +1554,7 @@ router.post('/:id/approve', requirePermission('contracts.approve'), async (req, 
     // Pessimistic lock so two approvers can't race.
     const { rows: cur } = await pgClient.query(
       `SELECT id, status, contract_type, customer_id, branch_id, closing_employee_id,
+              sale_owner_id AS "saleOwnerId",
               draft_device_payload AS "draftDevicePayload",
               NULL::date AS delivery_date
          FROM contracts WHERE id = $1 FOR UPDATE`,
@@ -1502,8 +1566,10 @@ router.post('/:id/approve', requirePermission('contracts.approve'), async (req, 
     }
     const c = cur[0];
 
-    const access = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
-    if (!access.allowed) {
+    // Plan §5 — approve accepts either contracts.approve OR contracts.close.
+    const closeAccess = authorize(authContext, { permission: 'contracts.close', branchId: c.branch_id });
+    const approveAccess = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
+    if (!closeAccess.allowed && !approveAccess.allowed) {
       await pgClient.query('ROLLBACK');
       return res.status(403).json({ error: 'غير مسموح' });
     }
@@ -1529,6 +1595,19 @@ router.post('/:id/approve', requirePermission('contracts.approve'), async (req, 
       return res.status(400).json({ error: 'closingEmployeeId مطلوب للموافقة على العقد' });
     }
 
+    // Plan §4 — Approve is the freeze point for sale_owner_id. The approver may
+    // pass a final saleOwnerId in the body; that requires contracts.assign_sale_owner.
+    // Otherwise we keep whatever was last saved on the draft.
+    const incomingSaleOwner = req.body?.saleOwnerId ? Number(req.body.saleOwnerId) : null;
+    let finalSaleOwnerId: number | null = c.saleOwnerId ?? null;
+    if (incomingSaleOwner != null && incomingSaleOwner !== finalSaleOwnerId) {
+      if (!canAssignSaleOwner(authContext, c.branch_id, (req as any).user?.id ?? null, incomingSaleOwner)) {
+        await pgClient.query('ROLLBACK');
+        return res.status(403).json({ error: 'لا تملك صلاحية نسبة البيعة لموظف آخر' });
+      }
+      finalSaleOwnerId = incomingSaleOwner;
+    }
+
     // Flip status — this fires the DB triggers (211/204/etc.) that
     // materialize the installed_devices row, cascade warranties, and replay
     // installment balance recompute.
@@ -1536,9 +1615,10 @@ router.post('/:id/approve', requirePermission('contracts.approve'), async (req, 
       `UPDATE contracts
          SET status = 'active',
              closing_employee_id = $1,
-             closing_date = NOW()
-       WHERE id = $2`,
-      [closerId, contractId],
+             closing_date = NOW(),
+             sale_owner_id = $2
+       WHERE id = $3`,
+      [closerId, finalSaleOwnerId, contractId],
     );
 
     if (c.draftDevicePayload) {

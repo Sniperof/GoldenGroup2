@@ -51,7 +51,7 @@ interface GeoSuggestion {
 /* ------------------------------------------------------------------ */
 
 /** Walk up from a unit to root, returns [gov, region, sub, neighborhood] */
-function buildPath(unit: GeoUnit, unitsMap: Map<number, GeoUnit>): GeoUnit[] {
+export function buildPath(unit: GeoUnit, unitsMap: Map<number, GeoUnit>): GeoUnit[] {
     const path: GeoUnit[] = [unit];
     let current = unit;
     while (current.parentId !== null) {
@@ -64,7 +64,7 @@ function buildPath(unit: GeoUnit, unitsMap: Map<number, GeoUnit>): GeoUnit[] {
 }
 
 /** Fill GeoSelection from a path array */
-function pathToSelection(path: GeoUnit[]): GeoSelection {
+export function pathToSelection(path: GeoUnit[]): GeoSelection {
     return {
         govId: path[0]?.id?.toString() || '',
         regionId: path[1]?.id?.toString() || '',
