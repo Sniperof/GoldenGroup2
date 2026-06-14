@@ -713,7 +713,11 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         // Telemarketer: can see assigned teams, or all branch telemarketing
         // fallback teams when no telemarketers are assigned.
         accessibleTeamKeys = [];
-        const dateToCheck = dateParam || new Date().toISOString().split('T')[0];
+        // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
+        const dateToCheck = dateParam || (() => {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })();
         const schedule = await loadDaySchedule(dateToCheck);
         if (schedule) {
           for (let i = 0; i < schedule.teams.length; i++) {
@@ -726,7 +730,11 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         }
       } else if (employeeRole === 'supervisor' && employeeId != null) {
         accessibleTeamKeys = [];
-        const dateToCheck = dateParam || new Date().toISOString().split('T')[0];
+        // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
+        const dateToCheck = dateParam || (() => {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })();
         const schedule = await loadDaySchedule(dateToCheck);
         if (schedule) {
           for (let i = 0; i < schedule.teams.length; i++) {
@@ -2153,7 +2161,8 @@ router.post(
   requirePermission('telemarketing.calls.create'),
   async (req, res) => {
     try {
-      const { taskListId, itemId } = req.params;
+      const taskListId = String(req.params.taskListId);
+      const itemId = String(req.params.itemId);
       const { reason, expectedDate, priority } = req.body ?? {};
       const performedBy = getCallerId(req);
       const branchId = getBranchId(req);

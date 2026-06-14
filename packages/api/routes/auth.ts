@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { loginUser } from '../services/authService.js';
+import { requireAuth } from '../middleware/auth.js';
+import { getCurrentSession, loginUser } from '../services/authService.js';
 
 const router = Router();
 
@@ -57,6 +58,17 @@ router.post('/login', async (req, res) => {
       return res.status(err.status).json({ error: err.message });
     }
     console.error('Login error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/auth/session
+router.get('/session', requireAuth, async (req, res) => {
+  try {
+    const result = await getCurrentSession(req.user!);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Session refresh error:', err);
     res.status(500).json({ error: err.message });
   }
 });

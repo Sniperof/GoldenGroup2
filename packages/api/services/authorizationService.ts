@@ -134,7 +134,15 @@ async function loadAuthorizationData(
     loadUserBranchAssignments(user.id),
   ]);
 
-  const allowedBranchIds = normalizeBranchIds(assignmentRows.map(row => row.branchId));
+  const assignmentBranchIds = normalizeBranchIds(assignmentRows.map(row => row.branchId));
+  // PHASE2B_LEGACY_FALLBACK
+  // TEMP: while some users still have no active user_branch_assignments rows,
+  // treat hr_users.branch_id as their only allowed branch instead of only using
+  // it as the acting branch. This preserves BRANCH-scope checks without widening
+  // access beyond the legacy branch.
+  const allowedBranchIds = assignmentBranchIds.length > 0
+    ? assignmentBranchIds
+    : normalizeBranchIds([legacyBranchId]);
   const primaryBranchId = resolvePrimaryBranchId(assignmentRows, legacyBranchId);
 
   const loaded: LoadedAuthorizationData = {

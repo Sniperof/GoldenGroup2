@@ -8,7 +8,6 @@ import { Candidate, Client, ClientSmartMatchResponse, GeoUnit } from '../../lib/
 import { api } from '../../lib/api';
 
 type SmartMatchResult = ClientSmartMatchResponse;
-type SmartMatchClient = Extract<SmartMatchResult, { client: unknown }>['client'];
 
 interface QualificationModalProps {
     isOpen: boolean;
@@ -270,22 +269,6 @@ export default function QualificationModal({
         }
     };
 
-    const requestRestrictedLink = (client: SmartMatchClient) => {
-        setPendingLinkClient({
-            id: client.id,
-            name: client.name,
-            mobile: client.phone,
-            branchName: client.branchName,
-            contacts: [{
-                id: `restricted-${client.id}`,
-                type: 'mobile',
-                number: client.phone,
-                isPrimary: true,
-                status: 'active',
-            }],
-        } as Client);
-    };
-
     const confirmLink = () => {
         if (pendingLinkClient && candidate) {
             onLink(candidate.id, pendingLinkClient);
@@ -415,31 +398,10 @@ export default function QualificationModal({
                                                         الرقم موجود — تفاصيل السجل خارج نطاق عرضك
                                                     </p>
                                                     <p className="text-xs text-amber-700 mt-0.5">
-                                                        يمكنك ربط الاسم المقترح بهذا الزبون المطابق دون فتح كامل بياناته.
+                                                        {autoCheckResult.message}
                                                     </p>
                                                 </div>
                                             </div>
-                                            <button
-                                                onClick={() => requestRestrictedLink(autoCheckResult.client)}
-                                                className="w-full text-right py-3 px-4 rounded-xl border border-amber-100 bg-amber-50/60 hover:bg-amber-50 hover:border-amber-200 transition-all flex items-center justify-between group"
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold text-xs group-hover:bg-amber-200 transition-colors">
-                                                        {autoCheckResult.client.id}
-                                                    </div>
-                                                    <div>
-                                                        <div className="text-sm font-bold text-slate-800">
-                                                            {autoCheckResult.client.name}
-                                                        </div>
-                                                        <div className="text-[10px] text-slate-500">
-                                                            {autoCheckResult.client.branchName || '--'} · {autoCheckResult.client.phone}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold group-hover:bg-amber-200 transition-colors">
-                                                    ربط وتأكيد
-                                                </span>
-                                            </button>
                                         </div>
                                     )}
 

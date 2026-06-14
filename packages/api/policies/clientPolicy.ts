@@ -74,6 +74,16 @@ export function canCreateClient(
   return authorizeClientPermission(context, 'clients.create', client);
 }
 
+export function canManageClientAssignments(
+  context: AuthContext,
+  branchId: number | null,
+): AuthorizationResult {
+  return authorize(context, {
+    permission: 'clients.assignment.manage',
+    branchId,
+  });
+}
+
 export function canEditClient(
   context: AuthContext,
   client: ClientPolicySubject,

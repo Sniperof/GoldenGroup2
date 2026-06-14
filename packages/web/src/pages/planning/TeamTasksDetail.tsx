@@ -86,7 +86,12 @@ export default function TeamTasksDetail() {
     // Load real work scope data alongside mock tasks
     useEffect(() => {
         if (!teamKey) return;
-        const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
+        // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
+        const localToday = (() => {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })();
+        const date = searchParams.get('date') || localToday;
         setWorkScopeLoading(true);
         api.workScopes.get(date, teamKey)
             .then(scope => setWorkScope(scope))

@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
+import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -13,8 +14,12 @@ const selectFields = `
   d.contract_id       AS "contractId",
   d.customer_id       AS "customerId",
   d.branch_id         AS "branchId",
+  d.device_source     AS "deviceSource",
+  d.external_device_name AS "externalDeviceName",
+  d.external_device_serial AS "externalDeviceSerial",
+  d.external_device_notes AS "externalDeviceNotes",
   COALESCE(d.device_model_id, c.device_model_id) AS "deviceModelId",
-  COALESCE(d.device_model_name, c.device_model_name) AS "deviceModelName",
+  COALESCE(d.device_model_name, c.device_model_name, d.external_device_name) AS "deviceModelName",
   d.serial_number     AS "serialNumber",
   d.status,
   d.installation_geo_unit_id  AS "installationGeoUnitId",
@@ -86,7 +91,7 @@ router.get('/', requirePermission('clients.devices.view', 'contracts.view_list')
   const { rows } = await pool.query(
     `SELECT ${selectFields}
      FROM installed_devices d
-     JOIN contracts c ON c.id = d.contract_id
+     LEFT JOIN contracts c ON c.id = d.contract_id
      LEFT JOIN branches b ON b.id = d.branch_id
      LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
      ${where}
@@ -96,13 +101,143 @@ router.get('/', requirePermission('clients.devices.view', 'contracts.view_list')
   res.json(rows);
 });
 
+// POST /api/installed-devices/external
+router.post('/external', requirePermission('installed_devices.create_external'), async (req, res, next) => {
+  try {
+    const authContext = req.authContext!;
+    const customerId = Number(req.body.customerId ?? req.body.customer_id);
+    const deviceModelId = Number(req.body.deviceModelId ?? req.body.device_model_id);
+    const serialNumber = String(req.body.serialNumber ?? req.body.externalDeviceSerial ?? '').trim();
+    const externalDeviceNotes = String(req.body.externalDeviceNotes ?? '').trim() || null;
+    const installationAddressText = String(req.body.installationAddressText ?? '').trim() || null;
+    const installationGeoUnitId = Number(req.body.installationGeoUnitId ?? req.body.installation_geo_unit_id);
+    const installationLatRaw = req.body.installationLat ?? req.body.installation_lat;
+    const installationLngRaw = req.body.installationLng ?? req.body.installation_lng;
+    const installationLat = installationLatRaw == null || installationLatRaw === '' ? null : Number(installationLatRaw);
+    const installationLng = installationLngRaw == null || installationLngRaw === '' ? null : Number(installationLngRaw);
+
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return res.status(400).json({ error: 'Invalid customerId' });
+    }
+    if (!Number.isInteger(deviceModelId) || deviceModelId <= 0) {
+      return res.status(400).json({ error: 'Device model is required' });
+    }
+    if (!serialNumber) {
+      return res.status(400).json({ error: 'Serial number is required' });
+    }
+    if (!Number.isInteger(installationGeoUnitId) || installationGeoUnitId <= 0) {
+      return res.status(400).json({ error: 'Installation neighborhood is required' });
+    }
+    if (!installationAddressText) {
+      return res.status(400).json({ error: 'Installation address is required' });
+    }
+    if (
+      (installationLat !== null && (!Number.isFinite(installationLat) || installationLat < -90 || installationLat > 90)) ||
+      (installationLng !== null && (!Number.isFinite(installationLng) || installationLng < -180 || installationLng > 180)) ||
+      ((installationLat === null) !== (installationLng === null))
+    ) {
+      return res.status(400).json({ error: 'Invalid GPS coordinates' });
+    }
+
+    const { rows: clientRows } = await pool.query(
+      'SELECT id, branch_id AS "branchId" FROM clients WHERE id = $1',
+      [customerId],
+    );
+    if (!clientRows[0]) return res.status(404).json({ error: 'Client not found' });
+    const branchId = Number(clientRows[0].branchId);
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      return res.status(400).json({ error: 'Client registration branch is required' });
+    }
+
+    const createAccess = authorize(authContext, { permission: 'installed_devices.create_external', branchId });
+    if (!createAccess.allowed) return res.status(403).json({ error: 'Forbidden' });
+
+    const deviceCheck = await assertDeviceModelInScope(authContext, deviceModelId, branchId);
+    if (!deviceCheck.allowed) {
+      return res.status(403).json({
+        error: 'Device model is outside the client branch scope',
+        code: deviceCheck.reason,
+      });
+    }
+
+    const { rows: branchDeviceRows } = await pool.query(
+      `SELECT dm.id, COALESCE(dm.name_ar, dm.name) AS "deviceModelName"
+         FROM device_models dm
+        WHERE dm.id = $1
+          AND dm.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1
+          FROM departments d
+          WHERE d.branch_id = $2
+            AND jsonb_array_length(COALESCE(d.device_model_ids, '[]'::jsonb)) > 0
+            AND dm.id IN (SELECT (jsonb_array_elements_text(d.device_model_ids))::int)
+        )`,
+      [deviceModelId, branchId],
+    );
+    if (!branchDeviceRows[0]) {
+      return res.status(400).json({ error: 'Device model is not available for the client branch' });
+    }
+
+    const geoCheck = await assertGeoUnitInScope(authContext, installationGeoUnitId, 'geo_units.lookup', branchId);
+    if (!geoCheck.allowed) {
+      return res.status(403).json({
+        error: 'Installation address is outside the client branch coverage',
+        code: geoCheck.reason,
+      });
+    }
+    const { rows: geoRows } = await pool.query('SELECT level FROM geo_units WHERE id = $1', [installationGeoUnitId]);
+    if (!geoRows[0] || Number(geoRows[0].level) !== 4) {
+      return res.status(400).json({
+        error: 'Installation address must be selected at neighborhood level',
+        code: 'installation_geo_not_neighborhood',
+      });
+    }
+
+    const deviceModelName = branchDeviceRows[0].deviceModelName;
+    const { rows } = await pool.query(
+      `INSERT INTO installed_devices (
+         contract_id, customer_id, branch_id, device_source,
+         device_model_id, device_model_name,
+         external_device_name, external_device_serial, external_device_notes,
+         serial_number, status,
+         installation_geo_unit_id, installation_address_text, installation_lat, installation_lng,
+         is_golden_warranty, warranty_months, warranty_visits
+       ) VALUES (
+         NULL, $1, $2, 'external',
+         $3, $4,
+         $4, $5, $6,
+         $5, 'active',
+         $7, $8, $9, $10,
+         false, NULL, NULL
+       )
+       RETURNING id`,
+      [
+        customerId,
+        branchId,
+        deviceModelId,
+        deviceModelName,
+        serialNumber,
+        externalDeviceNotes,
+        installationGeoUnitId,
+        installationAddressText,
+        installationLat,
+        installationLng,
+      ],
+    );
+
+    res.status(201).json({ ok: true, id: rows[0].id });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/installed-devices/:id
 router.get('/:id', requirePermission('clients.devices.view', 'contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
   const { rows } = await pool.query(
     `SELECT ${selectFields}
      FROM installed_devices d
-     JOIN contracts c ON c.id = d.contract_id
+     LEFT JOIN contracts c ON c.id = d.contract_id
      LEFT JOIN branches b ON b.id = d.branch_id
      LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
      WHERE d.id = $1`,
@@ -198,7 +333,7 @@ router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
     const effectiveBranchId = requestedTargetBranchId !== undefined && requestedTargetBranchId !== null && requestedTargetBranchId !== ''
       ? Number(requestedTargetBranchId)
       : existingRows[0].branchId;
-    const geoCheck = await assertGeoUnitInScope(authContext, newGeoUnitId, 'geo.view', effectiveBranchId);
+    const geoCheck = await assertGeoUnitInScope(authContext, newGeoUnitId, 'geo_units.lookup', effectiveBranchId);
     if (!geoCheck.allowed) {
       return res.status(403).json({
         error: 'موقع تَركيب الجهاز خارج نِطاق تَغطية الفَرع',

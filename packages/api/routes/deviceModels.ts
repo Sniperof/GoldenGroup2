@@ -2,8 +2,10 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { resolveAuthorizedDeviceModelIds } from '../services/deviceScopeService.js';
 
 const router = Router();
+const CATALOG_NOW_SQL = `(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')`;
 
 const selectFields = `
   id, name, brand, name_ar AS "nameAr", name_en AS "nameEn", category,
@@ -15,6 +17,20 @@ const selectFields = `
   is_featured AS "isFeatured",
   description, description_en AS "descriptionEn", images, primary_image_id AS "primaryImageId", videos, documents, code
 `;
+
+const selectFieldsWithActivePrice = selectFields.replace(
+  'maintenance_interval AS "maintenanceInterval", base_price AS "basePrice",',
+  `maintenance_interval AS "maintenanceInterval",
+   COALESCE((
+     SELECT ph.price
+     FROM device_model_price_history ph
+     WHERE ph.device_model_id = device_models.id
+       AND ph.effective_from <= ${CATALOG_NOW_SQL}
+       AND (ph.effective_to IS NULL OR ph.effective_to > ${CATALOG_NOW_SQL})
+     ORDER BY ph.effective_from DESC, ph.id DESC
+     LIMIT 1
+   ), base_price) AS "basePrice",`,
+);
 
 function serializeDevice(row: any) {
   return {
@@ -59,6 +75,97 @@ function normalizeDevicePayload(body: any) {
     documents: Array.isArray(body.documents) ? body.documents : [],
     code: String(body.code ?? '').trim() || null,
   };
+}
+
+function serializePrice(row: any) {
+  return {
+    ...row,
+    price: Number(row.price ?? 0),
+    isCurrent: row.isCurrent === true,
+  };
+}
+
+async function insertDevicePriceHistory(deviceModelId: number, body: any, createdBy: number | null) {
+  const price = Number(body.price);
+  const note = String(body.note ?? '').trim() || null;
+
+  if (!Number.isFinite(price) || price <= 0) {
+    const err: any = new Error('Price must be greater than zero');
+    err.status = 400;
+    throw err;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: deviceRows } = await client.query(
+      'SELECT id FROM device_models WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+      [deviceModelId],
+    );
+    if (!deviceRows.length) {
+      const err: any = new Error('Device model not found');
+      err.status = 404;
+      throw err;
+    }
+
+    const { rows: nowRows } = await client.query(`SELECT ${CATALOG_NOW_SQL} AS value`);
+    const effectiveFrom = nowRows[0].value;
+    const { rows: previousRows } = await client.query(
+      `SELECT id
+       FROM device_model_price_history
+       WHERE device_model_id = $1
+         AND effective_from <= $2::timestamp
+         AND (effective_to IS NULL OR effective_to > $2::timestamp)
+       ORDER BY effective_from DESC, id DESC
+       FOR UPDATE`,
+      [deviceModelId, effectiveFrom],
+    );
+
+    if (previousRows.length > 0) {
+      await client.query(
+        `UPDATE device_model_price_history
+         SET effective_to = $2::timestamp
+         WHERE id = ANY($1::bigint[])`,
+        [previousRows.map((row: any) => row.id), effectiveFrom],
+      );
+    }
+
+    const { rows } = await client.query(
+      `INSERT INTO device_model_price_history
+        (device_model_id, price, currency, effective_from, effective_to, note, created_by)
+       VALUES ($1, $2, 'SYP', $3::timestamp, NULL, $4, $5)
+       RETURNING id, device_model_id AS "deviceModelId", price, currency,
+         effective_from AS "effectiveFrom", effective_to AS "effectiveTo",
+         note, created_by AS "createdBy", created_at AS "createdAt"`,
+      [deviceModelId, price, effectiveFrom, note, createdBy],
+    );
+
+    const { rows: currentRows } = await client.query(
+      `SELECT price
+       FROM device_model_price_history
+       WHERE device_model_id = $1
+         AND effective_from <= ${CATALOG_NOW_SQL}
+         AND (effective_to IS NULL OR effective_to > ${CATALOG_NOW_SQL})
+       ORDER BY effective_from DESC, id DESC
+       LIMIT 1`,
+      [deviceModelId],
+    );
+    if (currentRows[0]) {
+      await client.query(
+        'UPDATE device_models SET base_price = $1 WHERE id = $2',
+        [currentRows[0].price, deviceModelId],
+      );
+    }
+
+    await client.query('COMMIT');
+    return serializePrice(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -163,18 +270,40 @@ function normalizeDevicePayload(body: any) {
  *       500:
  *         description: Server error
  */
-router.get('/', requireAuth, async (req, res) => {
+router.get(
+  '/',
+  requirePermission('device_models.lookup', 'device_models.task_lookup', 'reference_data.lookup', 'catalog.manage'),
+  async (req, res) => {
   const branchId = req.query.branchId ? Number(req.query.branchId) : null;
-  let query = `SELECT ${selectFields} FROM device_models WHERE deleted_at IS NULL`;
+  const authContext = (req as any).authContext;
+
+  // Operational scope (devices constitution §6.1): non-privileged actors only
+  // see the device models authorized for their branch/department. `null` means
+  // unrestricted (super-admin or GLOBAL catalog access).
+  const authorizedIds = authContext
+    ? await resolveAuthorizedDeviceModelIds(authContext, branchId ?? authContext.actingBranchId ?? null)
+    : null;
+
+  let query = `SELECT ${selectFieldsWithActivePrice} FROM device_models WHERE deleted_at IS NULL`;
   const params: any[] = [];
-  if (branchId != null && Number.isInteger(branchId) && branchId > 0) {
+
+  if (authorizedIds !== null) {
+    if (authorizedIds.size === 0) {
+      res.json([]);
+      return;
+    }
+    params.push([...authorizedIds]);
+    query += ` AND id = ANY($${params.length}::int[])`;
+  } else if (branchId != null && Number.isInteger(branchId) && branchId > 0) {
+    // Unrestricted actor explicitly filtering by a branch (e.g. super-admin
+    // viewing a specific branch's catalog).
+    params.push(branchId);
     query += ` AND id IN (
       SELECT DISTINCT (jsonb_array_elements_text(d.device_model_ids))::int
       FROM departments d
-      WHERE d.branch_id = $1
+      WHERE d.branch_id = $${params.length}
         AND jsonb_array_length(d.device_model_ids) > 0
     )`;
-    params.push(branchId);
   }
   query += ` ORDER BY id`;
   const { rows } = await pool.query(query, params);
@@ -237,7 +366,10 @@ router.get('/', requireAuth, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/for-sale', requireAuth, async (req, res) => {
+router.get(
+  '/for-sale',
+  requirePermission('device_models.task_lookup', 'device_models.lookup', 'reference_data.lookup'),
+  async (req, res) => {
   try {
     if (req.user?.isSuperAdmin === true) {
       const { rows } = await pool.query(
@@ -337,7 +469,7 @@ router.get('/for-sale', requireAuth, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.post('/', requirePermission('catalog.manage'), async (req, res) => {
+router.post('/', requirePermission('device_models.manage', 'catalog.manage'), async (req, res) => {
   const d = normalizeDevicePayload(req.body);
   if (!d.nameAr) return res.status(400).json({ error: 'اسم الجهاز باللغة العربية مطلوب' });
   if (!d.nameEn) return res.status(400).json({ error: 'اسم الجهاز بالإنكليزية مطلوب' });
@@ -346,24 +478,40 @@ router.post('/', requirePermission('catalog.manage'), async (req, res) => {
     return res.status(400).json({ error: 'يجب اختيار فترة كفالة ذهبية واحدة على الأقل' });
   }
 
-  const { rows } = await pool.query(
-    `INSERT INTO device_models (
-      name, brand, name_ar, name_en, category, maintenance_interval, base_price,
-      supported_visit_types, is_golden_warranty,
-      golden_warranty_periods, warranty_periods, is_featured, description, description_en, images, primary_image_id,
-      videos, documents, code
-    )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-    RETURNING ${selectFields}`,
-    [
-      d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval, d.basePrice,
-      JSON.stringify(d.supportedVisitTypes),
-      d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), JSON.stringify(d.warrantyPeriods), d.isFeatured,
-      d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
-      JSON.stringify(d.videos), JSON.stringify(d.documents), d.code,
-    ]
-  );
-  res.json(serializeDevice(rows[0]));
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO device_models (
+        name, brand, name_ar, name_en, category, maintenance_interval, base_price,
+        supported_visit_types, is_golden_warranty,
+        golden_warranty_periods, warranty_periods, is_featured, description, description_en, images, primary_image_id,
+        videos, documents, code
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      RETURNING ${selectFields}`,
+      [
+        d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval, d.basePrice,
+        JSON.stringify(d.supportedVisitTypes),
+        d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), JSON.stringify(d.warrantyPeriods), d.isFeatured,
+        d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
+        JSON.stringify(d.videos), JSON.stringify(d.documents), d.code,
+      ]
+    );
+    await client.query(
+      `INSERT INTO device_model_price_history
+        (device_model_id, price, currency, effective_from, note, created_by)
+       VALUES ($1, $2, 'SYP', ${CATALOG_NOW_SQL}, $3, $4)`,
+      [rows[0].id, d.basePrice, 'Initial catalog price', req.user?.id ?? null],
+    );
+    await client.query('COMMIT');
+    res.json(serializeDevice(rows[0]));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 /**
@@ -417,7 +565,7 @@ router.post('/', requirePermission('catalog.manage'), async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:id', requirePermission('catalog.manage'), async (req, res) => {
+router.put('/:id', requirePermission('device_models.manage', 'catalog.manage'), async (req, res) => {
   const d = normalizeDevicePayload(req.body);
   if (!d.nameAr) return res.status(400).json({ error: 'اسم الجهاز باللغة العربية مطلوب' });
   if (!d.nameEn) return res.status(400).json({ error: 'اسم الجهاز بالإنكليزية مطلوب' });
@@ -429,19 +577,22 @@ router.put('/:id', requirePermission('catalog.manage'), async (req, res) => {
   const { rows } = await pool.query(
     `UPDATE device_models SET
       name=$1, brand=$2, name_ar=$3, name_en=$4, category=$5, maintenance_interval=$6,
-      base_price=$7, supported_visit_types=$8,
-      is_golden_warranty=$9, golden_warranty_periods=$10, warranty_periods=$11, is_featured=$12,
-      description=$13, description_en=$14, images=$15, primary_image_id=$16, videos=$17, documents=$18,
-      code=$19
-     WHERE id=$20 AND deleted_at IS NULL RETURNING ${selectFields}`,
+      supported_visit_types=$7,
+      is_golden_warranty=$8, golden_warranty_periods=$9, warranty_periods=$10, is_featured=$11,
+      description=$12, description_en=$13, images=$14, primary_image_id=$15, videos=$16, documents=$17,
+      code=$18
+     WHERE id=$19 AND deleted_at IS NULL RETURNING ${selectFields}`,
     [
-      d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval, d.basePrice,
+      d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval,
       JSON.stringify(d.supportedVisitTypes),
       d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), JSON.stringify(d.warrantyPeriods), d.isFeatured,
       d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
       JSON.stringify(d.videos), JSON.stringify(d.documents), d.code, req.params.id,
     ]
   );
+  if (!rows[0]) {
+    return res.status(404).json({ error: 'الجهاز غير موجود' });
+  }
   res.json(serializeDevice(rows[0]));
 });
 
@@ -483,9 +634,43 @@ router.put('/:id', requirePermission('catalog.manage'), async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.delete('/:id', requirePermission('catalog.manage'), async (req, res) => {
+router.delete('/:id', requirePermission('device_models.manage', 'catalog.manage'), async (req, res) => {
   await pool.query('UPDATE device_models SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
   res.json({ success: true });
+});
+
+router.get('/:id/prices', requirePermission('devices.prices.view', 'devices.prices.manage', 'catalog.manage'), async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT ph.id,
+       ph.device_model_id AS "deviceModelId",
+       ph.price,
+       ph.currency,
+       ph.effective_from AS "effectiveFrom",
+       ph.effective_to AS "effectiveTo",
+       ph.note,
+       ph.created_by AS "createdBy",
+       u.name AS "createdByName",
+       ph.created_at AS "createdAt",
+       (ph.effective_from <= ${CATALOG_NOW_SQL} AND (ph.effective_to IS NULL OR ph.effective_to > ${CATALOG_NOW_SQL})) AS "isCurrent"
+     FROM device_model_price_history ph
+     LEFT JOIN hr_users u ON u.id = ph.created_by
+     WHERE ph.device_model_id = $1
+     ORDER BY ph.effective_from DESC, ph.id DESC`,
+    [req.params.id],
+  );
+  res.json(rows.map(serializePrice));
+});
+
+router.post('/:id/prices', requirePermission('devices.prices.manage'), async (req, res) => {
+  try {
+    const price = await insertDevicePriceHistory(Number(req.params.id), req.body, req.user?.id ?? null);
+    res.json(price);
+  } catch (err: any) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'يوجد سعر مسجل بنفس تاريخ البداية لهذا الجهاز' });
+    }
+    return res.status(err.status ?? 500).json({ error: err.message ?? 'فشل حفظ السعر' });
+  }
 });
 
 // GET /:id/discounts — active discounts for this device today
@@ -600,7 +785,7 @@ router.get('/:id/discounts', requireAuth, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/:id/discounts/all', requireAuth, async (req, res) => {
+router.get('/:id/discounts/all', requirePermission('devices.discounts.view', 'devices.discounts.manage'), async (req, res) => {
   const { rows } = await pool.query(
     `SELECT id, label, percentage, start_date AS "startDate", end_date AS "endDate", is_active AS "isActive", created_at AS "createdAt"
      FROM device_discounts

@@ -22,12 +22,13 @@
 
 ## 1) الفلو البشري المبسّط
 
-`اختيار التاريخ → جدولة الفرق → حفظ جدول اليوم → توزيع المسارات → احتساب الأهداف → تنفيذ الزيارات`
+`اختيار التاريخ → جدولة الفرق → حفظ جدول اليوم → دراسة النطاقات → توزيع المسارات → احتساب الأهداف → تنفيذ الزيارات`
 
 ### شرح كل خطوة
 - **اختيار التاريخ**: يحدد اليوم التشغيلي المراد تخطيطه.
 - **جدولة الفرق**: مدير الفرع يملأ الفرق اليومية والفرق الاحتياطية.
 - **حفظ جدول اليوم**: يتم تخزين `day_schedules` لذلك التاريخ.
+- **دراسة النطاقات**: مرحلة وسيطة تحليلية (قراءة فقط) تعرض لكل zone فيه مهام شركة مؤهلة سحب كل فريق الطبيعي إليه عبر ملكيته الشخصية. القرار يبقى يدوياً ولا تكتب هذه المرحلة في أي جدول. مرجع: `features/zone-study.md` و DEC-008.
 - **توزيع المسارات**: تربط الفرق بالمسارات والجغرافيا ونطاقات العمل.
 - **احتساب الأهداف**: يحسب النظام الأهداف التسويقية بحسب الفريق والمسار.
 - **تنفيذ الزيارات**: تبدأ الزيارات المرتبطة بالجدول والمسارات المعتمدة.
@@ -91,11 +92,13 @@
 
 ### 3.4 الملفات الدستورية المرتبطة
 - `docs/constitution/features/team-scheduling.md`
+- `docs/constitution/features/zone-study.md`
 - `docs/constitution/features/planning-contact-targets.md`
 - `docs/constitution/features/telemarketing-appointments.md`
 - `docs/constitution/features/marketing-visits.md`
 - `docs/constitution/domains/visits.md`
 - `docs/constitution/features/README.md`
+- `docs/constitution/decisions/DEC-008-zone-study-stage.md`
 
 ---
 
@@ -130,6 +133,13 @@
 شاشة جدولة الفرق.
 - هي نقطة البداية التشغيليّة لهذا الدومين.
 - تقع تحت مسؤولية مدير الفرع مباشرة.
+
+### 4.7 `ZoneStudy`
+شاشة دراسة النطاقات.
+- مرحلة وسيطة تحليلية بين `TeamScheduler` و `RouteAssigner`.
+- قراءة فقط — لا تعدّل أي جدول.
+- تعرض لكل zone فيه مهام شركة مؤهلة سحب فرق اليوم الطبيعي إليه (X / Y).
+- مرجع كامل في `features/zone-study.md` ومبرّر في DEC-008.
 
 ---
 
@@ -189,7 +199,9 @@
 ## 7) الصلاحيات والنطاق
 
 ### 7.1 الصلاحية الأساسية
-- `planning.manage`
+- `planning.manage` — لجدولة الفرق وتوزيع المسارات واحتساب الأهداف.
+- `planning.zone_study.view` — قراءة دراسة النطاقات (DEC-008، نطاق `BRANCH`).
+- `planning.zone_study.manage` — تحديث snapshot دراسة النطاقات وإدارة picks في Mode 2 (DEC-008، نطاق `BRANCH`).
 
 ### 7.2 المسؤولية التشغيلية
 - مدير الفرع هو المسؤول المباشر عن جدولة الفرق اليومية.
@@ -275,12 +287,29 @@
 
 العقد كيان مالي تجاري، الجهاز كيان مادي بموقع. لا اعتماد على عنوان العقد لأي مهمة ميدانية.
 
+### `PL-R014` — دراسة النطاقات مرحلة بنمطَين بين الجدولة والتوزيع (DEC-008 v2)
+- `ZoneStudy` صفحة تحليلية تُعرض بعد حفظ `day_schedule` وقبل توزيع `route_assignments`.
+- المرحلة لا تعدّل بيانات التشغيل: لا تكتب في `route_assignments` ولا في `work_scopes` ولا في `open_tasks`. الكتابة محصورة في جدول `zone_study_snapshots`.
+- **نمطان (Modes):**
+  - **`auto`:** الـ zones تُستخرج تلقائياً (شرط: ≥1 مهمة `open_task` بحالة `('open','needs_follow_up')` مؤهلة لزبون ملك الشركة). snapshot **per-branch**.
+  - **`manual`:** المدير يختار zones يدوياً من قائمة الفرع. لا شرط أهلية على الـ zone. snapshot **per-user**.
+- شرط الأهلية في Mode `auto` يطابق N-window من DEC-005 و `customerOwnership.ownerType IN ('company_branch','company_global')`.
+- عمود الشركة في الجدول يجمع المهام المؤهلة من كل الأنواع لزبائن ملك الشركة.
+- عمود الفريق X / Y يقتصر على `device_demo`: X = زبائن LEAD ملك شخصي للفريق بلا `device_demo` مفتوحة، Y = `device_demo` المؤهلة المفتوحة لزبائن الفريق في الـ zone.
+- الملكية الشخصية للفريق تجمع أعضاء بدور `team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')` فقط.
+- **نموذج Snapshot:** أول `GET` لليوم T ينشئ snapshot في `zone_study_snapshots` (lazy). ضمن اليوم T الـ snapshot قابل للتحديث بزر "تحديث". بعد منتصف الليل (`T < CURRENT_DATE`) الـ snapshot مجمَّد للأبد؛ API يرفض الكتابة بـ `403 SNAPSHOT_FROZEN` ولا استثناء للسوبرأدمن.
+- **الصلاحيات (DEC-008 D43):** صلاحيتان مفصولتان بنطاق `BRANCH` التزاماً بالمعيار الهندسي — `planning.zone_study.view` لكل `GET`، و `planning.zone_study.manage` لكل كتابة (refresh + manual picks). لا إعادة استخدام `planning.manage`.
+- لا تأثير على PL-R009: قاعدة "أول من حُفظ له workScope يأخذ المهام" تبقى كما هي.
+- تنطبق على: `GET /planning/zone-study`, `POST /planning/zone-study/refresh`, `POST /planning/zone-study/manual/pick`, `DELETE /planning/zone-study/manual/pick/:id`.
+- التحقق: `packages/api/services/zoneStudy.ts` و `customerOwnership.ts` (يُعاد استخدامه) و middleware `requireSnapshotDateNotFrozen` و middleware الصلاحيات.
+
 ---
 
 ## 9) الواجهة المرتبطة بالدومين
 
 ### 9.1 الصفحات الأساسية
 - `packages/web/src/pages/planning/TeamScheduler.tsx`
+- `packages/web/src/pages/planning/ZoneStudy.tsx` (مرتقَب — DEC-008)
 - `packages/web/src/pages/planning/PlanOverview.tsx`
 - `packages/web/src/pages/planning/RouteAssigner.tsx`
 
@@ -314,6 +343,12 @@
 
 ### 10.3 التخطيط التسويقي اللاحق
 - `GET /planning/marketing-targets?date=...&teamKey=...`
+
+### 10.3.1 دراسة النطاقات (DEC-008 v2 — مرتقَب)
+- `GET /planning/zone-study?date=YYYY-MM-DD&mode=auto|manual`
+- `POST /planning/zone-study/refresh?date=YYYY-MM-DD&mode=auto|manual`
+- `POST /planning/zone-study/manual/pick?date=YYYY-MM-DD` (body: `{zoneId}`)
+- `DELETE /planning/zone-study/manual/pick/:zoneId?date=YYYY-MM-DD`
 
 ### 10.4 مسارات مرتبطة
 - `GET /route-assignments`

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
+import type { AuthContext } from '@golden-crm/shared';
 
 const router = Router();
 
@@ -35,6 +36,31 @@ async function syncBranchGeoCoverage(
       [branchId, geoId],
     );
   }
+}
+
+function hasGlobalPermission(authContext: AuthContext, permission: string): boolean {
+  const result = authorize(authContext, { permission });
+  return result.allowed && (result.reason === 'SUPER_ADMIN' || result.reason === 'GRANTED_GLOBAL');
+}
+
+function hasBranchPermission(
+  authContext: AuthContext,
+  permission: string,
+  branchId: number,
+): boolean {
+  return authorize(authContext, { permission, branchId }).allowed;
+}
+
+async function loadBranchCoverage(branchId: number): Promise<number[]> {
+  const { rows } = await pool.query(
+    `SELECT geo_unit_id AS "geoUnitId"
+       FROM branch_geo_coverage
+      WHERE branch_id = $1
+      ORDER BY geo_unit_id`,
+    [branchId],
+  );
+
+  return rows.map(row => Number(row.geoUnitId)).filter(Number.isInteger);
 }
 
 /**
@@ -81,8 +107,11 @@ async function syncBranchGeoCoverage(
  *       500:
  *         description: Server error
  */
-router.get('/', requirePermission('branches.view'), async (_req, res) => {
+router.get('/', requirePermission('branches.view', 'branches.lookup', 'reference_data.lookup'), async (req, res) => {
   try {
+    const authContext = req.authContext!;
+    const canViewManagement = authorize(authContext, { permission: 'branches.view' }).allowed;
+
     const { rows } = await pool.query(`
       SELECT b.id, b.name,
              b.location_geo_id AS "locationGeoId",
@@ -97,8 +126,10 @@ router.get('/', requirePermission('branches.view'), async (_req, res) => {
              g.name            AS "locationGeoName"
       FROM branches b
       LEFT JOIN geo_units g ON g.id = b.location_geo_id
+      WHERE $1::boolean
+         OR b.id = ANY($2::int[])
       ORDER BY b.created_at DESC
-    `);
+    `, [canViewManagement || authContext.isSuperAdmin, authContext.allowedBranchIds]);
     res.json(rows);
   } catch (err: any) {
     console.error('Error fetching branches:', err);
@@ -131,8 +162,18 @@ router.get('/', requirePermission('branches.view'), async (_req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/:id', requirePermission('branches.view'), async (req, res) => {
+router.get('/:id', requirePermission('branches.view', 'branches.lookup', 'reference_data.lookup'), async (req, res) => {
   try {
+    const authContext = req.authContext!;
+    const canViewManagement = authorize(authContext, { permission: 'branches.view' }).allowed;
+    const branchId = Number(req.params.id);
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      return res.status(400).json({ error: 'ط±ظ‚ظ… ط§ظ„ظپط±ط¹ ط؛ظٹط± طµط§ظ„ط­' });
+    }
+    if (!canViewManagement && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(branchId)) {
+      return res.status(403).json({ error: 'ط؛ظٹط± ظ…ط³ظ…ظˆط­' });
+    }
+
     const { rows } = await pool.query(
       `SELECT b.id, b.name,
               b.location_geo_id AS "locationGeoId",
@@ -148,7 +189,7 @@ router.get('/:id', requirePermission('branches.view'), async (req, res) => {
        FROM branches b
        LEFT JOIN geo_units g ON g.id = b.location_geo_id
        WHERE b.id = $1`,
-      [req.params.id]
+      [branchId]
     );
     if (!rows[0]) return res.status(404).json({ error: 'الفرع غير موجود' });
     res.json(rows[0]);
@@ -202,6 +243,10 @@ router.get('/:id', requirePermission('branches.view'), async (req, res) => {
 router.post('/', requirePermission('branches.manage'), async (req, res) => {
   const client = await pool.connect();
   try {
+    if (!hasGlobalPermission(req.authContext!, 'branches.manage')) {
+      return res.status(403).json({ error: 'Creating branches requires GLOBAL branches.manage' });
+    }
+
     const { name, locationGeoId, detailedAddress, coveredGeoIds, contactInfo, status } = req.body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
@@ -302,14 +347,27 @@ router.post('/', requirePermission('branches.manage'), async (req, res) => {
 router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async (req, res) => {
   const client = await pool.connect();
   try {
-    const { id } = req.params;
+    const branchId = Number(req.params.id);
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      return res.status(400).json({ error: 'Invalid branch id' });
+    }
     const { name, locationGeoId, detailedAddress, coveredGeoIds, contactInfo, status } = req.body;
 
     // coveredGeoIds and status are security-sensitive (affect data scoping / operations).
     // branches.edit is insufficient — branches.manage is required.
     const sensitiveFieldsPresent = coveredGeoIds !== undefined || status !== undefined;
+    const canManageThisBranch = hasBranchPermission(req.authContext!, 'branches.manage', branchId);
+    const canEditThisBranch = hasBranchPermission(req.authContext!, 'branches.edit', branchId);
+    if (sensitiveFieldsPresent ? !canManageThisBranch : (!canManageThisBranch && !canEditThisBranch)) {
+      return res.status(403).json({
+        error: sensitiveFieldsPresent
+          ? 'Updating branch status or coverage requires branches.manage on this branch'
+          : 'Updating branch details requires branches.edit or branches.manage on this branch',
+      });
+    }
+
     if (sensitiveFieldsPresent && req.authContext) {
-      const manageCheck = authorize(req.authContext, { permission: 'branches.manage' });
+      const manageCheck = authorize(req.authContext, { permission: 'branches.manage', branchId });
       if (!manageCheck.allowed) {
         client.release();
         return res.status(403).json({
@@ -352,7 +410,7 @@ router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async 
         detailedAddress || null,
         JSON.stringify(contactInfo || []),
         status ?? null,
-        id,
+        branchId,
       ]
     );
 
@@ -362,10 +420,15 @@ router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async 
       return;
     }
 
-    await syncBranchGeoCoverage(client as any, Number(id), ids);
+    if (coveredGeoIds !== undefined) {
+      await syncBranchGeoCoverage(client as any, branchId, ids);
+    }
 
     await client.query('COMMIT');
-    res.json({ ...rows[0], coveredGeoIds: ids });
+    res.json({
+      ...rows[0],
+      coveredGeoIds: coveredGeoIds !== undefined ? ids : await loadBranchCoverage(branchId),
+    });
   } catch (err: any) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error updating branch:', err);
@@ -404,8 +467,16 @@ router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async 
  */
 router.delete('/:id', requirePermission('branches.manage'), async (req, res) => {
   try {
-    const { id } = req.params;
-    const { rowCount } = await pool.query('DELETE FROM branches WHERE id = $1', [id]);
+    const branchId = Number(req.params.id);
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      return res.status(400).json({ error: 'Invalid branch id' });
+    }
+
+    if (!hasBranchPermission(req.authContext!, 'branches.manage', branchId)) {
+      return res.status(403).json({ error: 'Deleting this branch requires branches.manage on this branch' });
+    }
+
+    const { rowCount } = await pool.query('DELETE FROM branches WHERE id = $1', [branchId]);
     if (rowCount === 0) return res.status(404).json({ error: 'الفرع غير موجود' });
     res.json({ success: true });
   } catch (err: any) {

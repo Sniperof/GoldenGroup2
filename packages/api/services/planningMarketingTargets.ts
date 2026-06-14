@@ -231,12 +231,16 @@ function buildEmptyResponse(params: {
  *
  * Caller must JOIN open_tasks (aliased as otAlias) with task_type_config (aliased as ttcAlias).
  */
-type PlanningTargetsMode = 'planning' | 'assigned';
+export type PlanningTargetsMode = 'planning' | 'assigned';
 
-function buildOpenTaskEligibilityPredicate(
+export function buildOpenTaskEligibilityPredicate(
   otAlias: string,
   ttcAlias: string,
   mode: PlanningTargetsMode,
+  // DEC-009 لبنة 2 / R-3 — the N-window must anchor on the PLANNING day D, not on
+  // CURRENT_DATE (planning today for tomorrow's execution). Callers pass their date
+  // placeholder (e.g. '$4::date'); default keeps legacy behavior for callers without one.
+  dateExpr: string = 'CURRENT_DATE',
 ): string {
   const statusClause = mode === 'assigned'
     ? `${otAlias}.status = 'assigned'`
@@ -261,7 +265,7 @@ function buildOpenTaskEligibilityPredicate(
         ${otAlias}.status = 'needs_follow_up'
         AND (
           ${otAlias}.expected_date IS NULL
-          OR ${otAlias}.expected_date <= CURRENT_DATE + INTERVAL '1 day'
+          OR ${otAlias}.expected_date <= ${dateExpr} + INTERVAL '1 day'
         )
       )
       OR (
@@ -270,7 +274,7 @@ function buildOpenTaskEligibilityPredicate(
         ${ttcAlias}.window_basis = 'due_date'
         AND (
           ${otAlias}.due_date IS NULL
-          OR ${otAlias}.due_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days::text || ' days')::INTERVAL
+          OR ${otAlias}.due_date <= ${dateExpr} + (${ttcAlias}.planning_window_days::text || ' days')::INTERVAL
         )
       )
       OR (
@@ -279,29 +283,40 @@ function buildOpenTaskEligibilityPredicate(
         ${ttcAlias}.window_basis = 'expected_date'
         AND (
           ${otAlias}.expected_date IS NULL
-          OR ${otAlias}.expected_date <= CURRENT_DATE + (${ttcAlias}.planning_window_days::text || ' days')::INTERVAL
+          OR ${otAlias}.expected_date <= ${dateExpr} + (${ttcAlias}.planning_window_days::text || ' days')::INTERVAL
         )
       )
     )
   `;
 }
 
-function buildTeamOwnedClientScopePredicate(clientAlias: string, assignmentAlias = 'ca'): string {
+// DEC-009 لبنة 4 / R-2 — single ownership model, uniform across the three queries.
+// A client is in a team's ownership scope when ANY of:
+//   1. the client is a post-sale customer (lifecycle OP/FOP) → company-owned,
+//      regardless of any lingering personal assignment (lbnah 4);
+//   2. the client has NO active personal owner → company-owned (branch default);
+//   3. the client is personally assigned to one of the team's actors (supervisor/technician).
+// Replaces the old assignment-only predicate so the manager's count (#1) matches
+// what actually gets assigned (#2/#3).
+function buildOwnershipScopePredicate(clientAlias: string, actorParam = '$3'): string {
+  const lifecycle = buildClientLifecycleStatusSql(clientAlias);
   return `
     (
-      EXISTS (
-        SELECT 1
-        FROM client_assignments ${assignmentAlias}
-        WHERE ${assignmentAlias}.client_id = ${clientAlias}.id
-          AND ${assignmentAlias}.hr_user_id = ANY($3::int[])
-      )
+      (${lifecycle}) IN ('OP', 'FOP')
       OR NOT EXISTS (
         SELECT 1
-        FROM client_assignments ${assignmentAlias}
-        JOIN hr_users hu ON hu.id = ${assignmentAlias}.hr_user_id
-        WHERE ${assignmentAlias}.client_id = ${clientAlias}.id
-          AND hu.employee_id IS NOT NULL
+        FROM client_assignments ca_own
+        JOIN hr_users u_own ON u_own.id = ca_own.hr_user_id
+        WHERE ca_own.client_id = ${clientAlias}.id
+          AND u_own.employee_id IS NOT NULL
+          AND u_own.is_active = TRUE
       )
+      OR (cardinality(${actorParam}::int[]) > 0 AND EXISTS (
+        SELECT 1
+        FROM client_assignments ca_team
+        WHERE ca_team.client_id = ${clientAlias}.id
+          AND ca_team.hr_user_id = ANY(${actorParam}::int[])
+      ))
     )
   `;
 }
@@ -348,6 +363,34 @@ async function buildZoneIds(routes: RouteCompositionInput[], extraZones: number[
 
   extraZones.forEach(zoneId => zoneIds.add(zoneId));
   return Array.from(zoneIds);
+}
+
+// DEC-009 لبنة 10 / R-10 — the team's department gate for DEVICE tasks.
+// Resolves the supervisor's department device authorization:
+//   restricted = false → the department serves no specific devices (empty
+//     device_model_ids) → planning fallback = ALL branch devices (no narrowing).
+//     NOTE: this intentionally differs from deviceScopeService's visibility
+//     surface, where an empty department authorizes nothing.
+//   restricted = true  → only the listed device_model_ids are in scope.
+async function resolveSupervisorDeviceScope(
+  supervisorHrUserId: number | null,
+): Promise<{ restricted: boolean; modelIds: number[] }> {
+  if (supervisorHrUserId == null) return { restricted: false, modelIds: [] };
+  const { rows } = await pool.query<{ ids: number[] | null }>(
+    `SELECT (
+       SELECT array_agg(v::int)
+       FROM jsonb_array_elements_text(COALESCE(d.device_model_ids, '[]'::jsonb)) AS v
+     ) AS ids
+     FROM departments d
+     JOIN employees e ON e.department_id = d.id
+     JOIN hr_users u ON u.employee_id = e.id
+     WHERE u.id = $1
+     LIMIT 1`,
+    [supervisorHrUserId],
+  );
+  const ids = rows[0]?.ids ?? null;
+  if (!ids || ids.length === 0) return { restricted: false, modelIds: [] };
+  return { restricted: true, modelIds: ids };
 }
 
 export async function getPlanningMarketingTargets(params: {
@@ -456,7 +499,8 @@ export async function getPlanningMarketingTargets(params: {
             WHEN ttc_eff.location_basis IN ('contract', 'device')
               THEN ct_loc.installation_geo_unit_id
             -- clients.neighborhood is already INTEGER; NULL means "no zone".
-            ELSE c.neighborhood
+            -- DEC-009 لبنة 5 — deepest available level: neighborhood, else district.
+          ELSE COALESCE(c.neighborhood, c.district)
           END AS effective_zone
         FROM clients c
         LEFT JOIN LATERAL (
@@ -467,7 +511,7 @@ export async function getPlanningMarketingTargets(params: {
             AND (
               -- Branch 1: unsynced — still in waiting phase
               (
-                ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', 'planning')}
+                ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', 'planning', '$4::date')}
                 AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
               )
               -- Branch 2: already synced to this team (any sync date) — still unprocessed
@@ -507,9 +551,9 @@ export async function getPlanningMarketingTargets(params: {
         WHERE c.is_candidate = FALSE
           -- DEC-005 D-customer-filters: cooldown + do_not_contact (D29)
           AND c.do_not_contact = FALSE
-          AND (c.cooldown_until IS NULL OR c.cooldown_until < CURRENT_DATE)
+          AND (c.cooldown_until IS NULL OR c.cooldown_until < $4::date)
           AND c.branch_id = $1
-          AND ${buildTeamOwnedClientScopePredicate('c')}
+          AND ${buildOwnershipScopePredicate('c')}
           AND ttc_eff.id IS NOT NULL
           AND unfinished_visit.has_unfinished_visit IS NULL
           AND (
@@ -522,7 +566,7 @@ export async function getPlanningMarketingTargets(params: {
               INNER JOIN task_type_config ttc_scope ON ttc_scope.task_type = ot_scope.task_type
               WHERE ot_scope.client_id = c.id
                 AND (
-                  (${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', 'planning')}
+                  (${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', 'planning', '$4::date')}
                    AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date))
                   OR (ot_scope.status = 'assigned' AND ot_scope.assigned_team_key = $5
                       AND ttc_scope.is_active = TRUE
@@ -562,7 +606,8 @@ export async function getPlanningMarketingTargets(params: {
         c.neighborhood,
         CASE
           WHEN ot.location_basis IN ('contract', 'device') THEN ct_zone.installation_geo_unit_id
-          ELSE c.neighborhood
+          -- DEC-009 لبنة 5 — deepest available level: neighborhood, else district.
+          ELSE COALESCE(c.neighborhood, c.district)
         END AS "effectiveZoneId",
         c.detailed_address AS "detailedAddress",
         c.gps_coordinates AS "gpsCoordinates",
@@ -680,7 +725,7 @@ export async function getPlanningMarketingTargets(params: {
           AND (
             -- Branch 1: unsynced — still in waiting phase
             (
-              ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', 'planning')}
+              ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', 'planning', '$4::date')}
               AND (ot_inner.excluded_for_date IS NULL OR ot_inner.excluded_for_date <> $4::date)
             )
             -- Branch 2: already synced to this team (any sync date) — still unprocessed
@@ -715,9 +760,9 @@ export async function getPlanningMarketingTargets(params: {
       WHERE c.is_candidate = FALSE
         -- DEC-005 D-customer-filters: cooldown + do_not_contact (D29)
         AND c.do_not_contact = FALSE
-        AND (c.cooldown_until IS NULL OR c.cooldown_until < CURRENT_DATE)
+        AND (c.cooldown_until IS NULL OR c.cooldown_until < $4::date)
         AND c.branch_id = $1
-        AND ${buildTeamOwnedClientScopePredicate('c')}
+        AND ${buildOwnershipScopePredicate('c')}
         AND ot.id IS NOT NULL
         AND unfinished_visit.has_unfinished_visit IS NULL
         -- Zone filter: use the task's actual execution location.
@@ -727,7 +772,7 @@ export async function getPlanningMarketingTargets(params: {
           (ot.location_basis IN ('contract', 'device') AND ct_zone.installation_geo_unit_id = ANY($2::int[]))
           OR
           (COALESCE(ot.location_basis, 'client') = 'client'
-            AND c.neighborhood = ANY($2::int[]))
+            AND COALESCE(c.neighborhood, c.district) = ANY($2::int[]))
         )
         AND (
           -- DEC-005 §4: legacy NOT EXISTS visits filter removed
@@ -738,7 +783,7 @@ export async function getPlanningMarketingTargets(params: {
             INNER JOIN task_type_config ttc_scope ON ttc_scope.task_type = ot_scope.task_type
             WHERE ot_scope.client_id = c.id
               AND (
-                (${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', 'planning')}
+                (${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', 'planning', '$4::date')}
                  AND (ot_scope.excluded_for_date IS NULL OR ot_scope.excluded_for_date <> $4::date))
                 OR (ot_scope.status = 'assigned' AND ot_scope.assigned_team_key = $5
                     AND ttc_scope.is_active = TRUE
@@ -883,7 +928,12 @@ export async function getPlanningWorkScope(params: {
   // task-location check.
   // DEC-006 D31: solo teams (EmergencySlot) only carry emergency_maintenance.
   const isSoloTeam = keyMatch[1] === 'solo';
-  const queryParams: any[] = [branchId, zoneIds, actorHrUserIds, date, isSoloTeam, teamKey];
+  // DEC-009 لبنة 10 / R-10 — department gate for device tasks (empty dept = all branch).
+  const deviceScope = await resolveSupervisorDeviceScope(supervisorHrUserId);
+  const queryParams: any[] = [
+    branchId, zoneIds, actorHrUserIds, date, isSoloTeam, teamKey,
+    deviceScope.restricted, deviceScope.modelIds,
+  ];
 
   const { rows: taskRows } = await pool.query(
     `SELECT
@@ -898,7 +948,8 @@ export async function getPlanningWorkScope(params: {
        ot.notes,
        CASE
          WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
-         ELSE c.neighborhood
+         -- DEC-009 لبنة 5 — deepest available level: neighborhood, else district.
+         ELSE COALESCE(c.neighborhood, c.district)
        END                 AS "effectiveZoneId",
        c.name              AS "clientName",
        c.mobile            AS "clientMobile",
@@ -940,7 +991,7 @@ export async function getPlanningWorkScope(params: {
      LEFT JOIN branches b ON b.id = c.branch_id
      WHERE ot.branch_id = $1
       AND (
-        ${buildOpenTaskEligibilityPredicate('ot', 'ttc', 'planning')}
+        ${buildOpenTaskEligibilityPredicate('ot', 'ttc', 'planning', '$4::date')}
         OR (ot.status = 'assigned' AND ot.assigned_team_key = $6)
         OR (
           ot.status IN ('in_scheduling', 'scheduled', 'waiting_execution', 'in_execution', 'ended')
@@ -950,29 +1001,35 @@ export async function getPlanningWorkScope(params: {
       AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $4::date)
       AND (c.is_active IS NULL OR c.is_active = TRUE)
        AND c.deleted_at IS NULL
+       -- DEC-009 لبنة 3 / R-4 — block conditions, now uniform with the count query (#1):
+       -- do_not_contact + cooldown (anchored on planning day D) + no pending prior visit.
+       AND c.do_not_contact = FALSE
+       AND (c.cooldown_until IS NULL OR c.cooldown_until < $4::date)
+       AND NOT EXISTS (
+         SELECT 1
+         FROM visit_tasks vt_uf
+         JOIN field_visits fv_uf ON fv_uf.id = vt_uf.field_visit_id
+         WHERE vt_uf.source_open_task_id = ot.id
+           AND fv_uf.status IN ('scheduled', 'in_progress', 'ended', 'not_completed')
+           AND fv_uf.scheduled_date < $4::date
+       )
        -- DEC-006 D31: EmergencySlot capability is exclusively emergency_maintenance
        AND ($5::boolean = FALSE OR ot.task_type = 'emergency_maintenance')
+       -- DEC-009 لبنة 10 / R-10 — department gate (device tasks only). $7=restricted,
+       -- $8=authorized model ids. Empty dept ($7=false) → all branch. Client tasks exempt.
+       -- A device task with an unresolved model is not silently dropped here (R-8).
+       AND (
+         COALESCE(ttc.location_basis, 'client') = 'client'
+         OR $7::boolean = FALSE
+         OR inst.device_model_id IS NULL
+         OR inst.device_model_id = ANY($8::int[])
+       )
        AND (
          (ttc.location_basis IN ('contract', 'device') AND inst.installation_geo_unit_id = ANY($2::int[]))
          OR
-         (COALESCE(ttc.location_basis, 'client') = 'client' AND c.neighborhood = ANY($2::int[]))
+         (COALESCE(ttc.location_basis, 'client') = 'client' AND COALESCE(c.neighborhood, c.district) = ANY($2::int[]))
        )
-       AND (
-         (${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP')
-         OR NOT EXISTS (
-           SELECT 1
-           FROM client_assignments ca5
-           JOIN hr_users u5 ON u5.id = ca5.hr_user_id
-           WHERE ca5.client_id = c.id
-             AND u5.employee_id IS NOT NULL
-             AND u5.is_active = TRUE
-         )
-         OR (cardinality($3::int[]) > 0 AND EXISTS (
-           SELECT 1 FROM client_assignments ca
-           WHERE ca.client_id = ot.client_id
-             AND ca.hr_user_id = ANY($3::int[])
-         ))
-       )
+       AND ${buildOwnershipScopePredicate('c')}
      ORDER BY ot.created_at DESC`,
     queryParams,
   );
@@ -1085,7 +1142,8 @@ export async function getAssignedLeadsForTeam(params: {
         c.neighborhood,
         CASE
           WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
-          ELSE c.neighborhood
+          -- DEC-009 لبنة 5 — deepest available level: neighborhood, else district.
+          ELSE COALESCE(c.neighborhood, c.district)
         END AS "effectiveZoneId",
         c.detailed_address AS "detailedAddress",
         c.referral_address_text AS "referralAddressText",
@@ -1122,7 +1180,8 @@ export async function getAssignedLeadsForTeam(params: {
        AND ct.work_location_geo_unit_id IS NOT DISTINCT FROM (
          CASE
            WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
-           ELSE c.neighborhood
+           -- DEC-009 لبنة 5 — deepest available level: neighborhood, else district.
+          ELSE COALESCE(c.neighborhood, c.district)
          END
        )
       WHERE ot.status            = 'assigned'

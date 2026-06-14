@@ -6,15 +6,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Cpu, ExternalLink } from 'lucide-react';
+import { Loader2, Cpu, ExternalLink, Plus, X, Save, MapPin } from 'lucide-react';
 
 import { api } from '../../lib/api';
 import { DeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
 import { WarrantyStatusBadge } from '../../components/devices/WarrantyStatusBadge';
 import { PossessionHolderChip } from '../../components/devices/PossessionHolderChip';
+import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
+import MapPicker from '../../components/MapPicker';
 
 interface Props {
-  client: { id: number };
+  client: { id: number; branchId?: number | null };
 }
 
 interface Filter {
@@ -36,6 +38,144 @@ function fmt(d?: string | null) {
   try { return new Date(d).toLocaleDateString('ar-SY'); } catch { return d; }
 }
 
+function ExternalDeviceModalV2({
+  deviceModelId,
+  deviceModels,
+  geoUnits,
+  geoSelection,
+  address,
+  mapPosition,
+  showMapPicker,
+  serial,
+  notes,
+  error,
+  saving,
+  loadingOptions,
+  onDeviceModelChange,
+  onGeoSelectionChange,
+  onAddressChange,
+  onMapPositionChange,
+  onToggleMapPicker,
+  onSerialChange,
+  onNotesChange,
+  onClose,
+  onSave,
+}: {
+  deviceModelId: string;
+  deviceModels: any[];
+  geoUnits: any[];
+  geoSelection: GeoSelection;
+  address: string;
+  mapPosition: [number, number] | null;
+  showMapPicker: boolean;
+  serial: string;
+  notes: string;
+  error: string;
+  saving: boolean;
+  loadingOptions: boolean;
+  onDeviceModelChange: (value: string) => void;
+  onGeoSelectionChange: (value: GeoSelection) => void;
+  onAddressChange: (value: string) => void;
+  onMapPositionChange: (value: [number, number] | null) => void;
+  onToggleMapPicker: () => void;
+  onSerialChange: (value: string) => void;
+  onNotesChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <h3 className="text-base font-black text-slate-800">اضافة جهاز خارجي</h3>
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="space-y-4 px-5 py-5">
+          {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+          <label className="block space-y-1.5">
+            <span className="text-sm font-bold text-slate-700">الجهاز</span>
+            <select
+              value={deviceModelId}
+              onChange={e => onDeviceModelChange(e.target.value)}
+              disabled={loadingOptions}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
+            >
+              <option value="">{loadingOptions ? 'جاري تحميل اجهزة الفرع...' : 'اختر جهازا من اجهزة الفرع'}</option>
+              {deviceModels.map(device => (
+                <option key={device.id} value={device.id}>
+                  {device.nameAr || device.name || device.nameEn || `#${device.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-bold text-slate-700">الرقم التسلسلي</span>
+            <input value={serial} onChange={e => onSerialChange(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500" dir="ltr" />
+          </label>
+          <GeoSmartSearch
+            geoUnits={geoUnits}
+            value={geoSelection}
+            onChange={onGeoSelectionChange}
+            label="عنوان التركيب"
+            required
+            minSelectableLevel={4}
+            placeholder="ابحث عن الحي..."
+            disabled={loadingOptions}
+          />
+          <label className="block space-y-1.5">
+            <span className="text-sm font-bold text-slate-700">العنوان التفصيلي</span>
+            <input value={address} onChange={e => onAddressChange(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500" />
+          </label>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                <MapPin className="h-3.5 w-3.5" />
+                <span>تحديد الموقع GPS</span>
+              </label>
+              <div className="flex items-center gap-3">
+                {mapPosition && (
+                  <span className="font-mono text-[10px] text-slate-400" dir="ltr">
+                    {mapPosition[0].toFixed(5)}, {mapPosition[1].toFixed(5)}
+                  </span>
+                )}
+                <button type="button" onClick={onToggleMapPicker} className="text-[11px] font-semibold text-sky-600 hover:text-sky-500">
+                  {showMapPicker ? 'اخفاء الخريطة' : 'اظهار الخريطة'}
+                </button>
+              </div>
+            </div>
+            {showMapPicker ? (
+              <MapPicker
+                position={mapPosition}
+                onLocationSelect={(lat, lng) => {
+                  if (lat === 0 && lng === 0) onMapPositionChange(null);
+                  else onMapPositionChange([lat, lng]);
+                }}
+              />
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                الخريطة اختيارية، ويمكن فتحها لتثبيت موقع الجهاز بدقة.
+              </div>
+            )}
+          </div>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-bold text-slate-700">ملاحظات</span>
+            <textarea value={notes} onChange={e => onNotesChange(e.target.value)} rows={3} className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500" />
+          </label>
+        </div>
+        <div className="flex gap-3 border-t border-slate-100 px-5 pb-5 pt-4">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">الغاء</button>
+          <button type="button" onClick={onSave} disabled={saving || loadingOptions} className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            حفظ
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface DeviceRow {
   device: any;
   current: any | null;
@@ -47,6 +187,19 @@ export function DevicesTab({ client }: Props) {
   const [rows, setRows] = useState<DeviceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [externalModalOpen, setExternalModalOpen] = useState(false);
+  const [externalDeviceModelId, setExternalDeviceModelId] = useState('');
+  const [externalSerial, setExternalSerial] = useState('');
+  const [externalGeoSelection, setExternalGeoSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+  const [externalAddress, setExternalAddress] = useState('');
+  const [externalMapPosition, setExternalMapPosition] = useState<[number, number] | null>(null);
+  const [showExternalMapPicker, setShowExternalMapPicker] = useState(false);
+  const [externalNotes, setExternalNotes] = useState('');
+  const [savingExternal, setSavingExternal] = useState(false);
+  const [externalError, setExternalError] = useState('');
+  const [externalDeviceModels, setExternalDeviceModels] = useState<any[]>([]);
+  const [externalGeoUnits, setExternalGeoUnits] = useState<any[]>([]);
+  const [externalOptionsLoading, setExternalOptionsLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -82,6 +235,88 @@ export function DevicesTab({ client }: Props) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => {
+    if (!externalModalOpen || !client.branchId) return;
+    let cancelled = false;
+    setExternalOptionsLoading(true);
+    Promise.all([
+      api.deviceModels.list(client.branchId),
+      api.geoUnits.list(client.branchId),
+    ])
+      .then(([deviceModels, geoUnits]) => {
+        if (cancelled) return;
+        setExternalDeviceModels(deviceModels);
+        setExternalGeoUnits(geoUnits);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[DevicesTab] external options failed:', err);
+        setExternalDeviceModels([]);
+        setExternalGeoUnits([]);
+        setExternalError('تعذر تحميل اجهزة الفرع او العناوين المتاحة.');
+      })
+      .finally(() => {
+        if (!cancelled) setExternalOptionsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [externalModalOpen, client.branchId]);
+
+  const resetExternalForm = () => {
+    setExternalDeviceModelId('');
+    setExternalSerial('');
+    setExternalGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+    setExternalAddress('');
+    setExternalMapPosition(null);
+    setShowExternalMapPicker(false);
+    setExternalNotes('');
+    setExternalError('');
+  };
+
+  const saveExternalDevice = async () => {
+    const branchId = client.branchId ?? null;
+    if (!branchId) {
+      setExternalError('لا يمكن إضافة جهاز خارجي قبل تحديد فرع الزبون.');
+      return;
+    }
+    if (!externalDeviceModelId) {
+      setExternalError('اسم الجهاز الخارجي مطلوب.');
+      return;
+    }
+    if (!externalSerial.trim()) {
+      setExternalError('الرقم التسلسلي مطلوب.');
+      return;
+    }
+    if (!externalGeoSelection.neighborhoodId) {
+      setExternalError('عنوان التركيب يجب ان يكون على مستوى الحي.');
+      return;
+    }
+    if (!externalAddress.trim()) {
+      setExternalError('العنوان التفصيلي للتركيب مطلوب.');
+      return;
+    }
+    setSavingExternal(true);
+    setExternalError('');
+    try {
+      await api.installedDevices.createExternal({
+        customerId: client.id,
+        deviceModelId: Number(externalDeviceModelId),
+        serialNumber: externalSerial.trim(),
+        installationGeoUnitId: Number(externalGeoSelection.neighborhoodId),
+        installationAddressText: externalAddress.trim(),
+        installationLat: externalMapPosition?.[0] ?? null,
+        installationLng: externalMapPosition?.[1] ?? null,
+        externalDeviceNotes: externalNotes.trim() || null,
+      });
+      setExternalModalOpen(false);
+      resetExternalForm();
+      await fetchData();
+    } catch (err: any) {
+      setExternalError(err?.message || 'تعذر إضافة الجهاز الخارجي.');
+    } finally {
+      setSavingExternal(false);
+    }
+  };
+
   const filtered = useMemo(() => {
     const f = FILTERS.find(x => x.key === activeFilter) ?? FILTERS[0];
     return rows.filter(r => f.test(r.device.status));
@@ -104,6 +339,39 @@ export function DevicesTab({ client }: Props) {
         <p className="text-xs text-slate-400 font-bold max-w-md">
           لم يقم هذا الزبون بشراء أي جهاز بعد، أو لم تُسلَّم الأجهزة الخاصة به.
         </p>
+        <button
+          type="button"
+          onClick={() => { resetExternalForm(); setExternalModalOpen(true); }}
+          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500"
+        >
+          <Plus className="h-4 w-4" />
+          إضافة جهاز خارجي
+        </button>
+        {externalModalOpen && (
+          <ExternalDeviceModalV2
+            deviceModelId={externalDeviceModelId}
+            deviceModels={externalDeviceModels}
+            geoUnits={externalGeoUnits}
+            geoSelection={externalGeoSelection}
+            address={externalAddress}
+            mapPosition={externalMapPosition}
+            showMapPicker={showExternalMapPicker}
+            serial={externalSerial}
+            notes={externalNotes}
+            error={externalError}
+            saving={savingExternal}
+            loadingOptions={externalOptionsLoading}
+            onDeviceModelChange={setExternalDeviceModelId}
+            onGeoSelectionChange={setExternalGeoSelection}
+            onAddressChange={setExternalAddress}
+            onMapPositionChange={setExternalMapPosition}
+            onToggleMapPicker={() => setShowExternalMapPicker(prev => !prev)}
+            onSerialChange={setExternalSerial}
+            onNotesChange={setExternalNotes}
+            onClose={() => setExternalModalOpen(false)}
+            onSave={saveExternalDevice}
+          />
+        )}
       </div>
     );
   }
@@ -113,6 +381,14 @@ export function DevicesTab({ client }: Props) {
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <h3 className="text-lg font-black text-slate-800">أجهزة الزبون</h3>
         <div className="flex items-center gap-1 flex-wrap">
+          <button
+            type="button"
+            onClick={() => { resetExternalForm(); setExternalModalOpen(true); }}
+            className="ml-2 inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-500"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            جهاز خارجي
+          </button>
           {FILTERS.map(f => (
             <button
               key={f.key}
@@ -177,6 +453,10 @@ export function DevicesTab({ client }: Props) {
                     />
                   </td>
                   <td className="py-3 px-4">
+                    <span className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${device.deviceSource === 'external' ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700'}`}>
+                      {device.deviceSource === 'external' ? 'خارجي' : 'من عقد'}
+                    </span>
+                    <br />
                     {device.contractNumber ? (
                       <a
                         onClick={(e) => e.stopPropagation()}
@@ -201,6 +481,31 @@ export function DevicesTab({ client }: Props) {
           </table>
         </div>
       </div>
+      {externalModalOpen && (
+        <ExternalDeviceModalV2
+          deviceModelId={externalDeviceModelId}
+          deviceModels={externalDeviceModels}
+          geoUnits={externalGeoUnits}
+          geoSelection={externalGeoSelection}
+          address={externalAddress}
+          mapPosition={externalMapPosition}
+          showMapPicker={showExternalMapPicker}
+          serial={externalSerial}
+          notes={externalNotes}
+          error={externalError}
+          saving={savingExternal}
+          loadingOptions={externalOptionsLoading}
+          onDeviceModelChange={setExternalDeviceModelId}
+          onGeoSelectionChange={setExternalGeoSelection}
+          onAddressChange={setExternalAddress}
+          onMapPositionChange={setExternalMapPosition}
+          onToggleMapPicker={() => setShowExternalMapPicker(prev => !prev)}
+          onSerialChange={setExternalSerial}
+          onNotesChange={setExternalNotes}
+          onClose={() => setExternalModalOpen(false)}
+          onSave={saveExternalDevice}
+        />
+      )}
     </div>
   );
 }

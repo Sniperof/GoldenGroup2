@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
 import { requirePermission } from '../middleware/permission.js';
+import { assertRoleWithinActorScope, ROLE_ESCALATION_ERROR } from '../services/roleAssignmentGuard.js';
 import { getEmployeeBranchId } from '../repositories/employeeRepository.js';
 import {
   createEmployeeRecord,
   deleteEmployeeRecord,
   getEmployeeById,
+  getEmployeeLookup,
   getEmployeeManagerCandidates,
   getEmployees,
   saveEmployeeSystemAccount,
@@ -116,7 +118,7 @@ router.get('/', requirePermission('employees.view_list'), async (req, res) => {
   }
 });
 
-router.get('/manager-candidates', requirePermission('employees.view_list'), async (req, res) => {
+router.get('/manager-candidates', requirePermission('employees.manager_lookup', 'employees.create', 'employees.edit', 'employees.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const requestedBranchId = req.query.branchId != null ? Number(req.query.branchId) : null;
@@ -127,10 +129,29 @@ router.get('/manager-candidates', requirePermission('employees.view_list'), asyn
       return res.status(400).json({ error: 'يجب تحديد الفرع المطلوب' });
     }
 
-    const access = authorize(authContext, {
+    const managerLookupAccess = authorize(authContext, {
+      permission: 'employees.manager_lookup',
+      branchId: targetBranchId,
+    });
+    const createAccess = authorize(authContext, {
+      permission: 'employees.create',
+      branchId: targetBranchId,
+    });
+    const editAccess = authorize(authContext, {
+      permission: 'employees.edit',
+      branchId: targetBranchId,
+    });
+    const viewAccess = authorize(authContext, {
       permission: 'employees.view_list',
       branchId: targetBranchId,
     });
+    const access = managerLookupAccess.allowed
+      ? managerLookupAccess
+      : createAccess.allowed
+        ? createAccess
+        : editAccess.allowed
+          ? editAccess
+          : viewAccess;
     if (!access.allowed) {
       return forbidBranchAccess(res, access.reason);
     }
@@ -140,6 +161,58 @@ router.get('/manager-candidates', requirePermission('employees.view_list'), asyn
       Number.isFinite(departmentId) ? departmentId : null,
     );
     res.json(candidates);
+  } catch (err: any) {
+    if (err?.status) {
+      return res.status(err.status).json(err.payload ?? { error: err.message });
+    }
+    throw err;
+  }
+});
+
+router.get('/lookup', requirePermission('employees.lookup', 'employees.create', 'employees.edit', 'employees.view_list'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const requestedBranchId = req.query.branchId != null ? Number(req.query.branchId) : req.header('x-branch-id');
+    const targetBranchId = resolveEmployeeTargetBranch(req, requestedBranchId);
+
+    if (!authContext.isSuperAdmin && targetBranchId == null) {
+      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
+    }
+
+    if (targetBranchId != null) {
+      const lookupAccess = authorize(authContext, {
+        permission: 'employees.lookup',
+        branchId: targetBranchId,
+      });
+      const createAccess = authorize(authContext, {
+        permission: 'employees.create',
+        branchId: targetBranchId,
+      });
+      const editAccess = authorize(authContext, {
+        permission: 'employees.edit',
+        branchId: targetBranchId,
+      });
+      const viewAccess = authorize(authContext, {
+        permission: 'employees.view_list',
+        branchId: targetBranchId,
+      });
+      const access = lookupAccess.allowed
+        ? lookupAccess
+        : createAccess.allowed
+          ? createAccess
+          : editAccess.allowed
+            ? editAccess
+            : viewAccess;
+      if (!access.allowed) {
+        return forbidBranchAccess(res, access.reason);
+      }
+    }
+
+    if (authContext.isSuperAdmin && targetBranchId == null) {
+      return res.json(await getEmployeeLookup({ isSuperAdmin: true, branchId: null }));
+    }
+
+    res.json(await getEmployeeLookup({ isSuperAdmin: false, branchId: targetBranchId }));
   } catch (err: any) {
     if (err?.status) {
       return res.status(err.status).json(err.payload ?? { error: err.message });
@@ -457,7 +530,7 @@ router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
   }
 });
 
-router.put('/:id/system-account', requirePermission('admin.roles.manage'), async (req, res) => {
+router.put('/:id/system-account', requirePermission('admin.roles.users.manage'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const employeeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -468,11 +541,18 @@ router.put('/:id/system-account', requirePermission('admin.roles.manage'), async
     }
 
     const access = authorize(authContext, {
-      permission: 'admin.roles.manage',
+      permission: 'admin.roles.users.manage',
       branchId: ownerBranch,
     });
     if (!access.allowed) {
       return forbidBranchAccess(res, access.reason);
+    }
+
+    if (req.body?.roleId) {
+      const scopeCheck = await assertRoleWithinActorScope(authContext, Number(req.body.roleId));
+      if (scopeCheck.ok === false) {
+        return res.status(403).json({ error: ROLE_ESCALATION_ERROR });
+      }
     }
 
     const result = await saveEmployeeSystemAccount(Number(employeeIdParam), req.body);

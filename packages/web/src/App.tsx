@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { useAuthStore } from './hooks/useAuthStore';
 import Login from './pages/auth/Login';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -13,6 +14,7 @@ import Clients from './pages/Clients';
 import ClientProfile from './pages/ClientProfile';
 import CandidatesEntry from './pages/candidates/CandidatesEntry';
 import TeamScheduler from './pages/planning/TeamScheduler';
+import ZoneStudy from './pages/planning/ZoneStudy';
 import RouteAssigner from './pages/planning/RouteAssigner';
 import PlanOverview from './pages/planning/PlanOverview';
 import PlanningContactTargets from './pages/planning/PlanningContactTargets';
@@ -64,6 +66,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+    const token = useAuthStore((s) => s.token);
+    const refreshSession = useAuthStore((s) => s.refreshSession);
+
+    useEffect(() => {
+        if (!token) return;
+        void refreshSession().catch((err) => {
+            console.error('Session refresh failed:', err);
+        });
+    }, [token, refreshSession]);
+
     return (
         <BrowserRouter>
             <ErrorBoundary>
@@ -83,6 +95,7 @@ export default function App() {
                         <Route path="/clients/:id" element={<ClientProfile />} />
                         <Route path="/candidates" element={<CandidatesEntry />} />
                         <Route path="/planning/schedule" element={<TeamScheduler />} />
+                        <Route path="/planning/zone-study" element={<ZoneStudy />} />
                         <Route path="/planning/assign" element={<RouteAssigner />} />
                         <Route path="/planning/overview" element={<PlanOverview />} />
                         <Route path="/planning/contact-targets/:teamKey" element={<PlanningContactTargets />} />

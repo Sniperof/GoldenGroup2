@@ -137,6 +137,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
             const defaults: GeoSuggestion[] = [];
             for (const unit of geoUnits) {
                 if (unit.level < minSelectableLevel) continue;
+                if (unit.status === 'inactive') continue; // inactive units are not selectable in address fields
                 defaults.push({ unit, path: buildPath(unit, unitsMap), score: 0 });
                 if (defaults.length >= 30) break;
             }
@@ -148,6 +149,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
 
         geoUnits.forEach(u => {
             if (u.level < minSelectableLevel) return;
+            if (u.status === 'inactive') return; // inactive units are not selectable in address fields
             const name = u.name.toLowerCase();
             if (!name.includes(q)) return;
             const path = buildPath(u, unitsMap);

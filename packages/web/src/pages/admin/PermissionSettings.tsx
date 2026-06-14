@@ -30,6 +30,7 @@ const ACTION_LABELS: Record<string, string> = {
   view_eligible: 'عرض المؤهلين',
   view_audit_logs: 'عرض سجل التغييرات',
   view_history: 'عرض السجل',
+  lookup: 'عرض القوائم المرجعية',
   create: 'إنشاء',
   add_trainees: 'إضافة متدربين',
   edit: 'تعديل',
@@ -86,6 +87,7 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   field_visits: { label: 'الزيارات الميدانية',           icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
   open_tasks:   { label: 'المهام المفتوحة',              icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
   service_requests: { label: 'طلبات الخدمة والصيانة',    icon: <FileText className="w-4 h-4" />,     color: 'text-cyan-600 bg-cyan-50' },
+  reference_data: { label: 'القوائم المرجعية', icon: <ListChecks className="w-4 h-4" />, color: 'text-slate-600 bg-slate-100' },
 };
 
 const SUB_MODULE_LABELS: Record<string, string> = {
@@ -96,6 +98,7 @@ const SUB_MODULE_LABELS: Record<string, string> = {
   candidates: 'الأسماء المقترحة',
   name_lists: 'لوائح الأسماء',
   roles: 'الأدوار والصلاحيات',
+  roles_users: 'إسناد الأدوار للمستخدمين',
   system_lists: 'القوائم النظامية',
   branch_assignments: 'فروع المستخدمين المسموحة',
   management: 'الإدارة',
@@ -109,6 +112,14 @@ const SUB_MODULE_LABELS: Record<string, string> = {
   appointments: 'المواعيد',
   schedule: 'جدولة الفرق',
   service_requests: 'طلبات الخدمة والصيانة',
+  lookups: 'الاستخدام داخل العمليات',
+  navigation: 'ظهور القسم',
+  device_models: 'تعريفات الأجهزة',
+  spare_parts: 'تعريفات قطع الغيار',
+  discounts: 'خصومات الأجهزة',
+  department_availability: 'أجهزة الأقسام',
+  installed_devices: 'الأجهزة المركبة',
+  installed_device_possession: 'حيازة الأجهزة',
 };
 
 const PERM_LABELS: Record<string, string> = {
@@ -145,8 +156,10 @@ const PERM_LABELS: Record<string, string> = {
   'jobs.training.add_trainees':     'إضافة متدربين للدورة',
   'admin.roles.view':               'عرض الأدوار الوظيفية',
   'admin.roles.manage':             'إدارة الأدوار والصلاحيات',
+  'admin.roles.users.manage':       'إسناد الأدوار للمستخدمين',
   'admin.system_lists.view':        'عرض القوائم النظامية',
   'admin.system_lists.manage':      'إدارة القوائم النظامية',
+  'reference_data.lookup':          'قراءة القيم المرجعية داخل الحقول',
   'clients.view_list':              'عرض قائمة الزبائن',
   'clients.view':                   'عرض ملف الزبون',
   'clients.view_detail':            'عرض ملف الزبون',
@@ -161,6 +174,9 @@ const PERM_LABELS: Record<string, string> = {
   'candidates.name_lists.create':   'إنشاء لائحة أسماء',
   'candidates.name_lists.edit':     'تعديل لائحة أسماء',
   'candidates.name_lists.delete':   'حذف لائحة أسماء',
+  'employees.nav':                  'إظهار سجلات الموظفين',
+  'employees.lookup':               'قراءة الموظفين داخل الحقول',
+  'employees.manager_lookup':       'قراءة المديرين المباشرين',
   'employees.view_list':            'عرض قائمة الموظفين',
   'employees.create':               'إضافة موظف جديد',
   'employees.edit':                 'تعديل بيانات الموظف',
@@ -168,8 +184,19 @@ const PERM_LABELS: Record<string, string> = {
   'contracts.view_list':            'عرض قائمة العقود',
   'contracts.create':               'إنشاء عقد جديد',
   'contracts.edit':                 'تعديل العقد',
+  'devices.nav':                    'إظهار قسم الأجهزة وقطع الغيار',
   'devices.view':                   'عرض الأجهزة وقطع الغيار',
   'devices.manage':                 'إدارة الأجهزة وقطع الغيار',
+  'device_models.lookup':           'قراءة تعريفات الأجهزة',
+  'spare_parts.lookup':             'قراءة تعريفات قطع الغيار',
+  'device_models.manage':           'إدارة تعريفات الأجهزة',
+  'spare_parts.manage':             'إدارة تعريفات قطع الغيار',
+  'devices.discounts.view':         'عرض خصومات الأجهزة',
+  'devices.discounts.manage':       'إدارة خصومات الأجهزة',
+  'devices.department_availability.view': 'عرض أجهزة الأقسام',
+  'devices.department_availability.manage': 'إدارة أجهزة الأقسام',
+  'device_models.task_lookup':      'قراءة أجهزة العمليات',
+  'spare_parts.task_lookup':        'قراءة قطع غيار العمليات',
   'tasks.view':                     'عرض المهام والعمليات',
   'tasks.manage':                   'إدارة المهام وتحديث حالاتها',
   'planning.view':                  'عرض خطط وجداول الفرع',
@@ -179,8 +206,14 @@ const PERM_LABELS: Record<string, string> = {
   'telemarketer.manage':            'إدارة المواعيد والعملاء',
   'geo.view':                       'عرض المناطق الجغرافية',
   'geo.manage':                     'إدارة المناطق والمستويات',
+  'branches.nav':                   'إظهار إدارة الفروع والأقسام',
+  'branches.lookup':                'قراءة الفروع داخل الحقول',
   'branches.view':                  'عرض الفروع',
+  'branches.edit':                  'تعديل بيانات الفرع',
   'branches.manage':                'إدارة الفروع',
+  'departments.lookup':             'قراءة الأقسام داخل الحقول',
+  'departments.view_list':          'عرض أقسام الفروع',
+  'departments.manage':             'إدارة الأقسام',
   'settings.view':                  'عرض إعدادات النظام',
   'settings.manage':                'تعديل إعدادات النظام',
 };
@@ -195,9 +228,25 @@ function getPermLabel(perm: Permission): string {
 }
 
 function getPermissionContextLabel(perm: Permission): string {
-  const module = getModuleConfig(perm.module ?? '').label;
-  const sub = SUB_MODULE_LABELS[(perm as any).subModule ?? (perm as any).sub_module ?? ''] ?? 'مجموعة صلاحيات';
-  return `${module} / ${sub}`;
+  const { module, subModule } = getPermissionGrouping(perm);
+  const moduleLabel = getModuleConfig(module).label;
+  const sub = SUB_MODULE_LABELS[subModule] ?? 'مجموعة صلاحيات';
+  return `${moduleLabel} / ${sub}`;
+}
+
+function getPermissionGrouping(perm: Permission): { module: string; subModule: string } {
+  if (perm.key === 'reference_data.lookup') {
+    return { module: 'admin', subModule: 'system_lists' };
+  }
+  return {
+    module: (perm as any).module ?? 'other',
+    subModule: (perm as any).subModule ?? (perm as any).sub_module ?? 'general',
+  };
+}
+
+function getPermissionModule(perm: Permission): string {
+  const { module } = getPermissionGrouping(perm);
+  return module;
 }
 
 function getModuleConfig(module: string) {
@@ -237,7 +286,7 @@ export default function PermissionSettings() {
     const map: Record<string, Permission[]> = {};
     for (const p of permissions) {
       if (isLegacyPermission(p)) continue;
-      const mod = p.module ?? 'other';
+      const mod = getPermissionModule(p);
       if (!map[mod]) map[mod] = [];
       map[mod].push(p);
     }

@@ -576,9 +576,20 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
          ot.excluded_reason                       AS "excludedReason",
          ot.last_waiting_status                   AS "lastWaitingStatus",
          ot.attempt_count                         AS "attemptCount",
-         COALESCE(ttc.arabic_label, ot.task_type) AS "taskTypeLabel"
+         COALESCE(ttc.arabic_label, ot.task_type) AS "taskTypeLabel",
+         -- DEC-009 لبنة 2/5 — station must reflect the task's WORK location (device
+         -- install geo for device tasks; client deepest geo otherwise), NOT the
+         -- client's registration neighborhood.
+         gw.name AS "workLocationName"
        FROM open_tasks ot
        LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+       LEFT JOIN clients c2 ON c2.id = ot.client_id
+       LEFT JOIN installed_devices inst
+         ON inst.id = ot.device_id AND ttc.location_basis IN ('contract','device')
+       LEFT JOIN geo_units gw ON gw.id = (
+         CASE WHEN ttc.location_basis IN ('contract','device') THEN inst.installation_geo_unit_id
+              ELSE COALESCE(c2.neighborhood, c2.district) END
+       )
        WHERE ot.client_id = ANY($1::int[])
          AND ot.branch_id = $2
          AND ot.status IN ('assigned','in_scheduling','scheduled','waiting_execution',
@@ -677,7 +688,9 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
         clientName: meta?.name ?? '',
         primaryPhone: primaryPhone(meta),
         candidateStatus: meta?.candidateStatus ?? null,
-        stationName: meta?.stationName ?? null,
+        // DEC-009 — station = the task's actual work location (falls back to the
+        // client's registration neighborhood only if no task location resolved).
+        stationName: tasks[0]?.workLocationName ?? meta?.stationName ?? null,
         tasks,
         assignedCount: assignedTasks.length,
         excludedCount: excludedTasks.length,

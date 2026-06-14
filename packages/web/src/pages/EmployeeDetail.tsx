@@ -250,7 +250,7 @@ export default function EmployeeDetail() {
   const { hasPermission }       = usePermissions();
 
   const canEditEmployee     = hasPermission('employees.edit');
-  const canManageSystemAccess = hasPermission('admin.roles.manage');
+  const canManageSystemAccess = hasPermission('admin.roles.users.manage');
   const isSuperAdmin        = user?.isSuperAdmin === true;
 
   const [detail, setDetail]       = useState<EmployeeDetailType | null>(null);

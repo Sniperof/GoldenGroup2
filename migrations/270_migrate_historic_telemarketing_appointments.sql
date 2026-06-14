@@ -24,7 +24,8 @@ WITH ins_fv AS (
     source_legacy_type, source_legacy_id,
     appointment_booked_at, booked_by_telemarketer_id,
     created_by, created_at, updated_at
-  ) VALUES (
+  )
+  SELECT
     'marketing', 'service', 'cancelled',
     21, 2, '2026-05-24'::date, '12:00',
     jsonb_build_object('teamKey', 'team_0'),
@@ -34,11 +35,12 @@ WITH ins_fv AS (
       'occupation', null,
       'waterSource', null
     ),
-    'telemarketing', '11ee2d61-a036-4238-b0f2-4fdb6b1725e7',
+    'telemarketing', NULL,
     'telemarketing_appointment', '11ee2d61-a036-4238-b0f2-4fdb6b1725e7',
     '2026-05-23 21:46:50.197+00'::timestamptz, 1,
     1, '2026-05-23 21:46:50.197+00'::timestamptz, NOW()
-  )
+  WHERE EXISTS (SELECT 1 FROM clients WHERE id = 21)
+  ON CONFLICT (source_legacy_type, source_legacy_id) DO NOTHING
   RETURNING id
 )
 INSERT INTO visit_tasks (
@@ -46,9 +48,11 @@ INSERT INTO visit_tasks (
   task_type, task_family, status, sequence_no,
   source_legacy_type, source_legacy_id
 )
-SELECT id, 1, 'device_delivery', 'service', 'cancelled', 1,
+SELECT id, CASE WHEN EXISTS (SELECT 1 FROM open_tasks WHERE id = 1) THEN 1 ELSE NULL END,
+       'device_delivery', 'service', 'cancelled', 1,
        'telemarketing_appointment_task', '11ee2d61-a036-4238-b0f2-4fdb6b1725e7:1'
-FROM ins_fv;
+FROM ins_fv
+ON CONFLICT (source_legacy_type, source_legacy_id) DO NOTHING;
 
 -- ─── ماهر محمد حميد (entity_id=20, device_demo, branch_id=2) ──────────────────
 
@@ -61,7 +65,8 @@ WITH ins_fv AS (
     source_legacy_type, source_legacy_id,
     appointment_booked_at, booked_by_telemarketer_id,
     created_by, created_at, updated_at
-  ) VALUES (
+  )
+  SELECT
     'marketing', 'marketing', 'cancelled',
     20, 2, '2026-05-24'::date, '13:00',
     jsonb_build_object('teamKey', 'team_0'),
@@ -71,11 +76,12 @@ WITH ins_fv AS (
       'occupation', null,
       'waterSource', 'الاسالة الحكومية'
     ),
-    'telemarketing', '31b699cc-7709-42ef-9194-d414970282b1',
+    'telemarketing', NULL,
     'telemarketing_appointment', '31b699cc-7709-42ef-9194-d414970282b1',
     '2026-05-24 00:38:55.36+00'::timestamptz, 1,
     1, '2026-05-24 00:38:55.36+00'::timestamptz, NOW()
-  )
+  WHERE EXISTS (SELECT 1 FROM clients WHERE id = 20)
+  ON CONFLICT (source_legacy_type, source_legacy_id) DO NOTHING
   RETURNING id
 )
 INSERT INTO visit_tasks (
@@ -83,9 +89,11 @@ INSERT INTO visit_tasks (
   task_type, task_family, status, sequence_no,
   source_legacy_type, source_legacy_id
 )
-SELECT id, 3, 'device_demo', 'marketing', 'cancelled', 1,
+SELECT id, CASE WHEN EXISTS (SELECT 1 FROM open_tasks WHERE id = 3) THEN 3 ELSE NULL END,
+       'device_demo', 'marketing', 'cancelled', 1,
        'telemarketing_appointment_task', '31b699cc-7709-42ef-9194-d414970282b1:1'
-FROM ins_fv;
+FROM ins_fv
+ON CONFLICT (source_legacy_type, source_legacy_id) DO NOTHING;
 
 -- ─── سعيد العمراني (entity_id=18, device_demo, branch_id=2) ──────────────────
 
@@ -98,7 +106,8 @@ WITH ins_fv AS (
     source_legacy_type, source_legacy_id,
     appointment_booked_at, booked_by_telemarketer_id,
     created_by, created_at, updated_at
-  ) VALUES (
+  )
+  SELECT
     'marketing', 'marketing', 'cancelled',
     18, 2, '2026-05-24'::date, '15:00',
     jsonb_build_object('teamKey', 'team_0'),
@@ -108,11 +117,12 @@ WITH ins_fv AS (
       'occupation', null,
       'waterSource', 'ماء بئر / جوفي'
     ),
-    'telemarketing', '0422468b-e8ea-4674-9bb1-8e536fc328ba',
+    'telemarketing', NULL,
     'telemarketing_appointment', '0422468b-e8ea-4674-9bb1-8e536fc328ba',
     '2026-05-24 01:04:32.666+00'::timestamptz, 1,
     1, '2026-05-24 01:04:32.666+00'::timestamptz, NOW()
-  )
+  WHERE EXISTS (SELECT 1 FROM clients WHERE id = 18)
+  ON CONFLICT (source_legacy_type, source_legacy_id) DO NOTHING
   RETURNING id
 )
 INSERT INTO visit_tasks (
@@ -120,9 +130,11 @@ INSERT INTO visit_tasks (
   task_type, task_family, status, sequence_no,
   source_legacy_type, source_legacy_id
 )
-SELECT id, 4, 'device_demo', 'marketing', 'cancelled', 1,
+SELECT id, CASE WHEN EXISTS (SELECT 1 FROM open_tasks WHERE id = 4) THEN 4 ELSE NULL END,
+       'device_demo', 'marketing', 'cancelled', 1,
        'telemarketing_appointment_task', '0422468b-e8ea-4674-9bb1-8e536fc328ba:1'
-FROM ins_fv;
+FROM ins_fv
+ON CONFLICT (source_legacy_type, source_legacy_id) DO NOTHING;
 
 COMMIT;
 

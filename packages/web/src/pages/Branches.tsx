@@ -72,9 +72,10 @@ function buildGeoSelectionFromId(geoUnits: GeoUnit[], id?: number | null): GeoSe
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function Branches() {
   const navigate = useNavigate();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, hasAnyPermission } = usePermissions();
   const { branches, loading, fetchBranches, createBranch, updateBranch, deleteBranch } = useBranchStore();
-  const canManageBranches = hasPermission('branches.manage');
+  const canManageBranchStructure = hasPermission('branches.manage');
+  const canEditBranches = hasAnyPermission('branches.edit', 'branches.manage');
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -92,7 +93,7 @@ export default function Branches() {
     api.geoUnits.list().then(setGeoUnits).catch(console.error);
   }, []);
 
-  if (!hasPermission('branches.view')) {
+  if (!hasAnyPermission('branches.view', 'branches.edit', 'branches.manage')) {
     return <Navigate to="/" replace />;
   }
 
@@ -127,7 +128,7 @@ export default function Branches() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canManageBranches) return;
+    if (editingBranch ? !canEditBranches : !canManageBranchStructure) return;
     const locationGeoId = getDeepestId(locationSelection);
     const coveredGeoIds = coveredSelections.map(getDeepestId).filter(Boolean) as number[];
     if (!locationSelection.subId && !locationSelection.neighborhoodId) {
@@ -137,7 +138,10 @@ export default function Branches() {
     // Validate contacts have values
     const validContacts = contacts.filter(c => c.value.trim());
 
-    const payload = { name, status, locationGeoId, detailedAddress: detailedAddress.trim() || null, coveredGeoIds, contactInfo: validContacts };
+    const basePayload = { name, locationGeoId, detailedAddress: detailedAddress.trim() || null, contactInfo: validContacts };
+    const payload = editingBranch && !canManageBranchStructure
+      ? basePayload
+      : { ...basePayload, status, coveredGeoIds };
     try {
       if (editingBranch) {
         await updateBranch(editingBranch.id, payload);
@@ -158,7 +162,7 @@ export default function Branches() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!canManageBranches) return;
+    if (!canManageBranchStructure) return;
     if (!confirm('هل أنت متأكد من حذف هذا الفرع؟')) return;
     try { await deleteBranch(id); }
     catch { alert('لا يمكن حذف الفرع لاحتمال وجود سجلات مرتبطة به'); }
@@ -218,6 +222,8 @@ export default function Branches() {
     }
   ];
 
+  const canEditCurrentBranchDetails = editingBranch ? canEditBranches : canManageBranchStructure;
+
   return (
     <div className="p-8 space-y-6" dir="rtl">
       {/* Header */}
@@ -230,7 +236,7 @@ export default function Branches() {
           <p className="text-sm text-slate-500 mt-1">إضافة الفروع وتحديد معلومات التواصل ونطاق التغطية الجغرافية</p>
         </div>
         <button onClick={() => openForm()}
-          disabled={!canManageBranches}
+          disabled={!canManageBranchStructure}
           className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95">
           <Plus className="w-4 h-4" /> إضافة فرع جديد
         </button>
@@ -251,10 +257,10 @@ export default function Branches() {
               >
                 <Layers className="w-4 h-4" />
               </button>
-              <button onClick={() => openForm(b)} disabled={!canManageBranches} className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50" title="تعديل">
+              <button onClick={() => openForm(b)} disabled={!canEditBranches} className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50" title="تعديل">
                 <Edit className="w-4 h-4" />
               </button>
-              <button onClick={() => handleDelete(b.id)} disabled={!canManageBranches} className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50" title="حذف">
+              <button onClick={() => handleDelete(b.id)} disabled={!canManageBranchStructure} className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50" title="حذف">
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
@@ -284,13 +290,15 @@ export default function Branches() {
                   <div className="space-y-1.5">
                     <label className="text-sm font-semibold text-slate-700">اسم الفرع <span className="text-red-500">*</span></label>
                     <input required value={name} onChange={e => setName(e.target.value)}
+                      disabled={!canEditCurrentBranchDetails}
                       placeholder="مثال: فرع الرصافة الرئيسي"
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none" />
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none disabled:bg-gray-50" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-sm font-semibold text-slate-700">الحالة</label>
                     <select value={status} onChange={e => setStatus(e.target.value as any)}
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none">
+                      disabled={!canManageBranchStructure}
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none disabled:bg-gray-50">
                       <option value="active">نشط</option>
                       <option value="inactive">غير نشط</option>
                     </select>
@@ -305,7 +313,8 @@ export default function Branches() {
                   <GeoSmartSearch label="العنوان" geoUnits={geoUnits} required
                     value={locationSelection} onChange={setLocationSelection}
                     placeholder="ابحث عن ناحية أو حي..."
-                    minSelectableLevel={3} />
+                    minSelectableLevel={3}
+                    disabled={!canEditCurrentBranchDetails} />
                   {!locationSelection.subId && !locationSelection.neighborhoodId && (
                     <p className="text-[11px] text-amber-600 font-medium">
                       يجب اختيار ناحية أو حي على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
@@ -316,7 +325,7 @@ export default function Branches() {
                     <textarea
                       value={detailedAddress}
                       onChange={e => setDetailedAddress(e.target.value)}
-                      disabled={!canManageBranches}
+                      disabled={!canEditCurrentBranchDetails}
                       rows={3}
                       placeholder="مثال: الشارع، البناء، الطابق، أقرب نقطة دالة..."
                       className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none resize-none disabled:bg-gray-50"
@@ -335,7 +344,7 @@ export default function Branches() {
                       )}
                     </h4>
                 <button type="button" onClick={addContact}
-                      disabled={!canManageBranches}
+                      disabled={!canEditCurrentBranchDetails}
                       className="text-xs font-bold text-violet-600 hover:text-violet-700 flex items-center gap-1 bg-violet-100 hover:bg-violet-200 px-3 py-1.5 rounded-lg transition-colors">
                       <Plus className="w-3.5 h-3.5" /> إضافة وسيلة تواصل
                     </button>
@@ -346,7 +355,7 @@ export default function Branches() {
                       <Phone className="w-8 h-8 text-violet-200" />
                       لم تُضف معلومات تواصل بعد
                       <button type="button" onClick={addContact}
-                        disabled={!canManageBranches}
+                        disabled={!canEditCurrentBranchDetails}
                         className="text-xs font-bold text-violet-500 bg-violet-50 hover:bg-violet-100 px-4 py-1.5 rounded-lg transition-colors">
                         + إضافة أول وسيلة تواصل
                       </button>
@@ -370,7 +379,7 @@ export default function Branches() {
                                       type: e.target.value as BranchContactType,
                                       value: '', // reset value when type changes
                                     })}
-                                    disabled={!canManageBranches}
+                                    disabled={!canEditCurrentBranchDetails}
                                     className="w-full appearance-none bg-white border border-slate-200 rounded-xl pl-8 pr-4 py-2 text-sm focus:border-violet-400 focus:ring-2 focus:ring-violet-100 outline-none"
                                   >
                                     {CONTACT_TYPES.map(t => (
@@ -389,7 +398,7 @@ export default function Branches() {
                                 <select
                                   value={contact.department}
                                   onChange={e => updateContact(contact.id, { department: e.target.value as BranchDepartment })}
-                                  disabled={!canManageBranches}
+                                  disabled={!canEditCurrentBranchDetails}
                                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:border-violet-400 focus:ring-2 focus:ring-violet-100 outline-none"
                                 >
                                   {DEPARTMENTS.map(d => (
@@ -413,7 +422,7 @@ export default function Branches() {
                                     type={typeMeta.inputType}
                                     value={contact.value}
                                     onChange={e => updateContact(contact.id, { value: e.target.value })}
-                                    disabled={!canManageBranches}
+                                    disabled={!canEditCurrentBranchDetails}
                                     placeholder={typeMeta.placeholder}
                                     className="flex-1 text-sm outline-none bg-transparent"
                                     dir={contact.type === 'website' || contact.type === 'email' ? 'ltr' : 'rtl'}
@@ -427,13 +436,13 @@ export default function Branches() {
                                   type="text"
                                   value={contact.label || ''}
                                   onChange={e => updateContact(contact.id, { label: e.target.value })}
-                                  disabled={!canManageBranches}
+                                  disabled={!canEditCurrentBranchDetails}
                                   placeholder="مثال: للتوظيف فقط"
                                   className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
                                 />
                               </div>
 
-                              <button type="button" onClick={() => removeContact(contact.id)} disabled={!canManageBranches}
+                              <button type="button" onClick={() => removeContact(contact.id)} disabled={!canEditCurrentBranchDetails}
                                 className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors rounded-xl border border-red-100 mb-0.5">
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -467,7 +476,7 @@ export default function Branches() {
                       نطاق التغطية والمناطق التابعة
                     </h4>
                     <button type="button" onClick={addCoveredRange}
-                      disabled={!canManageBranches}
+                      disabled={!canManageBranchStructure}
                       className="text-xs font-bold text-sky-600 hover:text-sky-700 flex items-center gap-1 bg-sky-100 px-3 py-1.5 rounded-lg transition-colors">
                       <Plus className="w-3.5 h-3.5" /> إضافة منطقة
                     </button>
@@ -487,10 +496,10 @@ export default function Branches() {
                                 arr[idx] = newSel;
                                 setCoveredSelections(arr);
                               }}
-                              disabled={!canManageBranches}
+                              disabled={!canManageBranchStructure}
                               placeholder="اختر المحافظة، المنطقة أو الحي..." />
                           </div>
-                          <button type="button" onClick={() => removeCoveredRange(idx)} disabled={!canManageBranches}
+                          <button type="button" onClick={() => removeCoveredRange(idx)} disabled={!canManageBranchStructure}
                             className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-red-50 text-red-500 hover:bg-red-100 rounded-xl border border-red-100 mb-0.5">
                             <Trash2 className="w-4 h-4" />
                           </button>

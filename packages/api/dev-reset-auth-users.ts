@@ -45,15 +45,13 @@ const BRANCH_USER_PERMISSIONS = [
   'candidates.name_lists.create',
   'candidates.name_lists.edit',
   'candidates.name_lists.delete',
-  'referral_sheets.view_list',
-  'referral_sheets.create',
-  'referral_sheets.edit',
-  'referral_sheets.delete',
+  'departments.manage',
   'clients.view_list',
   'clients.view',
   'clients.create',
   'clients.edit',
   'clients.delete',
+  'clients.assignment.manage',
   'contracts.view_list',
   'contracts.create',
   'contracts.edit',
@@ -63,6 +61,7 @@ const BRANCH_USER_PERMISSIONS = [
   'tasks.edit',
   'tasks.delete',
   'departments.view_list',
+  'reference_data.lookup',
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -161,7 +160,7 @@ async function main() {
 
     // Clear existing grants for this role first (idempotent reset)
     await client.query(`DELETE FROM role_permission_grants WHERE role_id = $1`, [globalRoleId]);
-    await client.query(`DELETE FROM role_permissions WHERE role_id = $1`, [globalRoleId]);
+
 
     if (allPerms.length > 0) {
       const globalGrantValues = allPerms
@@ -173,22 +172,14 @@ async function main() {
          ON CONFLICT (role_id, permission_id) DO UPDATE SET scope_type = 'GLOBAL', updated_at = NOW()`,
         [globalRoleId, ...allPerms.map(p => p.id)],
       );
-      const legacyValues = allPerms
-        .map((_, i) => `($1, $${i + 2})`)
-        .join(', ');
-      await client.query(
-        `INSERT INTO role_permissions (role_id, permission_id)
-         VALUES ${legacyValues}
-         ON CONFLICT (role_id, permission_id) DO NOTHING`,
-        [globalRoleId, ...allPerms.map(p => p.id)],
-      );
+
       log(`${GLOBAL_ROLE_NAME}: granted ${allPerms.length} permissions (GLOBAL scope)`);
     }
 
     // ── 5. DEV_BRANCH_USER — BRANCH grants on selected permissions ────────
 
     await client.query(`DELETE FROM role_permission_grants WHERE role_id = $1`, [branchRoleId]);
-    await client.query(`DELETE FROM role_permissions WHERE role_id = $1`, [branchRoleId]);
+
 
     const branchPerms = allPerms.filter(p => BRANCH_USER_PERMISSIONS.includes(p.key));
     const missingKeys = BRANCH_USER_PERMISSIONS.filter(k => !allPerms.some(p => p.key === k));
@@ -206,15 +197,7 @@ async function main() {
          ON CONFLICT (role_id, permission_id) DO UPDATE SET scope_type = 'BRANCH', updated_at = NOW()`,
         [branchRoleId, ...branchPerms.map(p => p.id)],
       );
-      const legacyBranchValues = branchPerms
-        .map((_, i) => `($1, $${i + 2})`)
-        .join(', ');
-      await client.query(
-        `INSERT INTO role_permissions (role_id, permission_id)
-         VALUES ${legacyBranchValues}
-         ON CONFLICT (role_id, permission_id) DO NOTHING`,
-        [branchRoleId, ...branchPerms.map(p => p.id)],
-      );
+
       log(`${BRANCH_ROLE_NAME}: granted ${branchPerms.length} permissions (BRANCH scope)`);
     }
 

@@ -2,6 +2,8 @@ import type {
   MarketingVisitCancelRequest,
   MarketingVisitRescheduleRequest,
   TaskTypeConfig,
+  ZoneStudyMode,
+  ZoneStudyResponse,
 } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
 
@@ -110,6 +112,7 @@ export const api = {
     hrUsers: {
       list: () => request<any[]>('/admin/hr-users'),
       assignable: () => request<any[]>('/admin/hr-users/assignable'),
+      nameListAssignable: () => request<any[]>('/admin/hr-users/name-list-assignable'),
     },
     taskTypes: {
       list: (activeOnly = false) => {
@@ -134,6 +137,10 @@ export const api = {
   },
   employees: {
     list: () => request<any[]>('/employees'),
+    lookup: (branchId?: number | null) => {
+      const query = branchId != null ? `?branchId=${encodeURIComponent(String(branchId))}` : '';
+      return request<any[]>(`/employees/lookup${query}`);
+    },
     schedulePool: () => request<any[]>('/employees/schedule-pool'),
     closers: () => request<any[]>('/employees/closers'),
     employeeClosers: () => request<any[]>('/employees/closers?target=employee'),
@@ -294,6 +301,7 @@ export const api = {
       return request<any[]>(`/installed-devices?${qs}`);
     },
     get: (id: number) => request<any>(`/installed-devices/${id}`),
+    createExternal: (data: any) => request<any>('/installed-devices/external', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/installed-devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     problems: (id: number) => request<any[]>(`/installed-devices/${id}/problems`),
   },
@@ -318,12 +326,16 @@ export const api = {
     createDiscount: (deviceModelId: number, data: any) => request<any>(`/device-models/${deviceModelId}/discounts`, { method: 'POST', body: JSON.stringify(data) }),
     updateDiscount: (deviceModelId: number, discountId: number, data: any) => request<any>(`/device-models/${deviceModelId}/discounts/${discountId}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteDiscount: (deviceModelId: number, discountId: number) => request<any>(`/device-models/${deviceModelId}/discounts/${discountId}`, { method: 'DELETE' }),
+    getPrices: (deviceModelId: number) => request<any[]>(`/device-models/${deviceModelId}/prices`),
+    createPrice: (deviceModelId: number, data: any) => request<any>(`/device-models/${deviceModelId}/prices`, { method: 'POST', body: JSON.stringify(data) }),
   },
   spareParts: {
     list: () => request<any[]>('/spare-parts'),
     create: (data: any) => request<any>('/spare-parts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/spare-parts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/spare-parts/${id}`, { method: 'DELETE' }),
+    getPrices: (id: number) => request<any[]>(`/spare-parts/${id}/prices`),
+    createPrice: (id: number, data: any) => request<any>(`/spare-parts/${id}/prices`, { method: 'POST', body: JSON.stringify(data) }),
   },
   maintenanceRequests: {
     list: () => request<any[]>('/maintenance-requests'),
@@ -482,6 +494,32 @@ export const api = {
     marketingTargets: (date: string, teamKey: string, mode: 'planning' | 'assigned' = 'planning') => {
       const query = new URLSearchParams({ date, teamKey, mode });
       return request<any>(`/planning/marketing-targets?${query.toString()}`);
+    },
+  },
+  zoneStudy: {
+    get: (date: string, mode: ZoneStudyMode) => {
+      const query = new URLSearchParams({ date, mode });
+      return request<ZoneStudyResponse>(`/planning/zone-study?${query.toString()}`);
+    },
+    refresh: (date: string, mode: ZoneStudyMode) => {
+      const query = new URLSearchParams({ date, mode });
+      return request<ZoneStudyResponse>(`/planning/zone-study/refresh?${query.toString()}`, {
+        method: 'POST',
+      });
+    },
+    pick: (date: string, zoneId: number) => {
+      const query = new URLSearchParams({ date });
+      return request<ZoneStudyResponse>(`/planning/zone-study/manual/pick?${query.toString()}`, {
+        method: 'POST',
+        body: JSON.stringify({ zoneId }),
+      });
+    },
+    unpick: (date: string, zoneId: number) => {
+      const query = new URLSearchParams({ date });
+      return request<ZoneStudyResponse>(
+        `/planning/zone-study/manual/pick/${zoneId}?${query.toString()}`,
+        { method: 'DELETE' },
+      );
     },
   },
   workScopes: {

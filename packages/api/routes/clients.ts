@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { requirePermission } from '../middleware/permission.js';
+import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import {
   canCreateClient,
   canDeleteClient,
   canEditClient,
+  canListClients,
+  canManageClientAssignments,
   canViewClient,
   getClientListAccessPlan,
 } from '../policies/clientPolicy.js';
@@ -200,21 +202,8 @@ type SmartMatchResponse =
       visible: false;
       normalizedPhone: string;
       submittedName?: string | null;
-      nameMatch?: {
-        checked: boolean;
-        matches: boolean | null;
-        submittedName: string | null;
-        existingName: string | null;
-      };
-      reason: 'OUT_OF_SCOPE';
+      reason: 'SAME_BRANCH_RESTRICTED' | 'OTHER_BRANCH_RESTRICTED';
       message: string;
-      client: {
-        id: number;
-        name: string;
-        phone: string;
-        branchName: string | null;
-        assignedUserName: string | null;
-      };
     };
 
 type ClientContactInput = {
@@ -222,8 +211,11 @@ type ClientContactInput = {
   [key: string]: unknown;
 };
 
-const RESTRICTED_SMART_MATCH_MESSAGE =
-  'هذا الرقم موجود مسبقاً في النظام ولا يمكنك عرض تفاصيله. يرجى مراجعة الإدارة أو مدير الفرع.';
+const SAME_BRANCH_RESTRICTED_SMART_MATCH_MESSAGE =
+  'هذا الرقم مسجل مسبقاً لزبون ضمن فرع الشركة، لكن تفاصيله ليست ضمن نطاق عرضك. لا يمكن إضافة زبون جديد بنفس الرقم.';
+
+const OTHER_BRANCH_RESTRICTED_SMART_MATCH_MESSAGE =
+  'هذا الرقم مسجل مسبقاً لزبون تابع لأحد أفرع الشركة. لا يمكن إضافة زبون جديد بنفس الرقم.';
 
 const NO_MATCH_SMART_MATCH_MESSAGE = 'لا توجد نتائج مطابقة';
 
@@ -395,22 +387,23 @@ function buildSmartMatchResponse(
   });
 
   if (!access.allowed) {
+    const isSameAllowedBranch =
+      duplicate.branchId != null &&
+      authContext.allowedBranchIds?.includes(duplicate.branchId);
+    const reason = isSameAllowedBranch
+      ? 'SAME_BRANCH_RESTRICTED'
+      : 'OTHER_BRANCH_RESTRICTED';
+
     return {
       status: 'MATCH_RESTRICTED',
       matched: true,
       visible: false,
       normalizedPhone,
       submittedName,
-      nameMatch: buildNameMatch(submittedName, duplicate.name),
-      reason: 'OUT_OF_SCOPE',
-      message: RESTRICTED_SMART_MATCH_MESSAGE,
-      client: {
-        id: duplicate.id,
-        name: duplicate.name,
-        phone: duplicate.phone,
-        branchName: duplicate.branchName,
-        assignedUserName: duplicate.assignedUserName,
-      },
+      reason,
+      message: reason === 'SAME_BRANCH_RESTRICTED'
+        ? SAME_BRANCH_RESTRICTED_SMART_MATCH_MESSAGE
+        : OTHER_BRANCH_RESTRICTED_SMART_MATCH_MESSAGE,
     };
   }
 
@@ -447,25 +440,26 @@ function forbidClientAccess(res: any, reason?: string) {
   return res.status(403).json({ error: 'غير مسموح' });
 }
 
+function toPositiveInt(value: number | string | null | undefined): number | null {
+  const numeric = typeof value === 'string' ? Number(value) : value;
+  return Number.isInteger(numeric) && (numeric as number) > 0 ? (numeric as number) : null;
+}
+
 function resolveClientTargetBranch(req: any, requestedBranchId?: number | string | null): number | null {
   const authContext = getRequiredAuthContext(req);
+  const explicitBranchId = toPositiveInt(requestedBranchId ?? req.header('x-branch-id'));
+  const createGrant = authContext.grants?.find((item: any) => item.permission === 'clients.create');
+
+  if (explicitBranchId != null && (authContext.isSuperAdmin || createGrant?.scope === 'GLOBAL')) {
+    return explicitBranchId;
+  }
 
   return resolveActingBranch({
-    headerBranchId: requestedBranchId ?? req.header('x-branch-id'),
+    headerBranchId: explicitBranchId,
     primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
   });
-}
-
-function canManageClientAssignments(authContext: ReturnType<typeof getRequiredAuthContext>, branchId: number | null): boolean {
-  if (authContext.isSuperAdmin) return true;
-  const grant = authContext.grants.find(item => item.permission === 'clients.edit');
-  if (grant?.scope === 'GLOBAL') return true;
-  if (grant?.scope === 'BRANCH' && branchId != null) {
-    return authContext.allowedBranchIds.includes(branchId);
-  }
-  return false;
 }
 
 function resolveClientListBranchFilter(req: any): number | null {
@@ -837,9 +831,9 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.post('/smart-match', requirePermission('clients.create'), async (req, res) => {
+router.post('/smart-match', async (req, res) => {
   try {
-    const authContext = getRequiredAuthContext(req);
+    const authContext = await getOrBuildAuthContext(req as any);
     const rawPhoneDigits = String(req.body?.phone ?? req.body?.mobile ?? '').replace(/\D/g, '');
     const normalizedPhone = normalizePhone(rawPhoneDigits);
     const submittedName = typeof req.body?.name === 'string' && req.body.name.trim()
@@ -852,6 +846,30 @@ router.post('/smart-match', requirePermission('clients.create'), async (req, res
 
     if (!/^09\d{8}$/.test(rawPhoneDigits)) {
       return res.status(400).json({ error: 'رقم الموبايل يجب أن يتألف من 10 خانات ويبدأ بـ 09' });
+    }
+
+    const hasExplicitBranchContext =
+      req.body?.branchId != null ||
+      req.header('x-branch-id') != null;
+    const targetBranchId = resolveClientTargetBranch(req, req.body?.branchId);
+    if (targetBranchId != null) {
+      const createAccess = canCreateClient(authContext, {
+        branchId: targetBranchId,
+        assignedUserIds: [authContext.userId],
+      });
+      const listAccess = canListClients(authContext, targetBranchId);
+      if (!createAccess.allowed && !listAccess.allowed) {
+        return forbidClientAccess(res, createAccess.reason ?? listAccess.reason);
+      }
+    } else if (hasExplicitBranchContext) {
+      return forbidClientAccess(res, 'BRANCH_FORBIDDEN');
+    } else {
+      const canRunSmartMatch = authContext.isSuperAdmin || authContext.grants.some(grant =>
+        grant.permission === 'clients.create' || grant.permission === 'clients.view_list'
+      );
+      if (!canRunSmartMatch) {
+        return forbidClientAccess(res, 'MISSING_PERMISSION');
+      }
     }
 
     const duplicate = await findDuplicateClientByPhone(normalizedPhone);
@@ -1272,7 +1290,11 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
 
     // Resolve the list of users this client will be assigned to.
     // Non-super-admin is always included in their own assignments (self-assign).
-    const canManageAssignments = canManageClientAssignments(authContext, targetBranchId);
+    const assignmentAccess = canManageClientAssignments(authContext, targetBranchId);
+    const canManageAssignments = assignmentAccess.allowed;
+    if (Array.isArray(req.body?.assignmentUserIds) && !canManageAssignments) {
+      return forbidClientAccess(res, assignmentAccess.reason);
+    }
     const resolvedAssignees = await resolveAssignmentUserIds(
       canManageAssignments ? req.body?.assignmentUserIds : undefined,
       authContext.userId,
@@ -1311,7 +1333,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     // (not the actor's acting branch) so cross-branch creates respect the
     // target branch's coverage.
     if (c.neighborhood) {
-      const geoCheck = await assertGeoUnitInScope(authContext, c.neighborhood, 'geo.view', targetBranchId);
+      const geoCheck = await assertGeoUnitInScope(authContext, c.neighborhood, 'geo_units.lookup', targetBranchId);
       if (!geoCheck.allowed) {
         return res.status(403).json({
           error: 'العَنوان الجغرافي للزبون خارج نِطاق تَغطية الفَرع المُستهدف',
@@ -1474,7 +1496,7 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
     // Geo-coverage enforcement on edit — guard against moving the client's
     // address into a geo unit outside the owning branch's coverage.
     if (c.neighborhood) {
-      const geoCheck = await assertGeoUnitInScope(authContext, c.neighborhood, 'geo.view', existing?.branch_id ?? null);
+      const geoCheck = await assertGeoUnitInScope(authContext, c.neighborhood, 'geo_units.lookup', existing?.branch_id ?? null);
       if (!geoCheck.allowed) {
         return res.status(403).json({
           error: 'العَنوان الجغرافي للزبون خارج نِطاق تَغطية فَرع الزبون',
@@ -1508,10 +1530,14 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
     // Resolve assignment changes only if the caller explicitly provided a new list
     let newAssigneeIds: number[] | null = null;
     const assignmentBranchId = newBranchId == null || newBranchId === '' ? null : Number(newBranchId);
-    const canManageAssignments = canManageClientAssignments(
+    const assignmentAccess = canManageClientAssignments(
       authContext,
       Number.isInteger(assignmentBranchId) ? assignmentBranchId : null,
     );
+    const canManageAssignments = assignmentAccess.allowed;
+    if (Array.isArray(req.body?.assignmentUserIds) && !canManageAssignments) {
+      return forbidClientAccess(res, assignmentAccess.reason);
+    }
     if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
       const resolved = await resolveAssignmentUserIds(
         req.body.assignmentUserIds,

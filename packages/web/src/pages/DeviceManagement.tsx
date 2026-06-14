@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import {
     Plus, Wrench, PenTool, GraduationCap, Truck, Package, Cog, X, Save,
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
-    AlertCircle,
+    AlertCircle, Pencil, Tag,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import type { DeviceModel, SparePart, MaintenancePartType } from '../lib/types';
+import type { DeviceModel, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
+import { usePermissions } from '../hooks/usePermissions';
 
 /* ------------------------------------------------------------------ */
 /*  Shared Config                                                       */
@@ -55,6 +56,20 @@ const partTypeConfig: Record<MaintenancePartType, { label: string; color: string
 
 const formatPrice = (n: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n) + ' ل.س';
+
+const formatPriceMoment = (value?: string | null) => {
+    if (!value) return 'مستمر';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+    return new Intl.DateTimeFormat('en-GB', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    }).format(date);
+};
 
 type ActiveTab = 'devices' | 'parts';
 
@@ -175,8 +190,31 @@ function DocumentList({ documents, onRemove }: { documents: DeviceAttachment[]; 
 /*  Add Device Page                                                     */
 /* ------------------------------------------------------------------ */
 
-function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: () => void }) {
-    const [newDevice, setNewDevice] = useState<Partial<DeviceModel>>(emptyDeviceForm);
+function normalizeDeviceForm(device?: DeviceModel | null): Partial<DeviceModel> {
+    if (!device) return emptyDeviceForm();
+    return {
+        ...emptyDeviceForm(),
+        ...device,
+        name: device.nameAr || device.name,
+        nameAr: device.nameAr || device.name,
+        nameEn: device.nameEn || device.brand || '',
+        brand: device.nameEn || device.brand || '',
+        code: device.code || '',
+        description: device.description || '',
+        descriptionEn: device.descriptionEn || '',
+        images: device.images || [],
+        primaryImageId: device.primaryImageId || null,
+        videos: device.videos || [],
+        documents: device.documents || [],
+        supportedVisitTypes: device.supportedVisitTypes || [],
+        goldenWarrantyPeriods: device.goldenWarrantyPeriods || [],
+        warrantyPeriods: device.warrantyPeriods || [],
+    };
+}
+
+function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | null; onCancel: () => void; onSaved: (savedDevice?: DeviceModel) => void }) {
+    const isEditing = !!device;
+    const [newDevice, setNewDevice] = useState<Partial<DeviceModel>>(() => normalizeDeviceForm(device));
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [wpMonths, setWpMonths] = useState('');
@@ -260,7 +298,7 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
         setError('');
         setSaving(true);
         try {
-            await api.deviceModels.create({
+            const payload = {
                 ...newDevice,
                 name: nameAr,
                 nameAr,
@@ -272,10 +310,13 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                 basePrice,
                 supportedVisitTypes: newDevice.supportedVisitTypes || [],
                 descriptionEn: newDevice.descriptionEn || null,
-            });
-            onSaved();
+            };
+            const saved = isEditing && device
+                ? await api.deviceModels.update(device.id, payload)
+                : await api.deviceModels.create(payload);
+            onSaved(saved);
         } catch (err) {
-            console.error('Failed to create device:', err);
+            console.error('Failed to save device:', err);
             setError('حدث خطأ أثناء الحفظ');
         } finally {
             setSaving(false);
@@ -301,7 +342,7 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                     <span>الأجهزة</span>
                 </button>
                 <span className="text-slate-300">/</span>
-                <span className="text-sm font-semibold text-slate-800">إضافة جهاز جديد</span>
+                <span className="text-sm font-semibold text-slate-800">{isEditing ? 'تعديل الجهاز' : 'إضافة جهاز جديد'}</span>
             </div>
 
             {/* Form content */}
@@ -363,7 +404,8 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                                         type="number" name="basePrice" required min={1}
                                         value={newDevice.basePrice || ''}
                                         onChange={handleInputChange}
-                                        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm pr-12"
+                                        disabled={isEditing}
+                                        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm pr-12 disabled:bg-slate-50 disabled:text-slate-400"
                                     />
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">ل.س</span>
                                 </div>
@@ -605,7 +647,7 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                             className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-xl hover:bg-sky-500 font-semibold text-sm transition-colors disabled:opacity-60"
                         >
                             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            {saving ? 'جاري الحفظ...' : 'حفظ الجهاز'}
+                            {saving ? 'جاري الحفظ...' : isEditing ? 'حفظ التعديلات' : 'حفظ الجهاز'}
                         </button>
                     </div>
                 </div>
@@ -615,20 +657,171 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
 }
 
 /* ------------------------------------------------------------------ */
+/*  Spare Part Prices Modal                                             */
+/* ------------------------------------------------------------------ */
+
+function SparePartPricesModal({ part, onClose, onSaved }: {
+    part: SparePart;
+    onClose: () => void;
+    onSaved: () => void;
+}) {
+    const [prices, setPrices] = useState<CatalogPriceHistoryEntry[]>([]);
+    const [price, setPrice] = useState(String(part.basePrice || ''));
+    const [note, setNote] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    const loadPrices = async () => {
+        setLoading(true);
+        try {
+            setPrices(await api.spareParts.getPrices(part.id));
+        } catch {
+            setPrices([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadPrices();
+    }, [part.id]);
+
+    const handleSave = async () => {
+        const numericPrice = Number(price);
+        if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+            setError('السعر يجب أن يكون أكبر من صفر');
+            return;
+        }
+
+        setSaving(true);
+        setError('');
+        try {
+            await api.spareParts.createPrice(part.id, {
+                price: numericPrice,
+                note: note.trim() || null,
+            });
+            setNote('');
+            await loadPrices();
+            onSaved();
+        } catch (err: any) {
+            setError(err?.message || 'تعذر حفظ السعر');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
+            <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                    <div>
+                        <h3 className="text-base font-bold text-slate-800">سجل أسعار قطعة الصيانة</h3>
+                        <p className="mt-1 text-xs text-slate-500">{part.name} · {part.code}</p>
+                    </div>
+                    <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600">
+                        <X className="h-4 w-4" />
+                    </button>
+                </div>
+
+                <div className="space-y-4 bg-slate-50/60 px-5 py-5">
+                    <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-[180px_1fr_auto]">
+                        <div>
+                            <label className="mb-1.5 block text-sm font-bold text-slate-700">السعر الجديد</label>
+                            <input
+                                type="number"
+                                min={1}
+                                value={price}
+                                onChange={e => setPrice(e.target.value)}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-1.5 block text-sm font-bold text-slate-700">ملاحظة</label>
+                            <input
+                                type="text"
+                                value={note}
+                                onChange={e => setNote(e.target.value)}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                                placeholder="سبب تغيير السعر أو مرجع القرار"
+                            />
+                        </div>
+                        <div className="flex items-end">
+                            <button
+                                type="button"
+                                onClick={handleSave}
+                                disabled={saving}
+                                className="inline-flex h-10 items-center gap-2 rounded-lg bg-sky-600 px-4 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60"
+                            >
+                                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                                إضافة سعر
+                            </button>
+                        </div>
+                    </div>
+
+                    {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+
+                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                        <table className="min-w-full divide-y divide-slate-100 text-sm">
+                            <thead className="bg-slate-50 text-slate-600">
+                                <tr>
+                                    <th className="px-4 py-3 text-right font-bold">السعر</th>
+                                    <th className="px-4 py-3 text-right font-bold">من لحظة</th>
+                                    <th className="px-4 py-3 text-right font-bold">حتى لحظة</th>
+                                    <th className="px-4 py-3 text-right font-bold">الحالة</th>
+                                    <th className="px-4 py-3 text-right font-bold">ملاحظة</th>
+                                    <th className="px-4 py-3 text-right font-bold">أضيف بواسطة</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                                {loading ? (
+                                    <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td></tr>
+                                ) : prices.length === 0 ? (
+                                    <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">لا يوجد سجل أسعار بعد.</td></tr>
+                                ) : prices.map(entry => (
+                                    <tr key={entry.id}>
+                                        <td className="px-4 py-3 font-mono font-bold text-slate-800">{formatPrice(entry.price)}</td>
+                                        <td className="px-4 py-3 text-xs text-slate-500">{formatPriceMoment(entry.effectiveFrom)}</td>
+                                        <td className="px-4 py-3 text-xs text-slate-500">{formatPriceMoment(entry.effectiveTo)}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${entry.isCurrent ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                {entry.isCurrent ? 'فعال الآن' : 'تاريخي'}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-xs text-slate-500">{entry.note || '-'}</td>
+                                        <td className="px-4 py-3 text-xs text-slate-500">{entry.createdByName || '-'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
 const DeviceManagement = () => {
     const navigate = useNavigate();
+    const { hasAnyPermission } = usePermissions();
+    const canManageDeviceModels = hasAnyPermission('device_models.manage', 'catalog.manage', 'devices.manage');
+    const canManageSpareParts = hasAnyPermission('spare_parts.manage', 'catalog.manage', 'devices.manage');
+    const canManageSparePartPrices = hasAnyPermission('spare_parts.prices.manage', 'catalog.manage');
     const [activeTab, setActiveTab] = useState<ActiveTab>('devices');
     const [loading, setLoading] = useState(true);
 
     const [devices, setDevices] = useState<DeviceModel[]>([]);
     const [isAddingDevice, setIsAddingDevice] = useState(false);
+    const [editingDevice, setEditingDevice] = useState<DeviceModel | null>(null);
 
     const [parts, setParts] = useState<SparePart[]>([]);
     const [isAddingPart, setIsAddingPart] = useState(false);
     const [editingPart, setEditingPart] = useState<SparePart | null>(null);
+    const [pricingPart, setPricingPart] = useState<SparePart | null>(null);
     const [partForm, setPartForm] = useState<Partial<SparePart>>({
         name: '', code: '', basePrice: 0, maintenanceType: 'Periodic', compatibleDeviceIds: [],
     });
@@ -651,7 +844,25 @@ const DeviceManagement = () => {
 
     useEffect(() => { fetchData(); }, []);
 
+    const openCreateDevice = () => {
+        if (!canManageDeviceModels) return;
+        setEditingDevice(null);
+        setIsAddingDevice(true);
+    };
+
+    const openEditDevice = (device: DeviceModel) => {
+        if (!canManageDeviceModels) return;
+        setEditingDevice(device);
+        setIsAddingDevice(true);
+    };
+
+    const closeDeviceForm = () => {
+        setIsAddingDevice(false);
+        setEditingDevice(null);
+    };
+
     const openPartForm = (part?: SparePart) => {
+        if (!canManageSpareParts) return;
         if (part) {
             setEditingPart(part);
             setPartForm({ ...part });
@@ -660,6 +871,11 @@ const DeviceManagement = () => {
             setPartForm({ name: '', code: '', basePrice: 0, maintenanceType: 'Periodic', compatibleDeviceIds: [] });
         }
         setIsAddingPart(true);
+    };
+
+    const openPartPrices = (part: SparePart) => {
+        if (!canManageSparePartPrices) return;
+        setPricingPart(part);
     };
 
     const toggleDeviceCompat = (deviceId: number) => {
@@ -671,6 +887,7 @@ const DeviceManagement = () => {
 
     const handlePartSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!canManageSpareParts) return;
         if (!partForm.name || !partForm.code) return;
         try {
             const partData = {
@@ -845,11 +1062,12 @@ const DeviceManagement = () => {
                 {/* TAB CONTENT */}
                 <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
                     <AnimatePresence mode="wait">
-                        {isAddingDevice ? (
+                        {isAddingDevice && canManageDeviceModels ? (
                             <AddDevicePage
                                 key="add-device"
-                                onCancel={() => setIsAddingDevice(false)}
-                                onSaved={async () => { setIsAddingDevice(false); await fetchData(); }}
+                                device={editingDevice}
+                                onCancel={closeDeviceForm}
+                                onSaved={async () => { closeDeviceForm(); await fetchData(); }}
                             />
                         ) : activeTab === 'devices' ? (
                             <motion.div key="devices-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
@@ -863,16 +1081,26 @@ const DeviceManagement = () => {
                                     searchPlaceholder="بحث عن جهاز..."
                                     getId={(d) => d.id}
                                     onRowClick={(d) => navigate(`/devices/${d.id}`)}
-                                    headerActions={
+                                    headerActions={canManageDeviceModels ? (
                                         <button
-                                            onClick={() => setIsAddingDevice(true)}
+                                            onClick={openCreateDevice}
                                             className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
                                         >
                                             <Plus className="w-4 h-4" /><span>إضافة جهاز</span>
                                         </button>
-                                    }
+                                    ) : undefined}
                                     emptyIcon={Package}
                                     emptyMessage="لا توجد أجهزة"
+                                    actions={canManageDeviceModels ? (d) => (
+                                        <button
+                                            type="button"
+                                            onClick={() => openEditDevice(d)}
+                                            className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                            title="تعديل الجهاز"
+                                        >
+                                            <Pencil className="w-4 h-4" />
+                                        </button>
+                                    ) : undefined}
                                 />
                             </motion.div>
                         ) : (
@@ -886,16 +1114,40 @@ const DeviceManagement = () => {
                                     searchKeys={['name', 'code']}
                                     searchPlaceholder="بحث عن قطعة..."
                                     getId={(p) => p.id}
-                                    onRowClick={(p) => openPartForm(p)}
-                                    headerActions={
+                                    onRowClick={canManageSpareParts ? (p) => openPartForm(p) : undefined}
+                                    headerActions={canManageSpareParts ? (
                                         <button
                                             onClick={() => openPartForm()}
                                             className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
                                         >
                                             <Plus className="w-4 h-4" /><span>إضافة قطعة</span>
                                         </button>
-                                    }
+                                    ) : undefined}
                                     emptyIcon={Cog}
+                                    actions={(canManageSpareParts || canManageSparePartPrices) ? (p) => (
+                                        <div className="flex items-center gap-1">
+                                            {canManageSparePartPrices && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(event) => { event.stopPropagation(); openPartPrices(p); }}
+                                                    className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                                    title="سجل أسعار القطعة"
+                                                >
+                                                    <Tag className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                            {canManageSpareParts && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(event) => { event.stopPropagation(); openPartForm(p); }}
+                                                    className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                                    title="تعديل القطعة"
+                                                >
+                                                    <Pencil className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    ) : undefined}
                                     emptyMessage="لا توجد قطع غيار"
                                 />
                             </motion.div>
@@ -903,6 +1155,14 @@ const DeviceManagement = () => {
                     </AnimatePresence>
                 </div>
             </div>
+
+            {pricingPart && (
+                <SparePartPricesModal
+                    part={pricingPart}
+                    onClose={() => setPricingPart(null)}
+                    onSaved={fetchData}
+                />
+            )}
 
             {/* ADD/EDIT PART MODAL */}
             <AnimatePresence>
@@ -940,7 +1200,8 @@ const DeviceManagement = () => {
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">السعر ل.س</label>
                                     <input type="number" value={partForm.basePrice || ''} onChange={e => setPartForm(p => ({ ...p, basePrice: Number(e.target.value) }))}
-                                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm" />
+                                        disabled={!!editingPart}
+                                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm disabled:bg-slate-50 disabled:text-slate-400" />
                                 </div>
 
                                 <div>

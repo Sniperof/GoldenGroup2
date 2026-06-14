@@ -26,6 +26,7 @@ const ACTION_LABELS: Record<string, string> = {
   view_eligible: 'عرض المؤهلين',
   view_audit_logs: 'عرض سجل التغييرات',
   view_history: 'عرض السجل',
+  lookup: 'عرض القوائم المرجعية',
   create: 'إنشاء',
   add_trainees: 'إضافة متدربين',
   edit: 'تعديل',
@@ -126,9 +127,11 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
 
   // Admin
   'admin.roles.view':             { label: 'عرض الأدوار الوظيفية',         desc: 'الاطلاع على قائمة الأدوار وصلاحياتها' },
-  'admin.roles.manage':           { label: 'إدارة الأدوار والصلاحيات',     desc: 'إنشاء وتعديل وحذف الأدوار وتعيين الصلاحيات' },
+  'admin.roles.manage':           { label: 'إدارة الأدوار والصلاحيات',     desc: 'إنشاء وتعديل وحذف الأدوار وتعديل شجرة صلاحياتها' },
+  'admin.roles.users.manage':     { label: 'إسناد الأدوار للمستخدمين',     desc: 'إنشاء حسابات النظام وتغيير دور المستخدمين ضمن النطاق المسموح' },
   'admin.system_lists.view':      { label: 'عرض القوائم النظامية',          desc: 'الاطلاع على القوائم والتصنيفات المستخدمة في النظام' },
   'admin.system_lists.manage':    { label: 'إدارة القوائم النظامية',        desc: 'إضافة وتعديل وحذف عناصر القوائم النظامية' },
+  'reference_data.lookup':        { label: 'قراءة القيم المرجعية داخل الحقول', desc: 'إظهار القيم الفعالة داخل النماذج بدون فتح إدارة القوائم أو تعديلها' },
 
   // Clients
   'clients.view_list':    { label: 'عرض قائمة الزبائن',     desc: 'الاطلاع على جميع سجلات الزبائن في النظام' },
@@ -148,6 +151,9 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'candidates.name_lists.delete':    { label: 'حذف لائحة أسماء',   desc: 'حذف لائحة أسماء من سجل الأسماء المقترحة' },
 
   // Employees
+  'employees.nav':        { label: 'إظهار سجلات الموظفين',      desc: 'إظهار صفحة سجلات الموظفين في الدروار' },
+  'employees.lookup':     { label: 'قراءة الموظفين داخل الحقول', desc: 'إظهار الموظفين كخيارات داخل النماذج بدون فتح السجل الكامل' },
+  'employees.manager_lookup': { label: 'قراءة المديرين المباشرين', desc: 'إظهار المرشحين لحقل المدير المباشر ضمن فرع وقسم الموظف' },
   'employees.view_list':  { label: 'عرض قائمة الموظفين',     desc: 'الاطلاع على سجلات الموظفين الميدانيين' },
   'employees.create':     { label: 'إضافة موظف جديد',        desc: 'إضافة موظف جديد أو إنشاء سجل موظف من طلب توظيف مقبول' },
   'employees.edit':       { label: 'تعديل بيانات الموظف',    desc: 'تحديث معلومات الموظف' },
@@ -159,8 +165,19 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'contracts.edit':       { label: 'تعديل العقد',             desc: 'تحديث بنود وتفاصيل عقد موجود' },
 
   // Devices
-  'devices.view':   { label: 'عرض الأجهزة وقطع الغيار',  desc: 'الاطلاع على كتالوج الأجهزة والمكونات' },
-  'devices.manage': { label: 'إدارة الأجهزة وقطع الغيار', desc: 'إضافة وتعديل وحذف الأجهزة وقطع الغيار' },
+  'devices.nav':    { label: 'إظهار قسم الأجهزة وقطع الغيار', desc: 'إظهار صفحة الأجهزة وقطع الغيار في الدروار' },
+  'devices.view':   { label: 'عرض الأجهزة وقطع الغيار',       desc: 'الاطلاع على تعريفات الأجهزة وقطع الغيار' },
+  'devices.manage': { label: 'إدارة الأجهزة وقطع الغيار',      desc: 'إضافة وتعديل وحذف الأجهزة وقطع الغيار' },
+  'device_models.lookup': { label: 'قراءة تعريفات الأجهزة', desc: 'استخدام الأجهزة كخيارات داخل النماذج' },
+  'spare_parts.lookup': { label: 'قراءة تعريفات قطع الغيار', desc: 'استخدام قطع الغيار كخيارات داخل النماذج' },
+  'device_models.manage': { label: 'إدارة تعريفات الأجهزة', desc: 'إضافة وتعديل وحذف موديلات الأجهزة' },
+  'spare_parts.manage': { label: 'إدارة تعريفات قطع الغيار', desc: 'إضافة وتعديل وحذف قطع الغيار' },
+  'devices.discounts.view': { label: 'عرض خصومات الأجهزة', desc: 'الاطلاع على خصومات الأجهزة الحالية والتاريخية' },
+  'devices.discounts.manage': { label: 'إدارة خصومات الأجهزة', desc: 'إضافة وتعديل وحذف خصومات الأجهزة' },
+  'devices.department_availability.view': { label: 'عرض أجهزة الأقسام', desc: 'رؤية الأجهزة المخصصة للأقسام' },
+  'devices.department_availability.manage': { label: 'إدارة أجهزة الأقسام', desc: 'تخصيص الأجهزة لأقسام الفروع' },
+  'device_models.task_lookup': { label: 'قراءة أجهزة العمليات', desc: 'إظهار الأجهزة المسموحة داخل المهام والعقود' },
+  'spare_parts.task_lookup': { label: 'قراءة قطع غيار العمليات', desc: 'إظهار قطع الغيار المسموحة داخل نتائج الصيانة' },
 
   // Tasks
   'tasks.view':   { label: 'عرض المهام والعمليات',        desc: 'الاطلاع على مهام اليوم والطوارئ والصيانة والمتابعة' },
@@ -180,8 +197,14 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'geo.manage': { label: 'إدارة المناطق والمستويات',   desc: 'إضافة وتعديل وتنظيم المناطق الجغرافية' },
 
   // Branches
+  'branches.nav':    { label: 'إظهار إدارة الفروع والأقسام', desc: 'إظهار صفحة الفروع والأقسام في الدروار' },
+  'branches.lookup': { label: 'قراءة الفروع داخل الحقول', desc: 'إظهار الفروع المسموحة كخيارات داخل النماذج بدون فتح الإدارة' },
   'branches.view':   { label: 'عرض الفروع',    desc: 'الاطلاع على قائمة الفروع وبياناتها' },
-  'branches.manage': { label: 'إدارة الفروع',  desc: 'إضافة وتعديل وإدارة فروع الشركة' },
+  'branches.edit':   { label: 'تعديل بيانات الفرع', desc: 'تعديل البيانات التعريفية للفرع دون القرارات الحساسة' },
+  'branches.manage': { label: 'إدارة الفروع',  desc: 'إضافة الفروع وتعديل حالتها ونطاق تغطيتها وحذفها' },
+  'departments.lookup': { label: 'قراءة الأقسام داخل الحقول', desc: 'إظهار أقسام الفروع المسموحة كخيارات داخل النماذج' },
+  'departments.view_list': { label: 'عرض أقسام الفروع', desc: 'عرض قائمة الأقسام ضمن الفروع المسموحة' },
+  'departments.manage': { label: 'إدارة الأقسام', desc: 'إضافة وتعديل وحذف الأقسام داخل الفرع' },
 
   // Settings
   'settings.view':   { label: 'عرض إعدادات النظام',   desc: 'الاطلاع على إعدادات وتكوينات النظام' },
@@ -245,6 +268,7 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   field_visits: { label: 'الزيارات الميدانية',           icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
   open_tasks:   { label: 'المهام المفتوحة',              icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
   service_requests: { label: 'طلبات الخدمة والصيانة',    icon: <FileText className="w-4 h-4" />,     color: 'text-cyan-600 bg-cyan-50' },
+  reference_data: { label: 'القوائم المرجعية', icon: <ListChecks className="w-4 h-4" />, color: 'text-slate-600 bg-slate-100' },
 };
 
 const SUB_MODULE_LABELS: Record<string, string> = {
@@ -255,6 +279,7 @@ const SUB_MODULE_LABELS: Record<string, string> = {
   candidates:    'الأسماء المقترحة',
   name_lists:    'لوائح الأسماء',
   roles:        'الأدوار والصلاحيات',
+  roles_users:  'إسناد الأدوار للمستخدمين',
   system_lists: 'القوائم النظامية',
   branch_assignments: 'فروع المستخدمين المسموحة',
   management: 'الإدارة',
@@ -268,6 +293,14 @@ const SUB_MODULE_LABELS: Record<string, string> = {
   appointments: 'المواعيد',
   schedule: 'جدولة الفرق',
   service_requests: 'طلبات الخدمة والصيانة',
+  lookups: 'الاستخدام داخل العمليات',
+  navigation: 'ظهور القسم',
+  device_models: 'تعريفات الأجهزة',
+  spare_parts: 'تعريفات قطع الغيار',
+  discounts: 'خصومات الأجهزة',
+  department_availability: 'أجهزة الأقسام',
+  installed_devices: 'الأجهزة المركبة',
+  installed_device_possession: 'حيازة الأجهزة',
 };
 
 function getModuleConfig(module: string) {
@@ -280,6 +313,16 @@ function getModuleConfig(module: string) {
 
 function getSubModuleLabel(subModule: string): string {
   return SUB_MODULE_LABELS[subModule] ?? 'مجموعة صلاحيات';
+}
+
+function getPermissionGrouping(perm: Permission): { module: string; subModule: string } {
+  if (perm.key === 'reference_data.lookup') {
+    return { module: 'admin', subModule: 'system_lists' };
+  }
+  return {
+    module: (perm as any).module ?? 'other',
+    subModule: (perm as any).sub_module ?? (perm as any).subModule ?? 'general',
+  };
 }
 
 // ── Helper to get display name safely (snake_case & camelCase) ────────────────
@@ -336,8 +379,7 @@ export default function RolePermissions() {
     const map: Record<string, Record<string, Permission[]>> = {};
     for (const p of allPermissions) {
       if (isLegacyPermission(p)) continue;
-      const mod = (p as any).module ?? 'other';
-      const sub = (p as any).sub_module ?? (p as any).subModule ?? 'general';
+      const { module: mod, subModule: sub } = getPermissionGrouping(p);
       if (!map[mod]) map[mod] = {};
       if (!map[mod][sub]) map[mod][sub] = [];
       map[mod][sub].push(p);

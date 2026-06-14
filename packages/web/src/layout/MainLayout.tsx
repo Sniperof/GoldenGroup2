@@ -16,7 +16,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox,
+    Bell, Wrench, Gift, Inbox, LayoutGrid,
 } from 'lucide-react';
 
 const navItems = [
@@ -70,6 +70,7 @@ const requestsChildren = [
 const planningChildren = [
     { path: '/planning/overview', label: 'ملخص الخطة', icon: Eye },
     { path: '/planning/schedule', label: 'جدولة الفرق', icon: UsersRound },
+    { path: '/planning/zone-study', label: 'دراسة النطاقات', icon: LayoutGrid },
     { path: '/planning/assign', label: 'تعيين المسارات', icon: MapPinned },
 ];
 
@@ -103,7 +104,7 @@ export default function MainLayout() {
                             ? 'دور نظامي محمي'
                             : 'بدون دور');
     const can = (perm: string) => isPrivilegedUser || hasPermission(perm);
-    const canAccessAdminSurface = (perm: string) => hasPermission(perm);
+    const canAccessAdminSurface = (...perms: string[]) => perms.some(perm => hasPermission(perm));
 
     const { branchId: selectedBranchId } = useBranchContextStore();
     const isGlobalOnlyPage = isGlobalOnlyPath(location.pathname);
@@ -125,7 +126,7 @@ export default function MainLayout() {
     const recordsViewPermMap: Record<string, string> = {
       '/clients': 'clients.view_list',
       '/candidates': 'candidates.view_list',
-      '/employees': 'employees.view_list',
+      '/employees': 'employees.nav',
     };
 
     const visibleJobsChildren = jobsChildren.filter(child => {
@@ -355,7 +356,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 4. Devices (Single) */}
-                    {can('devices.view') && (
+                    {(can('devices.nav') || can('devices.view') || can('device_models.manage') || can('spare_parts.manage')) && (
                     <NavLink
                         to="/devices"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -607,7 +608,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 8. Branches (admin-only) */}
-                    {canAccessAdminSurface('branches.view') && (
+                    {canAccessAdminSurface('branches.nav', 'branches.view') && (
                     <NavLink
                         to="/branches"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -641,7 +642,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 10. Roles & Permissions */}
-                    {canAccessAdminSurface('admin.roles.view') && (
+                    {canAccessAdminSurface('admin.roles.view', 'admin.roles.users.manage') && (
                         <NavLink
                             to="/admin/roles"
                             onClick={() => setIsMobileMenuOpen(false)}

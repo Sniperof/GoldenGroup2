@@ -807,7 +807,7 @@ export default function EmployeeFormModal({
     setEmployeeFound(null);
     setEmployeeSearchError('');
     try {
-      const employees: MediatorEmployee[] = (await api.employees.list()).map(toMediatorEmployee);
+      const employees: MediatorEmployee[] = (await api.employees.lookup(form.branchId)).map(toMediatorEmployee);
       const match = findEmployeeByNumber(employees, raw);
       if (match) {
         setEmployeeFound(match);

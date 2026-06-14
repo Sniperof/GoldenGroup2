@@ -1,18 +1,14 @@
 import type { AuthContext, AuthorizationResult } from '@golden-crm/shared';
 import { authorize } from '../services/authorizationService.js';
 
+// Canonical permission family. The legacy `referral_sheets.*` twins were retired
+// (migration 280): they were defined at {GLOBAL,BRANCH} only and, via OR
+// semantics, silently nullified the intended ASSIGNED scoping on these keys.
 const NAME_LIST_PERMISSIONS = {
   viewList: 'candidates.name_lists.view_list',
   create: 'candidates.name_lists.create',
   edit: 'candidates.name_lists.edit',
   delete: 'candidates.name_lists.delete',
-} as const;
-
-const LEGACY_REFERRAL_SHEET_PERMISSIONS = {
-  viewList: 'referral_sheets.view_list',
-  create: 'referral_sheets.create',
-  edit: 'referral_sheets.edit',
-  delete: 'referral_sheets.delete',
 } as const;
 
 export interface ReferralSheetPolicySubject {
@@ -66,10 +62,7 @@ export function canListReferralSheets(
   context: AuthContext,
   branchId: number | null,
 ): AuthorizationResult {
-  return authorizeAnyPermission(context, [
-    NAME_LIST_PERMISSIONS.viewList,
-    LEGACY_REFERRAL_SHEET_PERMISSIONS.viewList,
-  ], {
+  return authorizeAnyPermission(context, [NAME_LIST_PERMISSIONS.viewList], {
     branchId,
   });
 }
@@ -83,9 +76,7 @@ export function getReferralSheetListAccessPlan(context: AuthContext): ReferralSh
     };
   }
 
-  const grant =
-    context.grants.find(item => item.permission === NAME_LIST_PERMISSIONS.viewList) ??
-    context.grants.find(item => item.permission === LEGACY_REFERRAL_SHEET_PERMISSIONS.viewList);
+  const grant = context.grants.find(item => item.permission === NAME_LIST_PERMISSIONS.viewList);
   if (!grant) {
     return {
       scope: 'NONE',
@@ -105,20 +96,14 @@ export function canViewReferralSheet(
   context: AuthContext,
   referralSheet: ReferralSheetPolicySubject,
 ): AuthorizationResult {
-  return authorizeReferralSheetPermission(context, [
-    NAME_LIST_PERMISSIONS.viewList,
-    LEGACY_REFERRAL_SHEET_PERMISSIONS.viewList,
-  ], referralSheet);
+  return authorizeReferralSheetPermission(context, [NAME_LIST_PERMISSIONS.viewList], referralSheet);
 }
 
 export function canCreateReferralSheet(
   context: AuthContext,
   referralSheet: ReferralSheetPolicySubject,
 ): AuthorizationResult {
-  return authorizeAnyPermission(context, [
-    NAME_LIST_PERMISSIONS.create,
-    LEGACY_REFERRAL_SHEET_PERMISSIONS.create,
-  ], {
+  return authorizeAnyPermission(context, [NAME_LIST_PERMISSIONS.create], {
     branchId: referralSheet.branchId,
   });
 }
@@ -127,18 +112,12 @@ export function canEditReferralSheet(
   context: AuthContext,
   referralSheet: ReferralSheetPolicySubject,
 ): AuthorizationResult {
-  return authorizeReferralSheetPermission(context, [
-    NAME_LIST_PERMISSIONS.edit,
-    LEGACY_REFERRAL_SHEET_PERMISSIONS.edit,
-  ], referralSheet);
+  return authorizeReferralSheetPermission(context, [NAME_LIST_PERMISSIONS.edit], referralSheet);
 }
 
 export function canDeleteReferralSheet(
   context: AuthContext,
   referralSheet: ReferralSheetPolicySubject,
 ): AuthorizationResult {
-  return authorizeReferralSheetPermission(context, [
-    NAME_LIST_PERMISSIONS.delete,
-    LEGACY_REFERRAL_SHEET_PERMISSIONS.delete,
-  ], referralSheet);
+  return authorizeReferralSheetPermission(context, [NAME_LIST_PERMISSIONS.delete], referralSheet);
 }

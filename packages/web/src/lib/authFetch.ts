@@ -30,9 +30,9 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
   const branchCtx = getBranchContextHeader();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
-    ...(options.headers || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(branchCtx ? { 'X-Branch-Id': branchCtx } : {}),
+    ...(options.headers || {}),
   };
   return fetch(url, { ...options, headers });
 }

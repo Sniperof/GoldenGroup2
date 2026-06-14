@@ -194,8 +194,14 @@ export default function ContractForm() {
     // ─── API Data ───
     const [customers, setCustomers] = useState<MockCustomer[]>([]);
     const [deviceModels, setDeviceModels] = useState<any[]>([]);
+    // Installation options are scoped to the operational branch (the branch the
+    // contract is created under). The server resolves that branch from the
+    // session / X-Branch-Id, and api.geoUnits.list() is filtered accordingly —
+    // see geoUnits route + geoScopeService. The field does NOT depend on the
+    // selected customer's branch.
     const [geoUnits, setGeoUnits] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [step, setStep] = useState<'type_selection' | 'details'>(isEdit ? 'details' : 'type_selection');
     const contractType = 'sale_contract' as const;
@@ -227,9 +233,12 @@ export default function ContractForm() {
             api.deviceModels.list(),
             api.geoUnits.list(),
             api.spareParts.list(),
-            api.employees.closers(),
-            api.systemLists.list({ category: 'no_closing_reasons' }),
-            api.systemLists.list({ category: 'contract_sale_source' }),
+            // Optional lookups: a 403 here (e.g. a supervisor without the sale-
+            // owner permission) must NOT abort the whole form load — otherwise
+            // the customer/device/geo data never loads and the form looks empty.
+            api.employees.closers().catch(() => []),
+            api.systemLists.list({ category: 'no_closing_reasons' }).catch(() => []),
+            api.systemLists.list({ category: 'contract_sale_source' }).catch(() => []),
             api.employees.list().catch(() => []),
         ];
         if (isEdit && editId) baseRequests.push(api.contracts.get(Number(editId)));
@@ -265,6 +274,10 @@ export default function ContractForm() {
                     if (c.contractType === 'maintenance_contract') {
                         throw new Error('تم نقل عقود الصيانة إلى اتفاقيات الخدمة، ولم تعد تعدل من شاشة العقود.');
                     }
+                    if (c.status !== 'draft') {
+                        setLoadError('لا يمكن تعديل عقد بعد اعتماده.');
+                        return;
+                    }
                     setSaleSubtype(c.saleSubtype || 'definitive');
                     setSaleType(c.saleType || 'direct');
                     setContractDate(c.contractDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
@@ -287,15 +300,16 @@ export default function ContractForm() {
                     setSourceOpenTaskId(c.sourceOpenTaskId || null);
                     setSourceTaskOfferId(c.sourceTaskOfferId || null);
                     setSaleReferenceNumber(c.saleReferenceNumber || null);
-                    setFatherNameOverride(c.fatherName || '');
-                    setNationalIdOverride(c.nationalId || '');
-                    setBuyerBirthDate(c.buyerBirthDate?.slice(0, 10) || '');
-                    setBuyerGender(c.buyerGender || '');
-                    setBuyerMotherName(c.buyerMotherName || '');
-                    setBuyerNationalIdRegistry(c.buyerNationalIdRegistry || '');
-                    setBuyerNationalIdIssuedBy(c.buyerNationalIdIssuedBy || '');
-                    setBuyerNationalIdIssueDate(c.buyerNationalIdIssueDate?.slice(0, 10) || '');
-                    setBuyerNationalIdBox(c.buyerNationalIdBox || '');
+                    const clientSnapshot = c.client || {};
+                    setFatherNameOverride(c.fatherName || clientSnapshot.fatherName || '');
+                    setNationalIdOverride(c.nationalId || clientSnapshot.nationalId || '');
+                    setBuyerBirthDate((c.buyerBirthDate || clientSnapshot.birthDate)?.slice(0, 10) || '');
+                    setBuyerGender(c.buyerGender || clientSnapshot.gender || '');
+                    setBuyerMotherName(c.buyerMotherName || clientSnapshot.motherName || '');
+                    setBuyerNationalIdRegistry(c.buyerNationalIdRegistry || clientSnapshot.nationalIdRegistry || '');
+                    setBuyerNationalIdIssuedBy(c.buyerNationalIdIssuedBy || clientSnapshot.nationalIdIssuedBy || '');
+                    setBuyerNationalIdIssueDate((c.buyerNationalIdIssueDate || clientSnapshot.nationalIdIssueDate)?.slice(0, 10) || '');
+                    setBuyerNationalIdBox(c.buyerNationalIdBox || clientSnapshot.nationalIdBox || '');
 
                     // Plan §2.1 — reconstruct full geo selection from the single
                     // installationGeoUnitId returned by the API. The contract API
@@ -315,8 +329,33 @@ export default function ContractForm() {
                     }
 
                     if (c.customerId) {
+                        const contractReferrers = Array.isArray(c.contractReferrers) ? c.contractReferrers : [];
+                        const clientReferrers = Array.isArray(clientSnapshot.referrers) ? clientSnapshot.referrers : [];
                         const match = mappedCustomers.find((m: any) => m.id === c.customerId);
-                        if (match) setSelectedCustomer(match);
+                        const restoredCustomer = match
+                            ? {
+                                ...match,
+                                referrers: match.referrers?.length
+                                    ? match.referrers
+                                    : (clientReferrers.length ? clientReferrers : contractReferrers),
+                            }
+                            : {
+                                id: c.customerId,
+                                name: c.customerName || clientSnapshot.name || '',
+                                mobile: clientSnapshot.mobile || '',
+                                fatherName: clientSnapshot.fatherName,
+                                nationalId: clientSnapshot.nationalId,
+                                motherName: clientSnapshot.motherName,
+                                birthDate: clientSnapshot.birthDate,
+                                gender: clientSnapshot.gender,
+                                nationalIdRegistry: clientSnapshot.nationalIdRegistry,
+                                nationalIdIssuedBy: clientSnapshot.nationalIdIssuedBy,
+                                nationalIdIssueDate: clientSnapshot.nationalIdIssueDate,
+                                nationalIdBox: clientSnapshot.nationalIdBox,
+                                referrers: clientReferrers.length ? clientReferrers : contractReferrers,
+                            };
+                        setSelectedCustomer(restoredCustomer);
+                        setSelectedReferrerIds(contractReferrers.map((referrer: any) => String(referrer.id)));
                     }
 
                     // Plan §2.2 — discount: API returns discountId / appliedDeviceDiscountId,
@@ -362,13 +401,15 @@ export default function ContractForm() {
                     // Plan §2.4 — installment drafts. The schedule and its confirmed
                     // state must be restored or the user can never re-save a TPL contract.
                     if (Array.isArray(c.installments) && c.installments.length > 0) {
+                        const restoredConfirmed = c.installments.some((i: any) => i.confirmed);
                         setInstallmentDrafts(c.installments.map((inst: any) => ({
                             id: inst.id,
                             installmentNumber: inst.installmentNumber,
                             dueDate: inst.dueDate?.slice(0, 10) || '',
                             amountSyp: String(inst.amountSyp || 0),
                         })));
-                        setInstallmentsConfirmed(c.installments.some((i: any) => i.confirmed));
+                        setInstallmentsConfirmed(restoredConfirmed);
+                        setPersistedInstallmentsConfirmed(restoredConfirmed);
                         setInstallmentCount(String(c.installments.length));
                     }
                 }
@@ -423,6 +464,7 @@ export default function ContractForm() {
     const [hasDownPayment, setHasDownPayment] = useState(false);
     const [installmentDrafts, setInstallmentDrafts] = useState<InstallmentDraft[]>([]);
     const [installmentsConfirmed, setInstallmentsConfirmed] = useState(false);
+    const [persistedInstallmentsConfirmed, setPersistedInstallmentsConfirmed] = useState(false);
     const [installmentCount, setInstallmentCount] = useState('6');
     const [closingEmployeeId, setClosingEmployeeId] = useState<number | ''>('');
     const [invoiceNotes, setInvoiceNotes] = useState('');
@@ -700,6 +742,7 @@ export default function ContractForm() {
             setConfirmedEntries(new Set([0]));
             setInstallmentDrafts([]);
             setInstallmentsConfirmed(false);
+            setPersistedInstallmentsConfirmed(false);
         } else if (offer.offerType === 'installment') {
             const downPayment = Number(offer.firstPaymentAmount) || 0;
             if (downPayment > 0) {
@@ -744,6 +787,7 @@ export default function ContractForm() {
                 }
                 setInstallmentDrafts(drafts);
                 setInstallmentsConfirmed(true);
+                setPersistedInstallmentsConfirmed(false);
             }
         }
     }, [selectedTask, detailedVisits, deviceModels, contractDate]);
@@ -767,6 +811,7 @@ export default function ContractForm() {
         setHasDownPayment(false);
         setInstallmentDrafts([]);
         setInstallmentsConfirmed(false);
+        setPersistedInstallmentsConfirmed(false);
         setInstallmentCount('6');
         
         // Also clear device line item
@@ -919,6 +964,7 @@ export default function ContractForm() {
         }
         setInstallmentDrafts(drafts);
         setInstallmentsConfirmed(false);
+        setPersistedInstallmentsConfirmed(false);
     }, [installmentCount, grandTotal, totalPaidSyp, hasDownPayment, contractDate]);
 
     // ─── Validity ───
@@ -1022,7 +1068,7 @@ export default function ContractForm() {
             const payload = {
                 customerId: selectedCustomer?.id,
                 customerName: selectedCustomer?.name,
-                selectedReferrers: (selectedCustomer?.referrers || []).filter(referrer => selectedReferrerIds.includes(referrer.id)),
+                selectedReferrers: (selectedCustomer?.referrers || []).filter(referrer => selectedReferrerIds.includes(String(referrer.id))),
                 deviceModelId,
                 deviceModelName: selectedDevice?.nameAr || selectedDevice?.name,
                 serialNumber,
@@ -1094,6 +1140,7 @@ export default function ContractForm() {
                         installmentNumber: i.installmentNumber,
                         dueDate: i.dueDate,
                         amountSyp: Number(i.amountSyp) || 0,
+                        confirmed: installmentsConfirmed,
                     }))
                     : []),
             };
@@ -1101,6 +1148,20 @@ export default function ContractForm() {
             const result = isEdit && editId
                 ? await api.contracts.update(Number(editId), payload)
                 : await api.contracts.create(payload);
+            const savedContractId = Number(result.id ?? editId);
+
+            if (isEdit && savedContractId && isDraftMode) {
+                if (isNoInitialPayments) {
+                    await api.contracts.savePaymentEntries(savedContractId, []);
+                    await api.contracts.saveInstallments(savedContractId, []);
+                } else {
+                    await api.contracts.savePaymentEntries(savedContractId, payload.paymentEntries);
+                    if (paymentType === 'installment' && installmentsConfirmed && !persistedInstallmentsConfirmed) {
+                        await api.contracts.saveInstallments(savedContractId, payload.installments);
+                        await api.contracts.confirmInstallments(savedContractId);
+                    }
+                }
+            }
 
             // Post-insertion offer linkage (create only)
             if (!isEdit && selectedOfferVisitId && selectedOfferTaskId && sourceTaskOfferId) {
@@ -1115,16 +1176,17 @@ export default function ContractForm() {
                     console.error('Failed to link offer to contract:', linkErr);
                 }
             }
-            navigate(`/contracts/${result.id ?? editId}`);
+            navigate(`/contracts/${savedContractId}`);
         } catch (err) {
             console.error('Failed to save contract:', err);
         } finally {
             setSaving(false);
         }
     }, [
-        isValid, saving, isEdit, editId, selectedCustomer, deviceModelId, selectedDevice, serialNumber,
+        isValid, saving, isEdit, editId, isDraftMode, selectedCustomer, deviceModelId, selectedDevice, serialNumber,
         contractDate, saleType, saleSource, sourceTaskId, selectedDiscountId,
-        paymentType, grandTotal, basePrice, installmentDrafts, paymentEntries, closingEmployeeId,
+        paymentType, grandTotal, basePrice, installmentDrafts, installmentsConfirmed,
+        persistedInstallmentsConfirmed, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
         nationalIdOverride, saleSubtype, selectedReferrerIds, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber,
         selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, saleOwnerId, navigate,
@@ -1141,6 +1203,7 @@ export default function ContractForm() {
         setHasDownPayment(false);
         setInstallmentDrafts([]);
         setInstallmentsConfirmed(false);
+        setPersistedInstallmentsConfirmed(false);
         setPaymentType('cash');
         if (subtype === 'free') {
             setSelectedDiscountId('');
@@ -1159,7 +1222,7 @@ export default function ContractForm() {
         setGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
         setDetailedAddress(''); setMapPosition(null); setShowMapPicker(false);
         setPaymentType('cash'); setPaymentEntries([]); setConfirmedEntries(new Set()); setEntryErrors({}); setHasDownPayment(false);
-        setInstallmentDrafts([]); setInstallmentsConfirmed(false); setInstallmentCount('6');
+        setInstallmentDrafts([]); setInstallmentsConfirmed(false); setPersistedInstallmentsConfirmed(false); setInstallmentCount('6');
         setClosingEmployeeId(''); setNoClosingReasonId(''); setInvoiceNotes('');
         setDeviceDiscounts([]); setSelectedDiscountId(''); setLineItems([]); setAddingAccessoryCategory('');
         setSaleSubtype('definitive');
@@ -1192,6 +1255,29 @@ export default function ContractForm() {
         return (
             <div className="flex items-center justify-center h-64">
                 <Loader2 className="w-8 h-8 text-sky-500 animate-spin" />
+            </div>
+        );
+    }
+
+    if (loadError) {
+        return (
+            <div className="h-full overflow-y-auto bg-slate-50">
+                <div className="max-w-lg mx-auto px-4 py-16">
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center shadow-sm">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4">
+                            <AlertTriangle className="w-6 h-6" />
+                        </div>
+                        <h1 className="text-lg font-bold text-slate-800 mb-2">العقد غير قابل للتعديل</h1>
+                        <p className="text-sm text-slate-500 mb-5">{loadError}</p>
+                        <button
+                            type="button"
+                            onClick={() => navigate(editId ? `/contracts/${editId}` : '/contracts')}
+                            className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl px-5 py-2.5 text-sm font-bold transition-colors"
+                        >
+                            العودة إلى تفاصيل العقد
+                        </button>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -1529,12 +1615,12 @@ export default function ContractForm() {
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 {selectedCustomer.referrers!.map(referrer => {
-                                    const isActive = selectedReferrerIds.includes(referrer.id);
+                                    const isActive = selectedReferrerIds.includes(String(referrer.id));
                                     return (
                                         <button
                                             key={referrer.id}
                                             type="button"
-                                            onClick={() => toggleReferrer(referrer.id)}
+                                            onClick={() => toggleReferrer(String(referrer.id))}
                                             className={`px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${isActive
                                                 ? 'bg-sky-600 border-sky-600 text-white shadow-sm'
                                                 : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
@@ -2045,6 +2131,7 @@ export default function ContractForm() {
                         onChange={setGeoSelection}
                         label="عنوان التركيب"
                         required
+                        minSelectableLevel={4}
                         placeholder="ابحث: المنصور، الكرادة، حي العدل..."
                     />
 
@@ -2113,7 +2200,7 @@ export default function ContractForm() {
                             <button type="button"
                                 disabled={hasConfirmedPayments || isOfferLocked}
                                 title={hasConfirmedPayments ? 'يوجد دفعات مؤكدة — احذفها أولاً' : isOfferLocked ? 'مغلق تلقائياً من العرض' : ''}
-                                onClick={() => { setPaymentType('cash'); setInstallmentDrafts([]); setInstallmentsConfirmed(false); }}
+                                onClick={() => { setPaymentType('cash'); setInstallmentDrafts([]); setInstallmentsConfirmed(false); setPersistedInstallmentsConfirmed(false); }}
                                 className={`flex-1 flex items-center justify-center gap-2.5 px-4 py-4 rounded-xl border-2 transition-all ${paymentType === 'cash'
                                     ? 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm'
                                     : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'} ${(hasConfirmedPayments || isOfferLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}>

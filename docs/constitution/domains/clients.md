@@ -274,9 +274,10 @@ erDiagram
 | `clients.view_list` | عرض قائمة الزبائن | `GLOBAL`, `BRANCH`, `ASSIGNED` | رؤية قائمة الزبائن المتاحة وضمن الفروع المصرحة. |
 | `clients.view` | عرض تفاصيل زبون | `GLOBAL`, `BRANCH`, `ASSIGNED` | قراءة السجل الكامل للزبون وعقوده وبياناته الحساسة. |
 | `clients.create` | إنشاء زبون جديد | `GLOBAL`, `BRANCH` | إضافة زبون جديد وربطه بالفرع التشغيلي المناسب. |
-| `clients.edit` | تعديل بيانات زبون | `GLOBAL`, `BRANCH`, `ASSIGNED` | تعديل حقول الزبون وإعادة إسناد موظفيه. |
+| `clients.edit` | تعديل بيانات زبون | `GLOBAL`, `BRANCH`, `ASSIGNED` | تعديل حقول الزبون. لا تمنح هذه الصلاحية حق تغيير المسؤولين. |
 | `clients.delete` | حذف زبون (ناعم) | `GLOBAL`, `BRANCH` | حذف زبون ناعماً مع تنظيف التبعيات والمهام المفتوحة. |
-| `clients.can_be_assigned`| إمكانية الإسناد للزبائن | `GLOBAL` (Flag) | ظهور اسم الموظف ضمن قائمة المنسدلين للإسناد. |
+| `clients.assignment.manage`| إدارة مسؤولي الزبون | `GLOBAL` / `BRANCH` | تحديد أو تغيير الموظفين المسؤولين عن الزبون ضمن نطاق الصلاحية. |
+| `clients.can_be_assigned`| إمكانية الإسناد للزبائن | `GLOBAL` / `BRANCH` (Eligibility) | ظهور اسم الموظف ضمن قائمة المنسدلين للإسناد فقط، ولا تمنحه حق الإسناد. |
 
 ### 6.1 منطق النطاق (Scope Visibility Logic)
 
@@ -527,6 +528,7 @@ erDiagram
 | **2026-04** | `041_clients_created_by.sql` | فصل جهة تسجيل العميل (immutable audit) عن المالك التشغيلي عبر إضافة الحقل المرجعي `created_by`. |
 | **2026-04** | `042_assignments_m2m.sql` | الانتقال الكامل للنظام التشغيلي متعدد الملاك للزبائن عبر تأسيس جدول الجانكشن `client_assignments` والتخلص من فكرة المالك الفردي المغلق. |
 | **2026-04** | `043_clients_can_be_assigned_permission.sql`| تسجيل وبذر الصلاحية الراية `clients.can_be_assigned` للتحكم بقائمة ظهور الموظفين في منسدلات الإسناد الشخصي. |
+| **2026-06-12** | `273_clients_assignment_manage_permission.sql` | فصل حق إدارة مسؤولي الزبون إلى `clients.assignment.manage` بدل استخدام `clients.edit`. |
 | **2026-04** | `049_cleanup_null_branch_telemarketing_data.sql`| تنظيف كافة البيانات التالفة وإلغاء تيتيم الزبائن مجهولي الفروع وحفظ سلامة دورات اتصال الزبائن. |
 | **2026-05** | `079_client_audit_and_soft_delete.sql`| تأسيس البنية الأمنية للزبائن عبر تسجيل جدول تغيرات العملاء `client_audit_log` وتدشين أعمدة الحذف الناعم `deleted_at`, `deleted_by`, `is_active`. |
 | **2026-05** | `131_client_legal_fields.sql` | استكمال حقول الدفتر القانوني للزبائن للتحقق المطلق: اسم الأم، قيد النفوس، الجهة المصدرة للهوية وتاريخها ورقمه. |

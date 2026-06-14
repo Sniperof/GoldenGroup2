@@ -1,9 +1,45 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
-import { filterGeoUnitsByScope, listAllGeoUnits, resolveGeoScope } from '../services/geoScopeService.js';
+import {
+  filterGeoUnitsByScope,
+  listAllGeoUnits,
+  resolveGeoScope,
+  resolveGeoScopeForBranch,
+  type GeoScope,
+} from '../services/geoScopeService.js';
 
 const router = Router();
+
+function emptyGeoScope(branchId: number | null): GeoScope {
+  return {
+    branchId,
+    coveredGeoIds: [],
+    visibleGeoIds: new Set<number>(),
+    serviceGeoIds: new Set<number>(),
+  };
+}
+
+async function resolveRequestedGeoScope(req: any, permission: 'geo.view' | 'geo_units.lookup', geoUnits: any[]) {
+  const rawBranchId = req.header('x-branch-id');
+  const requestedBranchId = rawBranchId == null || rawBranchId === '' ? null : Number(rawBranchId);
+
+  if (Number.isInteger(requestedBranchId) && requestedBranchId > 0) {
+    if (req.authContext?.isSuperAdmin === true) {
+      return resolveGeoScopeForBranch(requestedBranchId, geoUnits);
+    }
+
+    if (req.authContext?.actingBranchId === requestedBranchId) {
+      return resolveGeoScopeForBranch(requestedBranchId, geoUnits);
+    }
+
+    return emptyGeoScope(requestedBranchId);
+  }
+
+  return req.authContext
+    ? await resolveGeoScope(req.authContext, permission, geoUnits)
+    : null;
+}
 
 /**
  * @swagger
@@ -45,25 +81,32 @@ const router = Router();
  *       500:
  *         description: Server error
  */
-router.get('/', requirePermission('geo.view'), async (req, res) => {
+router.get('/', requirePermission('geo.view', 'geo_units.lookup'), async (req, res) => {
   const geoUnits = await listAllGeoUnits();
-  const scope = req.authContext
-    ? await resolveGeoScope(req.authContext, 'geo.view', geoUnits)
-    : null;
+  const permission = req.authContext?.grants.some(g => g.permission === 'geo.view')
+    ? 'geo.view'
+    : 'geo_units.lookup';
+  const scope = await resolveRequestedGeoScope(req, permission, geoUnits);
   res.json(filterGeoUnitsByScope(geoUnits, scope));
 });
 
-router.get('/active', requirePermission('geo.view'), async (req, res) => {
+router.get('/active', requirePermission('geo.view', 'geo_units.lookup'), async (req, res) => {
   const geoUnits = await listAllGeoUnits();
   const active = geoUnits.filter(u => u.status === 'active');
-  const scope = req.authContext
-    ? await resolveGeoScope(req.authContext, 'geo.view', active)
-    : null;
+  const permission = req.authContext?.grants.some(g => g.permission === 'geo.view')
+    ? 'geo.view'
+    : 'geo_units.lookup';
+  const scope = await resolveRequestedGeoScope(req, permission, active);
   res.json(filterGeoUnitsByScope(active, scope));
 });
 
-router.get('/reference', requirePermission('geo.view'), async (_req, res) => {
-  res.json(await listAllGeoUnits());
+router.get('/reference', requirePermission('geo.view', 'geo_units.lookup'), async (req, res) => {
+  const geoUnits = await listAllGeoUnits();
+  const permission = req.authContext?.grants.some(g => g.permission === 'geo.view')
+    ? 'geo.view'
+    : 'geo_units.lookup';
+  const scope = await resolveRequestedGeoScope(req, permission, geoUnits);
+  res.json(filterGeoUnitsByScope(geoUnits, scope));
 });
 
 /**
@@ -86,16 +129,23 @@ router.get('/reference', requirePermission('geo.view'), async (_req, res) => {
  *       404:
  *         description: Not found
  */
-router.get('/:id', requirePermission('geo.view'), async (req, res) => {
-  const { rows } = await pool.query(
-    'SELECT id, name, level, parent_id AS "parentId", status FROM geo_units WHERE id = $1',
-    [req.params.id],
-  );
-  if (rows.length === 0) {
+router.get('/:id', requirePermission('geo.view', 'geo_units.lookup'), async (req, res) => {
+  const geoUnits = await listAllGeoUnits();
+  const permission = req.authContext?.grants.some(g => g.permission === 'geo.view')
+    ? 'geo.view'
+    : 'geo_units.lookup';
+  const scope = await resolveRequestedGeoScope(req, permission, geoUnits);
+
+  const id = Number(req.params.id);
+  const unit = geoUnits.find(u => u.id === id);
+  // Branch-scoped callers may only resolve units inside their coverage. A null
+  // scope means GLOBAL / super-admin (no filtering). We hide out-of-scope units
+  // behind 404 so the single-fetch route cannot leak the national tree.
+  if (!unit || (scope && !scope.visibleGeoIds.has(id))) {
     res.status(404).json({ error: 'الوحدة الجغرافية غير موجودة' });
     return;
   }
-  res.json(rows[0]);
+  res.json(unit);
 });
 
 /**

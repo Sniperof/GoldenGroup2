@@ -29,7 +29,11 @@ const shiftDate = (dateStr: string, days: number) => {
     }
 };
 
-const getToday = () => new Date().toISOString().split('T')[0];
+// Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
+const getToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 type MarketingTargetsResponse = {
     teamKey: string;

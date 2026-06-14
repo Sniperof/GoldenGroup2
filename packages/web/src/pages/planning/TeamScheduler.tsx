@@ -1,10 +1,17 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle } from 'lucide-react';
+import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle, LayoutGrid, ArrowLeft } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { DaySchedule, Employee } from '../../lib/types';
 
-const getToday = () => new Date().toISOString().split('T')[0];
+// Local calendar date (NOT UTC). toISOString() returns the UTC date, which is a day
+// behind between local midnight and the UTC offset (01:00 in Damascus +03 is still
+// "yesterday" in UTC) — that off-by-one showed 14/6 instead of 15/6.
+const getToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 type SlotType = 'team' | 'solo';
 type TeamRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
@@ -18,6 +25,7 @@ const teamSlotTypeLabels: Record<string, string> = {
 };
 
 export default function TeamScheduler() {
+    const navigate = useNavigate();
     const [current, setCurrent] = useState<DaySchedule>({ teams: [], solos: [] });
     const [date, setDate] = useState(getToday);
     const [selectedSlot, setSelectedSlot] = useState<{ type: SlotType; slotIdx: number; role: SlotRole } | null>(null);
@@ -166,6 +174,13 @@ export default function TeamScheduler() {
                     <h1 className="text-2xl font-bold text-slate-900 mb-1">جدولة الفرق</h1>
                     <p className="text-slate-500 text-sm">تعيين المشرفين والفنيين للفرق اليومية.</p>
                 </div>
+                <button
+                    type="button"
+                    onClick={() => navigate('/planning/zone-study')}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white hover:bg-sky-500"
+                >
+                    <LayoutGrid className="w-3.5 h-3.5" /> دراسة النطاقات <ArrowLeft className="w-3.5 h-3.5" />
+                </button>
             </div>
 
             {/* Control Bar */}

@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import type { AuthContext, AuthUser } from '@golden-crm/shared';
 import { JWT_SECRET } from '../middleware/auth.js';
 import { authorize, buildAuthContext } from '../services/authorizationService.js';
+import { loadSessionUserFromToken } from '../services/sessionUserService.js';
 
 export type Context = {
   user: AuthUser | null;
@@ -21,7 +22,8 @@ export async function createContext({ req }: CreateExpressContextOptions): Promi
   }
 
   try {
-    const user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
+    const tokenUser = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
+    const user = await loadSessionUserFromToken(tokenUser);
     return { user, authContext: null, xBranchId };
   } catch {
     return { user: null, authContext: null, xBranchId };

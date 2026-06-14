@@ -273,6 +273,40 @@ export interface CandidateAssignment {
     roleDisplayName: string | null;
 }
 
+// ── Zone Study (DEC-008) ─────────────────────────────────────────────────────
+export type ZoneStudyMode = 'auto' | 'manual';
+
+export interface ZoneStudyTeamCell {
+    teamKey: string;            // team_X
+    teamLabel: string;          // supervisor name, fallback "فريق N"
+    untappedLeads: number;      // X — LEAD clients personally owned by the team with no open device_demo
+    eligibleDeviceDemos: number; // Y — eligible device_demo tasks for the team's personally owned clients
+}
+
+export interface ZoneStudyRow {
+    zoneId: number;
+    zoneName: string;
+    companyEligibleCount: number; // eligible tasks (all types) for company-owned clients in the zone
+    teams: ZoneStudyTeamCell[];
+}
+
+export interface ZoneStudySnapshotData {
+    branchSchedulePresent: boolean;
+    computedAt: string;          // ISO timestamp
+    pickedZoneIds?: number[];    // manual mode only
+    zones: ZoneStudyRow[];
+}
+
+export interface ZoneStudyResponse {
+    date: string;
+    branchId: number;
+    mode: ZoneStudyMode;
+    userId: number | null;
+    refreshedAt: string | null;
+    isFrozen: boolean;
+    snapshot: ZoneStudySnapshotData | null;
+}
+
 export interface Client {
     id: number;
     firstName: string;
@@ -370,10 +404,8 @@ export type ClientSmartMatchResponse =
         visible: false;
         normalizedPhone: string;
         submittedName?: string | null;
-        nameMatch?: SmartMatchNameCheck;
-        reason: 'OUT_OF_SCOPE';
+        reason: 'SAME_BRANCH_RESTRICTED' | 'OTHER_BRANCH_RESTRICTED';
         message: string;
-        client: SmartMatchVisibleClient;
     };
 
 export interface Visit {
@@ -706,6 +738,21 @@ export interface DeviceDiscount {
   createdAt?: string;
 }
 
+export interface CatalogPriceHistoryEntry {
+  id: number;
+  deviceModelId?: number;
+  sparePartId?: number;
+  price: number;
+  currency: 'SYP';
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  note?: string | null;
+  createdBy?: number | null;
+  createdByName?: string | null;
+  createdAt?: string;
+  isCurrent?: boolean;
+}
+
 // Contract status — unified per DEC-CT-01.
 // `temporary` is no longer a status; it lives in `saleSubtype` instead.
 //   draft      — created without closing_employee_id
@@ -915,6 +962,14 @@ export interface Contract {
     receiptNumber?: string | null;
     createdAt: string;
     branchId?: number;
+    branchName?: string | null;
+    /**
+     * Planned SERVICE branch (DEC-001 reconciliation, migration 282). Defaults to
+     * the sale branch; seeds installed_devices.branch_id at materialization. The
+     * live service branch lives on installed_devices.branch_id once the device exists.
+     */
+    serviceBranchId?: number | null;
+    serviceBranchName?: string | null;
     // Installation address — specific to this contract/device, different from client address
     installationGeoUnitId?: number | null;
     installationAddressText?: string | null;

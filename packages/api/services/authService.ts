@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/env.js';
-import { findUserForLogin, getRolePermissions, getRoleGrants, type RoleGrant } from '../repositories/authRepository.js';
+import { findUserForLogin, getRoleGrants, type RoleGrant } from '../repositories/authRepository.js';
 
 export interface LoginResult {
   token: string;
@@ -15,6 +15,12 @@ export interface LoginResult {
     branchId: number | null;
     employeeId: number | null;
   };
+  permissions: string[];
+  grants: RoleGrant[];
+}
+
+export interface SessionResult {
+  user: LoginResult['user'];
   permissions: string[];
   grants: RoleGrant[];
 }
@@ -35,14 +41,12 @@ export async function loginUser(username: string, password: string): Promise<Log
     throw Object.assign(new Error('اسم المستخدم أو كلمة المرور غير صحيحة'), { status: 401 });
   }
 
-  let permissions: string[] = [];
   let grants: RoleGrant[] = [];
   if (user.role_id) {
-    [permissions, grants] = await Promise.all([
-      getRolePermissions(user.role_id),
-      getRoleGrants(user.role_id),
-    ]);
+    grants = await getRoleGrants(user.role_id);
   }
+
+  const permissions = derivePermissionsFromGrants(grants);
 
   const tokenPayload = {
     id: user.id,
@@ -72,4 +76,39 @@ export async function loginUser(username: string, password: string): Promise<Log
     permissions,
     grants,
   };
+}
+
+export async function getCurrentSession(user: {
+  id: number;
+  name: string;
+  role: string;
+  roleId?: number | null;
+  roleDisplayName?: string | null;
+  isSuperAdmin?: boolean;
+  branchId?: number | null;
+  employeeId?: number | null;
+}): Promise<SessionResult> {
+  let grants: RoleGrant[] = [];
+  if (user.roleId) {
+    grants = await getRoleGrants(user.roleId);
+  }
+
+  return {
+    user: {
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      roleId: user.roleId ?? null,
+      roleDisplayName: user.roleDisplayName ?? null,
+      isSuperAdmin: user.isSuperAdmin === true,
+      branchId: user.branchId ?? null,
+      employeeId: user.employeeId ?? null,
+    },
+    permissions: derivePermissionsFromGrants(grants),
+    grants,
+  };
+}
+
+function derivePermissionsFromGrants(grants: RoleGrant[]): string[] {
+  return Array.from(new Set(grants.map(grant => grant.permission)));
 }

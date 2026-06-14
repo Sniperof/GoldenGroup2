@@ -2986,10 +2986,25 @@ router.post('/:id/exclude', requirePermission('open_tasks.edit'), async (req, re
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
     }
 
+    // DEC-009 لبنة 8 / R-5 — exclusion is a PRE-generation curation tool only.
+    // Once the list is generated the task moves to in_scheduling (committed) and
+    // is frozen; it may only change through the visit layer, never via exclude.
+    const EXCLUDABLE_STATES = ['open', 'needs_follow_up', 'assigned'];
+    if (!EXCLUDABLE_STATES.includes(taskRows[0].status)) {
+      return res.status(409).json({
+        error: 'لا يمكن استثناء المهمة بعد اعتماد القائمة (قيد الجدولة أو ما بعدها).',
+        code: 'task_committed',
+      });
+    }
+
     const reason = typeof req.body?.reason === 'string' && req.body.reason.trim().length > 0
       ? req.body.reason.trim()
       : null;
-    const today = new Date().toISOString().split('T')[0];
+    // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
+    const today = (() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
     const oldStatus = taskRows[0].status;
     const newStatus = oldStatus === 'assigned'
       ? (taskRows[0].last_waiting_status || 'open')
@@ -3145,10 +3160,26 @@ router.post('/bulk-exclude', requirePermission('open_tasks.edit'), async (req, r
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لبعض هذه المهام' });
     }
 
+    // DEC-009 لبنة 8 / R-5 — reject the batch if any task is already committed
+    // (in_scheduling or beyond); exclusion is a pre-generation curation tool only.
+    const EXCLUDABLE_STATES = ['open', 'needs_follow_up', 'assigned'];
+    const committed = taskRows.filter(row => !EXCLUDABLE_STATES.includes(row.status));
+    if (committed.length > 0) {
+      return res.status(409).json({
+        error: `لا يمكن استثناء ${committed.length} مهمة بعد اعتماد القائمة (قيد الجدولة أو ما بعدها).`,
+        code: 'task_committed',
+        committedIds: committed.map(row => row.id),
+      });
+    }
+
     const reason = typeof req.body?.reason === 'string' && req.body.reason.trim().length > 0
       ? req.body.reason.trim()
       : null;
-    const today = new Date().toISOString().split('T')[0];
+    // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
+    const today = (() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
 
     await pool.query(
       `UPDATE open_tasks

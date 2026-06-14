@@ -29,11 +29,14 @@ const EMPTY_FORM: DeptForm = {
 export default function BranchDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, hasAnyPermission } = usePermissions();
   const branchId = Number(id);
-  const canManageBranches = hasPermission('branches.manage');
+  const canManageDepartments = hasPermission('departments.manage');
+  const canViewDeviceAvailability = hasAnyPermission('devices.department_availability.view', 'devices.department_availability.manage');
+  const canManageDeviceAvailability = hasPermission('devices.department_availability.manage');
+  const canEditDepartmentModal = canManageDepartments || canManageDeviceAvailability;
 
-  if (!hasPermission('branches.view')) {
+  if (!hasAnyPermission('branches.nav', 'branches.view')) {
     return <Navigate to="/" replace />;
   }
 
@@ -72,7 +75,7 @@ export default function BranchDetail() {
       const [depts, types, models] = await Promise.allSettled([
         api.departments.list(branchId),
         api.systemLists.list({ category: 'department_type', activeOnly: true }),
-        api.deviceModels.list(),
+        canViewDeviceAvailability ? api.deviceModels.list() : Promise.resolve([]),
       ]);
 
       if (cancelled) return;
@@ -86,7 +89,7 @@ export default function BranchDetail() {
 
     load();
     return () => { cancelled = true; };
-  }, [branchId]);
+  }, [branchId, canViewDeviceAvailability]);
 
   // ── Modal helpers ────────────────────────────────────────────────────────────
   const openCreate = () => {
@@ -115,14 +118,16 @@ export default function BranchDetail() {
   // ── Form save ────────────────────────────────────────────────────────────────
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canManageBranches) return;
+    if (!canEditDepartmentModal) return;
     if (!form.name.trim()) return;
     setSaving(true);
     try {
       const payload = {
         name: form.name.trim(),
         departmentTypeId: form.departmentTypeId !== '' ? Number(form.departmentTypeId) : null,
-        deviceModelIds: canSelectDevice ? form.deviceModelIds : [],
+        deviceModelIds: canManageDeviceAvailability
+          ? (canSelectDevice ? form.deviceModelIds : [])
+          : (editingDept?.deviceModelIds ?? []),
         notes: form.notes.trim() || null,
         branchId,
       };
@@ -144,7 +149,7 @@ export default function BranchDetail() {
 
   // ── Delete ────────────────────────────────────────────────────────────────────
   const handleDelete = async (dept: Department) => {
-    if (!canManageBranches) return;
+    if (!canManageDepartments) return;
     if (!confirm(`هل أنت متأكد من حذف قسم "${dept.name}"؟\nسيتم إلغاء ارتباط الموظفين بهذا القسم.`)) return;
     try {
       await api.departments.delete(dept.id);
@@ -156,6 +161,7 @@ export default function BranchDetail() {
 
   // ── Device model multi-select toggle ────────────────────────────────────────
   const toggleDevice = (modelId: number) => {
+    if (!canManageDeviceAvailability) return;
     setForm(f => ({
       ...f,
       deviceModelIds: f.deviceModelIds.includes(modelId)
@@ -180,7 +186,7 @@ export default function BranchDetail() {
         ? <span className="px-2.5 py-1 bg-sky-50 text-sky-700 rounded-lg text-xs font-semibold">{d.departmentTypeName}</span>
         : <span className="text-slate-400 text-xs">—</span>,
     },
-    {
+    ...(canViewDeviceAvailability ? [{
       key: 'deviceModelIds', label: 'الأجهزة', sortable: false,
       render: d => {
         const ids: number[] = d.deviceModelIds ?? [];
@@ -197,7 +203,7 @@ export default function BranchDetail() {
           </div>
         );
       },
-    },
+    } satisfies ColumnDef<Department>] : []),
     {
       key: 'employeeCount', label: 'الموظفون', sortable: true,
       render: d => (
@@ -267,7 +273,7 @@ export default function BranchDetail() {
 
         <button
           onClick={openCreate}
-          disabled={!canManageBranches}
+          disabled={!canManageDepartments}
           className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95 disabled:opacity-50"
         >
           <Plus className="w-4 h-4" />
@@ -286,7 +292,7 @@ export default function BranchDetail() {
           <div className="flex items-center gap-1">
             <button
               onClick={() => openEdit(d)}
-              disabled={!canManageBranches}
+              disabled={!canEditDepartmentModal}
               className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50"
               title="تعديل"
             >
@@ -294,7 +300,7 @@ export default function BranchDetail() {
             </button>
             <button
               onClick={() => handleDelete(d)}
-              disabled={!canManageBranches}
+              disabled={!canManageDepartments}
               className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50"
               title="حذف"
             >
@@ -305,7 +311,7 @@ export default function BranchDetail() {
       />
 
       {/* ── Modal ── */}
-      {isModalOpen && canManageBranches && (
+      {isModalOpen && canEditDepartmentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
 
@@ -332,7 +338,7 @@ export default function BranchDetail() {
                     required
                     value={form.name}
                     onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                    disabled={!canManageBranches}
+                    disabled={!canManageDepartments}
                     placeholder="مثال: قسم التسويق الرقمي"
                     className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none"
                   />
@@ -343,8 +349,12 @@ export default function BranchDetail() {
                   <label className="text-sm font-semibold text-slate-700">نوع القسم</label>
                   <select
                     value={form.departmentTypeId}
-                    onChange={e => setForm(f => ({ ...f, departmentTypeId: e.target.value !== '' ? Number(e.target.value) : '', deviceModelIds: [] }))}
-                    disabled={!canManageBranches}
+                    onChange={e => setForm(f => ({
+                      ...f,
+                      departmentTypeId: e.target.value !== '' ? Number(e.target.value) : '',
+                      deviceModelIds: canManageDeviceAvailability ? [] : f.deviceModelIds,
+                    }))}
+                    disabled={!canManageDepartments}
                     className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none"
                   >
                     <option value="">— بدون نوع —</option>
@@ -361,7 +371,7 @@ export default function BranchDetail() {
                 </div>
 
                 {/* Device multi-select — shown only when type has canSelectDevice */}
-                {canSelectDevice && deviceModels.length > 0 && (
+                {canSelectDevice && canViewDeviceAvailability && deviceModels.length > 0 && (
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
                       <Cpu className="w-4 h-4 text-indigo-500" />
@@ -375,7 +385,7 @@ export default function BranchDetail() {
                             key={m.id}
                             type="button"
                             onClick={() => toggleDevice(m.id)}
-                            disabled={!canManageBranches}
+                            disabled={!canManageDeviceAvailability}
                             className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-right transition-colors ${
                               checked ? 'bg-indigo-50 text-indigo-700' : 'bg-white text-slate-700 hover:bg-slate-50'
                             } disabled:opacity-50`}
@@ -406,7 +416,7 @@ export default function BranchDetail() {
                   <textarea
                     value={form.notes}
                     onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                    disabled={!canManageBranches}
+                    disabled={!canManageDepartments}
                     rows={3}
                     placeholder="أي ملاحظات إضافية عن هذا القسم..."
                     className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none resize-none"
@@ -432,7 +442,7 @@ export default function BranchDetail() {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || !canManageBranches}
+                  disabled={saving || !canEditDepartmentModal}
                   className="px-5 py-2 rounded-xl text-sm font-bold bg-sky-600 hover:bg-sky-500 text-white transition disabled:opacity-60"
                 >
                   {saving ? 'جاري الحفظ…' : editingDept ? 'حفظ التعديلات' : 'إضافة القسم'}

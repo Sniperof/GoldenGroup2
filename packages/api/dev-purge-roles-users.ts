@@ -7,7 +7,7 @@
  *
  * Deletes (hard DELETE, not deactivation):
  *   ✗ All other hr_users           → cascades to user_branch_assignments
- *   ✗ All other roles              → cascades to role_permissions, role_permission_grants
+ *   ✗ All other roles              → cascades to role_permission_grants (legacy table may still exist temporarily)
  *                                    SET NULL on system_lists.linked_role_id + roles.template_id
  *
  * Order matters:
@@ -125,7 +125,7 @@ async function main() {
 
     // ── 3. DELETE all roles except SYSTEM_ADMIN template ─────────────────
     // Cascades automatically:
-    //   • role_permissions         (ON DELETE CASCADE)
+    //   • legacy role_permissions records (only while the table still exists)
     //   • role_permission_grants   (ON DELETE CASCADE)
     // SET NULL automatically:
     //   • system_lists.linked_role_id  (ON DELETE SET NULL)
@@ -192,7 +192,7 @@ async function main() {
     console.log(`    roles : ${deletedRoles.length}`);
     console.log(`\n  Cascaded deletions`);
     console.log(`    • user_branch_assignments for deleted users`);
-    console.log(`    • role_permissions + role_permission_grants for deleted roles`);
+    console.log(`    • role_permission_grants for deleted roles`);
     console.log(`    • system_lists.linked_role_id SET NULL where applicable`);
     console.log();
 

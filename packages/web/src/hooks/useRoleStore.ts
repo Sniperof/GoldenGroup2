@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { trpc } from '../lib/trpc';
 import type { Role, Permission, RolePermissionGrant, HrUser } from '@golden-crm/shared';
+import { useAuthStore } from './useAuthStore';
 
 // Re-export so existing page components that `import { Role } from '../hooks/useRoleStore'`
 // continue to work without any changes.
@@ -89,6 +90,10 @@ export const useRoleStore = create<RoleStore>((set) => ({
     set(s => ({
       roles: s.roles.map(r => r.id === roleId ? { ...r, permissionCount: grants.length } : r),
     }));
+    const auth = useAuthStore.getState();
+    if (auth.user?.roleId === roleId) {
+      await auth.refreshSession();
+    }
   },
 
   async createHrUser(data) {

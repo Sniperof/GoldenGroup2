@@ -27,8 +27,8 @@ const getReferralTypeLabel = (type?: string | null) => {
 
 export default function CandidatesEntry() {
     const { hasAnyPermission, hasPermission } = usePermissions();
-    const canViewNameLists = hasAnyPermission('candidates.name_lists.view_list', 'referral_sheets.view_list');
-    const canCreateNameLists = hasAnyPermission('candidates.name_lists.create', 'referral_sheets.create');
+    const canViewNameLists = hasAnyPermission('candidates.name_lists.view_list');
+    const canCreateNameLists = hasAnyPermission('candidates.name_lists.create');
     const canCreateCandidates = hasPermission('candidates.create');
     const canEditCandidates = hasPermission('candidates.edit');
 

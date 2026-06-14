@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 
 const router = Router();
 
-// GET is open to any authenticated user (dropdowns need it in every UI).
-// Writes are HQ-only: system_lists are global reference data.
+// system_lists are company-wide reference data.
+// Admin reads return the full management shape. Operational lookup reads return
+// active values only and must not require access to the management drawer.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,22 @@ const SELECT_COLS = `
 FROM system_lists sl
 LEFT JOIN roles r ON r.id = sl.linked_role_id
 `;
+
+function canManageSystemListsView(req: any) {
+  return authorize(req.authContext!, { permission: 'admin.system_lists.view' }).allowed
+    || authorize(req.authContext!, { permission: 'admin.system_lists.manage' }).allowed;
+}
+
+function sanitizeLookupRows(rows: any[]) {
+  return rows.map(row => ({
+    id: row.id,
+    category: row.category,
+    value: row.value,
+    isActive: row.isActive,
+    displayOrder: row.displayOrder,
+    metadata: row.metadata ?? {},
+  }));
+}
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
@@ -79,9 +96,10 @@ LEFT JOIN roles r ON r.id = sl.linked_role_id
  *       500:
  *         description: Server error
  */
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', requirePermission('admin.system_lists.view', 'admin.system_lists.manage', 'reference_data.lookup'), async (req, res) => {
   try {
     const { category, activeOnly } = req.query;
+    const isManagementRead = canManageSystemListsView(req);
 
     let query = `SELECT ${SELECT_COLS}`;
     const params: any[] = [];
@@ -91,7 +109,7 @@ router.get('/', requireAuth, async (req, res) => {
       params.push(category);
       conditions.push(`sl.category = $${params.length}`);
     }
-    if (activeOnly === 'true') {
+    if (activeOnly === 'true' || !isManagementRead) {
       conditions.push(`sl.is_active = TRUE`);
     }
     if (conditions.length > 0) {
@@ -100,7 +118,7 @@ router.get('/', requireAuth, async (req, res) => {
     query += ` ORDER BY sl.category ASC, sl.display_order ASC, sl.id ASC`;
 
     const { rows } = await pool.query(query, params);
-    res.json(rows);
+    res.json(isManagementRead ? rows : sanitizeLookupRows(rows));
   } catch (err: any) {
     console.error('Error fetching system lists:', err);
     res.status(500).json({ error: err.message });
@@ -108,13 +126,15 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // GET /api/system-lists/:code/items
-router.get('/:code/items', requireAuth, async (req, res) => {
+router.get('/:code/items', requirePermission('admin.system_lists.view', 'admin.system_lists.manage', 'reference_data.lookup'), async (req, res) => {
   try {
     const { code } = req.params;
+    const isManagementRead = canManageSystemListsView(req);
     const { rows } = await pool.query(
-      `SELECT id, category, value, is_active, display_order
+      `SELECT id, category, value, is_active AS "isActive", display_order AS "displayOrder", metadata
        FROM system_lists
        WHERE category = $1
+         ${isManagementRead ? '' : 'AND is_active = TRUE'}
        ORDER BY display_order ASC, id ASC`,
       [code]
     );

@@ -484,16 +484,26 @@ async function createLightweightInstalledDevice(
   try {
     const geoUnitId =
       (serviceAddress?.['geo_unit_id'] as number | undefined) ?? null;
+    const addressText =
+      (serviceAddress?.['address_text'] as string | undefined) ??
+      (serviceAddress?.['text'] as string | undefined) ??
+      null;
     const { rows } = await db.query<{ id: number }>(
       `INSERT INTO installed_devices (
-         contract_id, customer_id, device_model_id, device_model_name,
-         serial_number, status, installation_geo_unit_id,
+         contract_id, customer_id, branch_id, device_source,
+         device_model_id, device_model_name,
+         external_device_name, external_device_serial,
+         serial_number, status, installation_geo_unit_id, installation_address_text,
          is_golden_warranty, warranty_months, warranty_visits
-       ) VALUES (
-         NULL, $1, $2, $3,
-         $4, 'active', $5,
-         false, NULL, NULL
        )
+       SELECT
+         NULL, c.id, c.branch_id, 'external',
+         $2, $3,
+         $3, $4,
+         $4, 'active', $5, $6,
+         false, NULL, NULL
+       FROM clients c
+       WHERE c.id = $1
        RETURNING id`,
       [
         customerId,
@@ -501,15 +511,17 @@ async function createLightweightInstalledDevice(
         externalDeviceName,
         externalDeviceSerial,
         geoUnitId,
+        addressText,
       ],
     );
+    if (!rows[0]) return { ok: false, code: 'client_not_found' };
     return { ok: true, data: { id: rows[0].id } };
   } catch (err: unknown) {
     const pgErr = err as { code?: string; constraint?: string; message?: string };
     if (pgErr?.code === '23502') {
       return {
         ok: false,
-        code: 'external_device_requires_schema_relaxation',
+        code: 'external_device_required_field_missing',
         message:
           '§٠.١٣ V1.0 gap: installed_devices.contract_id NOT NULL blocks external_device synthesis. Migration pending.',
       };

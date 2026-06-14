@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 
 const router = Router();
 
@@ -24,24 +24,17 @@ FROM departments d
 LEFT JOIN system_lists sl ON sl.id = d.department_type_id
 `;
 
-async function assertBranchAccess(
-  req: any,
-  res: any,
-  branchId: number,
-): Promise<boolean> {
-  const authContext = req.authContext!;
-  if (authContext.isSuperAdmin) return true;
-  if (authContext.actingBranchId !== branchId) {
-    res.status(403).json({ error: 'غير مسموح' });
-    return false;
-  }
-  return true;
-}
-
 async function assertDeptBranchAccess(
   req: any,
   res: any,
   deptId: number,
+  permission:
+    | 'departments.view_list'
+    | 'departments.lookup'
+    | 'departments.manage'
+    | 'reference_data.lookup'
+    | 'devices.department_availability.view'
+    | 'devices.department_availability.manage',
 ): Promise<{ ok: boolean; branchId?: number }> {
   const authContext = req.authContext!;
   const { rows } = await pool.query('SELECT branch_id FROM departments WHERE id = $1', [deptId]);
@@ -49,11 +42,65 @@ async function assertDeptBranchAccess(
     res.status(404).json({ error: 'القسم غير موجود' });
     return { ok: false };
   }
-  if (!authContext.isSuperAdmin && rows[0].branch_id !== authContext.actingBranchId) {
+
+  const access = authorize(authContext, {
+    permission,
+    branchId: rows[0].branch_id,
+  });
+  if (!access.allowed) {
     res.status(403).json({ error: 'غير مسموح' });
     return { ok: false };
   }
   return { ok: true, branchId: rows[0].branch_id };
+}
+
+async function assertDeptAnyBranchAccess(
+  req: any,
+  res: any,
+  deptId: number,
+  permissions: string[],
+): Promise<{ ok: boolean; branchId?: number }> {
+  const { rows } = await pool.query('SELECT branch_id FROM departments WHERE id = $1', [deptId]);
+  if (!rows[0]) {
+    res.status(404).json({ error: 'القسم غير موجود' });
+    return { ok: false };
+  }
+
+  const branchId = rows[0].branch_id;
+  const allowed = permissions.some(permission => canAccessBranchPermission(req, permission, branchId));
+  if (!allowed) {
+    res.status(403).json({ error: 'غير مسموح' });
+    return { ok: false };
+  }
+
+  return { ok: true, branchId };
+}
+
+function canAccessBranchPermission(req: any, permission: string, branchId?: number | null) {
+  return authorize(req.authContext!, {
+    permission,
+    branchId: branchId ?? undefined,
+  }).allowed;
+}
+
+function canReadDepartmentDevices(req: any, branchId?: number | null) {
+  return canAccessBranchPermission(req, 'devices.department_availability.view', branchId)
+    || canAccessBranchPermission(req, 'devices.department_availability.manage', branchId);
+}
+
+function sanitizeDepartmentDevices(req: any, rows: any[]) {
+  return rows.map(row => (
+    canReadDepartmentDevices(req, row.branchId)
+      ? row
+      : { ...row, deviceModelIds: [] }
+  ));
+}
+
+function normalizeDeviceModelIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(id => Number(id))
+    .filter(id => Number.isInteger(id) && id > 0);
 }
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
@@ -118,7 +165,7 @@ async function assertDeptBranchAccess(
  *       500:
  *         description: Server error
  */
-router.get('/', requirePermission('departments.view_list'), async (req, res) => {
+router.get('/', requirePermission('departments.view_list', 'departments.lookup', 'reference_data.lookup'), async (req, res) => {
   try {
     const authContext = req.authContext!;
     const requestedBranchId = req.query.branchId ? Number(req.query.branchId) : null;
@@ -141,7 +188,7 @@ router.get('/', requirePermission('departments.view_list'), async (req, res) => 
     query += ` ORDER BY d.created_at DESC, d.id DESC`;
 
     const { rows } = await pool.query(query, params);
-    res.json(rows);
+    res.json(sanitizeDepartmentDevices(req, rows));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -207,13 +254,19 @@ router.get('/', requirePermission('departments.view_list'), async (req, res) => 
  *       500:
  *         description: Server error
  */
-router.get('/:id', requireAuth, async (req, res) => {
+router.get('/:id', requirePermission('departments.view_list', 'departments.lookup', 'reference_data.lookup'), async (req, res) => {
   try {
     const { rows } = await pool.query(`${SELECT_QUERY} WHERE d.id = $1`, [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'القسم غير موجود' });
-    const access = await assertDeptBranchAccess(req, res, rows[0].id);
+    const canViewManagement = canAccessBranchPermission(req, 'departments.view_list', rows[0].branchId);
+    const access = await assertDeptBranchAccess(
+      req,
+      res,
+      rows[0].id,
+      canViewManagement ? 'departments.view_list' : 'departments.lookup',
+    );
     if (!access.ok) return;
-    res.json(rows[0]);
+    res.json(sanitizeDepartmentDevices(req, [rows[0]])[0]);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -294,7 +347,7 @@ router.get('/:id', requireAuth, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.post('/', requirePermission('employees.create'), async (req, res) => {
+router.post('/', requirePermission('departments.manage'), async (req, res) => {
   try {
     const { name, departmentTypeId, deviceModelIds, notes, branchId: bodyBranchId } = req.body;
 
@@ -305,6 +358,22 @@ router.post('/', requirePermission('employees.create'), async (req, res) => {
     const targetBranchId = resolveTargetBranchId(req, res, bodyBranchId);
     if (targetBranchId == null) return;
 
+    const access = authorize(req.authContext!, {
+      permission: 'departments.manage',
+      branchId: targetBranchId,
+    });
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+
+    const normalizedDeviceModelIds = normalizeDeviceModelIds(deviceModelIds);
+    if (
+      normalizedDeviceModelIds.length > 0
+      && !canAccessBranchPermission(req, 'devices.department_availability.manage', targetBranchId)
+    ) {
+      return res.status(403).json({ error: 'غير مسموح: لا تملك صلاحية تخصيص أجهزة لهذا القسم' });
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO departments (name, department_type_id, branch_id, device_model_ids, notes)
        VALUES ($1, $2, $3, $4, $5)
@@ -313,13 +382,13 @@ router.post('/', requirePermission('employees.create'), async (req, res) => {
         name.trim(),
         departmentTypeId ?? null,
         targetBranchId,
-        JSON.stringify(deviceModelIds ?? []),
+        JSON.stringify(normalizedDeviceModelIds),
         notes?.trim() || null,
       ]
     );
 
     const { rows: full } = await pool.query(`${SELECT_QUERY} WHERE d.id = $1`, [rows[0].id]);
-    res.status(201).json(full[0]);
+    res.status(201).json(sanitizeDepartmentDevices(req, full)[0]);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -406,16 +475,40 @@ router.post('/', requirePermission('employees.create'), async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
+router.put('/:id', requirePermission('departments.manage', 'devices.department_availability.manage'), async (req, res) => {
   try {
     const deptId = Number(req.params.id);
-    const access = await assertDeptBranchAccess(req, res, deptId);
+    const access = await assertDeptAnyBranchAccess(req, res, deptId, [
+      'departments.manage',
+      'devices.department_availability.manage',
+    ]);
     if (!access.ok) return;
 
     const { name, departmentTypeId, deviceModelIds, notes } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'اسم القسم مطلوب' });
+    }
+
+    const current = await pool.query(
+      'SELECT name, department_type_id, device_model_ids, notes FROM departments WHERE id = $1',
+      [deptId],
+    );
+    const currentRow = current.rows[0];
+    const normalizedDeviceModelIds = normalizeDeviceModelIds(deviceModelIds);
+    const currentDeviceModelIds = normalizeDeviceModelIds(currentRow?.device_model_ids);
+    const deviceIdsChanged = JSON.stringify([...currentDeviceModelIds].sort()) !== JSON.stringify([...normalizedDeviceModelIds].sort());
+    const departmentFieldsChanged =
+      currentRow.name !== name.trim()
+      || (currentRow.department_type_id ?? null) !== (departmentTypeId ?? null)
+      || (currentRow.notes ?? null) !== (notes?.trim() || null);
+
+    if (departmentFieldsChanged && !canAccessBranchPermission(req, 'departments.manage', access.branchId)) {
+      return res.status(403).json({ error: 'غير مسموح: لا تملك صلاحية تعديل بيانات القسم' });
+    }
+
+    if (deviceIdsChanged && !canAccessBranchPermission(req, 'devices.department_availability.manage', access.branchId)) {
+      return res.status(403).json({ error: 'غير مسموح: لا تملك صلاحية تخصيص أجهزة لهذا القسم' });
     }
 
     await pool.query(
@@ -425,14 +518,14 @@ router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
       [
         name.trim(),
         departmentTypeId ?? null,
-        JSON.stringify(deviceModelIds ?? []),
+        JSON.stringify(normalizedDeviceModelIds),
         notes?.trim() || null,
         deptId,
       ]
     );
 
     const { rows } = await pool.query(`${SELECT_QUERY} WHERE d.id = $1`, [deptId]);
-    res.json(rows[0]);
+    res.json(sanitizeDepartmentDevices(req, rows)[0]);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -474,10 +567,10 @@ router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.delete('/:id', requirePermission('employees.delete'), async (req, res) => {
+router.delete('/:id', requirePermission('departments.manage'), async (req, res) => {
   try {
     const deptId = Number(req.params.id);
-    const access = await assertDeptBranchAccess(req, res, deptId);
+    const access = await assertDeptBranchAccess(req, res, deptId, 'departments.manage');
     if (!access.ok) return;
 
     // Unlink employees from this department before deleting

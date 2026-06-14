@@ -297,10 +297,12 @@ export default function GeoSettings() {
                         </div>
                     )}
                     headerActions={
-                        <button onClick={openAddModal} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all">
-                            <Plus className="w-4 h-4" />
-                            <span>إضافة {levelNames[activeTab]}</span>
-                        </button>
+                        canManageGeo ? (
+                            <button onClick={openAddModal} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all">
+                                <Plus className="w-4 h-4" />
+                                <span>إضافة {levelNames[activeTab]}</span>
+                            </button>
+                        ) : undefined
                     }
                     emptyIcon={currentTab.icon}
                     emptyMessage={`لا توجد ${currentTab.label}`}

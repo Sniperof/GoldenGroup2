@@ -610,6 +610,25 @@ export async function getEmployees(scope?: {
   return listEmployees({ includeScheduleAppearanceFlag: scope?.includeScheduleAppearanceFlag });
 }
 
+export async function getEmployeeLookup(scope?: {
+  isSuperAdmin: boolean;
+  branchId: number | null;
+}) {
+  const rows = scope && !scope.isSuperAdmin
+    ? await listEmployees({ branchId: scope.branchId })
+    : await listEmployees();
+
+  return rows.map((employee: any) => ({
+    id: employee.id,
+    name: employee.name,
+    mobile: employee.mobile,
+    jobTitle: employee.jobTitle,
+    branchId: employee.branchId,
+    departmentId: employee.departmentId,
+    status: employee.status,
+  }));
+}
+
 export async function getEmployeeById(employeeId: number | string) {
   const row = await fetchEmployeeDetailRow(employeeId);
   if (!row) {

@@ -290,7 +290,9 @@ function UserModal({ user, roles, onClose }: { user?: HrUser | null; roles: Role
     finally { setSaving(false); }
   }
 
-  const activeRoles = roles.filter(r => r.isActive);
+  // Only roles the current actor may assign without escalating (server flag).
+  // The editing user's current role stays visible so it still renders.
+  const activeRoles = roles.filter(r => r.isActive && (r.assignable !== false || r.id === user?.roleId));
   const assignedVisibleRole = user?.roleId ? activeRoles.find(r => r.id === user.roleId) ?? null : null;
   const hasReadOnlySystemRole = Boolean(user?.roleId && !assignedVisibleRole && user?.roleDisplayName);
 
@@ -804,6 +806,7 @@ function RolesTab() {
   const [roleUsersModal, setRoleUsersModal] = useState<Role | null>(null);
   const [roleTasksModal, setRoleTasksModal] = useState<Role | null>(null);
   const canManageRoles = hasPermission('admin.roles.manage');
+  const canManageRoleUsers = hasPermission('admin.roles.users.manage');
 
   useEffect(() => { fetchRoles(); }, [fetchRoles]);
 
@@ -944,6 +947,7 @@ function UsersTab() {
   const canViewBranchAssignments = hasPermission('users.branch_assignments.view');
   const canManageBranchAssignments = hasPermission('users.branch_assignments.manage');
   const canManageRoles = hasPermission('admin.roles.manage');
+  const canManageRoleUsers = hasPermission('admin.roles.users.manage');
 
   useEffect(() => {
     fetchRoles();
@@ -1034,14 +1038,14 @@ function UsersTab() {
                               <Building2 className="w-4 h-4" />
                             </button>
                           )}
-                          <button onClick={() => handleToggle(user)} disabled={!canManageRoles || togglingId === user.id}
+                          <button onClick={() => handleToggle(user)} disabled={!canManageRoleUsers || togglingId === user.id}
                             title={user.isActive ? 'إيقاف الحساب' : 'تفعيل الحساب'}
                             className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 transition-colors disabled:opacity-50">
                             {togglingId === user.id ? <Loader2 className="w-4 h-4 animate-spin" /> :
                               user.isActive ? <ToggleRight className="w-4 h-4 text-emerald-500" /> : <ToggleLeft className="w-4 h-4" />}
                           </button>
                           <button onClick={() => { setEditUser(user); setShowModal(true); }}
-                            disabled={!canManageRoles}
+                            disabled={!canManageRoleUsers}
                             className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors" title="تعديل">
                             <Edit2 className="w-4 h-4" />
                           </button>
@@ -1056,7 +1060,7 @@ function UsersTab() {
         </div>
       )}
 
-      {showModal && canManageRoles && (
+      {showModal && canManageRoleUsers && (
         <UserModal
           user={editUser}
           roles={roles}
@@ -1081,7 +1085,10 @@ export default function Roles() {
   const navigate = useNavigate();
   const { hasPermission } = usePermissions();
 
-  if (!hasPermission('admin.roles.view')) {
+  const canViewRoles = hasPermission('admin.roles.view');
+  const canManageRoleUsers = hasPermission('admin.roles.users.manage');
+
+  if (!canViewRoles && !canManageRoleUsers) {
     return <Navigate to="/" replace />;
   }
 

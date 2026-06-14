@@ -403,10 +403,16 @@ export default function ContractDetail() {
             ← رجوع
           </button>
           <h1 className="text-white font-bold text-lg">تفاصيل العقد</h1>
-          <button onClick={() => navigate(`/contracts/${id}/edit`)}
-            className="text-white/80 hover:text-white text-sm border border-white/30 rounded-lg px-3 py-1 transition-colors">
-            تعديل
-          </button>
+          {data.status === 'draft' ? (
+            <button onClick={() => navigate(`/contracts/${id}/edit`)}
+              className="text-white/80 hover:text-white text-sm border border-white/30 rounded-lg px-3 py-1 transition-colors">
+              تعديل
+            </button>
+          ) : (
+            <span className="text-white/70 text-xs border border-white/20 rounded-lg px-3 py-1">
+              غير قابل للتعديل
+            </span>
+          )}
         </div>
       </div>
 
@@ -496,7 +502,10 @@ export default function ContractDetail() {
             </h2>
             <StatusBadge status={data.status} />
             {data.branchName && (
-              <Chip cls="bg-slate-100 text-slate-600">🏢 {data.branchName}</Chip>
+              <Chip cls="bg-slate-100 text-slate-600">🏢 فرع التسجيل: {data.branchName}</Chip>
+            )}
+            {data.serviceBranchName && (
+              <Chip cls="bg-sky-50 text-sky-700">🔧 فرع الخدمة: {data.serviceBranchName}</Chip>
             )}
           </div>
           <Divider />

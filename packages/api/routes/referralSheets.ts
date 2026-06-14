@@ -53,9 +53,9 @@ type AssignedHrUserCheckResult =
 
 function canManageReferralSheetAssignment(authContext: ReturnType<typeof getRequiredAuthContext>, branchId: number | null): boolean {
   if (authContext.isSuperAdmin) return true;
-  const grant =
-    authContext.grants.find(item => item.permission === 'candidates.name_lists.edit') ??
-    authContext.grants.find(item => item.permission === 'referral_sheets.edit');
+  // Assigning/changing the responsible HR user is a dedicated operation,
+  // separate from editing the name list itself.
+  const grant = authContext.grants.find(item => item.permission === 'candidates.name_lists.assignment.manage');
   if (grant?.scope === 'GLOBAL') return true;
   if (grant?.scope === 'BRANCH' && branchId != null) {
     return authContext.allowedBranchIds.includes(branchId);
@@ -150,13 +150,25 @@ async function assertAssignedHrUserExists(
     return { ok: false, error: 'يجب تحديد assigned_hr_user_id صالح' };
   }
 
+  // Eligibility: the target must be an active HR user whose role carries
+  // candidates.name_lists.can_be_assigned. Being a valid user is not enough —
+  // only eligible staff may be made responsible for a name list.
   const { rows } = await pool.query(
-    'SELECT id FROM hr_users WHERE id = $1',
+    `SELECT u.id
+       FROM hr_users u
+      WHERE u.id = $1
+        AND u.is_active = TRUE
+        AND u.role_id IN (
+          SELECT rpg.role_id
+            FROM role_permission_grants rpg
+            JOIN permissions p ON p.id = rpg.permission_id
+           WHERE p.key = 'candidates.name_lists.can_be_assigned'
+        )`,
     [normalized],
   );
 
   if (!rows[0]) {
-    return { ok: false, error: 'assigned_hr_user_id لا يشير إلى مستخدم HR صالح' };
+    return { ok: false, error: 'الموظف المحدد غير مؤهل لإسناد سجلات الأسماء إليه' };
   }
 
   return { ok: true, assignedHrUserId: normalized };
@@ -258,7 +270,7 @@ async function assertAssignedHrUserExists(
  *       500:
  *         description: Server error
  */
-router.get('/', requirePermission('candidates.name_lists.view_list', 'referral_sheets.view_list'), async (req, res) => {
+router.get('/', requirePermission('candidates.name_lists.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const requestedBranchId = resolveReferralSheetListBranchFilter(req);
@@ -362,7 +374,7 @@ router.get('/', requirePermission('candidates.name_lists.view_list', 'referral_s
  *       500:
  *         description: Server error
  */
-router.post('/', requirePermission('candidates.name_lists.create', 'referral_sheets.create'), async (req, res) => {
+router.post('/', requirePermission('candidates.name_lists.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const targetBranchId = resolveReferralSheetTargetBranch(req, req.body?.branchId);
@@ -461,7 +473,7 @@ router.post('/', requirePermission('candidates.name_lists.create', 'referral_she
  *       500:
  *         description: Server error
  */
-router.put('/:id', requirePermission('candidates.name_lists.edit', 'referral_sheets.edit'), async (req, res) => {
+router.put('/:id', requirePermission('candidates.name_lists.edit'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const referralSheetId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;

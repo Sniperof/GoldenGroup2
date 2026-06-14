@@ -168,7 +168,11 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
             savedClient = await api.clients.create({
                 ...clientData,
                 branchId: clientData.branchId ?? candidate.branchId ?? undefined,
-                assignmentUserIds: clientData.assignmentUserIds ?? candidate.assignments?.map(a => a.userId) ?? undefined,
+                // Only pass assignees the modal explicitly chose (privileged user).
+                // Otherwise the server self-assigns the creator — a supervisor
+                // converting her own proposed name should not need
+                // clients.assignment.manage.
+                assignmentUserIds: clientData.assignmentUserIds ?? undefined,
                 isCandidate: false,
                 candidateStatus: 'Suggested'
             });
@@ -193,9 +197,13 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
                     isPrimary: true,
                     status: 'active'
                 }],
-                governorate: '',
-                district: '',
-                neighborhood: candidate.addressText,
+                // Geo fields are structured (INTEGER geo_unit ids). The candidate
+                // only has free text, so leave geo empty and keep the text in
+                // detailedAddress — the structured address is completed later from
+                // the client profile (scoped geo picker, §5.1).
+                governorate: undefined,
+                district: undefined,
+                neighborhood: undefined,
                 detailedAddress: candidate.addressText,
                 sourceChannel: candidate.referralOriginChannel,
                 referrerType: candidate.referralType,
@@ -206,7 +214,8 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
                 referralSheetId: candidate.referralSheetId,
                 referralAddressText: candidate.addressText,
                 branchId: candidate.branchId ?? undefined,
-                assignmentUserIds: candidate.assignments?.map(a => a.userId) ?? undefined,
+                // No explicit assignees — server self-assigns the converter, so a
+                // supervisor doesn't need clients.assignment.manage to convert.
                 isCandidate: false,
                 candidateStatus: 'Suggested'
             });

@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, resolveTargetBranchId, getOrBuildAuthContext } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
+import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
 import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
 
@@ -23,6 +24,7 @@ const contractSelect = `
   c.final_price AS "finalPrice", c.payment_type AS "paymentType",
   c.down_payment AS "downPayment", c.installments_count AS "installmentsCount",
   c.status, c.created_at AS "createdAt", c.branch_id AS "branchId",
+  c.service_branch_id AS "serviceBranchId",
   c.sale_type AS "saleType", c.sale_source AS "saleSource",
   c.discount_id AS "discountId",
   c.closing_employee_id AS "closingEmployeeId",
@@ -67,6 +69,7 @@ const contractSelect = `
   (SELECT name FROM hr_users WHERE id = c.closing_employee_id LIMIT 1) AS "closingEmployeeName",
   (SELECT value FROM system_lists WHERE id = c.no_closing_reason_id LIMIT 1) AS "noClosingReasonName",
   (SELECT name FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchName",
+  (SELECT name FROM branches WHERE id = c.service_branch_id LIMIT 1) AS "serviceBranchName",
   (SELECT name FROM hr_users WHERE id = c.created_by LIMIT 1) AS "createdByName"
 `;
 
@@ -80,6 +83,14 @@ function mapContract(c: any) {
 }
 function mapDue(d: any) {
   return { ...d, originalAmount: Number(d.originalAmount), remainingBalance: Number(d.remainingBalance) };
+}
+
+async function loadDraftContractForEdit(db: any, contractId: number | string, lock = false) {
+  const { rows } = await db.query(
+    `SELECT id, status FROM contracts WHERE id = $1${lock ? ' FOR UPDATE' : ''}`,
+    [contractId],
+  );
+  return rows[0] ?? null;
 }
 
 function deriveContractStatus(
@@ -100,6 +111,69 @@ function normalizeNationalId(value: unknown): { ok: boolean; value: string | nul
   if (!str) return { ok: true, value: null };
   if (!/^\d{11}$/.test(str)) return { ok: false, value: str };
   return { ok: true, value: str };
+}
+
+async function syncClientLegalIdentity(
+  dbClient: any,
+  customerId: unknown,
+  input: {
+    fatherName?: unknown;
+    nationalId?: unknown;
+    motherName?: unknown;
+    birthDate?: unknown;
+    gender?: unknown;
+    nationalIdRegistry?: unknown;
+    nationalIdIssuedBy?: unknown;
+    nationalIdIssueDate?: unknown;
+    nationalIdBox?: unknown;
+  },
+) {
+  const id = Number(customerId);
+  if (!Number.isInteger(id) || id <= 0) return;
+
+  const fatherName = typeof input.fatherName === 'string' ? input.fatherName.trim() : '';
+  const nationalIdCheck = normalizeNationalId(input.nationalId);
+  const nationalId = nationalIdCheck.ok ? nationalIdCheck.value : null;
+  const motherName = typeof input.motherName === 'string' ? input.motherName.trim() : '';
+  const birthDate = typeof input.birthDate === 'string' && input.birthDate.trim() ? input.birthDate.trim() : null;
+  const gender = input.gender === 'male' || input.gender === 'female' ? input.gender : null;
+  const nationalIdRegistry = typeof input.nationalIdRegistry === 'string' ? input.nationalIdRegistry.trim() : '';
+  const nationalIdIssuedBy = typeof input.nationalIdIssuedBy === 'string' ? input.nationalIdIssuedBy.trim() : '';
+  const nationalIdIssueDate = typeof input.nationalIdIssueDate === 'string' && input.nationalIdIssueDate.trim()
+    ? input.nationalIdIssueDate.trim()
+    : null;
+  const nationalIdBox = typeof input.nationalIdBox === 'string' ? input.nationalIdBox.trim() : '';
+
+  if (
+    !fatherName && !nationalId && !motherName && !birthDate && !gender
+    && !nationalIdRegistry && !nationalIdIssuedBy && !nationalIdIssueDate && !nationalIdBox
+  ) return;
+
+  await dbClient.query(
+    `UPDATE clients
+        SET father_name = COALESCE(NULLIF($2, ''), father_name),
+            national_id = COALESCE(NULLIF($3, ''), national_id),
+            mother_name = COALESCE(NULLIF($4, ''), mother_name),
+            birth_date = COALESCE($5::date, birth_date),
+            gender = COALESCE($6, gender),
+            national_id_registry = COALESCE(NULLIF($7, ''), national_id_registry),
+            national_id_issued_by = COALESCE(NULLIF($8, ''), national_id_issued_by),
+            national_id_issue_date = COALESCE($9::date, national_id_issue_date),
+            national_id_box = COALESCE(NULLIF($10, ''), national_id_box)
+      WHERE id = $1`,
+    [
+      id,
+      fatherName,
+      nationalId,
+      motherName,
+      birthDate,
+      gender,
+      nationalIdRegistry,
+      nationalIdIssuedBy,
+      nationalIdIssueDate,
+      nationalIdBox,
+    ],
+  );
 }
 
 // Plan 2026-06-10 §4 — sale_owner_id is the deal originator and can differ
@@ -719,7 +793,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     const geoCheck = await assertGeoUnitInScope(
       (req as any).authContext,
       installationGeoUnitForCheck,
-      'geo.view',
+      'geo_units.lookup',
       targetBranchId,
     );
     if (!geoCheck.allowed) {
@@ -730,10 +804,46 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     }
   }
 
+  // Installation address must be precise to the neighborhood (الحي / level 4) —
+  // a governorate/district is not specific enough for a device install.
+  if (installationGeoUnitForCheck) {
+    const { rows: lvl } = await pool.query('SELECT level FROM geo_units WHERE id = $1', [installationGeoUnitForCheck]);
+    if (!lvl[0] || Number(lvl[0].level) !== 4) {
+      return res.status(400).json({
+        error: 'عنوان التركيب يجب أن يكون على مستوى الحي',
+        code: 'installation_geo_not_neighborhood',
+      });
+    }
+  }
+
+  // Device model must be authorized for the actor's branch/department scope —
+  // UI filtering is not security (devices constitution §6.1).
+  const deviceModelForCheck = c.deviceModelId ?? c.device_model_id ?? null;
+  if (deviceModelForCheck && (req as any).authContext) {
+    const devCheck = await assertDeviceModelInScope((req as any).authContext, deviceModelForCheck, targetBranchId);
+    if (!devCheck.allowed) {
+      return res.status(403).json({
+        error: 'نموذج الجهاز غير مصرّح به ضمن نطاقك',
+        code: devCheck.reason,
+      });
+    }
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const draftDevicePayload = buildDraftDevicePayload(c);
+    await syncClientLegalIdentity(client, c.customerId, {
+      fatherName: c.fatherName,
+      nationalId: c.nationalId ?? c.buyerNationalId,
+      motherName: c.buyerMotherName,
+      birthDate: c.buyerBirthDate,
+      gender: c.buyerGender,
+      nationalIdRegistry: c.buyerNationalIdRegistry,
+      nationalIdIssuedBy: c.buyerNationalIdIssuedBy,
+      nationalIdIssueDate: c.buyerNationalIdIssueDate,
+      nationalIdBox: c.buyerNationalIdBox,
+    });
 
     // Draft contracts do not have installed_devices rows yet. Keep the entered
     // physical-device fields on the contract until approval materializes the row.
@@ -741,7 +851,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
         source_visit, device_model_id, device_model_name, maintenance_plan,
         base_price, final_price, payment_type, down_payment, installments_count,
-        status, branch_id, sale_type,
+        status, branch_id, service_branch_id, sale_type,
         discount_id, sale_source, closing_employee_id, invoice_notes,
         applied_device_discount_id,
         buyer_mother_name, buyer_national_id_registry, buyer_national_id_issued_by,
@@ -750,13 +860,17 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number,
         no_closing_reason_id, sale_subtype, created_by,
         sale_owner_id, offer_team_snapshot, contract_referrers, draft_device_payload)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)
+      VALUES (NULLIF($1::text, ''),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40)
       RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        null, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0,
-       derivedStatus, targetBranchId, c.saleType || 'direct',
+       derivedStatus, targetBranchId,
+       // Service branch defaults to the sale branch (= client = entering employee
+       // branch) until cross-branch service is wired up. Seeds the device branch.
+       c.serviceBranchId ?? targetBranchId,
+       c.saleType || 'direct',
        c.discountId || null, c.saleSource || null,
        c.closingEmployeeId || null, c.invoiceNotes || null,
        c.appliedDeviceDiscountId || null,
@@ -843,9 +957,9 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       for (const inst of c.installments) {
         await client.query(
           `INSERT INTO contract_installments
-            (contract_id, installment_number, due_date, amount_syp, remaining_balance)
-           VALUES ($1,$2,$3,$4,$4)`,
-          [contract.id, inst.installmentNumber, inst.dueDate, inst.amountSyp || 0],
+            (contract_id, installment_number, due_date, amount_syp, remaining_balance, confirmed)
+           VALUES ($1,$2,$3,$4,$4,$5)`,
+          [contract.id, inst.installmentNumber, inst.dueDate, inst.amountSyp || 0, inst.confirmed === true],
         );
       }
     }
@@ -854,11 +968,6 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     // Any legacy payload field is ignored; open receivables are projected from
     // contract_installments.remaining_balance instead.
     const duesResult = await fetchProjectedDuesByContractIds(client, [contract.id]);
-
-    // OP promotion: client now has a contract → company ownership, no personal assignments
-    if (c.customerId) {
-      await promoteClientToLifecycleStatus(client, Number(c.customerId), 'OP');
-    }
 
     await client.query('COMMIT');
     res.json({ ...mapContract(contract), dues: duesResult });
@@ -925,13 +1034,24 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   // DEC-CT-15: we need the previous status to detect the draft→active transition
   // and trigger the auto-freeze of the legal copy.
   const { rows: existing } = await pool.query(
-    'SELECT branch_id, status AS "prevStatus" FROM contracts WHERE id = $1',
+    `SELECT c.branch_id, c.status AS "prevStatus", c.device_model_id AS "deviceModelId",
+            COALESCE(d.installation_geo_unit_id, NULLIF(c.draft_device_payload->>'installationGeoUnitId', '')::int) AS "installationGeoUnitId"
+       FROM contracts c
+       LEFT JOIN installed_devices d ON d.contract_id = c.id
+      WHERE c.id = $1`,
     [req.params.id],
   );
   if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
   const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branch_id });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const prevStatus: string = existing[0].prevStatus;
+  if (prevStatus !== 'draft') {
+    return res.status(409).json({
+      error: 'لا يمكن تعديل عقد بعد اعتماده',
+      code: 'contract_not_editable_after_approval',
+      status: prevStatus,
+    });
+  }
   const c = req.body;
   const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
   const draftDevicePayload = buildDraftDevicePayload(c);
@@ -962,7 +1082,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     const geoCheck = await assertGeoUnitInScope(
       authContext,
       installationGeoUnitForCheck,
-      'geo.view',
+      'geo_units.lookup',
       existing[0].branch_id,
     );
     if (!geoCheck.allowed) {
@@ -973,13 +1093,56 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     }
   }
 
+  // Neighborhood-level requirement (الحي / level 4). Enforced only when the
+  // installation address actually changes, so legacy contracts with a coarser
+  // saved address are not blocked on an unrelated edit.
+  if (
+    installationGeoUnitForCheck &&
+    Number(installationGeoUnitForCheck) !== Number(existing[0].installationGeoUnitId)
+  ) {
+    const { rows: lvl } = await pool.query('SELECT level FROM geo_units WHERE id = $1', [installationGeoUnitForCheck]);
+    if (!lvl[0] || Number(lvl[0].level) !== 4) {
+      return res.status(400).json({
+        error: 'عنوان التركيب يجب أن يكون على مستوى الحي',
+        code: 'installation_geo_not_neighborhood',
+      });
+    }
+  }
+
+  // Device-model scope — enforced only when the device model actually changes,
+  // so legacy contracts are not blocked on an unrelated edit.
+  const deviceModelForCheck = c.deviceModelId ?? c.device_model_id ?? null;
+  if (
+    deviceModelForCheck &&
+    Number(deviceModelForCheck) !== Number(existing[0].deviceModelId)
+  ) {
+    const devCheck = await assertDeviceModelInScope(authContext, deviceModelForCheck, existing[0].branch_id);
+    if (!devCheck.allowed) {
+      return res.status(403).json({
+        error: 'نموذج الجهاز غير مصرّح به ضمن نطاقك',
+        code: devCheck.reason,
+      });
+    }
+  }
+
   const pgClient = await pool.connect();
   try {
     await pgClient.query('BEGIN');
+    await syncClientLegalIdentity(pgClient, c.customerId, {
+      fatherName: c.fatherName,
+      nationalId: c.nationalId ?? c.buyerNationalId,
+      motherName: c.buyerMotherName,
+      birthDate: c.buyerBirthDate,
+      gender: c.buyerGender,
+      nationalIdRegistry: c.buyerNationalIdRegistry,
+      nationalIdIssuedBy: c.buyerNationalIdIssuedBy,
+      nationalIdIssueDate: c.buyerNationalIdIssueDate,
+      nationalIdBox: c.buyerNationalIdBox,
+    });
 
     // Phase 2C: contracts holds only financial/legal fields.
     await pgClient.query(
-      `UPDATE contracts SET contract_number=$1, customer_id=$2, customer_name=$3,
+      `UPDATE contracts SET contract_number=COALESCE(NULLIF($1::text, ''), contract_number), customer_id=$2, customer_name=$3,
         contract_date=$4, source_visit=$5, device_model_id=$6, device_model_name=$7,
         maintenance_plan=$8, base_price=$9, final_price=$10,
         payment_type=$11, down_payment=$12, installments_count=$13,
@@ -1130,6 +1293,19 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
   const pgClient = await pool.connect();
   try {
     await pgClient.query('BEGIN');
+    const contract = await loadDraftContractForEdit(pgClient, contractId, true);
+    if (!contract) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    if (contract.status !== 'draft') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'لا يمكن تعديل دفعات عقد بعد اعتماده',
+        code: 'contract_not_editable_after_approval',
+        status: contract.status,
+      });
+    }
     await pgClient.query('DELETE FROM contract_payment_entries WHERE contract_id = $1', [contractId]);
     for (const entry of entries) {
       await pgClient.query(
@@ -1223,13 +1399,26 @@ router.post('/:id/installments', requirePermission('contracts.edit'), async (req
   const pgClient = await pool.connect();
   try {
     await pgClient.query('BEGIN');
+    const contract = await loadDraftContractForEdit(pgClient, contractId, true);
+    if (!contract) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    if (contract.status !== 'draft') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'لا يمكن تعديل أقساط عقد بعد اعتماده',
+        code: 'contract_not_editable_after_approval',
+        status: contract.status,
+      });
+    }
     await pgClient.query('DELETE FROM contract_installments WHERE contract_id = $1 AND confirmed = FALSE', [contractId]);
     for (const inst of installments) {
       await pgClient.query(
         `INSERT INTO contract_installments
-          (contract_id, installment_number, due_date, amount_syp, remaining_balance)
-         VALUES ($1,$2,$3,$4,$4)`,
-        [contractId, inst.installmentNumber, inst.dueDate, inst.amountSyp || 0],
+          (contract_id, installment_number, due_date, amount_syp, remaining_balance, confirmed)
+         VALUES ($1,$2,$3,$4,$4,$5)`,
+        [contractId, inst.installmentNumber, inst.dueDate, inst.amountSyp || 0, inst.confirmed === true],
       );
     }
     await pgClient.query('COMMIT');
@@ -1282,11 +1471,34 @@ router.post('/:id/installments', requirePermission('contracts.edit'), async (req
  */
 router.post('/:id/installments/confirm', requirePermission('contracts.edit'), async (req, res) => {
   const contractId = Number(req.params.id);
-  await pool.query(
-    'UPDATE contract_installments SET confirmed = TRUE WHERE contract_id = $1',
-    [contractId],
-  );
-  res.json({ success: true });
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const contract = await loadDraftContractForEdit(pgClient, contractId, true);
+    if (!contract) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    if (contract.status !== 'draft') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'لا يمكن تأكيد أقساط عقد بعد اعتماده',
+        code: 'contract_not_editable_after_approval',
+        status: contract.status,
+      });
+    }
+    await pgClient.query(
+      'UPDATE contract_installments SET confirmed = TRUE WHERE contract_id = $1',
+      [contractId],
+    );
+    await pgClient.query('COMMIT');
+    res.json({ success: true });
+  } catch (err) {
+    await pgClient.query('ROLLBACK');
+    throw err;
+  } finally {
+    pgClient.release();
+  }
 });
 
 /**
@@ -1456,7 +1668,9 @@ async function createDeliveryTaskForContract(db: any, contract: any) {
     [contract.id],
   );
   const deliveryDeviceId = devIdRows[0]?.id ?? null;
-  const deliveryBranchId = devIdRows[0]?.branchId ?? contract.branchId;
+  // Device branch is authoritative once materialized; otherwise fall back to the
+  // contract's planned service branch, then the sale branch.
+  const deliveryBranchId = devIdRows[0]?.branchId ?? contract.serviceBranchId ?? contract.branchId;
   await db.query(
     `INSERT INTO open_tasks (
        client_id, branch_id, task_type, task_family, reason, status, due_date,
@@ -1720,7 +1934,8 @@ router.post('/:id/approve', async (req, res) => {
     // installment balance recompute.
     await pgClient.query(
       `UPDATE contracts
-         SET status = 'active',
+         SET contract_number = COALESCE(NULLIF(contract_number, ''), 'C-' || TO_CHAR(NOW(), 'YYYY') || '-' || LPAD(nextval('contract_number_seq')::text, 5, '0')),
+             status = 'active',
              closing_employee_id = $1,
              closing_date = NOW(),
              sale_owner_id = $2
@@ -1757,6 +1972,10 @@ router.post('/:id/approve', async (req, res) => {
     // App-side side effects: delivery task (mirrors the POST path).
     if (refreshed.contractType === 'sale_contract') {
       await createDeliveryTaskForContract(pgClient, refreshed);
+    }
+
+    if (refreshed.customerId) {
+      await promoteClientToLifecycleStatus(pgClient, Number(refreshed.customerId), 'OP');
     }
 
     // Freeze the legal copy (DEC-CT-15).

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import type { AuthContext } from '@golden-crm/shared';
 import { JWT_SECRET, type AuthUser } from './auth.js';
+import { loadSessionUserFromToken, SessionUserError } from '../services/sessionUserService.js';
 import {
   authorize,
   buildAuthContext,
@@ -56,7 +57,7 @@ export async function getOrBuildAuthContext(req: Request & { user: AuthUser }): 
   return authContext;
 }
 
-function ensureUser(req: Request, res: Response): req is Request & { user: AuthUser } {
+async function ensureUser(req: Request, res: Response): Promise<boolean> {
   if (req.user) {
     return true;
   }
@@ -68,9 +69,14 @@ function ensureUser(req: Request, res: Response): req is Request & { user: AuthU
   }
 
   try {
-    req.user = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
+    const tokenUser = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
+    req.user = await loadSessionUserFromToken(tokenUser);
     return true;
-  } catch {
+  } catch (err) {
+    if (err instanceof SessionUserError) {
+      res.status(err.code === 'USER_INACTIVE' ? 403 : 401).json({ error: err.message });
+      return false;
+    }
     res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });
     return false;
   }
@@ -82,12 +88,12 @@ export function clearPermissionCache(userId?: number) {
 
 export function requirePermission(...keys: string[]) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    if (!ensureUser(req, res)) {
+    if (!(await ensureUser(req, res))) {
       return;
     }
 
     try {
-      const authContext = await getOrBuildAuthContext(req);
+      const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
 
       const hasAny = keys.some(key => authorize(authContext, { permission: key }).allowed);
       if (!hasAny) {
@@ -102,8 +108,8 @@ export function requirePermission(...keys: string[]) {
   };
 }
 
-export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!ensureUser(req, res)) {
+export async function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!(await ensureUser(req, res))) {
     return;
   }
 
@@ -115,12 +121,12 @@ export function requireSuperAdmin(req: Request, res: Response, next: NextFunctio
 }
 
 export async function requireNotHQOnly(req: Request, res: Response, next: NextFunction) {
-  if (!ensureUser(req, res)) {
+  if (!(await ensureUser(req, res))) {
     return;
   }
 
   try {
-    const authContext = await getOrBuildAuthContext(req);
+    const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
     const branchId = authContext.actingBranchId;
 
     if (branchId == null) {

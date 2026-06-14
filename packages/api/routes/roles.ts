@@ -1,8 +1,22 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db.js';
 import { requirePermission, requireSuperAdmin, clearPermissionCache } from '../middleware/permission.js';
-import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment } from '../services/roleAssignmentGuard.js';
+import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment, assertRoleWithinActorScope, ROLE_ESCALATION_ERROR } from '../services/roleAssignmentGuard.js';
+import {
+  listPermissionCatalog,
+  listRolePermissionGrants,
+  replaceRolePermissionGrants,
+  RolePermissionServiceError,
+  type RolePermissionGrantInput,
+} from '../services/rolePermissionService.js';
+import {
+  createRole,
+  deleteRole,
+  updateRole,
+  RoleManagementError,
+} from '../services/roleManagementService.js';
+import { authorize } from '../services/authorizationService.js';
 
 const router = Router();
 const VALID_SCOPE_TYPES = new Set(['GLOBAL', 'BRANCH', 'ASSIGNED']);
@@ -97,6 +111,30 @@ function canWriteRole(context: { isSuperAdmin: boolean; actingBranchId: number |
   return role.branch_id === context.actingBranchId;
 }
 
+function sendRolePermissionError(res: Response, error: unknown) {
+  if (!(error instanceof RolePermissionServiceError)) {
+    return false;
+  }
+
+  const status = error.code === 'ROLE_NOT_FOUND' ? 404 : 400;
+  res.status(status).json({ error: error.message });
+  return true;
+}
+
+function sendRoleManagementError(res: Response, error: unknown) {
+  if (!(error instanceof RoleManagementError)) {
+    return false;
+  }
+
+  const status = error.code === 'ROLE_NOT_FOUND'
+    ? 404
+    : error.code === 'ROLE_NAME_CONFLICT'
+      ? 409
+      : 400;
+  res.status(status).json({ error: error.message });
+  return true;
+}
+
 // ── GET /roles/:id — Role detail with permissions ───────────────────────────
 /**
  * @swagger
@@ -134,16 +172,11 @@ router.get('/roles/:id', requirePermission('admin.roles.view'), async (req, res)
     }
     const { rows: roleRows } = await pool.query('SELECT * FROM roles WHERE id = $1', [req.params.id]);
 
-    const { rows: permRows } = await pool.query(
-      `SELECT p.*, rpg.scope_type
-       FROM role_permission_grants rpg
-       JOIN permissions p ON p.id = rpg.permission_id
-       WHERE rpg.role_id = $1
-       ORDER BY p.display_order`,
-      [req.params.id]
-    );
-
-    res.json({ ...roleRows[0], permissions: permRows.map(row => ({ ...row, scopeType: row.scope_type })) });
+    const grants = await listRolePermissionGrants(Number(req.params.id));
+    res.json({
+      ...roleRows[0],
+      permissions: grants.map(grant => ({ ...grant, scopeType: grant.scope_type })),
+    });
   } catch (err: any) {
     console.error('Error fetching role detail:', err);
     res.status(500).json({ error: err.message });
@@ -182,17 +215,10 @@ router.get('/roles/:id/permissions', requirePermission('admin.roles.view'), asyn
       return res.status(403).json({ error: 'غير مسموح' });
     }
 
-    const { rows } = await pool.query(
-      `SELECT p.*, rpg.scope_type
-       FROM role_permission_grants rpg
-       JOIN permissions p ON p.id = rpg.permission_id
-       WHERE rpg.role_id = $1
-       ORDER BY p.display_order`,
-      [req.params.id]
-    );
-
-    res.json(rows.map(row => ({ ...row, scopeType: row.scope_type })));
+    const grants = await listRolePermissionGrants(Number(req.params.id));
+    res.json(grants.map(grant => ({ ...grant, scopeType: grant.scope_type })));
   } catch (err: any) {
+    if (sendRolePermissionError(res, err)) return;
     console.error('Error fetching role permissions:', err);
     res.status(500).json({ error: err.message });
   }
@@ -238,6 +264,14 @@ router.get('/roles/:id/permissions', requirePermission('admin.roles.view'), asyn
  */
 router.post('/roles', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
+    const createdRole = await createRole({
+      name: req.body?.name,
+      displayName: req.body?.displayName,
+      description: req.body?.description,
+      teamSlotType: req.body?.teamSlotType,
+    });
+    return res.status(201).json(createdRole);
+
     const { name, displayName, description, teamSlotType } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'اسم الدور مطلوب' });
     if (!displayName?.trim()) return res.status(400).json({ error: 'الاسم المعروض مطلوب' });
@@ -257,6 +291,7 @@ router.post('/roles', requirePermission('admin.roles.manage'), async (req, res) 
     if (err.code === '23505') {
       return res.status(409).json({ error: 'يوجد دور بنفس الاسم بالفعل في هذا الفرع' });
     }
+    if (sendRoleManagementError(res, err)) return;
     console.error('Error creating role:', err);
     res.status(500).json({ error: err.message });
   }
@@ -304,6 +339,14 @@ router.post('/roles', requirePermission('admin.roles.manage'), async (req, res) 
  */
 router.put('/roles/:id', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
+    const updatedRole = await updateRole(Number(req.params.id), {
+      displayName: req.body?.displayName,
+      description: req.body?.description,
+      isActive: req.body?.isActive,
+      teamSlotType: req.body?.teamSlotType,
+    });
+    return res.json(updatedRole);
+
     const authContext = req.authContext!;
     const roleId = req.params.id;
     const role = await loadRoleForScope(Number(roleId));
@@ -340,6 +383,7 @@ router.put('/roles/:id', requirePermission('admin.roles.manage'), async (req, re
     );
     res.json(rows[0]);
   } catch (err: any) {
+    if (sendRoleManagementError(res, err)) return;
     console.error('Error updating role:', err);
     res.status(500).json({ error: err.message });
   }
@@ -371,6 +415,9 @@ router.put('/roles/:id', requirePermission('admin.roles.manage'), async (req, re
  */
 router.delete('/roles/:id', requirePermission('admin.roles.manage'), async (req, res) => {
   try {
+    await deleteRole(Number(req.params.id));
+    return res.json({ message: 'تم حذف الدور بنجاح' });
+
     const authContext = req.authContext!;
     const roleId = req.params.id;
     const role = await loadRoleForScope(Number(roleId));
@@ -448,21 +495,19 @@ router.delete('/roles/:id', requirePermission('admin.roles.manage'), async (req,
  *         description: Success
  */
 router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), async (req, res) => {
-  const client = await pool.connect();
   try {
-    const authContext = req.authContext!;
     const { permissionIds, grants } = req.body;
-    const roleId = req.params.id;
+    const roleId = Number(req.params.id);
 
-    const normalizedGrants = Array.isArray(grants)
+    const normalizedGrants: RolePermissionGrantInput[] | null = Array.isArray(grants)
       ? grants.map((grant: any) => ({
           permissionId: Number(grant.permissionId),
-          scopeType: String(grant.scopeType ?? ''),
+          scopeType: String(grant.scopeType ?? '') as RolePermissionGrantInput['scopeType'],
         }))
       : Array.isArray(permissionIds)
         ? permissionIds.map((permissionId: unknown) => ({
             permissionId: Number(permissionId),
-            scopeType: 'GLOBAL',
+            scopeType: 'GLOBAL' as const,
           }))
         : null;
 
@@ -470,6 +515,19 @@ router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), as
       return res.status(400).json({ error: 'قائمة الصلاحيات مطلوبة' });
     }
 
+    const updatedGrants = await replaceRolePermissionGrants(roleId, normalizedGrants);
+    return res.json(updatedGrants.map(grant => ({ ...grant, scopeType: grant.scope_type })));
+  } catch (err: any) {
+    if (sendRolePermissionError(res, err)) return;
+    console.error('Error assigning permissions:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/*
+ * Legacy inline implementation retained temporarily for history while the
+ * mixed-encoding REST router is cleaned up. It is not executable.
+ *
     // Deduplicate: keep last occurrence of each permissionId
     const grantMap = new Map<number, { permissionId: number; scopeType: string }>();
     for (const grant of normalizedGrants) {
@@ -519,7 +577,6 @@ router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), as
 
     await client.query('BEGIN');
     await client.query('DELETE FROM role_permission_grants WHERE role_id = $1', [roleId]);
-    await client.query('DELETE FROM role_permissions WHERE role_id = $1', [roleId]);
     if (deduplicatedGrants.length > 0) {
       const grantValues = deduplicatedGrants
         .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
@@ -527,13 +584,6 @@ router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), as
       await client.query(
         `INSERT INTO role_permission_grants (role_id, permission_id, scope_type) VALUES ${grantValues}`,
         [roleId, ...deduplicatedGrants.flatMap(grant => [grant.permissionId, grant.scopeType])]
-      );
-
-      const legacyValues = deduplicatedGrants.map((_, i) => `($1, $${i + 2})`).join(', ');
-      await client.query(
-        `INSERT INTO role_permissions (role_id, permission_id) VALUES ${legacyValues}
-         ON CONFLICT (role_id, permission_id) DO NOTHING`,
-        [roleId, ...deduplicatedGrants.map(grant => grant.permissionId)]
       );
     }
     await client.query('COMMIT');
@@ -550,6 +600,7 @@ router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), as
     );
     res.json(permRows.map(row => ({ ...row, scopeType: row.scope_type })));
   } catch (err: any) {
+    if (sendRoleManagementError(res, err)) return;
     await client.query('ROLLBACK');
     console.error('Error assigning permissions:', err);
     res.status(500).json({ error: err.message });
@@ -559,6 +610,8 @@ router.put('/roles/:id/permissions', requirePermission('admin.roles.manage'), as
 });
 
 // ── POST /role-templates/:id/propagate ──────────────────────────────────────
+*/
+
 // Deprecated: roles are centrally managed and no longer propagated to branch clones.
 /**
  * @swagger
@@ -611,8 +664,7 @@ router.post('/role-templates/:id/propagate', requireSuperAdmin, async (req, res)
  */
 router.get('/permissions', requirePermission('admin.roles.view'), async (_req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM permissions ORDER BY display_order');
-    res.json(rows);
+    res.json(await listPermissionCatalog());
   } catch (err: any) {
     console.error('Error fetching permissions:', err);
     res.status(500).json({ error: err.message });
@@ -713,7 +765,8 @@ router.put('/permissions/scopes', requireSuperAdmin, async (req, res) => {
 // ── GET /hr-users/assignable — Users eligible to be assigned to clients ──────
 // Returns active HR users whose role has the 'clients.can_be_assigned' grant.
 // Branch-scoped: non-super-admins see only users from their own branch.
-// Requires clients.view_list so any user who can see clients can fetch this list.
+// Requires clients.assignment.manage: seeing clients is not enough to enumerate
+// possible assignees for ownership changes.
 /**
  * @swagger
  * /api/admin/hr-users/assignable:
@@ -752,7 +805,7 @@ router.put('/permissions/scopes', requireSuperAdmin, async (req, res) => {
  *       200:
  *         description: Success
  */
-router.get('/hr-users/assignable', requirePermission('clients.view_list'), async (req, res) => {
+router.get('/hr-users/assignable', requirePermission('clients.assignment.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;
     const conditions: string[] = [
@@ -771,6 +824,49 @@ router.get('/hr-users/assignable', requirePermission('clients.view_list'), async
       const branchId = authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null;
       if (branchId == null) {
         return res.json([]); // no branch context → empty list
+      }
+      params.push(branchId);
+      conditions.push(`u.branch_id = $${params.length}`);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const { rows } = await pool.query(
+      `SELECT u.id, u.name, u.branch_id,
+              r.display_name AS role_display_name
+         FROM hr_users u
+         LEFT JOIN roles r ON r.id = u.role_id
+         ${where}
+         ORDER BY u.name`,
+      params,
+    );
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /hr-users/name-list-assignable — Users eligible to own a name list ───
+// Mirrors /hr-users/assignable but for the name-lists family: gated by
+// candidates.name_lists.assignment.manage, returns active users whose role has
+// candidates.name_lists.can_be_assigned, branch-filtered for non-super-admins.
+router.get('/hr-users/name-list-assignable', requirePermission('candidates.name_lists.assignment.manage'), async (req, res) => {
+  try {
+    const authContext = req.authContext!;
+    const conditions: string[] = [
+      `u.is_active = TRUE`,
+      `u.role_id IN (
+        SELECT rpg.role_id
+          FROM role_permission_grants rpg
+          JOIN permissions p ON p.id = rpg.permission_id
+         WHERE p.key = 'candidates.name_lists.can_be_assigned'
+      )`,
+    ];
+    const params: any[] = [];
+
+    if (!authContext.isSuperAdmin) {
+      const branchId = authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null;
+      if (branchId == null) {
+        return res.json([]);
       }
       params.push(branchId);
       conditions.push(`u.branch_id = $${params.length}`);
@@ -832,7 +928,7 @@ router.get('/hr-users/assignable', requirePermission('clients.view_list'), async
  *       200:
  *         description: Success
  */
-router.get('/hr-users', requirePermission('admin.roles.view'), async (req, res) => {
+router.get('/hr-users', requirePermission('admin.roles.view', 'admin.roles.users.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;
     const conditions: string[] = [];
@@ -904,7 +1000,7 @@ router.get('/hr-users', requirePermission('admin.roles.view'), async (req, res) 
  *       201:
  *         description: Created
  */
-router.post('/hr-users', requirePermission('admin.roles.manage'), async (req, res) => {
+router.post('/hr-users', requirePermission('admin.roles.users.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;
     const { name, username, password, roleId, branchId, isSuperAdmin } = req.body;
@@ -914,8 +1010,12 @@ router.post('/hr-users', requirePermission('admin.roles.manage'), async (req, re
 
     let targetBranchId: number | null;
     let makeSuper = false;
-    if (authContext.isSuperAdmin) {
+    const globalUserRoleAccess = authorize(authContext, { permission: 'admin.roles.users.manage' });
+    if (authContext.isSuperAdmin || globalUserRoleAccess.reason === 'GRANTED_GLOBAL') {
       if (isSuperAdmin === true) {
+        if (!authContext.isSuperAdmin) {
+          return res.status(403).json({ error: 'ط¥ظ†ط´ط§ط، ط³ظˆط¨ط± ط£ط¯ظ…ظ† ظ…طھط§ط­ ظ„ظ„ط¥ط¯ط§ط±ط© ط§ظ„ط¹ط§ظ…ط© ظپظ‚ط·' });
+        }
         makeSuper = true;
         targetBranchId = null;
       } else {
@@ -941,6 +1041,10 @@ router.post('/hr-users', requirePermission('admin.roles.manage'), async (req, re
         return res.status(400).json({
           error: roleCheck.reason === 'NOT_FOUND' ? '????? ??? ?????' : TEMPLATE_ROLE_ASSIGNMENT_ERROR,
         });
+      }
+      const scopeCheck = await assertRoleWithinActorScope(authContext, Number(roleId));
+      if (scopeCheck.ok === false) {
+        return res.status(403).json({ error: ROLE_ESCALATION_ERROR });
       }
       roleName = roleCheck.role.name;
     } else if (makeSuper) {
@@ -1006,7 +1110,7 @@ router.post('/hr-users', requirePermission('admin.roles.manage'), async (req, re
  *       200:
  *         description: Success
  */
-router.put('/hr-users/:id', requirePermission('admin.roles.manage'), async (req, res) => {
+router.put('/hr-users/:id', requirePermission('admin.roles.users.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;
     const userIdParam = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id)!;
@@ -1039,6 +1143,10 @@ router.put('/hr-users/:id', requirePermission('admin.roles.manage'), async (req,
         return res.status(400).json({
           error: roleCheck.reason === 'NOT_FOUND' ? '????? ??? ?????' : TEMPLATE_ROLE_ASSIGNMENT_ERROR,
         });
+      }
+      const scopeCheck = await assertRoleWithinActorScope(authContext, Number(roleId));
+      if (scopeCheck.ok === false) {
+        return res.status(403).json({ error: ROLE_ESCALATION_ERROR });
       }
       updates.push(`role_id = $${idx++}`);
       params.push(roleId);

@@ -32,6 +32,16 @@ Golden CRM is a full-stack HR/CRM system built with:
 - Use the staging .env file at /opt/golden-crm/apps/staging/.env
 - When modifying files, be precise - read only what's needed, modify only what's specified
 
+## Permissions And Authorization
+- Before changing authentication, roles, permissions, scopes, branch filtering, or record ownership, read `docs/constitution/domains/permissions-engineering-standard.md`.
+- The mandatory authorization model is `identity + permission + scope + subject = decision`.
+- `requirePermission()` is a capability gate only. Record routes must load the subject and authorize its `branchId` and, where applicable, `assignedUserId` through a domain policy.
+- Frontend visibility, `localStorage`, textual role names, and JWT branch claims are never sufficient authorization controls.
+- Do not introduce new permission behavior independently in REST and tRPC. Put shared decisions in one service/policy and make both surfaces call it.
+- `role_permission_grants` is the target source of truth. Do not add new security decisions that depend directly on legacy `role_permissions`.
+- Any permission add, delete, rename, or scope change must include its migration/catalog update, backend enforcement, UI usage where relevant, tests, audit inventory, and `صلاحيات_النظام.xlsx` update. Mark additions green and removals red in the workbook.
+- Required negative tests include missing permission, wrong branch, and unassigned subject. Required positive tests cover every allowed scope plus the explicit super-admin path.
+
 ## Common Commands
 ```
 pnpm install                          # Install dependencies

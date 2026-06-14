@@ -37,7 +37,7 @@ export async function listAllGeoUnits(client: Queryable = pool): Promise<GeoUnit
 
 export async function resolveGeoScope(
   authContext: AuthContext,
-  permission: 'geo.view' | 'geo.manage',
+  permission: 'geo.view' | 'geo.manage' | 'geo_units.lookup' | 'reference_data.lookup',
   allUnits?: GeoUnitRow[],
 ): Promise<GeoScope | null> {
   if (authContext.isSuperAdmin) {
@@ -73,6 +73,24 @@ export async function resolveGeoScope(
   };
 }
 
+export async function resolveGeoScopeForBranch(
+  branchId: number,
+  allUnits?: GeoUnitRow[],
+): Promise<GeoScope> {
+  const units = allUnits ?? await listAllGeoUnits();
+  const coveredGeoIds = await loadBranchCoveredGeoIds(branchId);
+  const effectiveCoveredIds = coveredGeoIds.filter(id => units.some(unit => unit.id === id));
+  const serviceGeoIds = buildServiceGeoIds(effectiveCoveredIds, units);
+  const visibleGeoIds = buildVisibleGeoIds(effectiveCoveredIds, units);
+
+  return {
+    branchId,
+    coveredGeoIds: effectiveCoveredIds,
+    serviceGeoIds,
+    visibleGeoIds,
+  };
+}
+
 export function filterGeoUnitsByScope(units: GeoUnitRow[], scope: GeoScope | null): GeoUnitRow[] {
   if (!scope) return units;
   return units.filter(unit => scope.visibleGeoIds.has(unit.id));
@@ -92,7 +110,7 @@ export function filterGeoUnitsByScope(units: GeoUnitRow[], scope: GeoScope | nul
 export async function assertGeoUnitInScope(
   authContext: AuthContext,
   geoUnitId: number | string | null | undefined,
-  permission: 'geo.view' | 'geo.manage' = 'geo.view',
+  permission: 'geo.view' | 'geo.manage' | 'geo_units.lookup' = 'geo_units.lookup',
   branchTargetId?: number | null,
 ): Promise<{ allowed: boolean; reason?: string }> {
   const id = Number(geoUnitId);

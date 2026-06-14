@@ -29,7 +29,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     const [clientInitialData, setClientInitialData] = useState<Client | null>(null);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const canEditCandidates = hasPermission('candidates.edit');
-    const canEditNameLists = hasAnyPermission('candidates.name_lists.edit', 'referral_sheets.edit');
+    const canEditNameLists = hasAnyPermission('candidates.name_lists.edit');
 
     useEffect(() => {
         if (!isOpen) return;

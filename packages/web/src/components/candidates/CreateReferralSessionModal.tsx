@@ -46,11 +46,11 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const { branchId: contextBranchId } = useBranchContextStore();
     const currentUserDisplayName = authUser?.name?.trim() || '';
     const canChooseBranch = authUser?.isSuperAdmin === true;
-    const editNameListScope = getPermissionScope('candidates.name_lists.edit');
+    const assignmentScope = getPermissionScope('candidates.name_lists.assignment.manage');
     const canChooseAssignedOwner =
         authUser?.isSuperAdmin === true ||
-        editNameListScope === 'GLOBAL' ||
-        editNameListScope === 'BRANCH';
+        assignmentScope === 'GLOBAL' ||
+        assignmentScope === 'BRANCH';
 
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
@@ -68,7 +68,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             api.employees.list(),
             api.contracts.list(),
             canChooseBranch ? api.branches.list() : Promise.resolve([]),
-            canChooseAssignedOwner ? api.admin.hrUsers.assignable() : Promise.resolve([]),
+            canChooseAssignedOwner ? api.admin.hrUsers.nameListAssignable() : Promise.resolve([]),
         ])
             .then(([clientsRes, employeesRes, contractsRes, branchesRes, hrUsersRes]) => {
                 if (!active) return;

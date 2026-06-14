@@ -4,7 +4,19 @@ import bcrypt from 'bcryptjs';
 import pool from '../../db.js';
 import { router, withPermission } from '../init.js';
 import { clearPermissionCache } from '../../middleware/permission.js';
-import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment } from '../../services/roleAssignmentGuard.js';
+import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment, assertRoleWithinActorScope, ROLE_ESCALATION_ERROR } from '../../services/roleAssignmentGuard.js';
+import {
+  listPermissionCatalog,
+  listRolePermissionGrants,
+  replaceRolePermissionGrants,
+  RolePermissionServiceError,
+} from '../../services/rolePermissionService.js';
+import {
+  createRole,
+  deleteRole,
+  updateRole,
+  RoleManagementError,
+} from '../../services/roleManagementService.js';
 import {
   UserBranchAssignmentError,
   listBranchCatalog,
@@ -13,6 +25,7 @@ import {
   deactivateUserBranchAssignment,
   setPrimaryUserBranchAssignment,
 } from '../../services/userBranchAssignmentService.js';
+import { authorize } from '../../services/authorizationService.js';
 import {
   BranchCatalogItemSchema,
   RoleSchema,
@@ -33,6 +46,7 @@ import {
 } from '@golden-crm/shared/contracts/roles.js';
 
 const VALID_SCOPE_TYPES = new Set(['GLOBAL', 'BRANCH', 'ASSIGNED']);
+type ScopeType = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
 
 // ── DB row → typed camelCase helpers ──────────────────────────────────────
 // These replace the normalizeRole/normalizeHrUser functions in useRoleStore.
@@ -62,6 +76,10 @@ function toRole(r: Record<string, unknown>): z.infer<typeof RoleSchema> {
 }
 
 function toPermission(p: Record<string, unknown>): z.infer<typeof PermissionSchema> {
+  const rawAllowedScopes = Array.isArray(p.allowed_scopes) ? p.allowed_scopes : [];
+  const allowedScopes = rawAllowedScopes.filter(
+    (scope): scope is ScopeType => VALID_SCOPE_TYPES.has(scope as ScopeType),
+  );
   return {
     id: p.id as number,
     key: p.key as string,
@@ -70,7 +88,7 @@ function toPermission(p: Record<string, unknown>): z.infer<typeof PermissionSche
     action: p.action as string,
     displayName: p.display_name as string,
     displayOrder: p.display_order as number,
-    allowedScopes: (p.allowed_scopes as string[]) ?? ['GLOBAL', 'BRANCH', 'ASSIGNED'],
+    allowedScopes: allowedScopes.length > 0 ? allowedScopes : ['GLOBAL', 'BRANCH', 'ASSIGNED'],
   };
 }
 
@@ -91,6 +109,30 @@ function toPermissionGrant(p: Record<string, unknown>): z.infer<typeof RolePermi
     ...toPermission(p),
     scopeType: p.scope_type as z.infer<typeof RolePermissionGrantSchema>['scopeType'],
   };
+}
+
+function toRolePermissionError(err: unknown): TRPCError {
+  if (!(err instanceof RolePermissionServiceError)) {
+    return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'خطأ في إدارة صلاحيات الدور' });
+  }
+
+  return new TRPCError({
+    code: err.code === 'ROLE_NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
+    message: err.message,
+  });
+}
+
+function toRoleManagementError(err: unknown): TRPCError {
+  if (!(err instanceof RoleManagementError)) {
+    return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'خطأ في إدارة الدور' });
+  }
+
+  const code = err.code === 'ROLE_NOT_FOUND'
+    ? 'NOT_FOUND'
+    : err.code === 'ROLE_NAME_CONFLICT'
+      ? 'CONFLICT'
+      : 'BAD_REQUEST';
+  return new TRPCError({ code, message: err.message });
 }
 
 function toRoleJobTask(task: Record<string, unknown>): z.infer<typeof RoleJobTaskSchema> {
@@ -141,8 +183,8 @@ export const rolesRouter = router({
 
   // ── Roles ────────────────────────────────────────────────────────────────
 
-  list: withPermission('admin.roles.view')
-    .query(async () => {
+  list: withPermission('admin.roles.view', 'admin.roles.users.manage')
+    .query(async ({ ctx }) => {
       const result = await pool.query(
         `SELECT r.*,
           (SELECT COUNT(*) FROM hr_users WHERE role_id = r.id) AS user_count,
@@ -158,7 +200,13 @@ export const rolesRouter = router({
          ORDER BY r.id`
       );
 
-      return result.rows.map(toRole);
+      const roles = result.rows.map(toRole);
+      // assignable: can the current actor assign this role without escalating?
+      // Drives the user-form dropdown so it only offers roles the actor may grant.
+      const assignableFlags = await Promise.all(
+        roles.map(r => assertRoleWithinActorScope(ctx.authContext, r.id).then(c => c.ok)),
+      );
+      return roles.map((r, i) => ({ ...r, assignable: assignableFlags[i] }));
     }),
 
   getById: withPermission('admin.roles.view')
@@ -169,32 +217,22 @@ export const rolesRouter = router({
       );
       if (!roleRows[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
 
-      const { rows: permRows } = await pool.query(
-        `SELECT p.*, rpg.scope_type
-         FROM role_permission_grants rpg
-         JOIN permissions p ON p.id = rpg.permission_id
-         WHERE rpg.role_id = $1 ORDER BY p.display_order`,
-        [input.id]
-      );
-      return { ...toRole(roleRows[0]), permissions: permRows.map(toPermissionGrant) };
+      const grants = await listRolePermissionGrants(input.id);
+      return {
+        ...toRole(roleRows[0]),
+        permissions: grants.map(grant => toPermissionGrant(grant as unknown as Record<string, unknown>)),
+      };
     }),
 
   getPermissions: withPermission('admin.roles.view')
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
-      const { rows: check } = await pool.query(
-        'SELECT id FROM roles WHERE id = $1', [input.id]
-      );
-      if (!check[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
-
-      const { rows } = await pool.query(
-        `SELECT p.*, rpg.scope_type
-         FROM role_permission_grants rpg
-         JOIN permissions p ON p.id = rpg.permission_id
-         WHERE rpg.role_id = $1 ORDER BY p.display_order`,
-        [input.id]
-      );
-      return rows.map(toPermissionGrant);
+      try {
+        const grants = await listRolePermissionGrants(input.id);
+        return grants.map(grant => toPermissionGrant(grant as unknown as Record<string, unknown>));
+      } catch (err) {
+        throw toRolePermissionError(err);
+      }
     }),
 
   getRoleJobTasks: withPermission('admin.roles.view')
@@ -267,192 +305,44 @@ export const rolesRouter = router({
 
   create: withPermission('admin.roles.manage')
     .input(CreateRoleInputSchema)
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       try {
-        void ctx.authContext;
-
-        const { rows } = await pool.query(
-          `INSERT INTO roles (name, display_name, description, branch_id, is_template, template_id, team_slot_type)
-           VALUES ($1, $2, $3, NULL, TRUE, NULL, $4) RETURNING *`,
-          [
-            input.name.trim(),
-            input.displayName.trim(),
-            input.description ?? null,
-            input.teamSlotType ?? null,
-          ]
-        );
-        return toRole(rows[0]);
-      } catch (err: unknown) {
-        const pg = err as { code?: string };
-        if (pg.code === '23505') {
-          throw new TRPCError({ code: 'CONFLICT', message: 'يوجد دور بنفس الاسم بالفعل' });
-        }
-        throw err;
+        return toRole(await createRole(input));
+      } catch (err) {
+        throw toRoleManagementError(err);
       }
     }),
 
   update: withPermission('admin.roles.manage')
     .input(UpdateRoleInputSchema)
     .mutation(async ({ input }) => {
-      const { id, displayName, description, isActive, teamSlotType } = input;
-      const { rows: cur } = await pool.query('SELECT * FROM roles WHERE id = $1', [id]);
-      if (!cur[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
-      if (cur[0].is_system || cur[0].is_protected) {
-        const reason = (cur[0].protected_reason as string | null) ?? '';
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: reason
-            ? `?? ???? ????? ??? ????? � ${reason}`
-            : '?? ???? ????? ??? ????? � ??? ????? ?? ????',
-        });
+      try {
+        const { id, ...changes } = input;
+        return toRole(await updateRole(id, changes));
+      } catch (err) {
+        throw toRoleManagementError(err);
       }
-
-      const { rows } = await pool.query(
-        `UPDATE roles SET
-          display_name = COALESCE($1, display_name),
-          description  = COALESCE($2, description),
-          is_active    = COALESCE($3, is_active),
-          team_slot_type = CASE WHEN $5 THEN $6::text ELSE team_slot_type END,
-          updated_at   = NOW()
-         WHERE id = $4 RETURNING *`,
-        [
-          displayName ?? null,
-          description !== undefined ? description : null,
-          isActive !== undefined ? isActive : null,
-          id,
-          teamSlotType !== undefined,
-          teamSlotType ?? null,
-        ]
-      );
-      return toRole(rows[0]);
     }),
 
   delete: withPermission('admin.roles.manage')
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const { rows } = await pool.query('SELECT * FROM roles WHERE id = $1', [input.id]);
-      if (!rows[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
-      // Guard: system or explicitly protected roles cannot be deleted by anyone
-      if (rows[0].is_system || rows[0].is_protected) {
-        const reason = (rows[0].protected_reason as string | null) ?? '';
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: reason
-            ? `?? ???? ??? ??? ????? � ${reason}`
-            : '?? ???? ??? ??? ????? � ??? ????? ?? ????',
-        });
+      try {
+        await deleteRole(input.id);
+        return { success: true as const };
+      } catch (err) {
+        throw toRoleManagementError(err);
       }
-
-      // Guard: cannot delete a role currently assigned to users
-      const { rows: uc } = await pool.query(
-        'SELECT COUNT(*) FROM hr_users WHERE role_id = $1', [input.id]
-      );
-      if (parseInt(uc[0].count as string) > 0) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: '?? ???? ??? ??? ????? ????????? � ?? ?????? ????? ?????????? ?????',
-        });
-      }
-
-      await pool.query('DELETE FROM roles WHERE id = $1', [input.id]);
-      return { success: true as const };
     }),
 
   setPermissions: withPermission('admin.roles.manage')
     .input(SetPermissionsInputSchema)
     .mutation(async ({ input }) => {
-      const client = await pool.connect();
       try {
-        await client.query('BEGIN');
-
-        // Deduplicate: keep last occurrence of each permissionId
-        const grantMap = new Map<number, { permissionId: number; scopeType: 'GLOBAL' | 'BRANCH' | 'ASSIGNED' }>();
-        for (const grant of input.grants) {
-          grantMap.set(grant.permissionId, grant);
-        }
-        const deduplicatedGrants = Array.from(grantMap.values());
-
-        const { rows: check } = await client.query(
-          'SELECT id, is_system, is_protected, protected_reason FROM roles WHERE id = $1', [input.roleId]
-        );
-        if (!check[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'الدور غير موجود' });
-        if (check[0].is_system || check[0].is_protected) {
-          const reason = (check[0].protected_reason as string | null) ?? '';
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: reason
-              ? `لا يمكن تعديل صلاحيات هذا الدور المحمي – ${reason}`
-              : 'لا يمكن تعديل صلاحيات هذا الدور المحمي – دور نظامي',
-          });
-        }
-        if (deduplicatedGrants.some(grant => !VALID_SCOPE_TYPES.has(grant.scopeType))) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'نطاق غير صالح أو مفقود' });
-        }
-
-        // Validate that each scopeType is allowed for the given permission
-        if (deduplicatedGrants.length > 0) {
-          const permIds = deduplicatedGrants.map(g => g.permissionId);
-          const { rows: permRows } = await client.query(
-            'SELECT id, allowed_scopes FROM permissions WHERE id = ANY($1)',
-            [permIds]
-          );
-          const permScopeMap = new Map<number, string[]>(permRows.map((p: any) => [p.id as number, (p.allowed_scopes ?? []) as string[]]));
-
-          for (const grant of deduplicatedGrants) {
-            const allowed: string[] | undefined = permScopeMap.get(grant.permissionId);
-            if (!allowed) {
-              throw new TRPCError({ code: 'BAD_REQUEST', message: `الصلاحية رقم ${grant.permissionId} غير موجودة` });
-            }
-            if (!allowed.includes(grant.scopeType)) {
-              throw new TRPCError({
-                code: 'BAD_REQUEST',
-                message: `النطاق "${grant.scopeType}" غير مسموح لهذه الصلاحية. النطاقات المسموحة: ${allowed.join(', ')}`,
-              });
-            }
-          }
-        }
-
-        await client.query(
-          'DELETE FROM role_permission_grants WHERE role_id = $1', [input.roleId]
-        );
-        await client.query(
-          'DELETE FROM role_permissions WHERE role_id = $1', [input.roleId]
-        );
-        if (deduplicatedGrants.length > 0) {
-          const grantValues = deduplicatedGrants
-            .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
-            .join(', ');
-          await client.query(
-            `INSERT INTO role_permission_grants (role_id, permission_id, scope_type) VALUES ${grantValues}`,
-            [input.roleId, ...deduplicatedGrants.flatMap(grant => [grant.permissionId, grant.scopeType])]
-          );
-
-          const legacyValues = deduplicatedGrants
-            .map((_, i) => `($1, $${i + 2})`)
-            .join(', ');
-          await client.query(
-            `INSERT INTO role_permissions (role_id, permission_id)
-             VALUES ${legacyValues}
-             ON CONFLICT (role_id, permission_id) DO NOTHING`,
-            [input.roleId, ...deduplicatedGrants.map(grant => grant.permissionId)]
-          );
-        }
-        await client.query('COMMIT');
-        clearPermissionCache();
-
-        const { rows: permRows } = await pool.query(
-          `SELECT p.*, rpg.scope_type
-           FROM role_permission_grants rpg
-           JOIN permissions p ON p.id = rpg.permission_id
-           WHERE rpg.role_id = $1 ORDER BY p.display_order`,
-          [input.roleId]
-        );
-        return permRows.map(toPermissionGrant);
+        const grants = await replaceRolePermissionGrants(input.roleId, input.grants);
+        return grants.map(grant => toPermissionGrant(grant as unknown as Record<string, unknown>));
       } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      } finally {
-        client.release();
+        throw toRolePermissionError(err);
       }
     }),
 
@@ -460,8 +350,8 @@ export const rolesRouter = router({
 
   allPermissions: withPermission('admin.roles.view')
     .query(async () => {
-      const { rows } = await pool.query('SELECT * FROM permissions ORDER BY display_order');
-      return rows.map(toPermission);
+      const permissions = await listPermissionCatalog();
+      return permissions.map(permission => toPermission(permission as unknown as Record<string, unknown>));
     }),
 
   // ── HR Users ──────────────────────────────────────────────────────────────
@@ -512,22 +402,70 @@ export const rolesRouter = router({
       }));
     }),
 
-  hrUsersList: withPermission('admin.roles.view')
-    .query(async () => {
+  hrUsersList: withPermission('admin.roles.view', 'admin.roles.users.manage')
+    .query(async ({ ctx }) => {
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      const usersManageAccess = authorize(ctx.authContext, { permission: 'admin.roles.users.manage' });
+      const rolesViewAccess = authorize(ctx.authContext, { permission: 'admin.roles.view' });
+      const hasGlobalAccess = ctx.authContext.isSuperAdmin
+        || usersManageAccess.reason === 'GRANTED_GLOBAL'
+        || rolesViewAccess.reason === 'GRANTED_GLOBAL';
+      if (!hasGlobalAccess) {
+        const targetBranchId = ctx.authContext.actingBranchId ?? ctx.authContext.allowedBranchIds[0] ?? null;
+        if (targetBranchId == null) {
+          return [];
+        }
+        params.push(targetBranchId);
+        conditions.push(`u.branch_id = $${params.length}`);
+      } else if (ctx.xBranchId != null) {
+        const branchAccess = authorize(ctx.authContext, {
+          permission: 'admin.roles.users.manage',
+          branchId: ctx.xBranchId,
+        });
+        const viewAccess = authorize(ctx.authContext, {
+          permission: 'admin.roles.view',
+          branchId: ctx.xBranchId,
+        });
+        if (!branchAccess.allowed && !viewAccess.allowed) {
+          return [];
+        }
+        params.push(ctx.xBranchId);
+        conditions.push(`u.branch_id = $${params.length}`);
+      }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const { rows } = await pool.query(
         `SELECT u.id, u.name, u.username, u.is_active, u.created_at, u.role_id,
           r.display_name AS role_display_name
          FROM hr_users u
          LEFT JOIN roles r ON r.id = u.role_id
-         ORDER BY u.id`
+         ${where}
+         ORDER BY u.id`,
+        params,
       );
       return rows.map(toHrUser);
     }),
 
-  createHrUser: withPermission('admin.roles.manage')
+  createHrUser: withPermission('admin.roles.users.manage')
     .input(CreateHrUserInputSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       try {
+        const globalAccess = authorize(ctx.authContext, {
+          permission: 'admin.roles.users.manage',
+        });
+        const targetBranchId = ctx.authContext.isSuperAdmin || globalAccess.reason === 'GRANTED_GLOBAL'
+          ? ctx.xBranchId
+          : ctx.authContext.actingBranchId ?? ctx.authContext.allowedBranchIds[0] ?? null;
+        if (targetBranchId == null) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'يجب تحديد الفرع المستهدف للمستخدم' });
+        }
+        const access = authorize(ctx.authContext, {
+          permission: 'admin.roles.users.manage',
+          branchId: targetBranchId,
+        });
+        if (!access.allowed) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مسموح بإسناد دور ضمن هذا الفرع' });
+        }
         const roleCheck = await validateTemplateRoleAssignment(input.roleId);
         if (roleCheck.ok === false) {
           throw new TRPCError({
@@ -535,12 +473,16 @@ export const rolesRouter = router({
             message: roleCheck.reason === 'NOT_FOUND' ? '????? ??? ?????' : TEMPLATE_ROLE_ASSIGNMENT_ERROR,
           });
         }
+        const scopeCheck = await assertRoleWithinActorScope(ctx.authContext, input.roleId);
+        if (scopeCheck.ok === false) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: ROLE_ESCALATION_ERROR });
+        }
         const passwordHash = await bcrypt.hash(input.password, 10);
         const { rows } = await pool.query(
-          `INSERT INTO hr_users (name, username, password_hash, role, role_id)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO hr_users (name, username, password_hash, role, role_id, branch_id)
+           VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, name, username, is_active, created_at, role_id`,
-          [input.name.trim(), input.username.trim(), passwordHash, roleCheck.role.name, input.roleId]
+          [input.name.trim(), input.username.trim(), passwordHash, roleCheck.role.name, input.roleId, targetBranchId]
         );
         return toHrUser(rows[0]);
       } catch (err: unknown) {
@@ -552,12 +494,28 @@ export const rolesRouter = router({
       }
     }),
 
-  updateHrUser: withPermission('admin.roles.manage')
+  updateHrUser: withPermission('admin.roles.users.manage')
     .input(UpdateHrUserInputSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, name, username, password, roleId, isActive } = input;
       const { rows: cur } = await pool.query('SELECT * FROM hr_users WHERE id = $1', [id]);
       if (!cur[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'المستخدم غير موجود' });
+      if (!ctx.authContext.isSuperAdmin) {
+        if (cur[0].is_super_admin) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مسموح' });
+        }
+        const targetBranchId = cur[0].branch_id as number | null;
+        if (targetBranchId == null) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مسموح' });
+        }
+        const access = authorize(ctx.authContext, {
+          permission: 'admin.roles.users.manage',
+          branchId: targetBranchId,
+        });
+        if (!access.allowed) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مسموح بإسناد دور ضمن هذا الفرع' });
+        }
+      }
 
       const updates: string[] = [];
       const params: unknown[] = [];
@@ -577,6 +535,10 @@ export const rolesRouter = router({
             code: roleCheck.reason === 'NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
             message: roleCheck.reason === 'NOT_FOUND' ? '????? ??? ?????' : TEMPLATE_ROLE_ASSIGNMENT_ERROR,
           });
+        }
+        const scopeCheck = await assertRoleWithinActorScope(ctx.authContext, roleId);
+        if (scopeCheck.ok === false) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: ROLE_ESCALATION_ERROR });
         }
         updates.push(`role_id = $${idx++}`); params.push(roleId);
         updates.push(`role = $${idx++}`);    params.push(roleCheck.role.name);

@@ -38,17 +38,6 @@ export async function findUserForLogin(username: string): Promise<LoginUserRecor
   return rows[0] ?? null;
 }
 
-export async function getRolePermissions(roleId: number): Promise<string[]> {
-  const { rows } = await pool.query(
-    `SELECT p.key FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-     WHERE rp.role_id = $1`,
-    [roleId]
-  );
-
-  return rows.map((r: any) => r.key);
-}
-
 export interface RoleGrant {
   permission: string;
   scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';

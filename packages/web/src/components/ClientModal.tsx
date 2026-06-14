@@ -80,12 +80,30 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const authUser = useAuthStore(state => state.user);
     const getPermissionScope = useAuthStore(state => state.getPermissionScope);
     const { branchId: contextBranchId } = useBranchContextStore();
-    const canChooseBranch = authUser?.isSuperAdmin === true;
-    const editClientScope = getPermissionScope('clients.edit');
+    const createClientScope = getPermissionScope('clients.create');
+    const assignmentManageScope = getPermissionScope('clients.assignment.manage');
+    const userBranchId = Number.isInteger(Number(authUser?.branchId)) && Number(authUser?.branchId) > 0
+        ? Number(authUser?.branchId)
+        : null;
+    const isCreateBranchLocked =
+        !isEditMode &&
+        authUser?.isSuperAdmin !== true &&
+        createClientScope !== 'GLOBAL';
+    const canUseBranchContext =
+        authUser?.isSuperAdmin === true ||
+        createClientScope === 'GLOBAL';
+    const fixedOperationalBranchId = !isEditMode
+        ? ((canUseBranchContext ? contextBranchId : null) ?? (isCreateBranchLocked ? userBranchId : null))
+        : null;
+    const hasFixedBranchContext = fixedOperationalBranchId != null;
+    const canSelectOperationalBranch =
+        authUser?.isSuperAdmin === true ||
+        (!isEditMode && createClientScope === 'GLOBAL');
+    const canChooseBranch = canSelectOperationalBranch && !hasFixedBranchContext;
     const canChooseAssignedOwner =
         authUser?.isSuperAdmin === true ||
-        editClientScope === 'GLOBAL' ||
-        editClientScope === 'BRANCH';
+        assignmentManageScope === 'GLOBAL' ||
+        assignmentManageScope === 'BRANCH';
 
     const candidates = useCandidateStore(state => state.candidates);
     const [allClients, setAllClients] = useState<Client[]>([]);
@@ -97,6 +115,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
     const [waterSourceOptions, setWaterSourceOptions] = useState<string[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
+    const effectiveBranchId = selectedBranchId === '' ? fixedOperationalBranchId : selectedBranchId;
     const [assignmentUserIds, setAssignmentUserIds] = useState<number[]>([]);
     const [assignDropdownOpen, setAssignDropdownOpen] = useState(false);
     const assignDropdownRef = useRef<HTMLDivElement>(null);
@@ -235,13 +254,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             return;
         }
 
-        if (!canChooseBranch || selectedBranchId === '') {
-            setBranchGeoUnits(geoUnits);
+        if (effectiveBranchId == null) {
+            setBranchGeoUnits([]);
             return;
         }
 
         let active = true;
-        api.geoUnits.list(Number(selectedBranchId))
+        api.geoUnits.list(Number(effectiveBranchId))
             .then(rows => {
                 if (active) setBranchGeoUnits(Array.isArray(rows) ? rows : []);
             })
@@ -252,7 +271,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         return () => {
             active = false;
         };
-    }, [isOpen, canChooseBranch, selectedBranchId, geoUnits]);
+    }, [isOpen, effectiveBranchId, geoUnits]);
 
     useEffect(() => {
         if (referralType === 'Personal') {
@@ -365,13 +384,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setNotes(initialData.notes || '');
                 setRating(initialData.rating || 'Undefined');
             } else {
+                const initialBranchId = fixedOperationalBranchId ?? '';
                 setFormData({
                     sourceChannel: 'Acquaintance',
                     referrerType: 'Other',
                     governorate: '1',
-                    branchId: canChooseBranch ? (contextBranchId ?? undefined) : undefined,
+                    branchId: initialBranchId === '' ? undefined : initialBranchId,
                 });
-                setSelectedBranchId(canChooseBranch ? (contextBranchId ?? '') : '');
+                setSelectedBranchId(initialBranchId);
                 setAssignmentUserIds([]);
                 setFirstName(''); setNickname(''); setLastName(''); setFatherName('');
                 setContacts(lockedPhone
@@ -412,7 +432,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 neighborhoodId: path[3]?.id?.toString() || '',
             });
         }
-    }, [isOpen, initialData, geoUnits, canChooseBranch, contextBranchId, currentUserDisplayName]);
+    }, [isOpen, initialData, geoUnits, canChooseBranch, fixedOperationalBranchId, currentUserDisplayName]);
 
     const updateForm = useCallback((key: string, value: any) => {
         setFormData(prev => ({ ...prev, [key]: value }));
@@ -446,7 +466,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     }, [updateForm]);
 
     useEffect(() => {
-        if (!isOpen || !canChooseBranch || selectedBranchId === '') return;
+        if (!isOpen || effectiveBranchId == null) return;
         if (branchGeoUnits.length === 0) return;
 
         const deepestId = geoSelection.neighborhoodId || geoSelection.subId || geoSelection.regionId || geoSelection.govId;
@@ -456,7 +476,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         if (!selectedStillVisible) {
             handleGeoChange({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
         }
-    }, [isOpen, canChooseBranch, selectedBranchId, branchGeoUnits, geoSelection, handleGeoChange]);
+    }, [isOpen, effectiveBranchId, branchGeoUnits, geoSelection, handleGeoChange]);
 
     const handleLocationSelect = useCallback((lat: number, lng: number) => {
         setMapPosition([lat, lng]);
@@ -547,9 +567,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
     const assignableHrUsers = useMemo(() => {
         if (!canChooseAssignedOwner) return [];
-        if (selectedBranchId === '') return hrUsers;
-        return hrUsers.filter(user => user.branchId == null || user.branchId === Number(selectedBranchId));
-    }, [canChooseAssignedOwner, hrUsers, selectedBranchId]);
+        if (effectiveBranchId == null) return hrUsers;
+        return hrUsers.filter(user => user.branchId == null || user.branchId === Number(effectiveBranchId));
+    }, [canChooseAssignedOwner, effectiveBranchId, hrUsers]);
 
     // -- fromCandidate locking helpers --
     // effectiveLockedPhone: either explicit lockedPhone prop OR the candidate's mobile when fromCandidate
@@ -578,7 +598,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
     // -- Save --
     const handleSave = () => {
-        if (canChooseBranch && !selectedBranchId) {
+        if (canChooseBranch && effectiveBranchId == null) {
             alert('يجب تحديد الفرع قبل حفظ العميل');
             return;
         }
@@ -672,7 +692,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             waterSource: waterSource.trim() || undefined,
             dataQuality: (dataQuality as any) || undefined,
             notes: notes.trim() || undefined,
-            branchId: selectedBranchId === '' ? undefined : Number(selectedBranchId),
+            branchId: effectiveBranchId == null ? undefined : Number(effectiveBranchId),
             assignmentUserIds: canChooseAssignedOwner && assignmentUserIds.length > 0 ? assignmentUserIds : undefined,
             ...(isEditMode ? { rating } : {}),
         } as Client);
@@ -742,7 +762,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     </label>
                                                     <select
                                                         value={selectedBranchId}
-                                                        onChange={e => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
+                                                        onChange={e => {
+                                                            setSelectedBranchId(e.target.value ? Number(e.target.value) : '');
+                                                            handleGeoChange({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+                                                            setAssignmentUserIds([]);
+                                                        }}
                                                         className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
                                                     >
                                                         <option value="">اختر الفرع</option>

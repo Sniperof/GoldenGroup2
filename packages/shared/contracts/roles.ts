@@ -33,6 +33,8 @@ export const RoleSchema = z.object({
   jobTaskCount: z.number().optional(),
   // Team-slot eligibility (migration 062+)
   teamSlotType: TeamSlotTypeSchema.optional(),
+  // Whether the current actor may assign this role without escalating (server-computed).
+  assignable: z.boolean().optional(),
 });
 
 export const RoleJobTaskSchema = z.object({

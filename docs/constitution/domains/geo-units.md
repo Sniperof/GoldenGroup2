@@ -15,7 +15,7 @@
   1. `clients` (عبر حقول العناوين `governorate`, `district`, `neighborhood`).
   2. `candidates` (عبر حقل `geo_unit_id`).
   3. `branches` (عبر الحقل الجغرافي للفرع `location_geo_id` وقائمة التغطية `covered_geo_ids`).
-  4. `contracts` (عبر حقل موقع تركيب الأجهزة المعتمد `installation_geo_unit_id`).
+  4. `installed_devices` / `contracts.draft_device_payload` (موقع تركيب الجهاز `installation_geo_unit_id` — يُخزَّن على `installed_devices` للعقود الفعّالة، وفي `draft_device_payload->>'installationGeoUnitId'` للمسودّات؛ **لا يوجد عمود `installation_geo_unit_id` على جدول `contracts` نفسه**). يُفرض أن يكون مستوى الحي (level 4) عند الحفظ.
   5. `employees` (عبر حقل السكن `residence`).
   6. `routes` & `route_points` (لتوجيه وجدولة مسارات الفرق جغرافياً).
   7. `task_type_config` (عبر حقل أساس المطابقة الجغرافي للمهام `location_basis`).
@@ -134,10 +134,22 @@ erDiagram
 
 ## 6. صلاحيات الوصول (Permission Matrix)
 
-| الصلاحية المطلوبة | مفتاح الأمان (Permission Key) | النطاق المسموح (Scope) | الوصف والشرح بالعربية |
-|---|---|---|---|
-| عرض الوحدات الجغرافية | `geo.view` | GLOBAL / BRANCH | قراءة واستعراض شجرة العناوين الجغرافية |
-| إدارة التقسيمات الجغرافية | `geo.manage` | GLOBAL | إضافة تقسيمات جغرافية جديدة أو حذفها |
+شجرة المستويات الإدارية تفصل بين **تعبئة العنوان داخل النماذج** (lookup روتيني)، و**فتح صفحة إدارة المستويات** (عرض إداري)، و**تعديل البنية الوطنية** (إدارة). المستويات الإدارية بنية وطنية مركزية شبيهة بـ `system_lists`: التعديل قرار مركزي (HQ) بنطاق `GLOBAL` فقط، بينما يحصل الفرع على قراءة مفلترة بتغطيته دون أي حق تعديل. (هجرة `279_geo_units_permission_tree.sql`.)
+
+| الصلاحية المطلوبة | مفتاح الأمان (Permission Key) | النوع | النطاق المسموح (Scope) | الوصف والشرح بالعربية |
+|---|---|---|---|---|
+| قراءة العناوين داخل الحقول | `geo_units.lookup` | Lookup | `GLOBAL`, `BRANCH`, `ASSIGNED` | قراءة الوحدات النشطة كخيارات عناوين داخل نماذج الزبائن والعقود والمهام، مفلترة بتغطية الفرع. لا تفتح صفحة الإدارة ولا تمنح تعديلاً. |
+| عرض المستويات الإدارية | `geo.view` | Admin View | `GLOBAL`, `BRANCH` | فتح صفحة إدارة المستويات وقراءة الوحدات (بما فيها `inactive`) ضمن النطاق. مدير الفرع يرى تغطية فرعه فقط. |
+| إدارة المستويات الإدارية | `geo.manage` | Admin Manage | `GLOBAL` فقط | إنشاء/تعديل/حذف/تغيير حالة وحدة جغرافية. حكر على المقر؛ لا يملك أي فرع تعديل الشجرة الوطنية. |
+
+#### 6.1 قواعد المستويات الإدارية والعناوين
+
+- **تعبئة العنوان تستخدم `geo_units.lookup` لا `geo.view`.** أي حقل عنوان (زبون/عقد/مهمة) يقرأ الوحدات عبر lookup مفلتر بالتغطية، فلا يحتاج موظف ميداني صلاحية فتح صفحة الإدارة لتعبئة عنوان.
+- **القيم القابلة للاختيار = `active` فقط.** يستبعد مكوّن الاختيار (`GeoSmartSearch`) الوحدات المعطّلة من الخيارات، مع إبقائها لعرض مسار السجلات التاريخية التي قد تشير لوحدة معطّلة.
+- **العرض على مستوى الفرع مفلتر بالتغطية.** `geo.view`/`geo_units.lookup` بنطاق `BRANCH` يريان فقط `visibleGeoIds` = الوحدات المغطّاة + أبناؤها + سلسلة آبائها (للملاحة الهرمية). لا تظهر أي منطقة شقيقة خارج التغطية. الجلب الفردي `GET /:id` يطبّق نفس الفلترة (يعيد `404` لوحدة خارج النطاق).
+- **التعديل GLOBAL فقط ويُفرض على كل handler.** `POST/PUT/PATCH/DELETE` محمية بـ `geo.manage`، والنطاق المسموح `GLOBAL` وحده يمنع أي منحة فرعية. أي محاولة منح `geo.manage` بنطاق `BRANCH`/`ASSIGNED` تُرفض عند الحفظ.
+- **الكتابة على الخادم تعيد التحقق دائماً.** أي مسار يحفظ `geo_unit_id` داخل عنوان (زبون/عقد/جهاز مركّب) يستدعي `assertGeoUnitInScope` ليرفض أي عنوان خارج تغطية الفرع المالك للسجل. فلترة الواجهة ليست حماية أمنية.
+- **قيد دقّة المستوى حسب العملية.** قد تفرض عملية حدّاً أدنى لمستوى العنوان: عنوان تركيب العقد يجب أن يكون **مستوى الحي (level 4)** — يُفرض في المنتقي (`minSelectableLevel`) وعلى الخادم معاً (`400 installation_geo_not_neighborhood`). هذا تطبيق لنمط [الحقول التشغيلية المقيّدة بالنطاق](permissions-engineering-standard.md#51-نمط-الحقول-التشغيلية-المقيّدة-بالنطاق-scoped-operational-fields).
 
 ---
 
@@ -147,13 +159,14 @@ erDiagram
 
 | الطريقة | المسار | الصلاحية | وصف |
 |---|---|---|---|
-| `GET` | `/api/geo-units` | `geo.view` | قائمة كل الوحدات مفلترة حسب scope الفرع |
-| `GET` | `/api/geo-units/active` | `geo.view` | قائمة الوحدات النشطة فقط (للاستخدام في selectors العناوين) |
-| `GET` | `/api/geo-units/:id` | `geo.view` | تفاصيل وحدة جغرافية فردية |
-| `POST` | `/api/geo-units` | `geo.manage` | إنشاء وحدة جديدة مع تحقق هرمي |
-| `PUT` | `/api/geo-units/:id` | `geo.manage` | تعديل اسم الوحدة فقط (level/parent محمي) |
-| `PATCH` | `/api/geo-units/:id/status` | `geo.manage` | تغيير حالة وحدة واحدة (active/inactive) — الأبناء لا يتأثرون (GAP-062 مؤجل) |
-| `DELETE` | `/api/geo-units/:id` | `geo.manage` | حذف — يفشل بـ 409 إذا يوجد أبناء |
+| `GET` | `/api/geo-units` | `geo.view` أو `geo_units.lookup` | قائمة كل الوحدات مفلترة حسب scope الفرع |
+| `GET` | `/api/geo-units/active` | `geo.view` أو `geo_units.lookup` | قائمة الوحدات النشطة فقط (للاستخدام في selectors العناوين) |
+| `GET` | `/api/geo-units/reference` | `geo.view` أو `geo_units.lookup` | قائمة مرجعية للعناوين مفلترة حسب scope الفرع |
+| `GET` | `/api/geo-units/:id` | `geo.view` أو `geo_units.lookup` | تفاصيل وحدة فردية — مفلترة بالنطاق (`404` خارج التغطية) |
+| `POST` | `/api/geo-units` | `geo.manage` (GLOBAL) | إنشاء وحدة جديدة مع تحقق هرمي |
+| `PUT` | `/api/geo-units/:id` | `geo.manage` (GLOBAL) | تعديل اسم الوحدة فقط (level/parent محمي) |
+| `PATCH` | `/api/geo-units/:id/status` | `geo.manage` (GLOBAL) | تغيير حالة وحدة واحدة (active/inactive) — الأبناء لا يتأثرون (GAP-062 مؤجل) |
+| `DELETE` | `/api/geo-units/:id` | `geo.manage` (GLOBAL) | حذف — يفشل بـ 409 إذا يوجد أبناء |
 
 #### `GET /api/geo-units`
 - **الفلترة:** آلياً وفق `BRANCH` scope إذا كان المستخدم محدود الصلاحية.
@@ -281,3 +294,4 @@ erDiagram
 | **2026-05-24** | `170_clients_geo_integer.sql`| **GAP-003:** تحويل `clients.governorate`, `district`, `neighborhood` من `VARCHAR` → `INTEGER` + إضافة `FK → geo_units(id) ON DELETE SET NULL`. |
 | **2026-05-24** | `171_drop_employees_residence_text.sql`| **GAP-034 B:** حذف `employees.residence` النصي — الأعمدة الصحيحة `residence_*_id` كانت موجودة بالفعل. |
 | **2026-05-24** | `172_geo_units_status.sql`| إضافة `geo_units.status VARCHAR(10) DEFAULT 'active' CHECK IN ('active','inactive')` + endpoint `PATCH /:id/status` + `GET /active`. |
+| **2026-06-13** | `279_geo_units_permission_tree.sql`| **فصل شجرة الصلاحيات:** إضافة `geo_units.lookup` (GLOBAL/BRANCH/ASSIGNED) لتعبئة العناوين، حصر `geo.manage` بـ `GLOBAL` فقط وحذف أي منحة فرعية لها، وترحيل (backfill) منح `geo.view` إلى `geo_units.lookup` بنفس النطاق. الكود: قبول `geo_units.lookup` على قراءات geo-units، فلترة `GET /:id` بالنطاق، واستبعاد الوحدات المعطّلة من خيارات الاختيار. |
