@@ -106,6 +106,32 @@ for (const file of files) {
   }
 }
 
+// Honor retirement: keys removed via `DELETE FROM permissions` must drop out of
+// the catalog so the inventory reflects reality, not the cumulative INSERT log.
+// We only match single-literal value rows like ('a_key') — multi-field INSERT
+// tuples (e.g. a key re-added in the same migration) never match, so they stay.
+const migrationNumber = (rel) => {
+  const m = rel.match(/migrations[\\/](\d+)/);
+  return m ? Number(m[1]) : -1;
+};
+const retiredAt = new Map();
+for (const file of files) {
+  const rel = relative(file);
+  if (!rel.startsWith('migrations/')) continue;
+  const text = fs.readFileSync(file, 'utf8');
+  if (!/DELETE\s+FROM\s+(?:public\.)?permissions\b/i.test(text)) continue;
+  const n = migrationNumber(rel);
+  for (const m of text.matchAll(/\(\s*'([a-z0-9_.-]+)'\s*\)/g)) {
+    retiredAt.set(m[1], Math.max(retiredAt.get(m[1]) ?? -1, n));
+  }
+}
+for (const [key, retireNum] of retiredAt) {
+  const catalog = catalogs.get(key);
+  if (!catalog) continue;
+  const lastDefined = Math.max(...catalog.definitions.map((d) => migrationNumber(d.file)));
+  if (retireNum >= lastDefined) catalogs.delete(key);
+}
+
 const allKeys = [...new Set([...catalogs.keys(), ...usages.keys()])].sort();
 const inventory = allKeys.map((key) => {
   const catalog = catalogs.get(key);

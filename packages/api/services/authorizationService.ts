@@ -3,6 +3,7 @@ import type {
   AuthUser,
   AuthorizationCheck,
   AuthorizationResult,
+  ListAccessPlan,
   PermissionGrant,
   ScopeType,
 } from '@golden-crm/shared';
@@ -112,6 +113,43 @@ export function authorize(context: AuthContext, check: AuthorizationCheck): Auth
     default:
       return { allowed: false, reason: 'MISSING_PERMISSION' };
   }
+}
+
+/**
+ * Translate the actor's grant for `permission` into a list-scope plan. This is
+ * the read-side complement of `authorize()` (which decides a single record):
+ * list/index endpoints call this once to build their branch predicate.
+ *
+ * Permission-agnostic by design so it scales to every operations/tasks list
+ * (open_tasks, field_visits, tasks, and any future task type) without copying
+ * the GLOBAL/BRANCH/ASSIGNED/NONE branching into each route.
+ */
+export function resolveListAccessScope(
+  context: AuthContext,
+  permission: string,
+): ListAccessPlan {
+  if (context.isSuperAdmin) {
+    return {
+      scope: 'GLOBAL',
+      userId: context.userId,
+      allowedBranchIds: context.allowedBranchIds,
+    };
+  }
+
+  const grant = context.grants.find(item => item.permission === permission);
+  if (!grant) {
+    return {
+      scope: 'NONE',
+      userId: context.userId,
+      allowedBranchIds: context.allowedBranchIds,
+    };
+  }
+
+  return {
+    scope: grant.scope,
+    userId: context.userId,
+    allowedBranchIds: context.allowedBranchIds,
+  };
 }
 
 async function loadAuthorizationData(

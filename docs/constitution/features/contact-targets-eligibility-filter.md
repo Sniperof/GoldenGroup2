@@ -1,5 +1,7 @@
 # قيد حساب الحمل لـ `contact_targets` — الـ Filter الكامل
 
+> **⚠️ مُحدَّث بـ DEC-009 (2026-06-15):** المرجع الأعلى لتعريف «المهمة المؤهلة» صار [`decisions/DEC-009-eligible-task-and-contact-lifecycle.md`](../decisions/DEC-009-eligible-task-and-contact-lifecycle.md) (10 لبنات). تغييرات منفَّذة تَجُبّ أجزاءً من هذا الملف: مرساة يوم D لنافذة N، شروط الحظر في الإسناد، الملكية الموحَّدة (lifecycle)، بوابة القسم، fallback الناحية، وعزل تعدّد الفرق في الداشبورد. السلوك الموثَّق أدناه يصف الحالة قبل DEC-009 جزئياً — راجع خطة التنفيذ §★ للحالة الفعلية لكل لبنة.
+
 > **الحالة:** Active — موثَّق 2026-06-02 من قراءة الكود الفعلي
 > **الملف المرجعي:** [`packages/api/services/planningMarketingTargets.ts`](../../../packages/api/services/planningMarketingTargets.ts) (السطور 444-535 و 546-740)
 > **المرتبط:** [`features/planning-contact-targets.md`](planning-contact-targets.md) · [`decisions/DEC-005-contact-targets-filter.md`](../decisions/DEC-005-contact-targets-filter.md) · [`decisions/DEC-006-pending-resolutions-round1.md`](../decisions/DEC-006-pending-resolutions-round1.md)

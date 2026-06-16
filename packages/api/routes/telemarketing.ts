@@ -1368,6 +1368,20 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
         continue;
       }
 
+      // DEC-009 لبنة 9 / R-6 — a CLOSED contact is frozen: do NOT attach a NEW task
+      // to it. (A new task for an already-booked contact belongs to the visit layer,
+      // D7 cascading, not the planning list.) Existing linked items are still refreshed.
+      if (!existingItem) {
+        const { rows: ctStatusRows } = await pgClient.query(
+          `SELECT status FROM contact_targets WHERE id = $1`,
+          [contactTargetId],
+        );
+        if (ctStatusRows[0]?.status === 'closed') {
+          skipped.push({ entityType: 'client', entityId, reason: 'contact_target_closed' });
+          continue;
+        }
+      }
+
       if (existingItem) {
         await pgClient.query(
           `

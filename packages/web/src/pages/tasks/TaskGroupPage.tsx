@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck } from 'lucide-react';
 import { api } from '../../lib/api';
-import { useBranchContextStore } from '../../hooks/useBranchContextStore';
+import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import {
   OPEN_TASK_STATUS_LABELS,
@@ -30,7 +30,10 @@ type GroupKey =
   | 'collection'
   | 'after-sale-services'
   | 'gift-delivery'
-  | 'warranty-services';
+  | 'warranty-services'
+  | 'device-delivery'
+  | 'device-installation'
+  | 'device-activation';
 
 type GroupConfig = {
   label: string;
@@ -63,8 +66,8 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   },
   'collection': {
     label: 'مهام تحصيل الأقساط',
-    subtitle: 'تحصيل أقساط العقود وذمم الزبائن',
-    taskTypes: ['collection'],
+    subtitle: 'تحصيل أقساط العقود وذمم الصيانة',
+    taskTypes: ['installment_collection', 'maintenance_collection'],
     Icon: DollarSign,
     accentBg: 'bg-emerald-500',
     accentRing: 'shadow-emerald-500/20',
@@ -72,12 +75,12 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   },
   'after-sale-services': {
     label: 'مهام خدمات ما بعد البيع',
-    subtitle: 'تسليم الجهاز، تركيبه، تشغيله، ونقله بين المواقع',
-    taskTypes: ['device_delivery', 'device_installation', 'device_activation'],
+    subtitle: 'الفحص والإصلاح والسحب والإرجاع والنقل وبيع القطع',
+    taskTypes: ['device_repair', 'device_retrieval', 'device_return', 'device_transfer', 'device_disconnection', 'parts_sale'],
     Icon: RefreshCw,
     accentBg: 'bg-sky-500',
     accentRing: 'shadow-sky-500/20',
-    detailHref: '/tasks/after-sale-services',
+    detailHref: '/tasks/group/after-sale-services',
   },
   'gift-delivery': {
     label: 'مهام تسليم الهدايا',
@@ -90,12 +93,39 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   },
   'warranty-services': {
     label: 'مهام خدمات الكفالة',
-    subtitle: 'الكفالة الذهبية، إعادة تفعيل الكفالة، وإلغاؤها',
+    subtitle: 'الكفالة الذهبية، إعادة تفعيل الكفالة, وإلغاؤها',
     taskTypes: ['golden_warranty', 'warranty_reactivation', 'warranty_cancellation'],
     Icon: ShieldCheck,
     accentBg: 'bg-violet-500',
     accentRing: 'shadow-violet-500/20',
     detailHref: '/tasks/group/warranty-services',
+  },
+  'device-delivery': {
+    label: 'مهام تسليم الجهاز',
+    subtitle: 'تسليم الأجهزة المباعة إلى الزبائن',
+    taskTypes: ['device_delivery'],
+    Icon: Gift,
+    accentBg: 'bg-sky-500',
+    accentRing: 'shadow-sky-500/20',
+    detailHref: '/tasks/group/device-delivery',
+  },
+  'device-installation': {
+    label: 'مهام تركيب الجهاز',
+    subtitle: 'تركيب الأجهزة في مواقع الزبائن',
+    taskTypes: ['device_installation'],
+    Icon: Wrench,
+    accentBg: 'bg-amber-500',
+    accentRing: 'shadow-amber-500/20',
+    detailHref: '/tasks/group/device-installation',
+  },
+  'device-activation': {
+    label: 'مهام تشغيل الجهاز',
+    subtitle: 'تشغيل الأجهزة المركّبة وتفعيلها',
+    taskTypes: ['device_activation'],
+    Icon: Monitor,
+    accentBg: 'bg-indigo-500',
+    accentRing: 'shadow-indigo-500/20',
+    detailHref: '/tasks/group/device-activation',
   },
 };
 
@@ -298,7 +328,7 @@ export default function TaskGroupPage() {
   const navigate = useNavigate();
   const { group = '' } = useParams<{ group: string }>();
   const config = GROUP_CONFIG[group as GroupKey];
-  const { branchId } = useBranchContextStore();
+  const { effectiveBranchId, needsBranchSelection } = useBranchListScope();
 
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -330,12 +360,14 @@ export default function TaskGroupPage() {
   }, []);
 
   const load = useCallback(async () => {
-    if (!branchId || !config) return;
+    if (!config) return;
+    // Super-admins must pick a branch first; branch-scoped users load directly.
+    if (needsBranchSelection) return;
     setLoading(true);
     setError(null);
     try {
       const params: {
-        branchId: number;
+        branchId?: number;
         status?: string;
         visitStatus?: string;
         scheduledDate?: string;
@@ -343,7 +375,7 @@ export default function TaskGroupPage() {
         hideSnoozed?: 'true';
         hideFutureTasks?: 'true';
       } = {
-        branchId,
+        ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
         ...(statusFilter ? { status: statusFilter } : {}),
         ...(visitStatusFilter ? { visitStatus: visitStatusFilter } : {}),
         ...(dateFilter ? { scheduledDate: dateFilter } : {}),
@@ -355,10 +387,10 @@ export default function TaskGroupPage() {
       };
       if (group === 'device-demo') {
         setRows(await api.openTasks.listDeviceDemo(params));
-      } else if (group === 'after-sale-services' || group === 'maintenance') {
-        setRows(await api.openTasks.listByGroup(group, params));
       } else {
-        setRows([]);
+        // All other groups are served by the unified group endpoint, each gated
+        // by its own table-view permission (migration 288).
+        setRows(await api.openTasks.listByGroup(group, params));
       }
     } catch (err) {
       console.error('Failed to load task group rows:', err);
@@ -367,7 +399,7 @@ export default function TaskGroupPage() {
     } finally {
       setLoading(false);
     }
-  }, [branchId, group, config, statusFilter, visitStatusFilter, dateFilter, scheduledFilter, hideSnoozed, hideFutureTasks]);
+  }, [effectiveBranchId, needsBranchSelection, group, config, statusFilter, visitStatusFilter, dateFilter, scheduledFilter, hideSnoozed, hideFutureTasks]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -381,7 +413,7 @@ export default function TaskGroupPage() {
     );
   }
 
-  if (!branchId) {
+  if (needsBranchSelection) {
     const Icon = config.Icon;
     return (
       <div className="p-8 text-center text-slate-500">
@@ -392,7 +424,8 @@ export default function TaskGroupPage() {
   }
 
   const Icon = config.Icon;
-  const notWiredYet = group !== 'device-demo' && group !== 'after-sale-services' && group !== 'maintenance';
+  // All groups are now served by the backend group endpoint (migration 288).
+  const notWiredYet = false;
   const geoMap = new Map(geoUnits.map((unit) => [unit.id, unit]));
 
   return (

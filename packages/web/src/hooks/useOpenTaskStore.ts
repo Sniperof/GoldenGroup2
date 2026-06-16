@@ -7,7 +7,7 @@ interface OpenTaskState {
   loading: boolean;
   updating: boolean;
   error: string | null;
-  fetchTasks: (branchId: number, filters?: { status?: OpenTaskStatus; taskType?: OpenTaskType }) => Promise<void>;
+  fetchTasks: (branchId: number | null, filters?: { status?: OpenTaskStatus; taskType?: OpenTaskType }) => Promise<void>;
   updateTaskStatus: (id: number, status: OpenTaskStatus, notes?: string) => Promise<void>;
   clearError: () => void;
 }
@@ -21,7 +21,9 @@ export const useOpenTaskStore = create<OpenTaskState>((set) => ({
   fetchTasks: async (branchId, filters) => {
     set({ loading: true, error: null });
     try {
-      const params = new URLSearchParams({ branchId: String(branchId) });
+      const params = new URLSearchParams();
+      // Omit branchId for branch-scoped users — the server scopes them by grant.
+      if (branchId) params.set('branchId', String(branchId));
       if (filters?.status) params.set('status', filters.status);
       if (filters?.taskType) params.set('taskType', filters.taskType);
 

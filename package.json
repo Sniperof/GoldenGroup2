@@ -11,7 +11,8 @@
         "preview": "pnpm --filter @golden-crm/web preview",
         "migrate": "pnpm --filter @golden-crm/api migrate",
         "typecheck": "pnpm --filter @golden-crm/web exec tsc -p tsconfig.typecheck.json --noEmit",
-        "typecheck:api": "pnpm --filter @golden-crm/api exec tsc --noEmit"
+        "typecheck:api": "pnpm --filter @golden-crm/api exec tsc --noEmit",
+        "audit:branch-scope": "node scripts/audit-branch-scope.mjs"
     },
     "dependencies": {
         "@types/cors": "^2.8.19",

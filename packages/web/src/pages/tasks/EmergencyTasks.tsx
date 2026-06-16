@@ -4,7 +4,7 @@ import { ShieldAlert, Eye, Loader2 } from 'lucide-react';
 import SmartTable from '../../components/SmartTable';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import { useOpenTaskStore } from '../../hooks/useOpenTaskStore';
-import { useBranchContextStore } from '../../hooks/useBranchContextStore';
+import { useBranchListScope } from '../../hooks/useBranchListScope';
 import type { OpenTask } from '@golden-crm/shared';
 
 const EMERGENCY_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
@@ -54,15 +54,14 @@ function truncate(str: string | null | undefined, maxLen: number): string {
 
 export default function EmergencyTasks() {
   const { tasks, loading, error, fetchTasks } = useOpenTaskStore();
-  const { branchId } = useBranchContextStore();
+  const { effectiveBranchId, needsBranchSelection } = useBranchListScope();
   const navigate = useNavigate();
   const [clientPopupId, setClientPopupId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (branchId) {
-      fetchTasks(branchId, { taskType: 'emergency_maintenance' });
-    }
-  }, [branchId, fetchTasks]);
+    if (needsBranchSelection) return;
+    fetchTasks(effectiveBranchId ?? null, { taskType: 'emergency_maintenance' });
+  }, [effectiveBranchId, needsBranchSelection, fetchTasks]);
 
   const emergencyTasks = useMemo(() => {
     return tasks.filter((t) => t.taskType === 'emergency_maintenance');
@@ -209,7 +208,7 @@ export default function EmergencyTasks() {
     },
   ], []);
 
-  if (!branchId) {
+  if (needsBranchSelection) {
     return (
       <div className="p-8 text-center text-slate-500">
         <ShieldAlert className="w-12 h-12 mx-auto mb-4 text-slate-300" />

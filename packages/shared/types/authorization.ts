@@ -22,6 +22,23 @@ export interface AuthorizationCheck {
   assignedUserId?: number | null;
 }
 
+/**
+ * List-scope plan derived from a single permission grant. Used by list/index
+ * endpoints to translate the actor's grant scope into a branch predicate:
+ *  - GLOBAL   → no branch constraint (optionally narrowed by a query filter)
+ *  - BRANCH   → branch_id ∈ allowedBranchIds (union of effective assignments)
+ *  - ASSIGNED → branch_id ∈ allowedBranchIds AND assigned-to-actor filter
+ *  - NONE     → no grant; caller must reject (403) or return empty
+ *
+ * `scope` is intentionally permission-agnostic so the same helper scales to any
+ * operations/tasks list (open_tasks, field_visits, tasks, future task types).
+ */
+export interface ListAccessPlan {
+  scope: ScopeType | 'NONE';
+  userId: number;
+  allowedBranchIds: number[];
+}
+
 export interface AuthorizationResult {
   allowed: boolean;
   reason:

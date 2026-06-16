@@ -27,7 +27,7 @@ import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import ClientAvatar from '../../components/ClientAvatar';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
-import { useBranchContextStore } from '../../hooks/useBranchContextStore';
+import { useBranchListScope } from '../../hooks/useBranchListScope';
 import { usePermissions } from '../../hooks/usePermissions';
 import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
 
@@ -467,7 +467,7 @@ export default function VisitsListPage() {
   const navigate = useNavigate();
   const { user, grants } = useAuthStore();
   const { hasPermission } = usePermissions();
-  const { branchId: selectedBranchId } = useBranchContextStore();
+  const { selectedBranchId, hasBranchScope } = useBranchListScope();
   const [rows, setRows] = useState<VisitRow[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -516,12 +516,13 @@ export default function VisitsListPage() {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
 
+  // Grant-driven only (engineering standard §3-1/§3-2): the cross-branch
+  // executive view is gated by a GLOBAL grant or super-admin — never by a
+  // textual role name.
   const canGlobal = user?.isSuperAdmin === true
-    || user?.role === 'ADMIN'
-    || user?.role === 'HR_MANAGER'
     || grants.some((g) => g.permission === 'field_visits.view' && g.scope === 'GLOBAL');
-  const canExecute = hasPermission('field_visits.execute');
-  const canTasksView = hasPermission('tasks.view') || hasPermission('open_tasks.view');
+  const canExecute = hasPermission('field_visits.edit');
+  const canTasksView = hasPermission('open_tasks.view');
 
   const availableViews = useMemo(() => {
     const items: VisitView[] = ['daily'];
@@ -550,7 +551,7 @@ export default function VisitsListPage() {
 
   const load = useCallback(async () => {
     if (!date) return;
-    if (!canGlobal && !selectedBranchId) {
+    if (!canGlobal && !selectedBranchId && !hasBranchScope) {
       setRows([]);
       return;
     }
@@ -571,7 +572,7 @@ export default function VisitsListPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeView, canGlobal, date, effectiveBranchId, selectedBranchId, statusFilter, taskTypeFilter, teamMineOnly, visitTypeFilter]);
+  }, [activeView, canGlobal, hasBranchScope, date, effectiveBranchId, selectedBranchId, statusFilter, taskTypeFilter, teamMineOnly, visitTypeFilter]);
 
   useEffect(() => {
     void load();
@@ -1414,7 +1415,7 @@ export default function VisitsListPage() {
     return base;
   }, [activeView, canGlobal, showOwnership]);
 
-  if (!canGlobal && !selectedBranchId) {
+  if (!canGlobal && !selectedBranchId && !hasBranchScope) {
     return (
       <div className="p-8 text-center text-slate-500" dir="rtl">
         <CalendarDays className="mx-auto mb-4 h-12 w-12 text-slate-300" />

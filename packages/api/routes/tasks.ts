@@ -2,7 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
-import { authorize } from '../services/authorizationService.js';
+import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -132,7 +132,13 @@ const selectFields = `
  */
 router.get('/', requirePermission('tasks.view_list'), async (req, res) => {
   const authContext = req.authContext!;
-  if (authContext.isSuperAdmin) {
+  const plan = resolveListAccessScope(authContext, 'tasks.view_list');
+  if (plan.scope === 'NONE') {
+    return res.status(403).json({ error: 'غير مسموح' });
+  }
+  // GLOBAL (or super-admin) sees all branches, optionally narrowed by X-Branch-Id;
+  // any narrower grant is confined to the union of effective branch assignments.
+  if (plan.scope === 'GLOBAL') {
     const hb = Number(req.header('x-branch-id'));
     if (Number.isFinite(hb) && hb > 0) {
       const { rows } = await pool.query(`SELECT ${selectFields} FROM tasks WHERE branch_id = $1 ORDER BY id`, [hb]);
@@ -141,7 +147,10 @@ router.get('/', requirePermission('tasks.view_list'), async (req, res) => {
     const { rows } = await pool.query(`SELECT ${selectFields} FROM tasks ORDER BY id`);
     return res.json(rows);
   }
-  const { rows } = await pool.query(`SELECT ${selectFields} FROM tasks WHERE branch_id = $1 ORDER BY id`, [authContext.actingBranchId]);
+  if (plan.allowedBranchIds.length === 0) {
+    return res.json([]);
+  }
+  const { rows } = await pool.query(`SELECT ${selectFields} FROM tasks WHERE branch_id = ANY($1::int[]) ORDER BY id`, [plan.allowedBranchIds]);
   res.json(rows);
 });
 

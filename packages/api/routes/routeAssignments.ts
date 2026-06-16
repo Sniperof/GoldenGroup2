@@ -1,19 +1,31 @@
 import { Router } from 'express';
+import type { AuthContext } from '@golden-crm/shared';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/permission.js';
 import { syncAssignedTasks } from '../services/assignedTasks.js';
+import {
+  canManageAssignment,
+  canViewAssignment,
+  getAssignmentListAccessPlan,
+  resolveAssignmentOwningBranch,
+  resolveOwningBranchesForKeys,
+} from '../policies/routeAssignmentPolicy.js';
 
 const router = Router();
 router.use(requireAuth);
 
-function getAuthContext(req: any) {
+function buildAssignmentResponse(row: any) {
+  return { routes: row.routes, extraZones: row.extra_zones, stationOrder: row.station_order || [] };
+}
+
+function getAuthContext(req: any): AuthContext {
   if (!req.authContext) throw new Error('AuthContext is required');
-  return req.authContext as {
-    userId: number;
-    isSuperAdmin: boolean;
-    actingBranchId: number | null;
-    [key: string]: any;
-  };
+  return req.authContext as AuthContext;
+}
+
+function getKeyParam(req: any): string {
+  return Array.isArray(req.params.key) ? req.params.key[0] : req.params.key;
 }
 
 
@@ -170,11 +182,34 @@ function validateRouteAssignmentPayload(body: any): { ok: true; routes: any[]; e
  *       500:
  *         description: Server error
  */
-router.get('/', async (_req, res) => {
+router.get('/', requirePermission('routes.assign.view'), async (req, res) => {
+  const authContext = getAuthContext(req);
+  const plan = getAssignmentListAccessPlan(authContext);
+  if (plan.scope === 'NONE') {
+    res.json({});
+    return;
+  }
+
   const { rows } = await pool.query('SELECT * FROM route_assignments');
+
+  // GLOBAL / super-admin → every branch's assignments.
+  if (plan.scope === 'GLOBAL') {
+    const all: Record<string, any> = {};
+    rows.forEach((r: any) => { all[r.key] = buildAssignmentResponse(r); });
+    res.json(all);
+    return;
+  }
+
+  // BRANCH → only assignments whose scheduled team belongs to one of the
+  // actor's branches (owning branch derived from the team's employees).
+  const owners = await resolveOwningBranchesForKeys(rows.map((r: any) => r.key));
+  const allowed = new Set(authContext.allowedBranchIds);
   const result: Record<string, any> = {};
   rows.forEach((r: any) => {
-    result[r.key] = { routes: r.routes, extraZones: r.extra_zones, stationOrder: r.station_order || [] };
+    const owningBranch = owners.get(r.key);
+    if (owningBranch != null && allowed.has(owningBranch)) {
+      result[r.key] = buildAssignmentResponse(r);
+    }
   });
   res.json(result);
 });
@@ -212,13 +247,28 @@ router.get('/', async (_req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/:key', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM route_assignments WHERE key = $1', [req.params.key]);
-  if (rows.length > 0) {
-    res.json({ routes: rows[0].routes, extraZones: rows[0].extra_zones, stationOrder: rows[0].station_order || [] });
-  } else {
+router.get('/:key', requirePermission('routes.assign.view'), async (req, res) => {
+  const authContext = getAuthContext(req);
+  const key = getKeyParam(req);
+  const { rows } = await pool.query('SELECT * FROM route_assignments WHERE key = $1', [key]);
+  if (rows.length === 0) {
+    // Soft-404: no stored record, nothing to leak.
     res.json({ routes: [], extraZones: [], stationOrder: [] });
+    return;
   }
+
+  // A record exists → confine branch-scoped callers to their own team's plan.
+  const keyMatch = key.match(/^(\d{4}-\d{2}-\d{2})_((?:team|solo)_\d+)$/);
+  const owningBranch = keyMatch
+    ? await resolveAssignmentOwningBranch(keyMatch[1], keyMatch[2])
+    : null;
+  const decision = canViewAssignment(authContext, owningBranch);
+  if (!decision.allowed) {
+    res.status(403).json({ error: 'لا يمكن عرض توزيع مسار خارج نطاق فرعك' });
+    return;
+  }
+
+  res.json(buildAssignmentResponse(rows[0]));
 });
 
 /**
@@ -262,19 +312,32 @@ router.get('/:key', async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:key', async (req, res) => {
+router.put('/:key', requirePermission('routes.assign.manage'), async (req, res) => {
   const authContext = getAuthContext(req);
   const branchId = authContext.actingBranchId;
   if (branchId == null) {
     return res.status(400).json({ error: 'يجب تحديد الفرع' });
   }
 
-  const keyMatch = req.params.key.match(/^(\d{4}-\d{2}-\d{2})_((?:team|solo)_\d+)$/);
+  const key = getKeyParam(req);
+  const keyMatch = key.match(/^(\d{4}-\d{2}-\d{2})_((?:team|solo)_\d+)$/);
   if (!keyMatch) {
     return res.status(400).json({ error: 'مفتاح توزيع المسار غير صالح' });
   }
   const date = keyMatch[1];
   const teamKey = keyMatch[2];
+
+  // Branch isolation: a route assignment belongs to the branch of its scheduled
+  // team (day_schedules has no branch_id — GAP-DS-005). Reject cross-branch
+  // writes (guessable date_team_N key). When the team isn't scheduled yet the
+  // owning branch is null → authorize() falls back to the acting branch.
+  const owningBranch = await resolveAssignmentOwningBranch(date, teamKey);
+  const decision = canManageAssignment(authContext, owningBranch);
+  if (!decision.allowed) {
+    return res.status(403).json({ error: 'لا يمكن تعديل توزيع مسار خارج نطاق فرعك' });
+  }
+  // Reconcile against the owning branch's tasks when known, else the actor's.
+  const syncBranchId = owningBranch ?? branchId;
 
   const validation = validateRouteAssignmentPayload(req.body);
   if (validation.ok === false) {
@@ -289,7 +352,7 @@ router.put('/:key', async (req, res) => {
   const { rows } = await pool.query(
     `INSERT INTO route_assignments (key, routes, extra_zones, station_order) VALUES ($1, $2, $3, $4)
     ON CONFLICT (key) DO UPDATE SET routes=$2, extra_zones=$3, station_order=$4 RETURNING *`,
-    [req.params.key, JSON.stringify(validation.routes), JSON.stringify(validation.extraZones), JSON.stringify(validation.stationOrder)]
+    [key, JSON.stringify(validation.routes), JSON.stringify(validation.extraZones), JSON.stringify(validation.stationOrder)]
   );
 
   let syncResult = null;
@@ -300,7 +363,7 @@ router.put('/:key', async (req, res) => {
     syncResult = await syncAssignedTasks({
       date,
       teamKey,
-      branchId,
+      branchId: syncBranchId,
       performedBy: authContext.userId,
       db: pgClient,
     });

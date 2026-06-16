@@ -327,7 +327,6 @@ export default function ManualSearchModal({
                                     <div>
                                         <h4 className="text-amber-900 font-bold mb-1">مطابقة موجودة لكن تفاصيلها مقيّدة</h4>
                                         <p className="text-sm text-amber-800 leading-6">{matchResult.message || RESTRICTED_MESSAGE}</p>
-                                        <NameMatchHint nameMatch={matchResult.nameMatch} />
                                     </div>
                                 </div>
                             </div>

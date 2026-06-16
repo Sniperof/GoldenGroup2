@@ -99,6 +99,7 @@
 - `docs/constitution/domains/visits.md`
 - `docs/constitution/features/README.md`
 - `docs/constitution/decisions/DEC-008-zone-study-stage.md`
+- `docs/constitution/decisions/DEC-009-eligible-task-and-contact-lifecycle.md` — **تعريف «المهمة المؤهلة» (10 لبنات) ودورة حياة جهة الاتصال؛ يحكم PL-R008..R-013 ويوحّد الاستعلامات الثلاثة (العدّ/الإسناد/الداشبورد). خطة التنفيذ: `plans/2026-06-14-eligible-task-implementation-plan.md`.**
 
 ---
 

@@ -174,6 +174,22 @@ router.patch(
 - الواجهة: `roles.list` يُرجع علم `assignable` لكل دور (محسوب بنفس الحارس)، وقائمة الأدوار في نموذج المستخدم تعرض القابلة للإسناد فقط (UX؛ الخادم يبقى الحماية).
 - نتيجة جانبية مفيدة: الحارس يكشف الأدوار التشغيلية المُلوّثة بصلاحيات إدارية (بذور خاطئة) — يرفض تفويضها حتى تُنظَّف. لذا **يجب ألا تحمل الأدوار التشغيلية (مشرف/فني) صلاحيات من المجموعة الحسّاسة.**
 
+### 5.3 سياق الفرع في الواجهة وحارس القوائم (Branch Context & List Gating)
+
+سياق الفرع (`useBranchContextStore`) **لمدير النظام فقط** — يختار فرعاً ليرى بياناته. المستخدم غير السوبر-أدمن **لا يضبطه أبداً**، والخادم يحرسه بنطاقه (BRANCH = اتحاد تعييناته الفعّالة، GLOBAL = الكل). 
+
+**الخلل المتكرّر الممنوع:** صفحة قائمة تحجب على `branchId` الخام من هذا الـ store (`if (!branchId) → اختر فرعاً`) فتحجب **كل** مستخدمي الفرع رغم أن الخادم يعرف فرعهم. حارس الواجهة هنا UX فقط، ويجب ألّا يحجب صاحب نطاق الفرع إطلاقاً (§3-8).
+
+القاعدة الملزمة:
+
+1. **مصدر واحد:** كل صفحة قائمة تستمدّ بوابتها من `useBranchListScope()` لا من الـ store الخام.
+   - `needsBranchSelection` = صحيح **فقط** لمدير نظام لم يختر فرعاً.
+   - `effectiveBranchId` = يُرسَل للـ API **إن وُجد فقط**؛ غيابه يعني «دع الخادم يحدّد نطاقي».
+2. **الخادم يبقى الحقيقة:** فلترة القائمة بالنطاق على الخادم (عبر `resolveListAccessScope` / الـ policy)، لا بوجود الهيدر.
+3. **إنفاذ آلي:** `scripts/audit-branch-scope.mjs` (الأمر `pnpm audit:branch-scope`) يُفشِل أي صفحة تعرض حجب «يرجى اختيار فرع» أو تحجب على `branchId` خام دون المرور بالـ hook. أي نسخ للنمط الخاطئ يكسر الفحص.
+
+الملفات المرجعية: `packages/web/src/hooks/useBranchListScope.ts` (القاعدة)، `scripts/audit-branch-scope.mjs` (الإنفاذ).
+
 ## 6. أهم الملفات
 
 ### قلب القرار الأمني
@@ -410,3 +426,16 @@ router.patch(
 - **تقاعد (هجرة 280):** أُزيلت عائلة `referral_sheets.*` المكررة (كانت {GLOBAL,BRANCH} فقط وتُبطل ASSIGNED عبر OR في الـ policy/route). التوحيد على `candidates.name_lists.*`؛ نُظّف الـ alias من `referralSheetPolicy.ts`/`referralSheets.ts`/الواجهة/بذرة التطوير. النتيجة: المشرفة عادت إلى ASSIGNED (سجلّاتها فقط).
 - **نموذج الإسناد (هجرة 281)** — محاكاة الزبون: `candidates.name_lists.can_be_assigned` (أهلية، يظهر في قائمة الإسناد) منفصل عن `candidates.name_lists.assignment.manage` (من يُسنِد). الإنفاذ: `assertAssignedHrUserExists` يتحقق من أهلية الهدف، و`canManageReferralSheetAssignment` يحكم بالصلاحية المستقلة لا بـ `.edit`. endpoint مخصص `/hr-users/name-list-assignable` للواجهة.
 - baseline (قابل للتوسيع عبر واجهة الأدوار): أهلية ← مشرفة+فني (BRANCH)؛ إسناد ← مدير النظام (GLOBAL) + مدير الفرع (BRANCH).
+
+### 2026-06-15: قسم العمليات والمهام — توحيد النطاق على محرّك `authorize` (المرحلة 5 بند 2/3)
+
+- **المشكلة:** `open_tasks` و`field_visits` كانا يفحصان الفرع inline (`branch_id !== actingBranchId`) في 27 موضع سجل + 8 قوائم/ملخّصات. هذا النمط (أ) يُسقط GLOBAL لغير السوبر-أدمن — فدور «عمليات على مستوى الشركة» يُحجب عن الفروع الأخرى رغم منحة GLOBAL، و(ب) يقصر BRANCH على الفرع الفعّال الواحد بدل **اتحاد** تعيينات الموظف. خالف §3-2/§3-6/§3-10/§4.3.
+- **الحل (آلية مشتركة قابلة للتوسّع على كل المهام):**
+  - نوع مشترك `ListAccessPlan` + دالة `resolveListAccessScope(ctx, permission)` في `authorizationService.ts` — مكمّل القراءة لـ `authorize()`؛ تترجم منحة واحدة إلى GLOBAL/BRANCH/ASSIGNED/NONE بصورة محايدة للمفتاح.
+  - policy رفيعتان: `policies/openTaskPolicy.ts` + `policies/fieldVisitPolicy.ts` (`canView*`/`canEdit*`/`get*ListAccessPlan`) على غرار `clientPolicy`.
+  - السجلات: استُبدل كل فحص inline بـ `authorize()` بالصلاحية المطابقة لكل route (view↔edit؛ والفتح بـ `field_visits.reopen_closed`).
+  - القوائم: GLOBAL ⇒ كل الفروع (تضييق اختياري بـ `?branchId`)؛ غير ذلك ⇒ `branch_id = ANY(allowedBranchIds)`؛ NONE ⇒ 403/قائمة فارغة.
+- **الأثر على الصلاحيات:** لا مفاتيح **جديدة**. ما تغيّر هو أن نطاق GLOBAL صار **مُفعَّلاً فعلاً** لـ 15 مفتاحاً تُطبّعها هجرة 287 (`{GLOBAL,BRANCH}`، وحذف/ترحيل ASSIGNED→BRANCH): `open_tasks.{view,edit}`, `field_visits.{view,edit}`, `tasks.{view_list,create,edit,delete}`, `tasks.delivery.{view,create,result}`, `tasks.installation.{view,create,result}`, `tasks.activation.create`.
+- **مفاتيح وهمية/legacy مؤكَّدة:** `tasks.view` و`field_visits.execute` — لا تعريف كتالوج لهما ولا استعمال في الكود (الأولى مصدر نسخ معلّق في هجرة 271؛ الثانية حلّ محلّها `field_visits.edit`). أُزيل تجاوز اسم الدور (`ADMIN`/`HR_MANAGER`) من `VisitsListPage.tsx` → grant-driven.
+- **معلّق:** المفاتيح الفرعية (`tasks.delivery/installation/activation`) مُعرّفة بلا إنفاذ (P3) — قرار لاحق: ربطها أو تقاعدها. + تطبيق هجرة 287 + تحديث `صلاحيات_النظام.xlsx` (مصفوفة المشرفة/الفني/مدير الفرع لهذه الـ15) + «مهامي/زياراتي» كطبقة عرض (`mineOnly`) فوق بوابة الفرع/العام.
+- **التحقّق:** `typecheck:api` + `typecheck` (web) أخضران. لا اختبار سلوكي حيّ بعد.

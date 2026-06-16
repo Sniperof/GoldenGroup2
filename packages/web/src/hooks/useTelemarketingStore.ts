@@ -17,7 +17,6 @@ interface TelemarketingStore {
     appointments: Appointment[];
     callLogs: CallLog[];
     loadData: (date?: string) => Promise<void>;
-    generateTaskList: (teamKey: string, date: string, items: Omit<TaskListItem, 'id' | 'status'>[]) => Promise<void>;
     addCallLog: (log: Omit<CallLog, 'id' | 'timestamp'>) => Promise<void>;
     addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries?: SelectedTaskEntry[]) => Promise<void>;
     addDirectAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries: SelectedTaskEntry[]) => Promise<void>;
@@ -44,32 +43,6 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
         } catch (error) {
             console.error('Failed to load telemarketing data:', error);
             set({ taskLists: [], appointments: [], callLogs: [] });
-        }
-    },
-
-    generateTaskList: async (teamKey, date, newItems) => {
-        const taskList: TaskList = {
-            id: simpleUUID(),
-            teamKey,
-            date,
-            items: newItems.map((item) => ({
-                ...item,
-                id: simpleUUID(),
-                status: 'pending' as const,
-            })),
-            createdAt: new Date().toISOString(),
-        };
-
-        try {
-            const saved = await api.telemarketing.upsertTaskList(taskList);
-            set((state) => ({
-                taskLists: [
-                    ...state.taskLists.filter((list) => !(list.teamKey === teamKey && list.date === date)),
-                    saved,
-                ],
-            }));
-        } catch (error) {
-            console.error('Failed to generate telemarketing task list:', error);
         }
     },
 

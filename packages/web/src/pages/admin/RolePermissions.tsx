@@ -180,8 +180,8 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'spare_parts.task_lookup': { label: 'قراءة قطع غيار العمليات', desc: 'إظهار قطع الغيار المسموحة داخل نتائج الصيانة' },
 
   // Tasks
-  'tasks.view':   { label: 'عرض المهام والعمليات',        desc: 'الاطلاع على مهام اليوم والطوارئ والصيانة والمتابعة' },
-  'tasks.manage': { label: 'إدارة المهام وتحديث حالاتها', desc: 'تغيير حالة المهام وتعيينها للفرق' },
+  'open_tasks.view': { label: 'عرض المهام والعمليات',        desc: 'الاطلاع على مهام اليوم والطوارئ والصيانة والمتابعة' },
+  'open_tasks.edit': { label: 'إدارة المهام وتحديث حالاتها', desc: 'تغيير حالة المهام وتعيينها للفرق' },
 
   // Planning
   'planning.view':   { label: 'عرض خطط وجداول الفرع',      desc: 'الاطلاع على ملخص الخطة وجداول الفرق' },
@@ -195,6 +195,12 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   // Geo
   'geo.view':   { label: 'عرض المناطق الجغرافية',      desc: 'الاطلاع على المستويات الإدارية والمناطق' },
   'geo.manage': { label: 'إدارة المناطق والمستويات',   desc: 'إضافة وتعديل وتنظيم المناطق الجغرافية' },
+
+  // Routes (خطوط السير) — branch-operational, separate from the national geo tree
+  'routes.view':   { label: 'عرض خطوط السير',   desc: 'الاطلاع على المسارات ضمن نطاق تغطية الفرع' },
+  'routes.manage': { label: 'إدارة خطوط السير', desc: 'إنشاء وتعديل وحذف المسارات ضمن نطاق تغطية الفرع' },
+  'routes.assign.view':   { label: 'عرض توزيع المسارات',   desc: 'الاطلاع على توزيع المسارات على فرق الفرع اليومية' },
+  'routes.assign.manage': { label: 'إدارة توزيع المسارات', desc: 'تعيين مسارات ومناطق الفرق اليومية ضمن الفرع' },
 
   // Branches
   'branches.nav':    { label: 'إظهار إدارة الفروع والأقسام', desc: 'إظهار صفحة الفروع والأقسام في الدروار' },

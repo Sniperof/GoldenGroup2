@@ -410,8 +410,9 @@ export const api = {
     getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
     submitEmergencyResult: (id: number, data: any) =>
       request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),
-    listDeviceDemo: (params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true'; hideFutureTasks?: 'true' }) => {
-      const q = new URLSearchParams({ branchId: String(params.branchId) });
+    listDeviceDemo: (params: { branchId?: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true'; hideFutureTasks?: 'true' }) => {
+      const q = new URLSearchParams();
+      if (params.branchId) q.set('branchId', String(params.branchId));
       if (params.status) q.set('status', params.status);
       if (params.visitStatus) q.set('visitStatus', params.visitStatus);
       if (params.scheduledDate) q.set('scheduledDate', params.scheduledDate);
@@ -420,8 +421,9 @@ export const api = {
       if (params.hideFutureTasks) q.set('hideFutureTasks', params.hideFutureTasks);
       return request<any[]>(`/open-tasks/device-demo?${q}`);
     },
-    listByGroup: (groupKey: string, params: { branchId: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true'; hideFutureTasks?: 'true' }) => {
-      const q = new URLSearchParams({ branchId: String(params.branchId) });
+    listByGroup: (groupKey: string, params: { branchId?: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true'; hideFutureTasks?: 'true' }) => {
+      const q = new URLSearchParams();
+      if (params.branchId) q.set('branchId', String(params.branchId));
       if (params.status) q.set('status', params.status);
       if (params.visitStatus) q.set('visitStatus', params.visitStatus);
       if (params.scheduledDate) q.set('scheduledDate', params.scheduledDate);
@@ -758,7 +760,8 @@ export const api = {
       const qs = date ? `?date=${encodeURIComponent(date)}` : '';
       return request<{ taskLists: any[]; appointments: any[]; callLogs: any[] }>(`/telemarketing/snapshot${qs}`);
     },
-    upsertTaskList: (data: any) => request<any>('/telemarketing/task-lists/upsert', { method: 'POST', body: JSON.stringify(data) }),
+    // DEC-009 لبنة 8 — the blind DELETE+re-INSERT upsert path was removed; the live
+    // flow uses generateTaskListFromPlan (idempotent merge that preserves call progress).
     generateTaskListFromPlan: (data: { date: string; teamKey: string }) => request<any>('/telemarketing/task-lists/generate-from-plan', { method: 'POST', body: JSON.stringify(data) }),
     updateTaskListItem: (taskListId: string, itemId: string, data: any) => request<any>(`/telemarketing/task-lists/${taskListId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     createCallLog: (data: any) => request<any>('/telemarketing/call-logs', { method: 'POST', body: JSON.stringify(data) }),

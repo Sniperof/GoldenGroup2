@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Monitor, Filter } from 'lucide-react';
 import { api } from '../../lib/api';
-import { useBranchContextStore } from '../../hooks/useBranchContextStore';
+import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import { OPEN_TASK_STATUS_LABELS, OPEN_TASK_PHASE_LABELS, OPEN_TASK_PHASE_COLORS, getTaskPhase, type OpenTaskStatus, type CustomerOwnership } from '@golden-crm/shared';
 import { getExpectedDateStatus, getDueDateStatus } from '../../lib/taskDateStatus';
@@ -120,7 +120,7 @@ function getCreatorLabel(row: any): string {
 
 export default function DeviceDemo() {
   const navigate = useNavigate();
-  const { branchId } = useBranchContextStore();
+  const { effectiveBranchId, needsBranchSelection } = useBranchListScope();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,12 +146,12 @@ export default function DeviceDemo() {
   }, []);
 
   const load = useCallback(async () => {
-    if (!branchId) return;
+    if (needsBranchSelection) return;
     setLoading(true);
     setError(null);
     try {
       const data = await api.openTasks.listDeviceDemo({
-        branchId,
+        ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
         ...(statusFilter ? { status: statusFilter } : {}),
         ...(visitStatusFilter ? { visitStatus: visitStatusFilter } : {}),
         ...(dateFilter ? { scheduledDate: dateFilter } : {}),
@@ -167,11 +167,11 @@ export default function DeviceDemo() {
     } finally {
       setLoading(false);
     }
-  }, [branchId, statusFilter, visitStatusFilter, dateFilter, scheduledFilter, hideSnoozed, hideFutureTasks]);
+  }, [effectiveBranchId, needsBranchSelection, statusFilter, visitStatusFilter, dateFilter, scheduledFilter, hideSnoozed, hideFutureTasks]);
 
   useEffect(() => { load(); }, [load]);
 
-  if (!branchId) {
+  if (needsBranchSelection) {
     return (
       <div className="p-8 text-center text-slate-500">
         <Monitor className="w-12 h-12 mx-auto mb-4 text-slate-300" />

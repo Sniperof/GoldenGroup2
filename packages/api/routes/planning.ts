@@ -512,11 +512,14 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
 
          UNION
 
-         -- Always: excluded contacts (visible regardless of generation state)
+         -- Always: excluded contacts (visible regardless of generation state).
+         -- DEC-009 multi-team — scoped to THIS team via the retained assigned_team_key
+         -- (exclusion no longer clears it), so team A's exclusions don't leak into team B.
          SELECT ot.client_id
            FROM open_tasks ot
-          WHERE ot.excluded_for_date = $2::date
-            AND ot.branch_id         = $3
+          WHERE ot.excluded_for_date  = $2::date
+            AND ot.branch_id          = $3
+            AND ot.assigned_team_key  = $1
             AND ot.status IN ('open', 'needs_follow_up')
        ) sub`,
       [teamKey, date, branchId],
@@ -550,14 +553,23 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
        FROM clients c
        LEFT JOIN geo_units gu
          ON gu.id = c.neighborhood
-       LEFT JOIN contact_targets ct
-         ON ct.branch_id    = c.branch_id
-        AND ct.target_type  = 'client'
-        AND ct.target_id    = c.id
-        -- DEC-005 D30: target_stage / source_type pinned (or dropped).
-        AND ct.visit_type   = 'marketing'
+       -- DEC-009 multi-team — scope the contact-target status to THIS team + date
+       -- (the table is grained per team/date/work-location). LATERAL LIMIT 1 avoids
+       -- row multiplication when a client has several contact targets.
+       LEFT JOIN LATERAL (
+         SELECT ict.id, ict.status, ict.latest_call_outcome
+         FROM contact_targets ict
+         WHERE ict.branch_id   = c.branch_id
+           AND ict.target_type = 'client'
+           AND ict.target_id   = c.id
+           AND ict.visit_type  = 'marketing'
+           AND ict.team_key    = $2
+           AND ict.date        = $3::date
+         ORDER BY ict.updated_at DESC
+         LIMIT 1
+       ) ct ON TRUE
        WHERE c.id = ANY($1::int[])`,
-      [clientIds],
+      [clientIds, teamKey, date],
     );
     const clientMetaById = new Map(clientRows.map((r: any) => [Number(r.id), r]));
 
@@ -592,11 +604,15 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
        )
        WHERE ot.client_id = ANY($1::int[])
          AND ot.branch_id = $2
+         -- DEC-009 multi-team — show only THIS team's tasks (assigned/in-flight to it)
+         -- or still-unassigned waiting tasks; a client's tasks belonging to another
+         -- team must not appear under this team's row.
+         AND (ot.assigned_team_key = $3 OR ot.assigned_team_key IS NULL)
          AND ot.status IN ('assigned','in_scheduling','scheduled','waiting_execution',
                            'in_execution','ended','completed','closed',
                            'open','needs_follow_up')
        ORDER BY ot.client_id, ot.created_at`,
-      [clientIds, branchId],
+      [clientIds, branchId, teamKey],
     );
 
     // ── Step 4: task_list_items for these clients in today's list ─────────

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
-import { areRoutePointsInsideScope, listAllGeoUnits, resolveGeoScope } from '../services/geoScopeService.js';
+import { listAllGeoUnits } from '../services/geoScopeService.js';
+import { areRoutePointsInScope, resolveRouteGeoScope } from '../policies/routePolicy.js';
 
 const router = Router();
 
@@ -78,25 +79,25 @@ const router = Router();
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Forbidden (No geo.view permission or outside branch scope)
+ *         description: Forbidden (No routes.view permission or outside branch scope)
  *       500:
  *         description: Server error
  */
-router.get('/', requirePermission('geo.view'), async (req, res) => {
+router.get('/', requirePermission('routes.view'), async (req, res) => {
   const { rows: routes } = await pool.query('SELECT * FROM routes ORDER BY id');
   const { rows: points } = await pool.query(
     'SELECT route_id AS "routeId", geo_unit_id AS "geoUnitId", level, point_order AS "order" FROM route_points ORDER BY route_id, point_order'
   );
   const geoUnits = await listAllGeoUnits();
   const scope = req.authContext
-    ? await resolveGeoScope(req.authContext, 'geo.view', geoUnits)
+    ? await resolveRouteGeoScope(req.authContext, 'view', geoUnits)
     : null;
   const result = routes
     .map(r => ({
       ...r,
       points: points.filter(p => p.routeId === r.id).map(({ routeId, ...rest }) => rest)
     }))
-    .filter(route => areRoutePointsInsideScope(route.points, scope));
+    .filter(route => areRoutePointsInScope(route.points, scope));
   res.json(result);
 });
 
@@ -150,17 +151,17 @@ router.get('/', requirePermission('geo.view'), async (req, res) => {
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Forbidden (No geo.manage permission or outside branch geo scope)
+ *         description: Forbidden (No routes.manage permission or outside branch geo scope)
  *       500:
  *         description: Server error
  */
-router.post('/', requirePermission('geo.manage'), async (req, res) => {
+router.post('/', requirePermission('routes.manage'), async (req, res) => {
   const { name, points, status } = req.body;
   const geoUnits = await listAllGeoUnits();
   const scope = req.authContext
-    ? await resolveGeoScope(req.authContext, 'geo.manage', geoUnits)
+    ? await resolveRouteGeoScope(req.authContext, 'manage', geoUnits)
     : null;
-  if (!areRoutePointsInsideScope(points || [], scope)) {
+  if (!areRoutePointsInScope(points || [], scope)) {
     return res.status(403).json({ error: 'لا يمكن إنشاء مسار خارج نطاق تغطية الفرع' });
   }
 
@@ -245,28 +246,28 @@ router.post('/', requirePermission('geo.manage'), async (req, res) => {
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Forbidden (No geo.manage permission or outside branch geo scope)
+ *         description: Forbidden (No routes.manage permission or outside branch geo scope)
  *       404:
  *         description: Not found
  *       500:
  *         description: Server error
  */
-router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
+router.put('/:id', requirePermission('routes.manage'), async (req, res) => {
   const { name, points, status } = req.body;
   const routeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const routeId = parseInt(routeIdParam, 10);
   const geoUnits = await listAllGeoUnits();
   const scope = req.authContext
-    ? await resolveGeoScope(req.authContext, 'geo.manage', geoUnits)
+    ? await resolveRouteGeoScope(req.authContext, 'manage', geoUnits)
     : null;
   const existingRoute = await loadRouteForScopeCheck(routeId);
   if (!existingRoute.exists) {
     return res.status(404).json({ error: 'Route not found' });
   }
-  if (!areRoutePointsInsideScope(existingRoute.points, scope)) {
+  if (!areRoutePointsInScope(existingRoute.points, scope)) {
     return res.status(403).json({ error: 'لا يمكن تعديل مسار خارج نطاق تغطية الفرع' });
   }
-  if (!areRoutePointsInsideScope(points || [], scope)) {
+  if (!areRoutePointsInScope(points || [], scope)) {
     return res.status(403).json({ error: 'لا يمكن تعديل المسار ليخرج عن نطاق تغطية الفرع' });
   }
 
@@ -327,24 +328,24 @@ router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Forbidden (No geo.manage permission or outside branch geo scope)
+ *         description: Forbidden (No routes.manage permission or outside branch geo scope)
  *       404:
  *         description: Not found
  *       500:
  *         description: Server error
  */
-router.delete('/:id', requirePermission('geo.manage'), async (req, res) => {
+router.delete('/:id', requirePermission('routes.manage'), async (req, res) => {
   const routeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const routeId = parseInt(routeIdParam, 10);
   const geoUnits = await listAllGeoUnits();
   const scope = req.authContext
-    ? await resolveGeoScope(req.authContext, 'geo.manage', geoUnits)
+    ? await resolveRouteGeoScope(req.authContext, 'manage', geoUnits)
     : null;
   const existingRoute = await loadRouteForScopeCheck(routeId);
   if (!existingRoute.exists) {
     return res.status(404).json({ error: 'Route not found' });
   }
-  if (!areRoutePointsInsideScope(existingRoute.points, scope)) {
+  if (!areRoutePointsInScope(existingRoute.points, scope)) {
     return res.status(403).json({ error: 'لا يمكن حذف مسار خارج نطاق تغطية الفرع' });
   }
 

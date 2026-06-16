@@ -3,6 +3,8 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
+import type { AuthContext } from '@golden-crm/shared';
+import { canViewFieldVisit, canEditFieldVisit, getFieldVisitListAccessPlan } from '../policies/fieldVisitPolicy.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
 import { applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
@@ -17,12 +19,7 @@ router.use(requireAuth);
 
 function getAuthContext(req: any) {
   if (!req.authContext) throw new Error('AuthContext is required');
-  return req.authContext as {
-    userId: number;
-    isSuperAdmin: boolean;
-    actingBranchId: number | null;
-    [key: string]: any;
-  };
+  return req.authContext as AuthContext;
 }
 
 // Haversine distance in metres between two lat/lng points
@@ -314,7 +311,7 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
+    if (!canEditFieldVisit(authContext, fvRows[0].branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
 
@@ -479,7 +476,7 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
+    if (!canEditFieldVisit(authContext, fvRows[0].branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
 
@@ -824,13 +821,23 @@ router.get('/', requirePermission('clients.visits.view', 'field_visits.view'), a
       )`);
       params.push(taskType);
     }
-    if (branchId !== null && authContext.isSuperAdmin) {
-      conditions.push(`fv.branch_id = $${idx++}`);
-      params.push(branchId);
-    }
-    if (!authContext.isSuperAdmin && authContext.actingBranchId != null) {
-      conditions.push(`fv.branch_id = $${idx++}`);
-      params.push(authContext.actingBranchId);
+    // Branch predicate from grant scope: GLOBAL (or super-admin) sees every
+    // branch, optionally narrowed by ?branchId; any narrower grant is confined
+    // to the union of the actor's effective branch assignments.
+    const fvPlan = getFieldVisitListAccessPlan(authContext);
+    if (fvPlan.scope === 'GLOBAL') {
+      if (branchId !== null) {
+        conditions.push(`fv.branch_id = $${idx++}`);
+        params.push(branchId);
+      }
+    } else if (fvPlan.allowedBranchIds.length > 0) {
+      const branchFilter = branchId !== null && fvPlan.allowedBranchIds.includes(branchId)
+        ? [branchId]
+        : fvPlan.allowedBranchIds;
+      conditions.push(`fv.branch_id = ANY($${idx++}::int[])`);
+      params.push(branchFilter);
+    } else {
+      return res.json([]);
     }
     if (mineOnly && employeeId != null) {
       conditions.push(`(
@@ -1029,12 +1036,15 @@ router.get('/', requirePermission('clients.visits.view', 'field_visits.view'), a
 router.get('/escalation-alerts', requirePermission('field_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
-    const branchId = authContext.actingBranchId;
+    const plan = getFieldVisitListAccessPlan(authContext);
     const params: any[] = [];
     let branchClause = '';
-    if (branchId != null && !authContext.isSuperAdmin) {
-      params.push(branchId);
-      branchClause = `AND fv.branch_id = $${params.length}`;
+    if (plan.scope !== 'GLOBAL') {
+      if (plan.allowedBranchIds.length === 0) {
+        return res.json({ count: 0, items: [] });
+      }
+      params.push(plan.allowedBranchIds);
+      branchClause = `AND fv.branch_id = ANY($${params.length}::int[])`;
     }
 
     const { rows } = await pool.query(
@@ -1092,9 +1102,13 @@ router.get('/branch-summary', requirePermission('field_visits.view'), async (req
     // still get a "table" but it has one row. Super admins see all branches.
     const params: any[] = [from, to];
     let branchClause = '';
-    if (!authContext.isSuperAdmin && authContext.actingBranchId != null) {
-      params.push(authContext.actingBranchId);
-      branchClause = `AND fv.branch_id = $${params.length}`;
+    const summaryPlan = getFieldVisitListAccessPlan(authContext);
+    if (summaryPlan.scope !== 'GLOBAL') {
+      if (summaryPlan.allowedBranchIds.length === 0) {
+        return res.json({ from, to, branches: [] });
+      }
+      params.push(summaryPlan.allowedBranchIds);
+      branchClause = `AND fv.branch_id = ANY($${params.length}::int[])`;
     }
 
     const { rows } = await pool.query(
@@ -1150,8 +1164,8 @@ router.get('/branch-summary', requirePermission('field_visits.view'), async (req
          COALESCE((SELECT COUNT(*)::int FROM demo_offers d WHERE d.branch_id = b.id AND d.response_state = 'pending'), 0)             AS "demoOffersPending"
        FROM branches b
        LEFT JOIN visit_summary vs ON vs.branch_id = b.id
-       ${!authContext.isSuperAdmin && authContext.actingBranchId != null
-         ? `WHERE b.id = $${params.length}` : ''}
+       ${summaryPlan.scope !== 'GLOBAL'
+         ? `WHERE b.id = ANY($${params.length}::int[])` : ''}
        GROUP BY b.id, b.name
        ORDER BY total DESC, b.name ASC`,
       params,
@@ -1188,9 +1202,13 @@ router.get('/task-type-summary', requirePermission('field_visits.view'), async (
 
     const params: any[] = [from, to];
     let branchClause = '';
-    if (!authContext.isSuperAdmin && authContext.actingBranchId != null) {
-      params.push(authContext.actingBranchId);
-      branchClause = `AND fv.branch_id = $${params.length}`;
+    const typeSummaryPlan = getFieldVisitListAccessPlan(authContext);
+    if (typeSummaryPlan.scope !== 'GLOBAL') {
+      if (typeSummaryPlan.allowedBranchIds.length === 0) {
+        return res.json({ from, to, taskTypes: [] });
+      }
+      params.push(typeSummaryPlan.allowedBranchIds);
+      branchClause = `AND fv.branch_id = ANY($${params.length}::int[])`;
     }
 
     const { rows } = await pool.query(
@@ -1313,7 +1331,7 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
+    if (!canViewFieldVisit(authContext, fvRows[0].branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
     const fv = fvRows[0];
@@ -1694,7 +1712,7 @@ router.post('/visit-tasks/:taskId/direct-suggestions', requirePermission('field_
       [taskId],
     );
     if (!taskRows[0]) return res.status(404).json({ error: 'المهمة غير موجودة' });
-    if (!authContext.isSuperAdmin && taskRows[0].branch_id !== authContext.actingBranchId) {
+    if (!canEditFieldVisit(authContext, taskRows[0].branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
 
@@ -1822,7 +1840,7 @@ router.post('/:id/complete', requirePermission('field_visits.edit'), async (req,
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
+    if (!canEditFieldVisit(authContext, fvRows[0].branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
 
@@ -1881,7 +1899,7 @@ router.post('/:id/close', requirePermission('field_visits.edit'), async (req, re
       await pgClient.query('ROLLBACK');
       return res.status(404).json({ error: 'الزيارة غير موجودة' });
     }
-    if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
+    if (!canEditFieldVisit(authContext, fvRows[0].branch_id).allowed) {
       await pgClient.query('ROLLBACK');
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
@@ -2142,7 +2160,7 @@ router.post('/:id/referral-sheet', requirePermission('field_visits.edit'), async
     );
     if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
     const visit = visitRows[0];
-    if (!authContext.isSuperAdmin && visit.branch_id !== authContext.actingBranchId) {
+    if (!canEditFieldVisit(authContext, visit.branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية' });
     }
     if (visit.status !== 'in_progress' && visit.status !== 'ended') {
@@ -2310,7 +2328,7 @@ router.post('/:id/survey', requirePermission('field_visits.edit'), async (req, r
       [visitId],
     );
     if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!authContext.isSuperAdmin && visitRows[0].branch_id !== authContext.actingBranchId) {
+    if (!canEditFieldVisit(authContext, visitRows[0].branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية' });
     }
     if (visitRows[0].status !== 'in_progress' && visitRows[0].status !== 'ended') {
@@ -2412,7 +2430,7 @@ router.post('/:id/survey/skip', requirePermission('field_visits.edit'), async (r
       [visitId],
     );
     if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!authContext.isSuperAdmin && visitRows[0].branch_id !== authContext.actingBranchId) {
+    if (!canEditFieldVisit(authContext, visitRows[0].branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية' });
     }
     if (visitRows[0].status !== 'in_progress' && visitRows[0].status !== 'ended') {
@@ -2475,7 +2493,7 @@ router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), asyn
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!authContext.isSuperAdmin && fvRows[0].branch_id !== authContext.actingBranchId) {
+    if (!authorize(authContext, { permission: 'field_visits.reopen_closed', branchId: fvRows[0].branch_id }).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية' });
     }
     if (fvRows[0].status !== 'closed') {
@@ -2517,7 +2535,7 @@ router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), asyn
 // and calls checkAndCompleteVisit at the end — all in one transaction.
 //
 // Reference: docs/constitution/features/tasks/device-demo.md
-router.post('/:visitId/tasks/:taskId/result', requirePermission('field_visits.edit'), async (req, res) => {
+router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.record'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const visitId = Number(req.params.visitId);
@@ -2534,8 +2552,9 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('field_visits.ed
       [taskId, visitId],
     );
     if (vtRows.length === 0) return res.status(404).json({ error: 'المهمة غير موجودة ضمن هذه الزيارة' });
-    if (!authContext.isSuperAdmin && vtRows[0].branch_id !== authContext.actingBranchId) {
-      return res.status(403).json({ error: 'ليس لديك صلاحية على هذه الزيارة' });
+    // Unified result gate: one permission records results for every task type.
+    if (!authorize(authContext, { permission: 'tasks.results.record', branchId: vtRows[0].branch_id }).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية تسجيل نتائج المهام' });
     }
 
     const taskType = vtRows[0].task_type;

@@ -99,3 +99,89 @@ The audit found 25 endpoints with OR permission guards. They should remain revie
 4. Replace the three undefined UI keys with canonical permissions or define them intentionally.
 5. Review the 25 OR guards and the 18 apparently unused definitions.
 6. Add automated validation that fails when code references an undefined permission key.
+
+## Resolution Log
+
+### 2026-06-15 — Operations & Tasks domain (open_tasks, field_visits, tasks)
+
+Subject authorization for this domain was migrated off the inline
+`branch_id !== actingBranchId` pattern onto the central `authorize()` engine
+via two domain policies (`openTaskPolicy.ts`, `fieldVisitPolicy.ts`) plus a
+shared `resolveListAccessScope()` list helper. Effects:
+
+- **GLOBAL scope is now honored.** Previously the inline check only let
+  super-admins cross branches; a non-super-admin holding a GLOBAL grant was
+  silently confined to the acting branch. The 15 keys normalized by
+  `migrations/287_operations_tasks_branch_global_permissions.sql`
+  (`allowed_scopes = {GLOBAL, BRANCH}`, `ASSIGNED` grants stripped/migrated to
+  `BRANCH`) now behave as advertised.
+- **BRANCH is the union of effective assignments**, not a single acting branch.
+- 27 record checks + 8 list/summary endpoints converted across
+  `routes/openTasks.ts`, `routes/fieldVisits.ts`, `routes/tasks.ts`.
+
+P1 follow-ups confirmed during this pass:
+
+- `tasks.view` — **phantom key**: it has no `INSERT` in the catalog (only a
+  dangling grant-copy *source* in `migrations/271`) and zero code references.
+  Superseded by `open_tasks.view` (sidebar) + `tasks.view_list` (API). No
+  retirement migration needed — there is no catalog row to drop; the stale
+  reference in 271 is cosmetic.
+- `field_visits.execute` — **phantom key**: no catalog `INSERT`, no code
+  references. The team-view UI gate already uses `field_visits.edit`.
+- A textual-role UI bypass (`role === 'ADMIN' | 'HR_MANAGER'`) in
+  `VisitsListPage.tsx` was removed; the cross-branch executive view is now
+  grant-driven (super-admin or GLOBAL grant) per standard §3-1/§3-2.
+
+Still **defined-but-unenforced** (P3 — decide wire vs retire): the subtype keys
+`tasks.delivery.{view,create,result}`, `tasks.installation.{view,create,result}`,
+`tasks.activation.create`. `migrations/287` normalizes their scope but no route
+gates on them yet.
+
+### 2026-06-16 — Routes domain (خطوط السير) split off geo.*
+
+Travel-route management was guarded by `geo.view`/`geo.manage`. Migration 279 had
+reserved `geo.manage` for the HQ-only national levels tree (GLOBAL only) and
+deleted its branch grants — which silently broke branch route management and
+left GLOBAL holders editing routes with no geographic isolation. One key was
+guarding two security-distinct concerns (standard §4.1).
+
+`migrations/290_routes_permission_family.sql` introduces a dedicated family:
+
+- **`routes.view`** / **`routes.manage`** — both `{GLOBAL, BRANCH}`.
+- Backfill is conservative: `routes.view` ← `geo.view` (same scope);
+  `routes.manage` ← `geo.manage` (GLOBAL only). Branch-manager `routes.manage`
+  at BRANCH is seeded via the roles UI — `geo.view` grants cannot distinguish a
+  branch manager from a supervisor, so deriving manage from view would
+  over-provision write access.
+- Code: `routes.ts` now gates on `routes.*` through `policies/routePolicy.ts`;
+  geographic containment (`areRoutePointsInScope` + `resolveGeoScope`) is
+  unchanged. Web `RouteManager.tsx` and the role-label maps are aligned.
+
+### 2026-06-16 — Route assignments (توزيع المسارات) gated + branch-isolated (Unit B)
+
+`routeAssignments.ts` had **no permission check** (only `requireAuth`): any
+authenticated user could read every branch's daily plan and overwrite any
+assignment via the guessable `YYYY-MM-DD_team_N` key.
+
+`migrations/291_route_assignments_permission_family.sql` adds **`routes.assign.view`**
+and **`routes.assign.manage`** ({GLOBAL, BRANCH}), backfilled from
+`marketing_visits.view` / `marketing_visits.update_result` (same scope).
+
+Enforcement (`policies/routeAssignmentPolicy.ts`): `day_schedules` /
+`route_assignments` carry no branch_id (GAP-DS-005), so the **owning branch is
+derived** from the scheduled team's supervisor/technician → `employees.branch_id`
+(PL-R005 keeps a team single-branch). `GET /` filters the map by owning branch
+(GLOBAL = all); `GET /:key` and `PUT /:key` authorize against the owning branch
+(403 on cross-branch); the task reconcile runs on the owning branch. GAP-RA-003
+resolved.
+
+**Residual (GAP-DS-005, separate data-model decision):** the assignment key is
+still global — two branches planning the same date+team collide on the PK, and an
+unscheduled team's owning branch can't be derived (falls back to the actor's
+acting branch). Adding branch to the schedule/assignment key is a follow-up
+beyond this permission unit.
+
+**Baseline grants required via roles UI:** `routes.manage` (BRANCH) for branch
+managers, and `routes.assign.*` for the planner role behind `/planning/assign` —
+otherwise those surfaces 403 (the conservative backfills only covered existing
+`geo.*` / `marketing_visits.*` holders).

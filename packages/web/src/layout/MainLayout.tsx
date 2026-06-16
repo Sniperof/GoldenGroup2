@@ -41,15 +41,20 @@ const recordsChildren = [
 // sidebar entry pointing to the unified TaskGroupPage. Legacy entries
 // commented out below; their routes still resolve (App.tsx) so deep
 // links from existing detail pages continue to work during transition.
+// Each table is gated by its own view permission (migration 288) so a role can
+// be granted some operations tables and denied others.
 const operationsChildren = [
-    { path: '/tasks/group/device-demo',         label: 'مهام عرض الجهاز',        icon: Monitor },
-    { path: '/tasks/group/maintenance',         label: 'مهام الصيانة',           icon: Wrench },
-    { path: '/tasks/group/collection',          label: 'مهام تحصيل الأقساط',     icon: DollarSign },
-    { path: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع', icon: RefreshCw },
-    { path: '/tasks/group/gift-delivery',       label: 'مهام تسليم الهدايا',     icon: Gift },
-    { path: '/tasks/group/warranty-services',   label: 'مهام خدمات الكفالة',     icon: ShieldCheck },
+    { path: '/tasks/group/device-demo',         label: 'مهام عرض الجهاز',        icon: Monitor,     permission: 'tasks.demo.view' },
+    { path: '/tasks/group/maintenance',         label: 'مهام الصيانة',           icon: Wrench,      permission: 'tasks.maintenance.view' },
+    { path: '/tasks/group/collection',          label: 'مهام تحصيل الأقساط',     icon: DollarSign,  permission: 'tasks.collection.view' },
+    { path: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع', icon: RefreshCw,   permission: 'tasks.after_sales.view' },
+    { path: '/tasks/group/gift-delivery',       label: 'مهام تسليم الهدايا',     icon: Gift,        permission: 'tasks.gifts.view' },
+    { path: '/tasks/group/warranty-services',   label: 'مهام خدمات الكفالة',     icon: ShieldCheck, permission: 'tasks.warranty.view' },
+    { path: '/tasks/group/device-delivery',     label: 'مهام تسليم الجهاز',      icon: Gift,        permission: 'tasks.delivery.view' },
+    { path: '/tasks/group/device-installation', label: 'مهام تركيب الجهاز',      icon: Wrench,      permission: 'tasks.installation.view' },
+    { path: '/tasks/group/device-activation',   label: 'مهام تشغيل الجهاز',      icon: Monitor,     permission: 'tasks.activation.view' },
     // DEC-006 D37/D38: hub for supervisor alerts (attempt threshold + visit escalation)
-    { path: '/supervisor/alerts',               label: 'تنبيهات المشرف',         icon: Bell },
+    { path: '/supervisor/alerts',               label: 'تنبيهات المشرف',         icon: Bell,        permission: 'tasks.supervisor_alerts.view' },
 
     // -------- Legacy entries (hidden 2026-06-01) — kept commented for reference --------
     // { path: '/tasks/open',        label: 'المهام المفتوحة', icon: ListChecks },
@@ -115,6 +120,9 @@ export default function MainLayout() {
     const canSeeBranchModules = hasBranchScopedPermission
       || (isSuperAdmin && selectedBranchId != null)
       || isPrivilegedUser;
+
+    // Each operations table is shown only if its own view permission is granted.
+    const visibleOperationsChildren = operationsChildren.filter(child => can(child.permission));
 
     const jobsViewPermMap: Record<string, string> = {
       '/jobs/applications': 'jobs.applications.view_list',
@@ -513,8 +521,8 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 6. Tasks & Operations — hidden until a branch context is selected */}
-                    {canSeeBranchModules && can('tasks.view') && (
+                    {/* 6. Tasks & Operations — shown if any task table is permitted */}
+                    {canSeeBranchModules && visibleOperationsChildren.length > 0 && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setOperationsOpen((o: boolean) => !o)}
@@ -538,7 +546,7 @@ export default function MainLayout() {
                                     exit={{ height: 0, opacity: 0 }}
                                     className="overflow-hidden"
                                 >
-                                    {operationsChildren.map(child => (
+                                    {visibleOperationsChildren.map(child => (
                                         <NavLink
                                             key={child.path}
                                             to={child.path}

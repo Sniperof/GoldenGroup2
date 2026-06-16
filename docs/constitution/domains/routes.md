@@ -131,16 +131,21 @@ active → inactive
 
 ## 6. صلاحيات الوصول (Permission Matrix)
 
+> **تحديث 2026-06-16 (هجرة `290_routes_permission_family.sql`):** فُصلت خطوط السير عن شجرة الجغرافيا الوطنية `geo.*`. السبب: خطوط السير كيان **تشغيلي على مستوى الفرع**، بينما هجرة 279 حصرت `geo.manage` بالمقر (GLOBAL فقط) وحذفت كل منحه الفرعية — فكسرت إدارة المسارات للفرع. مفتاح واحد كان يحرس قرارين أمنيين مختلفين (يخالف معيار الهندسة §4.1). صار للمسارات عائلتها المستقلة.
+
 | المفتاح (Permission Key) | الاسم العربي للصلاحية | النطاقات المدعومة (Scopes) | الوصف الأمني |
 |---|---|---|---|
-| `geo.view` | عرض المسارات والجغرافيا | `BRANCH` | يسمح بقراءة المسارات ضمن نطاق الجغرافيا المخصص للفرع. |
-| `geo.manage` | إدارة المسارات والجغرافيا | `BRANCH` | يسمح بإنشاء وتعديل وحذف المسارات ضمن نطاق الجغرافيا المخصص للفرع. |
+| `routes.view` | عرض خطوط السير | `GLOBAL`, `BRANCH` | قراءة المسارات؛ النطاق `BRANCH` يُرشّح حسب تغطية الفرع الجغرافية، و`GLOBAL` بلا تقييد جغرافي. |
+| `routes.manage` | إدارة خطوط السير | `GLOBAL`, `BRANCH` | إنشاء/تعديل/حذف المسارات؛ يبقى الاحتواء الجغرافي مفروضاً على النقاط ضمن تغطية الفرع. |
+
+**الأساس (baseline):** مدير الفرع `routes.view`+`routes.manage` بنطاق `BRANCH`؛ المشرفة `routes.view` فقط؛ المقر/مدير النظام `GLOBAL`. الـ backfill في الهجرة محافظ: `routes.view` ← `geo.view` بنفس النطاق، و`routes.manage` ← `geo.manage` (GLOBAL فقط). منح `routes.manage` بنطاق `BRANCH` لمدير الفرع يُطبَّق عبر **واجهة الأدوار** — لأن هجرة 279 أتلفت منح `geo.manage` الفرعية الأصلية، ومنح `geo.view` لا تميّز مدير الفرع عن المشرفة، فاشتقاق الإدارة من العرض كان سيمنح الكتابة للمشرفة بالخطأ.
 
 ### 6.1 منطق النطاق
 
-- `GET /routes` يُرشّح النتائج حسب `resolveGeoScope(req.authContext, 'geo.view')`.
-- `POST/PUT/DELETE` يتحققون من `areRoutePointsInsideScope(points, scope)` قبل السماح بالعملية.
+- `GET /routes` يُرشّح النتائج حسب `resolveRouteGeoScope(req.authContext, 'view')` (يستدعي `resolveGeoScope(..., 'routes.view')`).
+- `POST/PUT/DELETE` يتحققون من `areRoutePointsInScope(points, scope)` بنطاق `routes.manage` قبل السماح بالعملية. `PUT/DELETE` يحمّلان نقاط المسار القائم ويتحققان من احتوائها أيضاً قبل التعديل.
 - رسالة الرفض الموحدة: `لا يمكن إنشاء/تعديل/حذف مسار خارج نطاق تغطية الفرع`.
+- الملفات: `packages/api/policies/routePolicy.ts` (ربط المفتاح بالنطاق الجغرافي)، `packages/api/services/geoScopeService.ts` (حساب التغطية).
 
 ---
 
@@ -150,10 +155,10 @@ active → inactive
 
 | الطريقة | المسار (Path) | الصلاحية المطلوبة | وصف السلوك والوظيفة |
 |---|---|---|---|
-| **GET** | `/routes` | `geo.view` | يجلب كل المسارات مع نقاطها، مُرشّحاً حسب نطاق الجغرافيا. |
-| **POST** | `/routes` | `geo.manage` | ينشئ مساراً جديداً مع نقاطه. يتحقق من نطاق الجغرافيا. |
-| **PUT** | `/routes/:id` | `geo.manage` | يُحدّث اسم/حالة المسار ويستبدل كل نقاطه. |
-| **DELETE** | `/routes/:id` | `geo.manage` | يحذف المسار ونقاطه (CASCADE). يتحقق من النطاق. |
+| **GET** | `/routes` | `routes.view` | يجلب كل المسارات مع نقاطها، مُرشّحاً حسب نطاق الجغرافيا. |
+| **POST** | `/routes` | `routes.manage` | ينشئ مساراً جديداً مع نقاطه. يتحقق من نطاق الجغرافيا. |
+| **PUT** | `/routes/:id` | `routes.manage` | يُحدّث اسم/حالة المسار ويستبدل كل نقاطه. |
+| **DELETE** | `/routes/:id` | `routes.manage` | يحذف المسار ونقاطه (CASCADE). يتحقق من النطاق. |
 
 ### 7.2 معلمات الطلب
 
@@ -212,3 +217,4 @@ active → inactive
 | تاريخ الهجرة | ملف الهجرة (Migration File) | طبيعة التعديل وهدف التأثير الفني والتشغيلي على الجدول |
 |---|---|---|
 | **غير مؤكد** | `001_core_tables.sql` | إنشاء جدول `routes` (id, name, status) وجدول `route_points` (id, route_id FK CASCADE, geo_unit_id, level, point_order). |
+| **2026-06-16** | `290_routes_permission_family.sql` | **فصل عائلة صلاحيات خطوط السير:** إضافة `routes.view` + `routes.manage` (GLOBAL/BRANCH)، backfill `routes.view`←`geo.view` و`routes.manage`←`geo.manage`. الكود: `routes.ts` يستخدم المفاتيح الجديدة عبر `routePolicy.ts`، والواجهة (`RouteManager.tsx`، خرائط عناوين الأدوار) مُحاذاة. يُصلح كسر هجرة 279 لإدارة المسارات على مستوى الفرع. |

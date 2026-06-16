@@ -27,7 +27,7 @@ const levelColors: Record<number, { bg: string; text: string; border: string }> 
 
 export default function RouteManager() {
     const { hasPermission } = usePermissions();
-    const canManageGeo = hasPermission('geo.manage');
+    const canManageGeo = hasPermission('routes.manage');
 
     const [routes, setRoutes] = useState<Route[]>([]);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
@@ -41,7 +41,7 @@ export default function RouteManager() {
     const [builderPoints, setBuilderPoints] = useState<RoutePoint[]>([]);
     const [treeSel, setTreeSel] = useState<(number | null)[]>([null, null, null, null]);
 
-    if (!hasPermission('geo.view')) return <Navigate to="/" replace />;
+    if (!hasPermission('routes.view')) return <Navigate to="/" replace />;
 
     const fetchData = useCallback(async () => {
         try {

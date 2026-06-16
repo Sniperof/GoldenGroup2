@@ -37,7 +37,13 @@ export async function listAllGeoUnits(client: Queryable = pool): Promise<GeoUnit
 
 export async function resolveGeoScope(
   authContext: AuthContext,
-  permission: 'geo.view' | 'geo.manage' | 'geo_units.lookup' | 'reference_data.lookup',
+  permission:
+    | 'geo.view'
+    | 'geo.manage'
+    | 'geo_units.lookup'
+    | 'reference_data.lookup'
+    | 'routes.view'
+    | 'routes.manage',
   allUnits?: GeoUnitRow[],
 ): Promise<GeoScope | null> {
   if (authContext.isSuperAdmin) {

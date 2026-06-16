@@ -133,16 +133,24 @@ erDiagram
 
 ## 6. صلاحيات الوصول (Permission Matrix)
 
+> **تحديث 2026-06-16 (هجرة `291_route_assignments_permission_family.sql`):** كان `routeAssignments.ts` **بلا أي تحقق صلاحية** (`requireAuth` فقط) — أي مستخدم مصادَق يقرأ خطط كل الفروع ويكتب فوق أي توزيع بمفتاح `date_team_N` مخمّن (يخالف §3-3/§3-7). الدستور كان يدّعي `marketing_visits.*` لكن الكود لم يفرضها. صار للتوزيع عائلته المستقلة `routes.assign.*`، منفصلة عن تعريف المسار `routes.*`.
+
 | المفتاح (Permission Key) | الاسم العربي للصلاحية | النطاقات المدعومة (Scopes) | الوصف الأمني |
 |---|---|---|---|
-| `marketing_visits.view` | عرض التسويق والزيارات | `BRANCH` | GET `/route-assignments` و`/:key` مفتوح لكل المستخدمين المصادق عليهم ضمن سياق فرعي. |
-| `marketing_visits.update_result` | تحديث نتائج التسويق | `BRANCH` | PUT `/:key` يحتاج مصادقة + فرع فعّال؛ لا يوجد permission check صريح إضافي. |
+| `routes.assign.view` | عرض توزيع المسارات | `GLOBAL`, `BRANCH` | قراءة توزيعات الفرق؛ `BRANCH` يرى فقط توزيعات الفرق التابعة لفرعه (الفرع المالك مشتق من موظفي الفريق). |
+| `routes.assign.manage` | إدارة توزيع المسارات | `GLOBAL`, `BRANCH` | إنشاء/تحديث توزيع؛ يُرفض التعديل عبر-الفروع (`403`). |
+
+**اشتقاق الفرع المالك (GAP-DS-005):** `day_schedules`/`route_assignments` بلا `branch_id`، والمفتاح عام. الفرع المالك للتوزيع = `employees.branch_id` لمشرف/فني الخانة رقم N في `day_schedules.teams[N]`/`solos[N]` (PL-R005 يضمن أن الفريق من فرع واحد). عند تعذّر الاشتقاق (لا جدول لليوم بعد) يسقط التحقق إلى الفرع الفعّال للمستخدم — مُحكَم بالقدرة لكن دون عزل سجلّي؛ هذا أثر متبقٍّ من GAP-DS-005.
+
+**الأساس (baseline):** الـ backfill محافظ: `routes.assign.view`←`marketing_visits.view`، `routes.assign.manage`←`marketing_visits.update_result` (بنفس النطاق). منح المخطّط/مدير الفرع يُطبَّق عبر **واجهة الأدوار** (سابقة هجرة 290).
 
 ### 6.1 منطق النطاق
 
-- `GET` لا يتطلب `X-Branch-Id` صراحةً (يُرجع كل السجلات حالياً).
-- `PUT` يتطلب `actingBranchId` من `authContext`.
+- `GET /route-assignments` (الخريطة): `routes.assign.view`؛ GLOBAL ⇒ كل الفروع، BRANCH ⇒ فقط المفاتيح التي فرعها المالك ضمن فروع المستخدم (عبر `resolveOwningBranchesForKeys`)، NONE ⇒ `{}`.
+- `GET /route-assignments/:key`: سجل قائم ⇒ تحقق الفرع المالك (`canViewAssignment`)؛ لا سجل ⇒ مصفوفات فارغة (soft-404).
+- `PUT /route-assignments/:key`: `routes.assign.manage` + فرع فعّال + `canManageAssignment(الفرع المالك)`؛ فشل ⇒ `403`. المزامنة تُشغَّل على الفرع المالك (`owningBranch ?? actingBranchId`).
 - غياب الفرع الفعّال يمنع الحفظ برسالة `يجب تحديد الفرع`.
+- الملفات: `packages/api/policies/routeAssignmentPolicy.ts` (الاشتقاق + التفويض).
 
 ---
 
@@ -152,9 +160,9 @@ erDiagram
 
 | الطريقة | المسار (Path) | الصلاحية المطلوبة | وصف السلوك والوظيفة |
 |---|---|---|---|
-| **GET** | `/route-assignments` | `requireAuth` | يجلب كل توزيعات المسارات كخريطة `{key: {routes, extraZones, stationOrder}}`. |
-| **GET** | `/route-assignments/:key` | `requireAuth` | يجلب توزيع مسار محدد بمفتاحه. إن لم يوجد يرجع مصفوفات فارغة. |
-| **PUT** | `/route-assignments/:key` | `requireAuth` + فرع فعّال | يُنشئ أو يحدث التوزيع، ثم يُشغل `syncAssignedTasks`. |
+| **GET** | `/route-assignments` | `routes.assign.view` | يجلب توزيعات المسارات كخريطة، مُرشّحة بالفرع المالك (GLOBAL=الكل). |
+| **GET** | `/route-assignments/:key` | `routes.assign.view` + تحقق الفرع المالك | يجلب توزيع مسار محدد بمفتاحه. إن لم يوجد يرجع مصفوفات فارغة. |
+| **PUT** | `/route-assignments/:key` | `routes.assign.manage` + فرع فعّال + تحقق الفرع المالك | يُنشئ أو يحدث التوزيع، ثم يُشغل `syncAssignedTasks` على الفرع المالك. |
 
 ### 7.2 معلمات الطلب
 
@@ -210,7 +218,7 @@ erDiagram
 
 - **GAP-RA-002:** لا يوجد `FOREIGN KEY` لعناصر `extra_zones` أو `station_order` إلى `geo_units`. يمكن حفظ معرفات جغرافية غير موجودة.
 
-- **GAP-RA-003:** `GET /route-assignments` (القائمة الكاملة) لا يُطبق فلترة بالفرع. يُرجع كل السجلات من كل الفروع دون تقييد.
+- **GAP-RA-003:** ✅ **محلول (2026-06-16، هجرة 291):** `GET /route-assignments` صار يُرشّح بالفرع المالك (BRANCH = فروع المستخدم فقط، GLOBAL = الكل، NONE = `{}`)، و`GET/:key`+`PUT/:key` يفرضان تحقق الفرع المالك. أُضيف تحقق صلاحية `routes.assign.*` (كان `requireAuth` فقط).
 
 - **GAP-RA-004:** `syncAssignedTasks` يُشغل في transaction منفصلة عن `route_assignments` UPSERT. فشل المزامنة لا يبطل الحفظ، مما قد يؤدي إلى حالة عدم تطابق بين التوزيع والمهام المسندة.
 
@@ -222,3 +230,4 @@ erDiagram
 |---|---|---|
 | **غير مؤكد** | `001_core_tables.sql` | إنشاء جدول `route_assignments` مع الأعمدة `key`, `routes`, `extra_zones`. |
 | **غير مؤكد** | `094_route_assignment_station_order.sql` | إضافة عمود `station_order JSONB DEFAULT '[]'` لترتيب المحطات. |
+| **2026-06-16** | `291_route_assignments_permission_family.sql` | **عائلة صلاحيات التوزيع:** إضافة `routes.assign.view`+`routes.assign.manage` (GLOBAL/BRANCH)، backfill من `marketing_visits.*`. الكود: `routeAssignments.ts` يفرض القدرة + عزل الفرع المالك (المشتق من موظفي الفريق) عبر `routeAssignmentPolicy.ts`. يحلّ GAP-RA-003 وثغرة الكتابة عبر-الفروع. |

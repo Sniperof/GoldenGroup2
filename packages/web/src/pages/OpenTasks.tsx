@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Target, Filter } from 'lucide-react';
 import { useOpenTaskStore } from '../hooks/useOpenTaskStore';
-import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import { useBranchListScope } from '../hooks/useBranchListScope';
 import ClientCardPopup from '../components/ClientCardPopup';
 import {
   OPEN_TASK_STATUS_LABELS,
@@ -80,21 +80,20 @@ function OwnershipBadge({ ownership }: { ownership?: CustomerOwnership | null })
 
 export default function OpenTasks() {
   const { tasks, loading, error, fetchTasks } = useOpenTaskStore();
-  const { branchId } = useBranchContextStore();
+  const { effectiveBranchId, needsBranchSelection } = useBranchListScope();
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [taskTypeFilter, setTaskTypeFilter] = useState<string>('');
   const [clientPopupId, setClientPopupId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (branchId) {
-      fetchTasks(branchId, {
-        ...(statusFilter ? { status: statusFilter as OpenTaskStatus } : {}),
-        ...(taskTypeFilter ? { taskType: taskTypeFilter as OpenTaskType } : {}),
-      });
-    }
-  }, [branchId, statusFilter, taskTypeFilter, fetchTasks]);
+    if (needsBranchSelection) return;
+    fetchTasks(effectiveBranchId ?? null, {
+      ...(statusFilter ? { status: statusFilter as OpenTaskStatus } : {}),
+      ...(taskTypeFilter ? { taskType: taskTypeFilter as OpenTaskType } : {}),
+    });
+  }, [effectiveBranchId, needsBranchSelection, statusFilter, taskTypeFilter, fetchTasks]);
 
-  if (!branchId) {
+  if (needsBranchSelection) {
     return (
       <div className="p-8 text-center text-slate-500">
         <Target className="w-12 h-12 mx-auto mb-4 text-slate-300" />
