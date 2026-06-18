@@ -6,6 +6,12 @@ import type { BranchCatalogItem, UserBranchAssignment } from '@golden-crm/shared
 import { trpc } from '../../lib/trpc';
 import type { RoleUser as TrpcRoleUser } from '../../lib/trpc-contract';
 import { usePermissions } from '../../hooks/usePermissions';
+import Select from '../../components/ui/Select';
+import Card from '../../components/ui/Card';
+import Badge from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
+import IconButton from '../../components/ui/IconButton';
 import {
   ShieldCheck, Plus, Edit2, Trash2, Users, Key,
   ToggleLeft, ToggleRight, X, Save, Loader2, AlertTriangle,
@@ -45,24 +51,29 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h2 className="text-base font-bold text-slate-800">{isEdit ? 'تعديل الدور' : 'إنشاء دور جديد'}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-lg p-3"><AlertTriangle className="w-4 h-4 shrink-0" />{error}</div>}
           {!isEdit && (
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">المعرف الداخلي <span className="text-red-500">*</span></label>
-              <input value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''))}
+              <Input
+                label="المعرف الداخلي"
+                required
+                value={name}
+                onChange={e => setName(e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''))}
                 placeholder="مثال: branch_manager"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
-              <p className="text-[10px] text-slate-400 mt-1">حروف إنجليزية صغيرة وأرقام وشرطة سفلية فقط</p>
+                helper="حروف إنجليزية صغيرة وأرقام وشرطة سفلية فقط"
+              />
             </div>
           )}
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">الاسم المعروض <span className="text-red-500">*</span></label>
-            <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="مثال: مدير الفرع"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
-          </div>
+          <Input
+            label="الاسم المعروض"
+            required
+            value={displayName}
+            onChange={e => setDisplayName(e.target.value)}
+            placeholder="مثال: مدير الفرع"
+          />
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">الوصف</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
@@ -71,18 +82,19 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">خانة الفريق</label>
-            <div className="relative">
-              <select value={teamSlotType ?? ''}
-                onChange={e => setTeamSlotType(e.target.value ? e.target.value as 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' : null)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 appearance-none bg-white">
-                <option value="">— لا يوجد —</option>
-                <option value="SUPERVISOR">مشرف</option>
-                <option value="TECHNICIAN">فني</option>
-                <option value="TRAINEE">متدرب</option>
-                <option value="TELEMARKETER">مسوق هاتفي</option>
-              </select>
-              <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-            </div>
+            <Select
+              value={teamSlotType ?? ''}
+              onChange={v => setTeamSlotType(v ? v as 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' : null)}
+              placeholder="— لا يوجد —"
+              ariaLabel="خانة الفريق"
+              className="w-full"
+              options={[
+                { value: 'SUPERVISOR', label: 'مشرف' },
+                { value: 'TECHNICIAN', label: 'فني' },
+                { value: 'TRAINEE', label: 'متدرب' },
+                { value: 'TELEMARKETER', label: 'مسوق هاتفي' },
+              ]}
+            />
             <p className="mt-1.5 text-[11px] text-slate-500 leading-5">
               تحدد هذه الخانة موقع الدور داخل الفريق. ولظهور الموظف في جدولة الفرق يجب أن يملك هذا الدور أيضاً صلاحية
               <span className="font-semibold text-slate-700"> الظهور في جدولة الفرق</span>.
@@ -90,12 +102,10 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
           </div>
         </div>
         <div className="flex gap-3 p-5 border-t border-slate-100">
-          <button onClick={handleSave} disabled={saving}
-            className="flex-1 flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          <Button onClick={handleSave} loading={saving} icon={Save} fullWidth>
             {isEdit ? 'حفظ التعديلات' : 'إنشاء الدور'}
-          </button>
-          <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">إلغاء</button>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>إلغاء</Button>
         </div>
       </div>
     </div>
@@ -180,9 +190,7 @@ function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void 
             <h3 className="text-lg font-bold text-slate-800">المهام الوظيفية</h3>
             <p className="text-xs text-slate-400 mt-0.5">{role.displayName}</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
-            <X className="w-5 h-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </div>
 
         <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
@@ -200,11 +208,11 @@ function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void 
                       <span className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-500">
                         {index + 1}
                       </span>
-                      <input
+                      <Input
                         value={task.title}
                         onChange={(e) => updateTask(index, { title: e.target.value })}
                         placeholder="عنوان المهمة"
-                        className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                        className="flex-1"
                       />
                       <button
                         type="button"
@@ -235,27 +243,23 @@ function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void 
                 ))}
               </div>
 
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 onClick={() => setTasks((cur) => [...cur, { title: '', description: '', isActive: true }])}
-                className="w-full rounded-xl border border-dashed border-sky-200 bg-sky-50/50 py-3 text-sm font-bold text-sky-600 hover:bg-sky-50"
+                fullWidth
+                className="border border-dashed border-sky-200 bg-sky-50/50 text-sky-600 hover:bg-sky-50"
               >
                 إضافة مهمة
-              </button>
+              </Button>
             </>
           )}
         </div>
 
         <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-500 hover:bg-slate-200">إلغاء</button>
-          <button
-            onClick={handleSave}
-            disabled={saving || loading}
-            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-bold disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={loading} loading={saving} icon={Save}>
             حفظ المهام
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -299,22 +303,26 @@ function UserModal({ user, roles, onClose }: { user?: HrUser | null; roles: Role
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h2 className="text-base font-bold text-slate-800">{isEdit ? 'تعديل بيانات المستخدم' : 'إضافة مستخدم جديد'}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-lg p-3"><AlertTriangle className="w-4 h-4 shrink-0" />{error}</div>}
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">الاسم الكامل <span className="text-red-500">*</span></label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="اسم المستخدم"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
-          </div>
+          <Input
+            label="الاسم الكامل"
+            required
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="اسم المستخدم"
+          />
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الدخول <span className="text-red-500">*</span></label>
-            <input value={username} onChange={e => setUsername(e.target.value)} placeholder="مثال: admin_user"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
-          </div>
+          <Input
+            label="اسم الدخول"
+            required
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+            placeholder="مثال: admin_user"
+          />
 
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">
@@ -345,24 +353,22 @@ function UserModal({ user, roles, onClose }: { user?: HrUser | null; roles: Role
                 </p>
               </div>
             ) : (
-              <div className="relative">
-                <select value={roleId} onChange={e => setRoleId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 appearance-none bg-white">
-                  <option value="">— اختر دوراً —</option>
-                  {activeRoles.map(r => <option key={r.id} value={r.id}>{r.displayName}</option>)}
-                </select>
-                <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              </div>
+              <Select
+                value={roleId === '' ? '' : String(roleId)}
+                onChange={v => setRoleId(v === '' ? '' : Number(v))}
+                placeholder="— اختر دوراً —"
+                ariaLabel="الدور"
+                className="w-full"
+                options={activeRoles.map(r => ({ value: String(r.id), label: r.displayName }))}
+              />
             )}
           </div>
         </div>
         <div className="flex gap-3 p-5 border-t border-slate-100">
-          <button onClick={handleSave} disabled={saving}
-            className="flex-1 flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          <Button onClick={handleSave} loading={saving} icon={Save} fullWidth>
             {isEdit ? 'حفظ التعديلات' : 'إضافة المستخدم'}
-          </button>
-          <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">إلغاء</button>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>إلغاء</Button>
         </div>
       </div>
     </div>
@@ -415,27 +421,25 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
               {loading ? '...' : `${filteredUsers.length} مستخدم`}
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 mt-0.5">
-            <X className="w-4 h-4" />
-          </button>
+          <IconButton icon={X} label="إغلاق" size="sm" className="mt-0.5" onClick={onClose} />
         </div>
 
         {/* Branch filter */}
         {!loading && allBranches.length > 0 && (
           <div className="px-5 py-3 border-b border-slate-50 bg-slate-50/60 flex items-center gap-3">
             <span className="text-xs font-semibold text-slate-500 shrink-0">تصفية حسب الفرع:</span>
-            <div className="relative flex-1 max-w-xs">
-              <select
+            <div className="flex-1 max-w-xs">
+              <Select
                 value={branchFilter === 'all' ? 'all' : String(branchFilter)}
-                onChange={e => setBranchFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 appearance-none bg-white"
-              >
-                <option value="all">كل الفروع</option>
-                {allBranches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                onChange={v => setBranchFilter(v === 'all' ? 'all' : Number(v))}
+                ariaLabel="تصفية حسب الفرع"
+                size="sm"
+                className="w-full"
+                options={[
+                  { value: 'all', label: 'كل الفروع' },
+                  ...allBranches.map(b => ({ value: String(b.id), label: b.name })),
+                ]}
+              />
             </div>
             <p className="text-[10px] text-slate-400">الفروع من إسنادات الفروع فقط — ليس من الدور</p>
           </div>
@@ -477,13 +481,9 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-slate-800 text-sm">{user.name}</span>
-                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
-                            user.isActive
-                              ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
-                              : 'bg-red-50 text-red-500 border-red-200'
-                          }`}>
+                          <Badge variant={user.isActive ? 'success' : 'error'} size="sm">
                             {user.isActive ? 'نشط' : 'موقوف'}
-                          </span>
+                          </Badge>
                         </div>
                         <p className="text-[11px] text-slate-400 font-mono mt-0.5">{user.username}</p>
                       </div>
@@ -669,9 +669,7 @@ function UserBranchAssignmentsModal({
               {user.name} ({user.username}) - الدور يحدد ماذا يستطيع المستخدم فعله، والفروع تحدد أين يستطيع فعله.
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
-            <X className="w-4 h-4" />
-          </button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto">
@@ -686,29 +684,24 @@ function UserBranchAssignmentsModal({
             <div className="flex flex-col gap-3 md:flex-row md:items-end">
               <div className="flex-1">
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">إضافة فرع للمستخدم</label>
-                <div className="relative">
-                  <select
-                    value={selectedBranchId}
-                    onChange={e => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
-                    disabled={readOnly || loading}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 appearance-none bg-white disabled:bg-slate-100 disabled:text-slate-400"
-                  >
-                    <option value="">— اختر فرعاً فعالاً —</option>
-                    {availableBranches.map(branch => (
-                      <option key={branch.id} value={branch.id}>{branch.name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                </div>
+                <Select
+                  value={selectedBranchId === '' ? '' : String(selectedBranchId)}
+                  onChange={v => setSelectedBranchId(v === '' ? '' : Number(v))}
+                  disabled={readOnly || loading}
+                  placeholder="— اختر فرعاً فعالاً —"
+                  ariaLabel="إضافة فرع"
+                  className="w-full"
+                  options={availableBranches.map(branch => ({ value: String(branch.id), label: branch.name }))}
+                />
               </div>
-              <button
+              <Button
                 onClick={() => void handleAddBranch()}
-                disabled={readOnly || !selectedBranchId || savingKey === 'add'}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                disabled={readOnly || !selectedBranchId}
+                loading={savingKey === 'add'}
+                icon={Plus}
               >
-                {savingKey === 'add' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                 إضافة فرع
-              </button>
+              </Button>
             </div>
             {readOnly && (
               <p className="text-[11px] text-slate-500 mt-3">تملك صلاحية العرض فقط. إدارة الفروع المسموحة تتطلب permission مستقلة عن إدارة الأدوار.</p>
@@ -751,33 +744,39 @@ function UserBranchAssignmentsModal({
                     </div>
                     <div className="flex items-center gap-2 justify-end flex-wrap">
                       {assignment.status === 'active' && !assignment.isPrimary && (
-                        <button
+                        <Button
+                          variant="gold"
+                          size="sm"
                           onClick={() => void handleSetPrimary(assignment)}
-                          disabled={readOnly || savingKey === `primary-${assignment.branchId}`}
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors disabled:opacity-50"
+                          disabled={readOnly}
+                          loading={savingKey === `primary-${assignment.branchId}`}
+                          icon={Star}
                         >
-                          {savingKey === `primary-${assignment.branchId}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Star className="w-3.5 h-3.5" />}
                           تعيين كأساسي
-                        </button>
+                        </Button>
                       )}
                       {assignment.status === 'active' ? (
-                        <button
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onClick={() => void handleDeactivate(assignment)}
-                          disabled={readOnly || savingKey === `deactivate-${assignment.branchId}`}
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 transition-colors disabled:opacity-50"
+                          disabled={readOnly}
+                          loading={savingKey === `deactivate-${assignment.branchId}`}
+                          icon={ToggleLeft}
                         >
-                          {savingKey === `deactivate-${assignment.branchId}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ToggleLeft className="w-3.5 h-3.5" />}
                           تعطيل
-                        </button>
+                        </Button>
                       ) : (
-                        <button
+                        <Button
+                          variant="primary"
+                          size="sm"
                           onClick={() => void handleReactivate(assignment)}
-                          disabled={readOnly || savingKey === `reactivate-${assignment.branchId}`}
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                          disabled={readOnly}
+                          loading={savingKey === `reactivate-${assignment.branchId}`}
+                          icon={ToggleRight}
                         >
-                          {savingKey === `reactivate-${assignment.branchId}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ToggleRight className="w-3.5 h-3.5" />}
                           إعادة التفعيل
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -821,11 +820,9 @@ function RolesTab() {
   return (
     <>
       <div className="flex justify-end mb-4">
-        <button onClick={() => { setEditRole(null); setShowModal(true); }}
-          disabled={!canManageRoles}
-          className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm">
-          <Plus className="w-4 h-4" />دور جديد
-        </button>
+        <Button onClick={() => { setEditRole(null); setShowModal(true); }} disabled={!canManageRoles} icon={Plus}>
+          دور جديد
+        </Button>
       </div>
 
       {error && <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-xl p-4 mb-4"><AlertTriangle className="w-4 h-4 shrink-0" />{error}</div>}
@@ -834,17 +831,17 @@ function RolesTab() {
       {!loading && (
         <div className="grid gap-4 sm:grid-cols-2">
           {roles.map(role => (
-            <div key={role.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+            <Card key={role.id} className="space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-bold text-slate-800 text-sm">{role.displayName}</h3>
                     {role.isSystem && (
-                      <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-2 py-0.5 font-medium">نظام</span>
+                      <Badge variant="warning" size="sm">نظام</Badge>
                     )}
-                    <span className={`text-[10px] rounded-full px-2 py-0.5 font-medium border ${role.isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                    <Badge variant={role.isActive ? 'success' : 'neutral'} size="sm">
                       {role.isActive ? 'نشط' : 'معطّل'}
-                    </span>
+                    </Badge>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5 font-mono">{role.name}</p>
                   {role.description && <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{role.description}</p>}
@@ -858,14 +855,16 @@ function RolesTab() {
 
               {/* Stats — user count is clickable and opens RoleUsersModal */}
               <div className="flex items-center gap-4 text-xs text-slate-500">
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setRoleUsersModal(role)}
-                  className="flex items-center gap-1.5 hover:text-sky-600 transition-colors group"
+                  icon={Users}
                   title="عرض المستخدمين بهذا الدور"
+                  className="text-slate-500 hover:text-sky-600 px-2"
                 >
-                  <Users className="w-3.5 h-3.5 group-hover:text-sky-500" />
-                  <span className="group-hover:underline">{role.userCount} مستخدم</span>
-                </button>
+                  {role.userCount} مستخدم
+                </Button>
                 <div className="flex items-center gap-1.5"><Key className="w-3.5 h-3.5" /><span>{role.permissionCount} صلاحية</span></div>
                 <div className="flex items-center gap-1.5"><ListChecks className="w-3.5 h-3.5" /><span>{role.jobTaskCount ?? 0} مهمة</span></div>
               </div>
@@ -873,29 +872,35 @@ function RolesTab() {
               {/* Actions */}
               <div className="flex gap-2 pt-1 border-t border-slate-50">
                 {/* Primary: manage permissions */}
-                <button onClick={() => navigate(`/admin/roles/${role.id}/permissions`)}
+                <Button
+                  size="sm"
+                  onClick={() => navigate(`/admin/roles/${role.id}/permissions`)}
                   disabled={!canManageRoles || role.isSystem || role.isProtected}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold text-sky-600 bg-sky-50 hover:bg-sky-100 py-2 rounded-lg transition-colors">
-                  <Key className="w-3.5 h-3.5" />إدارة الصلاحيات
-                </button>
+                  icon={Key}
+                  className="flex-1"
+                >
+                  إدارة الصلاحيات
+                </Button>
                 {/* Secondary: view users of this role */}
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => setRoleUsersModal(role)}
-                  className="flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 py-2 px-3 rounded-lg transition-colors"
+                  icon={Users}
                   title="المستخدمون بهذا الدور"
                 >
-                  <Users className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">المستخدمون</span>
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => setRoleTasksModal(role)}
                   disabled={!canManageRoles || role.isSystem || role.isProtected}
-                  className="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 py-2 px-3 rounded-lg transition-colors disabled:opacity-50"
+                  icon={ListChecks}
                   title="المهام الوظيفية"
                 >
-                  <ListChecks className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">المهام</span>
-                </button>
+                </Button>
                 {!role.isSystem && !role.isProtected && canManageRoles && (
                   <>
                     <button onClick={() => { setEditRole(role); setShowModal(true); }}
@@ -909,7 +914,7 @@ function RolesTab() {
                   </>
                 )}
               </div>
-            </div>
+            </Card>
           ))}
           {roles.length === 0 && !loading && (
             <div className="sm:col-span-2 text-center py-16 text-slate-400">
@@ -961,17 +966,15 @@ function UsersTab() {
   return (
     <>
       <div className="flex justify-end mb-4">
-        <button onClick={() => { setEditUser(null); setShowModal(true); }}
-          disabled={!canManageRoles}
-          className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm">
-          <UserPlus className="w-4 h-4" />مستخدم جديد
-        </button>
+        <Button onClick={() => { setEditUser(null); setShowModal(true); }} disabled={!canManageRoles} icon={UserPlus}>
+          مستخدم جديد
+        </Button>
       </div>
 
       {loading && <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-sky-400" /></div>}
 
       {!loading && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <Card padding="none" className="overflow-hidden">
           {hrUsers.length === 0 ? (
             <div className="text-center py-16 text-slate-400">
               <User className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -1019,9 +1022,9 @@ function UsersTab() {
                         )}
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className={`text-[10px] font-medium px-2 py-1 rounded-full border ${user.isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-red-50 text-red-500 border-red-200'}`}>
+                        <Badge variant={user.isActive ? 'success' : 'error'} size="sm">
                           {user.isActive ? 'نشط' : 'موقوف'}
-                        </span>
+                        </Badge>
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-1 justify-end">
@@ -1053,7 +1056,7 @@ function UsersTab() {
               </tbody>
             </table>
           )}
-        </div>
+        </Card>
       )}
 
       {showModal && canManageRoles && (
@@ -1118,13 +1121,14 @@ export default function Roles() {
               </p>
             </div>
           </div>
-          <button
+          <Button
+            variant="secondary"
             onClick={() => navigate('/employees')}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-sky-50 text-sky-700 border border-sky-200 rounded-xl text-sm font-semibold transition-colors shrink-0"
+            icon={ExternalLink}
+            className="shrink-0"
           >
-            <ExternalLink className="w-4 h-4" />
             ملف الموظفين
-          </button>
+          </Button>
         </div>
 
         {/* Role cards — each card shows permissions + users for THAT role only */}

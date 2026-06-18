@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Search, User, UserPlus, ArrowLeft } from 'lucide-react';
 import { api } from '../../lib/api';
+import Button from '../ui/Button';
 
 interface SuggestedMatch {
   source: 'client' | 'candidate';
@@ -99,7 +100,9 @@ export default function SuggestedMatchesPanel({
                 </div>
                 <div className="flex items-center gap-2">
                   {confidenceBadge(m.confidence)}
-                  <button
+                  <Button
+                    size="sm"
+                    icon={ArrowLeft}
                     disabled={linkingId === m.id}
                     onClick={async () => {
                       setLinkingId(m.id);
@@ -109,11 +112,9 @@ export default function SuggestedMatchesPanel({
                         setLinkingId(null);
                       }
                     }}
-                    className="text-xs px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1 disabled:opacity-50"
                   >
-                    <ArrowLeft className="h-3 w-3" />
                     ربط
-                  </button>
+                  </Button>
                 </div>
               </li>
             ))}
@@ -139,7 +140,10 @@ export default function SuggestedMatchesPanel({
                 </div>
                 <div className="flex items-center gap-2">
                   {confidenceBadge(m.confidence)}
-                  <button
+                  <Button
+                    variant="gold"
+                    size="sm"
+                    icon={ArrowLeft}
                     disabled={linkingId === m.id}
                     onClick={async () => {
                       setLinkingId(m.id);
@@ -149,11 +153,9 @@ export default function SuggestedMatchesPanel({
                         setLinkingId(null);
                       }
                     }}
-                    className="text-xs px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded flex items-center gap-1 disabled:opacity-50"
                   >
-                    <ArrowLeft className="h-3 w-3" />
                     ربط
-                  </button>
+                  </Button>
                 </div>
               </li>
             ))}

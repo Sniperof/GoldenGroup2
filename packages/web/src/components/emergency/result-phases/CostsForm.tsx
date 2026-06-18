@@ -6,6 +6,9 @@ import { api } from '../../../lib/api';
 import { useSystemListItems } from '../../../hooks/useSystemListItems';
 import PaymentEntriesList, { type PaymentEntry, newEntry } from '../PaymentEntriesList';
 import InstallmentsSchedule, { type Installment } from '../InstallmentsSchedule';
+import Select from '../../ui/Select';
+import Card from '../../ui/Card';
+import Badge from '../../ui/Badge';
 
 const inp = "w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 bg-white";
 const sel = `${inp} appearance-none cursor-pointer`;
@@ -245,11 +248,11 @@ export default function CostsForm({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm" dir="rtl">
+    <Card padding="none" className="overflow-hidden" dir="rtl">
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between">
         <h3 className="font-bold text-slate-800 text-sm">تكاليف الصيانة والقرار النهائي</h3>
         {(initialData || saved) && (
-          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">محفوظة ✓</span>
+          <Badge variant="success" size="sm">محفوظة ✓</Badge>
         )}
       </div>
 
@@ -309,11 +312,15 @@ export default function CostsForm({
             <label className="block text-xs font-bold text-slate-600">
               سبب {activeDecision?.label} <span className="font-normal text-slate-400">(اختياري)</span>
             </label>
-            <select value={decisionReasonId} onChange={e => setDecisionReasonId(e.target.value)}
-              disabled={readOnly || decisionReasons.loading} className={sel}>
-              <option value="">— اختر السبب —</option>
-              {decisionReasons.items.map(r => <option key={r.id} value={r.id}>{r.value}</option>)}
-            </select>
+            <Select
+              value={decisionReasonId}
+              onChange={setDecisionReasonId}
+              disabled={readOnly || decisionReasons.loading}
+              placeholder="— اختر السبب —"
+              ariaLabel="سبب القرار"
+              className="w-full"
+              options={decisionReasons.items.map(r => ({ value: String(r.id), label: r.value }))}
+            />
           </div>
         )}
 
@@ -388,11 +395,16 @@ export default function CostsForm({
           {discPctNum > 0 && (
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-amber-50/40">
               <label className="text-xs font-bold text-amber-700 shrink-0">سبب الحسم</label>
-              <select value={discountReasonId} onChange={e => setDiscountReasonId(e.target.value)} disabled={readOnly}
-                className="w-48 rounded-xl border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold focus:outline-none appearance-none">
-                <option value="">— اختر —</option>
-                {discountReasons.items.map(r => <option key={r.id} value={r.id}>{r.value}</option>)}
-              </select>
+              <Select
+                value={discountReasonId}
+                onChange={setDiscountReasonId}
+                disabled={readOnly}
+                placeholder="— اختر —"
+                ariaLabel="سبب الحسم"
+                size="sm"
+                className="w-48"
+                options={discountReasons.items.map(r => ({ value: String(r.id), label: r.value }))}
+              />
             </div>
           )}
           <div className="flex items-center justify-between px-4 py-4 bg-emerald-50 border-t-2 border-emerald-200">
@@ -500,11 +512,15 @@ export default function CostsForm({
             موظف التسكير
             <span className="font-normal text-slate-400 mr-1 text-[10px]">(الموظف الذي استلم الدفعة وأغلق المهمة)</span>
           </label>
-          <select value={closingEmployeeId} onChange={e => setClosingEmployeeId(e.target.value)}
-            disabled={readOnly} className={sel}>
-            <option value="">— اختر الموظف —</option>
-            {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <Select
+            value={closingEmployeeId}
+            onChange={setClosingEmployeeId}
+            disabled={readOnly}
+            placeholder="— اختر الموظف —"
+            ariaLabel="موظف التسكير"
+            className="w-full"
+            options={employees.map(e => ({ value: String(e.id), label: e.name }))}
+          />
         </div>
 
         {/* ══ ملاحظات الفاتورة ══ */}
@@ -538,6 +554,6 @@ export default function CostsForm({
         )}
       </div>
 
-    </div>
+    </Card>
   );
 }

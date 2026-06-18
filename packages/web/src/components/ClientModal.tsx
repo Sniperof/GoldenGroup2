@@ -6,6 +6,10 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import MapPicker from './MapPicker';
 import GeoSmartSearch from './GeoSmartSearch';
+import Select from './ui/Select';
+import Tabs from './ui/Tabs';
+import Button from './ui/Button';
+import IconButton from './ui/IconButton';
 import type { GeoSelection } from './GeoSmartSearch';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
@@ -697,9 +701,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             <h2 className="text-lg sm:text-xl font-bold text-slate-800">
                                 {isEditMode ? 'تعديل بيانات الزبون' : 'إضافة زبون جديد'}
                             </h2>
-                            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
-                                <X className="w-5 h-5" />
-                            </button>
+                            <IconButton icon={X} label="إغلاق" onClick={onClose} />
                         </div>
 
                         {/* From-candidate banner */}
@@ -711,20 +713,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         )}
 
                         {/* Tabs */}
-                        <div className="bg-gray-50 px-2 sm:px-4 pt-3 border-b border-gray-200 flex gap-1 overflow-x-auto shrink-0 scrollbar-none">
-                            {tabsDef.map(tab => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className={`flex items-center gap-1.5 px-2.5 sm:px-4 py-2.5 text-xs sm:text-sm font-bold rounded-t-lg transition-all relative top-[1px] whitespace-nowrap shrink-0 ${activeTab === tab.id
-                                        ? 'bg-white text-sky-600 border border-gray-200 border-b-white z-10 shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700 hover:bg-gray-100'
-                                        }`}
-                                >
-                                    <tab.icon className="w-4 h-4 shrink-0" />
-                                    <span>{tab.label}</span>
-                                </button>
-                            ))}
+                        <div className="bg-white px-2 sm:px-4 pt-2 shrink-0 overflow-x-auto scrollbar-none">
+                            <Tabs<Tab>
+                                tabs={tabsDef}
+                                activeKey={activeTab}
+                                onChange={setActiveTab}
+                            />
                         </div>
 
                         {/* Content */}
@@ -740,16 +734,15 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     <label className="text-xs font-semibold text-slate-500">
                                                         الفرع التشغيلي <span className="text-red-500">*</span>
                                                     </label>
-                                                    <select
-                                                        value={selectedBranchId}
-                                                        onChange={e => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
-                                                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                                    >
-                                                        <option value="">اختر الفرع</option>
-                                                        {branches.map(branch => (
-                                                            <option key={branch.id} value={branch.id}>{branch.name}</option>
-                                                        ))}
-                                                    </select>
+                                                    <Select<string>
+                                                        value={selectedBranchId === '' ? '' : String(selectedBranchId)}
+                                                        onChange={(v) => setSelectedBranchId(v ? Number(v) : '')}
+                                                        options={[
+                                                            { value: '', label: 'اختر الفرع' },
+                                                            ...branches.map(branch => ({ value: String(branch.id), label: branch.name })),
+                                                        ]}
+                                                        className="w-full"
+                                                    />
                                                     <p className="text-[11px] text-slate-400">
                                                         هذا هو الفرع التشغيلي للعميل، وليس فلتر عرض فقط.
                                                     </p>
@@ -949,20 +942,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
                                                 {/* Row 1: Type + Number + Duplicate badge + Remove */}
                                                 <div className="flex items-center gap-2">
-                                                    <select
+                                                    <Select<string>
                                                         value={c.type}
-                                                        onChange={e => !isLocked && updateContact(c.id, 'type', e.target.value as ContactType)}
+                                                        onChange={(v) => !isLocked && updateContact(c.id, 'type', v as ContactType)}
                                                         disabled={isLocked}
-                                                        className={`border rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[100px] ${
-                                                            isLocked
-                                                                ? lockSource === 'smart' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed' : 'bg-amber-50/40 border-amber-200 text-amber-700 cursor-not-allowed'
-                                                                : 'bg-white border-gray-200'
-                                                        }`}
-                                                    >
-                                                        {Object.entries(contactTypeConfig).map(([key, cfg]) => (
-                                                            <option key={key} value={key}>{cfg.emoji} {cfg.label}</option>
-                                                        ))}
-                                                    </select>
+                                                        options={Object.entries(contactTypeConfig).map(([key, cfg]) => ({
+                                                            value: key,
+                                                            label: `${cfg.emoji} ${cfg.label}`,
+                                                        }))}
+                                                        className="min-w-[100px]"
+                                                    />
 
                                                     {c.type === 'mobile' && (
                                                         <span className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">+963</span>
@@ -1053,15 +1042,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none"
                                                     />
 
-                                                    <select
+                                                    <Select<string>
                                                         value={c.status}
-                                                        onChange={e => updateContact(c.id, 'status', e.target.value as ContactStatus)}
-                                                        className={`border rounded-lg px-2 py-1.5 text-[11px] font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[c.status]?.style || contactStatusConfig.active.style}`}
-                                                    >
-                                                        {Object.entries(contactStatusConfig).map(([key, cfg]) => (
-                                                            <option key={key} value={key}>{cfg.label}</option>
-                                                        ))}
-                                                    </select>
+                                                        onChange={(v) => updateContact(c.id, 'status', v as ContactStatus)}
+                                                        options={Object.entries(contactStatusConfig).map(([key, cfg]) => ({ value: key, label: cfg.label }))}
+                                                        className="min-w-[110px]"
+                                                    />
 
                                                     <button
                                                         type="button"
@@ -1110,10 +1096,15 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         })}
                                     </AnimatePresence>
 
-                                    <button type="button" onClick={addContact} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-slate-500 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50 transition-all text-sm font-medium">
-                                        <Plus className="w-4 h-4" />
-                                        <span>إضافة رقم</span>
-                                    </button>
+                                    <Button
+                                        variant="ghost"
+                                        onClick={addContact}
+                                        fullWidth
+                                        icon={Plus}
+                                        className="border-2 border-dashed border-gray-200 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50"
+                                    >
+                                        إضافة رقم
+                                    </Button>
                                 </div>
                             )}
 
@@ -1191,34 +1182,36 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     نوع الوسيط *
                                                     {fromCandidate && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                                 </label>
-                                                <select
+                                                <Select<string>
                                                     value={referralType}
-                                                    onChange={(e) => !fromCandidate && setReferralType(e.target.value as ReferralType)}
+                                                    onChange={(v) => !fromCandidate && setReferralType(v as ReferralType)}
                                                     disabled={fromCandidate}
-                                                    className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${fromCandidate ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'border-gray-200 bg-gray-50 focus:border-sky-500'}`}
-                                                >
-                                                    <option value="Personal">شخصي</option>
-                                                    <option value="Employee">موظف</option>
-                                                    <option value="Client">زبون</option>
-                                                    <option value="Unknown">مجهول</option>
-                                                </select>
+                                                    options={[
+                                                        { value: 'Personal', label: 'شخصي' },
+                                                        { value: 'Employee', label: 'موظف' },
+                                                        { value: 'Client', label: 'زبون' },
+                                                        { value: 'Unknown', label: 'مجهول' },
+                                                    ]}
+                                                    className="w-full"
+                                                />
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
                                                     طريقة التواصل *
                                                     {fromCandidate && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                                 </label>
-                                                <select
+                                                <Select<string>
                                                     value={originChannel}
-                                                    onChange={(e) => !fromCandidate && setOriginChannel(e.target.value as ReferralOriginChannel)}
+                                                    onChange={(v) => !fromCandidate && setOriginChannel(v as ReferralOriginChannel)}
                                                     disabled={fromCandidate}
-                                                    className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${fromCandidate ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'border-gray-200 bg-white focus:border-sky-500'}`}
-                                                >
-                                                    <option value="Acquaintance">معرفة شخصية</option>
-                                                    <option value="PhoneCall">مكالمة هاتفية</option>
-                                                    <option value="SocialMedia">سوشال ميديا</option>
-                                                    <option value="Campaign">حملة إعلانية</option>
-                                                </select>
+                                                    options={[
+                                                        { value: 'Acquaintance', label: 'معرفة شخصية' },
+                                                        { value: 'PhoneCall', label: 'مكالمة هاتفية' },
+                                                        { value: 'SocialMedia', label: 'سوشال ميديا' },
+                                                        { value: 'Campaign', label: 'حملة إعلانية' },
+                                                    ]}
+                                                    className="w-full"
+                                                />
                                             </div>
                                         </div>
 
@@ -1250,13 +1243,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                 placeholder="أدخل رقم الموظف..."
                                                                 className="w-1/2 p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
                                                             />
-                                                            <button
-                                                                type="button"
+                                                            <Button
+                                                                size="sm"
+                                                                variant="secondary"
                                                                 onClick={handleEmployeeBlur}
-                                                                className="px-3 py-2.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold hover:bg-sky-100"
                                                             >
                                                                 اعتماد
-                                                            </button>
+                                                            </Button>
                                                             {employeeFound && (
                                                                 <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 flex-1 text-sm">
                                                                     <CheckCircle className="w-5 h-5" />
@@ -1481,29 +1474,31 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         {isEditMode && (
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">تقييم الزبون</label>
-                                            <select
+                                            <Select<string>
                                                 value={rating}
-                                                onChange={e => setRating(e.target.value as ClientRating)}
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                            >
-                                                <option value="Undefined">غير محدد</option>
-                                                <option value="Committed">ملتزم</option>
-                                                <option value="NotCommitted">غير ملتزم</option>
-                                            </select>
+                                                onChange={(v) => setRating(v as ClientRating)}
+                                                options={[
+                                                    { value: 'Undefined', label: 'غير محدد' },
+                                                    { value: 'Committed', label: 'ملتزم' },
+                                                    { value: 'NotCommitted', label: 'غير ملتزم' },
+                                                ]}
+                                                className="w-full"
+                                            />
                                         </div>
                                         )}
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">صحة البيانات</label>
-                                            <select
+                                            <Select<string>
                                                 value={dataQuality}
-                                                onChange={e => setDataQuality(e.target.value)}
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                            >
-                                                <option value="">غير محدد</option>
-                                                <option value="correct">✅ صحيحة</option>
-                                                <option value="incorrect">❌ خاطئة</option>
-                                                <option value="needs_edit">✏️ للتعديل</option>
-                                            </select>
+                                                onChange={setDataQuality}
+                                                options={[
+                                                    { value: '', label: 'غير محدد' },
+                                                    { value: 'correct', label: '✅ صحيحة' },
+                                                    { value: 'incorrect', label: '❌ خاطئة' },
+                                                    { value: 'needs_edit', label: '✏️ للتعديل' },
+                                                ]}
+                                                className="w-full"
+                                            />
                                         </div>
 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1512,44 +1507,41 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     مهنة الزبون
                                                     {occupationLocked && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                                 </label>
-                                                <select
+                                                <Select<string>
                                                     value={occupation}
-                                                    onChange={e => !occupationLocked && setOccupation(e.target.value)}
+                                                    onChange={(v) => !occupationLocked && setOccupation(v)}
                                                     disabled={occupationLocked}
-                                                    className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${occupationLocked ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'bg-white border-gray-200 focus:border-sky-500'}`}
-                                                >
-                                                    <option value="">اختر المهنة</option>
-                                                    {occupationOptions.map((option) => (
-                                                        <option key={option} value={option}>{option}</option>
-                                                    ))}
-                                                </select>
+                                                    options={[
+                                                        { value: '', label: 'اختر المهنة' },
+                                                        ...occupationOptions.map((option) => ({ value: option, label: option })),
+                                                    ]}
+                                                    className="w-full"
+                                                />
                                             </div>
                                             <div className="space-y-1">
                                                 <label className="text-xs font-semibold text-slate-500">مهنة الزوج / الزوجة</label>
-                                                <select
+                                                <Select<string>
                                                     value={spouseOccupation}
-                                                    onChange={e => setSpouseOccupation(e.target.value)}
-                                                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                                >
-                                                    <option value="">اختر المهنة</option>
-                                                    {occupationOptions.map((option) => (
-                                                        <option key={option} value={option}>{option}</option>
-                                                    ))}
-                                                </select>
+                                                    onChange={setSpouseOccupation}
+                                                    options={[
+                                                        { value: '', label: 'اختر المهنة' },
+                                                        ...occupationOptions.map((option) => ({ value: option, label: option })),
+                                                    ]}
+                                                    className="w-full"
+                                                />
                                             </div>
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">مصدر المياه</label>
-                                            <select
+                                            <Select<string>
                                                 value={waterSource}
-                                                onChange={e => setWaterSource(e.target.value)}
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                            >
-                                                <option value="">اختر مصدر المياه</option>
-                                                {waterSourceOptions.map((option) => (
-                                                    <option key={option} value={option}>{option}</option>
-                                                ))}
-                                            </select>
+                                                onChange={setWaterSource}
+                                                options={[
+                                                    { value: '', label: 'اختر مصدر المياه' },
+                                                    ...waterSourceOptions.map((option) => ({ value: option, label: option })),
+                                                ]}
+                                                className="w-full"
+                                            />
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-semibold text-slate-500">ملاحظات إضافية (محرر نصي)</label>
@@ -1584,18 +1576,15 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                 </div>
                             ) : <div />}
                             <div className="flex gap-3">
-                                <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 font-medium transition-all">
-                                    إلغاء
-                                </button>
-                                <button
+                                <Button variant="secondary" onClick={onClose}>إلغاء</Button>
+                                <Button
                                     onClick={handleSave}
                                     disabled={Boolean(primaryDup)}
                                     title={primaryDup ? `الرقم الأساسي مكرر عند: ${primaryDup.name}` : undefined}
-                                    className="px-5 py-2 rounded-lg text-white bg-sky-600 hover:bg-sky-500 shadow-lg shadow-sky-500/20 font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+                                    icon={Save}
                                 >
-                                    <Save className="w-4 h-4" />
-                                    <span>{isEditMode ? 'حفظ التعديلات' : 'إضافة'}</span>
-                                </button>
+                                    {isEditMode ? 'حفظ التعديلات' : 'إضافة'}
+                                </Button>
                             </div>
                         </div>
                     </motion.div >

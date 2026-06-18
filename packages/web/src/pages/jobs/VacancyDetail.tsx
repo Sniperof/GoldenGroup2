@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { useBranchStore } from '../../hooks/useBranchStore';
+import Select from '../../components/ui/Select';
 import type { BranchContact, BranchContactType } from '../../lib/types';
 import { calculateJobMatchScore } from '../../lib/jobMatch';
 import { getUnifiedApplicationState, getUnifiedApplicationStateDotClasses } from '../../lib/applicationState';
@@ -620,29 +621,43 @@ export default function VacancyDetail() {
                   </p>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">عنوان الوظيفة *</label>
-                    <select value={formData.title || ''} onChange={e => setField('title', e.target.value)} disabled={isLocked('full')} className={inputCls(isLocked('full'))}>
-                      <option value="">اختر عنوان الوظيفة</option>
-                      {getValuesByCategory('job_title').map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
+                    <Select
+                      value={formData.title || ''}
+                      onChange={v => setField('title', v)}
+                      disabled={isLocked('full')}
+                      placeholder="اختر عنوان الوظيفة"
+                      className="w-full"
+                      options={getValuesByCategory('job_title').map(v => ({ value: v, label: v }))}
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">الفرع</label>
-                      <select value={formData.branch || ''} onChange={e => {
-                        setField('branch', e.target.value);
-                        const b = branches.find(b => b.name === e.target.value);
-                        setBranchContacts(b?.contactInfo || []);
-                        setField('contactMethods', []);
-                      }} disabled={isLocked('full')} className={inputCls(isLocked('full'))}>
-                        {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-                      </select>
+                      <Select
+                        value={formData.branch || ''}
+                        onChange={v => {
+                          setField('branch', v);
+                          const b = branches.find(b => b.name === v);
+                          setBranchContacts(b?.contactInfo || []);
+                          setField('contactMethods', []);
+                        }}
+                        disabled={isLocked('full')}
+                        className="w-full"
+                        options={branches.map(b => ({ value: b.name, label: b.name }))}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">نوع العمل</label>
-                      <select value={formData.workType || ''} onChange={e => setField('workType', e.target.value || null)} disabled={isLocked('full')} className={inputCls(isLocked('full'))}>
-                        <option value="">—</option>
-                        {getValuesByCategory('work_type').map(v => <option key={v} value={v}>{v}</option>)}
-                      </select>
+                      <Select
+                        value={formData.workType || ''}
+                        onChange={v => setField('workType', v || null)}
+                        disabled={isLocked('full')}
+                        className="w-full"
+                        options={[
+                          { value: '', label: '—' },
+                          ...getValuesByCategory('work_type').map(v => ({ value: v, label: v })),
+                        ]}
+                      />
                     </div>
                   </div>
                 </div>
@@ -655,17 +670,27 @@ export default function VacancyDetail() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">الشهادة</label>
-                      <select value={formData.requiredCertificate || ''} onChange={e => { setField('requiredCertificate', e.target.value || null); setField('requiredMajor', null); }} disabled={isLocked('full')} className={inputCls(isLocked('full'))}>
-                        <option value="">—</option>
-                        {getValuesByCategory('certificate').map(v => <option key={v} value={v}>{v}</option>)}
-                      </select>
+                      <Select
+                        value={formData.requiredCertificate || ''}
+                        onChange={v => { setField('requiredCertificate', v || null); setField('requiredMajor', null); }}
+                        disabled={isLocked('full')}
+                        className="w-full"
+                        options={[
+                          { value: '', label: '—' },
+                          ...getValuesByCategory('certificate').map(v => ({ value: v, label: v })),
+                        ]}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">الاختصاص</label>
-                      <select value={formData.requiredMajor || ''} onChange={e => setField('requiredMajor', e.target.value || null)} disabled={isLocked('full') || !formData.requiredCertificate} className={inputCls(isLocked('full') || !formData.requiredCertificate)}>
-                        <option value="">{formData.requiredCertificate ? 'اختر' : 'اختر الشهادة أولاً'}</option>
-                        {formData.requiredCertificate && getValuesByCategory(`major:${formData.requiredCertificate}`).map(v => <option key={v} value={v}>{v}</option>)}
-                      </select>
+                      <Select
+                        value={formData.requiredMajor || ''}
+                        onChange={v => setField('requiredMajor', v || null)}
+                        disabled={isLocked('full') || !formData.requiredCertificate}
+                        placeholder={formData.requiredCertificate ? 'اختر' : 'اختر الشهادة أولاً'}
+                        className="w-full"
+                        options={formData.requiredCertificate ? getValuesByCategory(`major:${formData.requiredCertificate}`).map(v => ({ value: v, label: v })) : []}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">سنوات الخبرة</label>
@@ -673,10 +698,14 @@ export default function VacancyDetail() {
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">الجنس</label>
-                      <select value={formData.requiredGender || ''} onChange={e => setField('requiredGender', e.target.value || null)} disabled={isLocked('full')} className={inputCls(isLocked('full'))}>
-                        <option value="">لا يهم</option>
-                        {getValuesByCategory('gender').map(v => <option key={v} value={v}>{v}</option>)}
-                      </select>
+                      <Select
+                        value={formData.requiredGender || ''}
+                        onChange={v => setField('requiredGender', v || null)}
+                        disabled={isLocked('full')}
+                        placeholder="لا يهم"
+                        className="w-full"
+                        options={getValuesByCategory('gender').map(v => ({ value: v, label: v }))}
+                      />
                     </div>
                   </div>
                   <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${formData.hasCarRequired ? 'border-sky-400 bg-sky-50' : 'border-slate-200 bg-white hover:border-sky-200'}`}>

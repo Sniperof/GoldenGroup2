@@ -9,6 +9,7 @@ import {
     Layers, Building2, Megaphone, Wrench
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import Button from '../../components/ui/Button';
 
 /* ------------------------------------------------------------------ */
 /*  Types & Config                                                      */
@@ -274,24 +275,24 @@ export default function TeamTasksDetail() {
                                         {/* Actions */}
                                         <td className="px-4 py-3.5 text-center">
                                             <div className="flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button
-                                                    type="button"
+                                                <Button
+                                                    variant="secondary"
+                                                    size="sm"
+                                                    icon={Shuffle}
                                                     onClick={() => handleReassign(task.id)}
-                                                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 text-[11px] font-medium transition-all"
                                                     title="نقل لفريق آخر"
                                                 >
-                                                    <Shuffle className="w-3 h-3" />
-                                                    <span>نقل</span>
-                                                </button>
-                                                <button
-                                                    type="button"
+                                                    نقل
+                                                </Button>
+                                                <Button
+                                                    variant="secondary"
+                                                    size="sm"
+                                                    icon={Ban}
                                                     onClick={() => handleCancel(task.id)}
-                                                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-[11px] font-medium transition-all"
                                                     title="إلغاء المهمة"
                                                 >
-                                                    <Ban className="w-3 h-3" />
-                                                    <span>إلغاء</span>
-                                                </button>
+                                                    إلغاء
+                                                </Button>
                                             </div>
                                         </td>
                                     </motion.tr>

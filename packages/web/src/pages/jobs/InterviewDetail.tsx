@@ -9,7 +9,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
+import Button from '../../components/ui/Button';
 import { fetchInterviewersForApplication } from './interviewerLookup';
+import Select from '../../components/ui/Select';
 
 interface InterviewDetail {
   id: number;
@@ -279,10 +281,9 @@ export default function InterviewDetail() {
               <IRow label="#" value={detail.vacancy.id.toString()} />
               <IRow label="عنوان الوظيفة" value={detail.vacancy.title} />
               <IRow label="الفرع" value={detail.vacancy.branch} icon={<MapPin className="w-3.5 h-3.5" />} />
-              <button onClick={() => navigate(`/jobs/vacancies/${detail.vacancy.id}`)}
-                className="text-xs text-sky-500 hover:text-sky-600 underline mt-1">
+              <Button variant="ghost" size="sm" onClick={() => navigate(`/jobs/vacancies/${detail.vacancy.id}`)} className="text-sky-500 hover:text-sky-600 hover:bg-sky-50 px-2 mt-1">
                 عرض تفاصيل الشاغر
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -291,17 +292,14 @@ export default function InterviewDetail() {
               <h3 className="text-sm font-bold text-slate-700 mb-4">الإجراءات</h3>
               <div className="space-y-2">
                 <PermissionGate permission="jobs.interviews.edit">
-                  <button onClick={openEdit} disabled={actionLoading}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold bg-sky-500 hover:bg-sky-600 text-white shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50">
-                    <Edit className="w-4 h-4" /> تعديل المقابلة
-                  </button>
+                  <Button fullWidth icon={Edit} onClick={openEdit} disabled={actionLoading}>
+                    تعديل المقابلة
+                  </Button>
                 </PermissionGate>
                 <PermissionGate permission="jobs.interviews.record_result">
-                  <button onClick={() => { setResultStatus('Interview Completed'); setResultNotes(''); setShowResultModal(true); }}
-                    disabled={actionLoading}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-lg shadow-teal-500/25 transition-all disabled:opacity-50">
-                    <CheckCircle className="w-4 h-4" /> تسجيل النتيجة
-                  </button>
+                  <Button fullWidth icon={CheckCircle} onClick={() => { setResultStatus('Interview Completed'); setResultNotes(''); setShowResultModal(true); }} disabled={actionLoading} className="bg-teal-500 hover:bg-teal-600">
+                    تسجيل النتيجة
+                  </Button>
                 </PermissionGate>
               </div>
             </div>
@@ -341,44 +339,49 @@ export default function InterviewDetail() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">نوع المقابلة</label>
-                    <select value={editForm.interviewType} onChange={e => setEditForm(p => ({ ...p, interviewType: e.target.value as any }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500">
-                      <option value="HR Interview">مقابلة HR</option>
-                      <option value="Technical Interview">مقابلة تقنية</option>
-                    </select>
+                    <Select<'HR Interview' | 'Technical Interview'>
+                      value={editForm.interviewType}
+                      onChange={v => setEditForm(p => ({ ...p, interviewType: v }))}
+                      ariaLabel="نوع المقابلة"
+                      className="w-full"
+                      options={[
+                        { value: 'HR Interview', label: 'مقابلة HR' },
+                        { value: 'Technical Interview', label: 'مقابلة تقنية' },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">رقم المقابلة</label>
-                    <select value={editForm.interviewNumber} onChange={e => setEditForm(p => ({ ...p, interviewNumber: e.target.value as any }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500">
-                      <option value="First Interview">الأولى</option>
-                      <option value="Second Interview">الثانية</option>
-                    </select>
+                    <Select<'First Interview' | 'Second Interview'>
+                      value={editForm.interviewNumber}
+                      onChange={v => setEditForm(p => ({ ...p, interviewNumber: v }))}
+                      ariaLabel="رقم المقابلة"
+                      className="w-full"
+                      options={[
+                        { value: 'First Interview', label: 'الأولى' },
+                        { value: 'Second Interview', label: 'الثانية' },
+                      ]}
+                    />
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">المقابِل *</label>
-                  <select
+                  <Select
                     value={editForm.interviewerUserId}
-                    onChange={e => setEditForm(p => ({ ...p, interviewerUserId: e.target.value }))}
+                    onChange={v => setEditForm(p => ({ ...p, interviewerUserId: v }))}
                     disabled={loadingInterviewers}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white disabled:bg-slate-50 disabled:text-slate-400"
-                  >
-                    <option value="">
-                      {loadingInterviewers
-                        ? 'جاري تحميل المقابلين...'
-                        : interviewers.length === 0
-                          ? 'لا يوجد مقابِلون مؤهلون'
-                          : 'اختر المقابِل...'}
-                    </option>
-                    {interviewers.map(option => (
-                      <option key={option.id} value={option.id}>
-                        {option.name}
-                        {option.username ? ` (@${option.username})` : ''}
-                        {option.roleDisplayName ? ` — ${option.roleDisplayName}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder={loadingInterviewers
+                      ? 'جاري تحميل المقابلين...'
+                      : interviewers.length === 0
+                        ? 'لا يوجد مقابِلون مؤهلون'
+                        : 'اختر المقابِل...'}
+                    ariaLabel="المقابِل"
+                    className="w-full"
+                    options={interviewers.map(option => ({
+                      value: String(option.id),
+                      label: `${option.name}${option.username ? ` (@${option.username})` : ''}${option.roleDisplayName ? ` — ${option.roleDisplayName}` : ''}`,
+                    }))}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -399,11 +402,10 @@ export default function InterviewDetail() {
                 </div>
               </div>
               <div className="flex gap-3 justify-end mt-5">
-                <button onClick={() => setShowEditModal(false)} className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">إلغاء</button>
-                <button onClick={handleSaveEdit} disabled={editSaving}
-                  className="px-5 py-2.5 text-sm bg-sky-500 text-white rounded-xl hover:bg-sky-600 font-bold shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50">
+                <Button variant="secondary" onClick={() => setShowEditModal(false)}>إلغاء</Button>
+                <Button loading={editSaving} onClick={handleSaveEdit}>
                   {editSaving ? 'جاري...' : 'حفظ التعديلات'}
-                </button>
+                </Button>
               </div>
             </motion.div>
           </motion.div>
@@ -444,13 +446,10 @@ export default function InterviewDetail() {
                 </div>
               </div>
               <div className="flex gap-3 justify-end mt-5">
-                <button onClick={() => setShowResultModal(false)} className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">إلغاء</button>
-                <button onClick={handleRecordResult} disabled={actionLoading}
-                  className={`px-5 py-2.5 text-sm text-white rounded-xl font-bold shadow-lg transition-all disabled:opacity-50 ${
-                    resultStatus === 'Interview Completed' ? 'bg-teal-500 hover:bg-teal-600 shadow-teal-500/25' : 'bg-red-500 hover:bg-red-600 shadow-red-500/25'
-                  }`}>
+                <Button variant="secondary" onClick={() => setShowResultModal(false)}>إلغاء</Button>
+                <Button loading={actionLoading} onClick={handleRecordResult} className={resultStatus === 'Interview Completed' ? 'bg-teal-500 hover:bg-teal-600' : 'bg-red-500 hover:bg-red-600'}>
                   {actionLoading ? 'جاري...' : 'حفظ النتيجة'}
-                </button>
+                </Button>
               </div>
             </motion.div>
           </motion.div>

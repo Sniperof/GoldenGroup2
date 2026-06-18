@@ -5,6 +5,9 @@ import {
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { useSystemListItems } from '../../../hooks/useSystemListItems';
+import Select from '../../ui/Select';
+import Card from '../../ui/Card';
+import Badge from '../../ui/Badge';
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -140,21 +143,21 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
       {/* Row 2: اختيار القطعة */}
       <div className="space-y-1">
         <label className="block text-xs font-bold text-slate-600">القطعة</label>
-        <select
-          value={draft.sparePartId}
-          onChange={e => selectPart(e.target.value ? Number(e.target.value) : '')}
-          className={`${sel} ${!draft.maintenanceType ? 'opacity-50 cursor-not-allowed' : ''}`}
-          disabled={!draft.maintenanceType}>
-          <option value="">
-            {!draft.maintenanceType ? '— اختر نوع القطعة أولاً —' : `— اختر من ${TYPE_LABELS[draft.maintenanceType]} —`}
-          </option>
-          {filteredParts.map(sp => (
-            <option key={sp.id} value={sp.id}>
-              {sp.name}{sp.code ? ` (${sp.code})` : ''} — {sp.basePrice.toLocaleString()} ل.س
-            </option>
-          ))}
-          <option value="manual">✏️ إدخال يدوي...</option>
-        </select>
+        <Select
+          value={draft.sparePartId === '' ? '' : String(draft.sparePartId)}
+          onChange={v => selectPart(v === '' || v === 'manual' ? '' : Number(v))}
+          disabled={!draft.maintenanceType}
+          placeholder={!draft.maintenanceType ? '— اختر نوع القطعة أولاً —' : `— اختر من ${TYPE_LABELS[draft.maintenanceType]} —`}
+          ariaLabel="القطعة"
+          className="w-full"
+          options={[
+            ...filteredParts.map(sp => ({
+              value: String(sp.id),
+              label: `${sp.name}${sp.code ? ` (${sp.code})` : ''} — ${sp.basePrice.toLocaleString()} ل.س`,
+            })),
+            { value: 'manual', label: '✏️ إدخال يدوي...' },
+          ]}
+        />
         {/* Manual name input if not from list */}
         {!draft.sparePartId && draft.partNameSnapshot && (
           <input value={draft.partNameSnapshot}
@@ -231,11 +234,14 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
       {!draft.retrieved && (
         <div className="space-y-1">
           <label className="block text-[10px] font-bold text-rose-600">سبب عدم السحب *</label>
-          <select value={draft.noRetrievalReasonId} onChange={e => set('noRetrievalReasonId', e.target.value)}
-            className={`${sel} border-rose-200 text-xs`}>
-            <option value="">— اختر السبب —</option>
-            {noRetrievalReasons.map(r => <option key={r.id} value={r.id}>{r.value}</option>)}
-          </select>
+          <Select
+            value={draft.noRetrievalReasonId}
+            onChange={v => set('noRetrievalReasonId', v)}
+            placeholder="— اختر السبب —"
+            ariaLabel="سبب عدم السحب"
+            className="w-full"
+            options={noRetrievalReasons.map(r => ({ value: String(r.id), label: r.value }))}
+          />
         </div>
       )}
 
@@ -404,13 +410,13 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
   const totalValue = savedParts.reduce((s, p) => s + p.unitPrice * p.quantity, 0);
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm" dir="rtl">
+    <Card padding="none" className="overflow-hidden" dir="rtl">
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between">
         <h3 className="font-bold text-slate-800 text-sm">القطع المستبدلة</h3>
         {(initialData || savedParts.length > 0) && (
-          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+          <Badge variant="success" size="sm">
             {savedParts.length > 0 ? `${savedParts.length} قطعة محفوظة` : 'محفوظة ✓'}
-          </span>
+          </Badge>
         )}
       </div>
 
@@ -564,6 +570,6 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
           </div>
         )}
       </div>
-    </div>
+    </Card>
   );
 }

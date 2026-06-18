@@ -5,6 +5,7 @@ import {
   OPEN_TASK_TYPE_LABELS, getTaskPhase, type OpenTaskStatus,
 } from '@golden-crm/shared';
 import { formatDateTime } from './shared';
+import Button from '../ui/Button';
 
 // Mirror of DB CHECK on open_tasks.task_family — 8 families.
 const TASK_FAMILY_LABELS: Record<string, string> = {
@@ -56,13 +57,9 @@ export default function TaskHeader({ task, typeIcon: TypeIcon, typeIconColor = '
     <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-          >
-            <ChevronRight className="w-4 h-4" />
+          <Button variant="ghost" size="sm" onClick={onBack} icon={ChevronRight}>
             {backLabel}
-          </button>
+          </Button>
           <span className="text-slate-300">/</span>
           <div className="flex items-center gap-2 flex-wrap">
             <TypeIcon className={`w-5 h-5 ${typeIconColor}`} />

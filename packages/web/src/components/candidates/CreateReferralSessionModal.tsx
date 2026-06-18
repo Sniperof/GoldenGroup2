@@ -6,6 +6,9 @@ import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
+import Select from '../ui/Select';
+import Input from '../ui/Input';
+import IconButton from '../ui/IconButton';
 
 interface Props {
     isOpen: boolean;
@@ -320,9 +323,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             <p className="text-sm text-slate-500">تسجيل لائحة أسماء جديدة تحت وسيط محدد</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors">
-                        <X className="w-5 h-5" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
                 </div>
 
                 {/* Body */}
@@ -338,33 +339,30 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             {canChooseBranch && (
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">الفرع</label>
-                                    <select
-                                        value={selectedBranchId}
-                                        onChange={(e) => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
-                                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
-                                    >
-                                        <option value="">-- اختر الفرع --</option>
-                                        {branches.map(branch => (
-                                            <option key={branch.id} value={branch.id}>{branch.name}</option>
-                                        ))}
-                                    </select>
+                                    <Select
+                                        value={selectedBranchId === '' ? '' : String(selectedBranchId)}
+                                        onChange={v => setSelectedBranchId(v === '' ? '' : Number(v))}
+                                        placeholder="-- اختر الفرع --"
+                                        ariaLabel="الفرع"
+                                        className="w-full"
+                                        options={branches.map(branch => ({ value: String(branch.id), label: branch.name }))}
+                                    />
                                 </div>
                             )}
                             {canChooseAssignedOwner && (
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">المسؤول عن اللائحة</label>
-                                    <select
-                                        value={selectedResponsibleUserId}
-                                        onChange={(e) => setSelectedResponsibleUserId(e.target.value ? Number(e.target.value) : '')}
-                                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
-                                    >
-                                        <option value="">-- اختر المسؤول --</option>
-                                        {assignableHrUsers.map(user => (
-                                            <option key={user.id} value={user.id}>
-                                                {user.name}{user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <Select
+                                        value={selectedResponsibleUserId === '' ? '' : String(selectedResponsibleUserId)}
+                                        onChange={v => setSelectedResponsibleUserId(v === '' ? '' : Number(v))}
+                                        placeholder="-- اختر المسؤول --"
+                                        ariaLabel="المسؤول عن اللائحة"
+                                        className="w-full"
+                                        options={assignableHrUsers.map(user => ({
+                                            value: String(user.id),
+                                            label: `${user.name}${user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}`,
+                                        }))}
+                                    />
                                 </div>
                             )}
                         </div>
@@ -373,23 +371,23 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">نوع الوسيط </label>
-                            <select
+                            <Select<ReferralType>
                                 value={referralType}
-                                onChange={(e) => setReferralType(e.target.value as ReferralType)}
-                                className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm font-bold"
-                            >
-                                {referralTypes.map(rt => <option key={rt.value} value={rt.value}>{rt.label}</option>)}
-                            </select>
+                                onChange={setReferralType}
+                                ariaLabel="نوع الوسيط"
+                                className="w-full"
+                                options={referralTypes.map(rt => ({ value: rt.value, label: rt.label }))}
+                            />
                         </div>
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">طريقة التواصل</label>
-                            <select
+                            <Select<ReferralOriginChannel>
                                 value={originChannel}
-                                onChange={(e) => setOriginChannel(e.target.value as ReferralOriginChannel)}
-                                className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm"
-                            >
-                                {channels.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                            </select>
+                                onChange={setOriginChannel}
+                                ariaLabel="طريقة التواصل"
+                                className="w-full"
+                                options={channels.map(c => ({ value: c.value, label: c.label }))}
+                            />
                         </div>
                     </div>
 
@@ -398,14 +396,14 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">رقم الموظف <span className="text-red-500">*</span></label>
                             <div className="flex items-center gap-3">
-                                <input
-                                    type="text"
-                                    value={employeeIdInput}
-                                    onChange={(e) => setEmployeeIdInput(e.target.value)}
-                                    onBlur={handleEmployeeBlur}
-                                    placeholder="أدخل رقم الموظف..."
-                                    className="w-1/2 p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
-                                />
+                                <div className="w-1/2">
+                                    <Input
+                                        value={employeeIdInput}
+                                        onChange={(e) => setEmployeeIdInput(e.target.value)}
+                                        onBlur={handleEmployeeBlur}
+                                        placeholder="أدخل رقم الموظف..."
+                                    />
+                                </div>
                                 <button
                                     type="button"
                                     onClick={handleEmployeeBlur}
@@ -432,13 +430,11 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                     {referralType === 'Client' && (
                         <div ref={clientSearchRef} className="relative">
                             <label className="block text-sm font-bold text-slate-700 mb-2">اسم الوسيط <span className="text-red-500">*</span></label>
-                            <input
-                                type="text"
+                            <Input
                                 value={clientSearch}
                                 onChange={(e) => handleClientSearch(e.target.value)}
                                 onFocus={() => handleClientSearch(clientSearch)}
                                 placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-                                className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
                             />
                             {clientSuggestions.length > 0 && (
                                 <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-10 overflow-hidden">
@@ -472,11 +468,10 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                     {(referralType === 'Personal' || referralType === 'Unknown') && (
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2"> اسم الوسيط <span className="text-red-500">*</span></label>
-                            <input
-                                type="text"
+                            <Input
                                 value={nameSnapshot}
                                 disabled
-                                className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-not-allowed"
+                                className="font-bold"
                             />
                         </div>
                     )}

@@ -10,6 +10,8 @@ import type { ColumnDef, FilterDef } from '../components/SmartTable';
 import ManualSearchModal from '../components/candidates/ManualSearchModal';
 import QualificationModal from '../components/candidates/QualificationModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
+import Select from '../components/ui/Select';
+import Button from '../components/ui/Button';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useAuthStore } from '../hooks/useAuthStore';
 
@@ -370,7 +372,8 @@ export default function Clients() {
                     <h1 className="text-2xl font-black text-slate-800">سجلات الزبائن</h1>
                     <p className="text-sm text-slate-500 font-medium">إدارة وتحليل بيانات الزبائن والشبكة</p>
                 </div>
-                <button
+                <Button
+                    icon={UserPlus}
                     onClick={() => {
                         setActiveCandidateForSearch({
                             id: 0,
@@ -383,11 +386,9 @@ export default function Clients() {
                         });
                         setIsPreAddModalOpen(true);
                     }}
-                    className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95"
                 >
-                    <UserPlus className="w-4 h-4" />
-                    <span>إضافة اسم مرشح جديد</span>
-                </button>
+                    إضافة اسم مرشح جديد
+                </Button>
             </div>
 
             {/* 2. KPI Stat Cards */}
@@ -428,42 +429,50 @@ export default function Clients() {
 
                     {/* Filters */}
                     <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                        <select
-                            value={filterClass} onChange={(e) => setFilterClass(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:border-sky-500"
-                        >
-                            <option value="all">كل التصنيفات</option>
-                            <option value="Lead">Lead - مرشح</option>
-                            <option value="FOP">FOP - مستهدف</option>
-                            <option value="OP">OP - فعلي</option>
-                        </select>
+                        <Select
+                            value={filterClass}
+                            onChange={setFilterClass}
+                            ariaLabel="تصنيف الزبون"
+                            variant="filled"
+                            options={[
+                                { value: 'all',  label: 'كل التصنيفات' },
+                                { value: 'Lead', label: 'Lead - مرشح' },
+                                { value: 'FOP',  label: 'FOP - مستهدف' },
+                                { value: 'OP',   label: 'OP - فعلي' },
+                            ]}
+                        />
 
-                        <select
-                            value={filterMediator} onChange={(e) => setFilterMediator(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:border-sky-500"
-                        >
-                            <option value="all">كل أنواع الوسيط</option>
-                            <option value="Personal">شخصي</option>
-                            <option value="Employee">موظف</option>
-                            <option value="Client">زبون حالي</option>
-                        </select>
+                        <Select
+                            value={filterMediator}
+                            onChange={setFilterMediator}
+                            ariaLabel="نوع الوسيط"
+                            variant="filled"
+                            options={[
+                                { value: 'all',      label: 'كل أنواع الوسيط' },
+                                { value: 'Personal', label: 'شخصي' },
+                                { value: 'Employee', label: 'موظف' },
+                                { value: 'Client',   label: 'زبون حالي' },
+                            ]}
+                        />
 
-                        <select
-                            value={filterArea} onChange={(e) => setFilterArea(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:border-sky-500"
-                        >
-                            <option value="all">كل المحافظات</option>
-                            {geoUnits.filter(g => g.level === 1).map(g => (
-                                <option key={g.id} value={g.id}>{g.name}</option>
-                            ))}
-                        </select>
+                        <Select
+                            value={filterArea}
+                            onChange={setFilterArea}
+                            ariaLabel="المحافظة"
+                            variant="filled"
+                            options={[
+                                { value: 'all', label: 'كل المحافظات' },
+                                ...geoUnits.filter(g => g.level === 1).map(g => ({ value: String(g.id), label: g.name })),
+                            ]}
+                        />
 
-                        <button
+                        <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => { setSearchTerm(''); setFilterClass('all'); setFilterMediator('all'); setFilterArea('all'); }}
-                            className="text-xs font-bold text-slate-400 hover:text-sky-600 px-3 transition-colors"
                         >
                             تفريغ الفلاتر
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div >

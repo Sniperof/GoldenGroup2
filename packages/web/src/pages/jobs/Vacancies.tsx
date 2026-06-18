@@ -17,6 +17,8 @@ import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { GeoSelection, getLevelName } from '../../components/GeoSmartSearch';
+import Select from '../../components/ui/Select';
+import Button from '../../components/ui/Button';
 import { api } from '../../lib/api';
 import type { Department, GeoUnit } from '../../lib/types';
 
@@ -280,10 +282,14 @@ export default function Vacancies() {
         <p className="text-[11px] font-bold text-sky-600 uppercase tracking-widest flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5" /> هوية الوظيفة</p>
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1.5">عنوان الوظيفة <span className="text-red-400">*</span></label>
-          <select value={formData.title || ''} onChange={e => setField('title', e.target.value)} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))}>
-            <option value="">اختر عنوان الوظيفة</option>
-            {getValuesByCategory('job_title').map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
+          <Select
+            value={formData.title || ''}
+            onChange={v => setField('title', v)}
+            disabled={isFieldLocked('full')}
+            placeholder="اختر عنوان الوظيفة"
+            className="w-full"
+            options={getValuesByCategory('job_title').map(v => ({ value: v, label: v }))}
+          />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
@@ -291,22 +297,21 @@ export default function Vacancies() {
               الفرع <span className="text-red-400">*</span>
               {branchFieldLocked && <Lock className="inline w-3 h-3 mr-1 text-slate-400" />}
             </label>
-            <select
+            <Select
               value={formData.branch || ''}
-              onChange={e => handleBranchChange(e.target.value)}
+              onChange={v => handleBranchChange(v)}
               disabled={isFieldLocked('full') || branchFieldLocked}
-              className={inputCls(isFieldLocked('full') || branchFieldLocked)}
-            >
-              <option value="">اختر الفرع</option>
-              {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-            </select>
+              placeholder="اختر الفرع"
+              className="w-full"
+              options={branches.map(b => ({ value: b.name, label: b.name }))}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">القسم <span className="text-red-400">*</span></label>
-            <select
-              value={formData.departmentId ?? ''}
-              onChange={e => {
-                const departmentId = Number(e.target.value) || null;
+            <Select
+              value={formData.departmentId != null ? String(formData.departmentId) : ''}
+              onChange={v => {
+                const departmentId = v ? Number(v) : null;
                 const department = departments.find((item) => item.id === departmentId) ?? null;
                 setFormData((prev) => ({
                   ...prev,
@@ -315,18 +320,21 @@ export default function Vacancies() {
                 }));
               }}
               disabled={isFieldLocked('full') || !selectedBranchId}
-              className={inputCls(isFieldLocked('full') || !selectedBranchId)}
-            >
-              <option value="">{selectedBranchId ? 'اختر القسم' : 'اختر الفرع أولاً'}</option>
-              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-            </select>
+              placeholder={selectedBranchId ? 'اختر القسم' : 'اختر الفرع أولاً'}
+              className="w-full"
+              options={departments.map((department) => ({ value: String(department.id), label: department.name }))}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">نوع العمل</label>
-            <select value={formData.workType || ''} onChange={e => setField('workType', e.target.value || null)} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))}>
-              <option value="">اختر نوع العمل</option>
-              {getValuesByCategory('work_type').map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
+            <Select
+              value={formData.workType || ''}
+              onChange={v => setField('workType', v || null)}
+              disabled={isFieldLocked('full')}
+              placeholder="اختر نوع العمل"
+              className="w-full"
+              options={getValuesByCategory('work_type').map(v => ({ value: v, label: v }))}
+            />
           </div>
         </div>
       </div>
@@ -405,10 +413,14 @@ export default function Vacancies() {
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">الجنس</label>
-            <select value={formData.requiredGender || ''} onChange={e => setField('requiredGender', e.target.value || null)} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))}>
-              <option value="">لا يهم</option>
-              {getValuesByCategory('gender').map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
+            <Select
+              value={formData.requiredGender || ''}
+              onChange={v => setField('requiredGender', v || null)}
+              disabled={isFieldLocked('full')}
+              placeholder="لا يهم"
+              className="w-full"
+              options={getValuesByCategory('gender').map(v => ({ value: v, label: v }))}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">الحد الأدنى للعمر</label>
@@ -441,17 +453,25 @@ export default function Vacancies() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">الشهادة العلمية</label>
-            <select value={formData.requiredCertificate || ''} onChange={e => { setField('requiredCertificate', e.target.value || null); setField('requiredMajor', null); }} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))}>
-              <option value="">اختر الشهادة</option>
-              {getValuesByCategory('certificate').map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
+            <Select
+              value={formData.requiredCertificate || ''}
+              onChange={v => { setField('requiredCertificate', v || null); setField('requiredMajor', null); }}
+              disabled={isFieldLocked('full')}
+              placeholder="اختر الشهادة"
+              className="w-full"
+              options={getValuesByCategory('certificate').map(v => ({ value: v, label: v }))}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">الاختصاص</label>
-            <select value={formData.requiredMajor || ''} onChange={e => setField('requiredMajor', e.target.value || null)} disabled={isFieldLocked('full') || !formData.requiredCertificate} className={inputCls(isFieldLocked('full') || !formData.requiredCertificate)}>
-              <option value="">{formData.requiredCertificate ? 'اختر الاختصاص' : 'اختر الشهادة أولاً'}</option>
-              {formData.requiredCertificate && getValuesByCategory(`major:${formData.requiredCertificate}`).map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
+            <Select
+              value={formData.requiredMajor || ''}
+              onChange={v => setField('requiredMajor', v || null)}
+              disabled={isFieldLocked('full') || !formData.requiredCertificate}
+              placeholder={formData.requiredCertificate ? 'اختر الاختصاص' : 'اختر الشهادة أولاً'}
+              className="w-full"
+              options={formData.requiredCertificate ? getValuesByCategory(`major:${formData.requiredCertificate}`).map(v => ({ value: v, label: v })) : []}
+            />
           </div>
         </div>
         <div>
@@ -613,37 +633,45 @@ export default function Vacancies() {
           <p className="text-sm text-slate-500 mt-1">إنشاء وإدارة فرص العمل المتاحة</p>
         </div>
         <PermissionGate permission="jobs.vacancies.create">
-          <button onClick={openCreate} className="flex items-center gap-2 px-5 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-semibold shadow-lg shadow-sky-500/25 transition-all">
-            <Plus className="w-5 h-5" /> إنشاء شاغر جديد
-          </button>
+          <Button icon={Plus} onClick={openCreate}>
+            إنشاء شاغر جديد
+          </Button>
         </PermissionGate>
       </div>
 
       {/* Filters */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 text-slate-500"><Filter className="w-4 h-4" /><span className="text-sm font-medium">تصفية:</span></div>
-        <div className="relative">
-          <select value={filters.status} onChange={e => setFilter('status', e.target.value as VacancyStatus | '')} className="appearance-none bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500">
-            <option value="">كل الحالات</option>
-            <option value="Open">مفتوحة</option>
-            <option value="Closed">مغلقة</option>
-            <option value="Archived">مؤرشفة</option>
-          </select>
-          <ChevronDown className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        </div>
-        <div className="relative">
-          <select value={filters.branch} onChange={e => setFilter('branch', e.target.value)} className="appearance-none bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500">
-            <option value="">كل الفروع</option>
-            {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-          </select>
-          <ChevronDown className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        </div>
+        <Select<VacancyStatus | ''>
+          value={filters.status}
+          onChange={v => setFilter('status', v)}
+          variant="filled"
+          size="sm"
+          ariaLabel="الحالة"
+          options={[
+            { value: '', label: 'كل الحالات' },
+            { value: 'Open', label: 'مفتوحة' },
+            { value: 'Closed', label: 'مغلقة' },
+            { value: 'Archived', label: 'مؤرشفة' },
+          ]}
+        />
+        <Select
+          value={filters.branch}
+          onChange={v => setFilter('branch', v)}
+          variant="filled"
+          size="sm"
+          ariaLabel="الفرع"
+          options={[
+            { value: '', label: 'كل الفروع' },
+            ...branches.map(b => ({ value: b.name, label: b.name })),
+          ]}
+        />
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input type="text" placeholder="بحث بالرقم أو الإسم..." value={filters.search} onChange={e => setFilter('search', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg pr-10 pl-3 py-2 text-sm focus:ring-2 focus:ring-sky-500" />
         </div>
         {(filters.status || filters.branch || filters.search) && (
-          <button onClick={resetFilters} className="text-xs text-slate-500 hover:text-red-500 transition-colors">مسح الفلاتر</button>
+          <Button variant="ghost" size="sm" onClick={resetFilters} className="text-slate-500 hover:text-red-500 hover:bg-red-50 px-2">مسح الفلاتر</Button>
         )}
       </div>
 
@@ -778,13 +806,13 @@ export default function Vacancies() {
                     <span className="text-xs text-slate-400">الخطوة {wizardStep} من 3</span>
                     <div className="flex items-center gap-3">
                       {wizardStep > 1 && (
-                        <button onClick={() => setWizardStep(s => (s - 1) as 1 | 2 | 3)} className="px-5 py-2.5 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors flex items-center gap-2">
-                          <ArrowRight className="w-4 h-4" /> السابق
-                        </button>
+                        <Button variant="secondary" icon={ArrowRight} onClick={() => setWizardStep(s => (s - 1) as 1 | 2 | 3)}>
+                          السابق
+                        </Button>
                       )}
-                      <button onClick={() => setShowModal(false)} className="px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors">إلغاء</button>
+                      <Button variant="ghost" onClick={() => setShowModal(false)}>إلغاء</Button>
                       {wizardStep < 3 ? (
-                        <button onClick={() => {
+                        <Button onClick={() => {
                           setFormError('');
                           if (wizardStep === 1) {
                             if (!formData.title?.trim()) { setFormError('عنوان الوظيفة مطلوب'); return; }
@@ -792,22 +820,22 @@ export default function Vacancies() {
                             if (!formData.departmentId) { setFormError('القسم مطلوب'); return; }
                           }
                           setWizardStep(s => (s + 1) as 1 | 2 | 3);
-                        }} className="px-6 py-2.5 text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl shadow-lg shadow-sky-500/25 transition-all flex items-center gap-2">
-                          التالي <ArrowLeft className="w-4 h-4" />
-                        </button>
+                        }} icon={ArrowLeft} iconPosition="trailing">
+                          التالي
+                        </Button>
                       ) : (
-                        <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-xl shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
-                          {saving ? 'جاري الحفظ...' : <><CheckCircle className="w-4 h-4" /> إنشاء الشاغر</>}
-                        </button>
+                        <Button icon={CheckCircle} loading={saving} onClick={handleSave} className="bg-emerald-500 hover:bg-emerald-600">
+                          {saving ? 'جاري الحفظ...' : 'إنشاء الشاغر'}
+                        </Button>
                       )}
                     </div>
                   </>
                 ) : (
                   <>
-                    <button onClick={() => setShowModal(false)} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">إلغاء</button>
-                    <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
-                      {saving ? 'جاري الحفظ...' : <><CheckCircle className="w-4 h-4" /> حفظ التعديلات</>}
-                    </button>
+                    <Button variant="secondary" onClick={() => setShowModal(false)}>إلغاء</Button>
+                    <Button icon={CheckCircle} loading={saving} onClick={handleSave}>
+                      {saving ? 'جاري الحفظ...' : 'حفظ التعديلات'}
+                    </Button>
                   </>
                 )}
               </div>

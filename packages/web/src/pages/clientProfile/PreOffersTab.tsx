@@ -11,6 +11,7 @@ import { OutcomeChip, type PreOfferOutcomeState } from '../../components/preOffe
 import DeviceOfferModal from '../../components/clients/DeviceOfferModal';
 import StandaloneDeviceOffersModal from '../../components/clients/StandaloneDeviceOffersModal';
 import type { Client } from '../../lib/types';
+import Button from '../../components/ui/Button';
 
 interface Props {
   client: Client;
@@ -134,22 +135,17 @@ export function PreOffersTab({ client }: Props) {
 
   const createButton = (
     <div className="flex flex-wrap items-center gap-2">
-      <button
-        onClick={() => setStandaloneOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 shadow-sm transition-all hover:bg-sky-100"
-      >
-        <Plus className="h-4 w-4" />
+      <Button variant="secondary" icon={Plus} onClick={() => setStandaloneOpen(true)}>
         إنشاء عروض أجهزة
-      </button>
-      <button
-      onClick={() => setCreateOpen(true)}
-      disabled={hasActiveDeviceDemo}
-      className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition-all hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
-      title={hasActiveDeviceDemo ? 'توجد مهمة عرض جهاز نشطة لهذا الزبون' : undefined}
-    >
-      <Plus className="h-4 w-4" />
-      إنشاء عرض جهاز
-      </button>
+      </Button>
+      <Button
+        icon={Plus}
+        onClick={() => setCreateOpen(true)}
+        disabled={hasActiveDeviceDemo}
+        title={hasActiveDeviceDemo ? 'توجد مهمة عرض جهاز نشطة لهذا الزبون' : undefined}
+      >
+        إنشاء عرض جهاز
+      </Button>
     </div>
   );
 

@@ -4,6 +4,8 @@ import { UserPlus, Search, Filter, Phone, Trash2, CheckCircle, XCircle, AlertCir
 import AddCandidateModal from './AddCandidateModal';
 import { Candidate } from '../../lib/types';
 import { getEntityContacts, getPrimaryContact } from '../../lib/contactUtils';
+import Select from '../ui/Select';
+import Input from '../ui/Input';
 
 export default function CandidatesEntry() {
     const candidates = useCandidateStore(state => state.candidates);
@@ -42,26 +44,26 @@ export default function CandidatesEntry() {
                     </span>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
-                        <input
-                            type="text"
+                    <div className="w-64">
+                        <Input
                             placeholder="بحث (اسم، موبايل، وسيط)..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-4 pr-10 py-2 w-64 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm transition-all"
+                            leading={<Search className="w-4 h-4" />}
                         />
                     </div>
-                    <select
+                    <Select<'All' | 'New' | 'Qualified' | 'Junk'>
                         value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value as any)}
-                        className="px-4 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 focus:border-sky-400"
-                    >
-                        <option value="All">الكل</option>
-                        <option value="New">جديد (New)</option>
-                        <option value="Qualified">تم التحويل (Qualified)</option>
-                        <option value="Junk">مرفوض (Junk)</option>
-                    </select>
+                        onChange={setFilterStatus}
+                        ariaLabel="فلترة الحالة"
+                        variant="filled"
+                        options={[
+                            { value: 'All', label: 'الكل' },
+                            { value: 'New', label: 'جديد (New)' },
+                            { value: 'Qualified', label: 'تم التحويل (Qualified)' },
+                            { value: 'Junk', label: 'مرفوض (Junk)' },
+                        ]}
+                    />
                     <button
                         onClick={() => setIsAddModalOpen(true)}
                         className="flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-sky-600/20 transition-all hover:-translate-y-0.5"

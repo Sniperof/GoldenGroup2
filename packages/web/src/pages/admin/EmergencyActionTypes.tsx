@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import IconButton from '../../components/ui/IconButton';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, ToggleLeft, ToggleRight, Trash2, X, Zap } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import Button from '../../components/ui/Button';
+import Card from '../../components/ui/Card';
 
 type ActionType = {
   id: number;
@@ -103,10 +106,9 @@ export default function EmergencyActionTypes() {
           </div>
         </div>
         {canManage && (
-          <button onClick={openNew}
-            className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-500 transition-colors shadow-sm">
-            <Plus className="w-4 h-4" /> إضافة نوع
-          </button>
+          <Button variant="danger" icon={Plus} onClick={openNew}>
+            إضافة نوع
+          </Button>
         )}
       </div>
 
@@ -114,7 +116,7 @@ export default function EmergencyActionTypes() {
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
           <AlertTriangle className="w-4 h-4 shrink-0" /> {error}
-          <button onClick={() => setError(null)} className="mr-auto"><X className="w-4 h-4" /></button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setError(null)} />
         </div>
       )}
       {success && (
@@ -127,7 +129,7 @@ export default function EmergencyActionTypes() {
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-rose-500" /></div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+        <Card padding="none" className="overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 font-bold">
               <tr>
@@ -149,45 +151,7 @@ export default function EmergencyActionTypes() {
                   <td className="p-3 text-slate-500 text-xs">{item.description || '—'}</td>
                   <td className="p-3 text-center">
                     {canManage ? (
-                      <button onClick={() => toggleActive(item)} disabled={savingId === item.id}
-                        className={`p-1 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-100'} disabled:opacity-50`}>
-                        {savingId === item.id
-                          ? <Loader2 className="w-5 h-5 animate-spin" />
-                          : item.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                      </button>
-                    ) : (
-                      <span className={`text-xs font-bold ${item.isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
-                        {item.isActive ? 'مفعّل' : 'معطّل'}
-                      </span>
-                    )}
-                  </td>
-                  {canManage && (
-                    <td className="p-3">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button onClick={() => openEdit(item)} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors">
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(item)} disabled={savingId === item.id} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Edit Modal */}
-      {editItem !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
-          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 bg-rose-50">
-              <h3 className="font-bold text-slate-800">{isNew ? 'إضافة نوع إجراء' : 'تعديل نوع الإجراء'}</h3>
-              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+                      <IconButton icon={X} label="إغلاق" size="sm" onClick={() => toggleActive(item)} disabled={savingId === item.id} />
             </div>
             <div className="px-5 py-4 space-y-3">
               <div>
@@ -209,13 +173,17 @@ export default function EmergencyActionTypes() {
               </div>
             </div>
             <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-              <button onClick={closeModal} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-              <button onClick={handleSave} disabled={!editItem.arabicLabel?.trim() || savingId !== null}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-rose-600 py-2.5 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60">
-                {savingId !== null && <Loader2 className="w-4 h-4 animate-spin" />}
-                <Save className="w-4 h-4" />
+              <Button variant="secondary" onClick={closeModal} className="flex-1">إلغاء</Button>
+              <Button
+                variant="danger"
+                icon={Save}
+                onClick={handleSave}
+                disabled={!editItem.arabicLabel?.trim()}
+                loading={savingId !== null}
+                className="flex-1"
+              >
                 حفظ
-              </button>
+              </Button>
             </div>
           </div>
         </div>

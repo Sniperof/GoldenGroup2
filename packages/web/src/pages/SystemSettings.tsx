@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
 import { Settings, Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
+import Button from '../components/ui/Button';
 
 export default function SystemSettings() {
     const { hasPermission } = usePermissions();
@@ -63,31 +64,30 @@ export default function SystemSettings() {
                             </div>
 
                             {!showConfirm ? (
-                                <button
+                                <Button
+                                    variant="secondary"
+                                    icon={Trash2}
                                     onClick={() => setShowConfirm(true)}
                                     disabled={!canManageSettings}
-                                    className="px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors flex items-center gap-2"
+                                    className="text-red-600 border-red-200 hover:bg-red-50"
                                 >
-                                    <Trash2 className="w-4 h-4" />
                                     حذف البيانات
-                                </button>
+                                </Button>
                             ) : (
                                 <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4 duration-300">
                                     <span className="text-xs text-red-600 font-bold">هل أنت متأكد؟</span>
-                                    <button
+                                    <Button
+                                        variant="danger"
+                                        icon={CheckCircle2}
                                         onClick={handleClearData}
-                                        disabled={isClearing || !canManageSettings}
-                                        className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 transition-colors flex items-center gap-2 shadow-sm"
+                                        loading={isClearing}
+                                        disabled={!canManageSettings}
                                     >
-                                        {isClearing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                                         تأكيد الحذف
-                                    </button>
-                                    <button
-                                        onClick={() => setShowConfirm(false)}
-                                        className="px-3 py-2 text-slate-500 hover:text-slate-700 text-sm font-medium"
-                                    >
+                                    </Button>
+                                    <Button variant="ghost" onClick={() => setShowConfirm(false)}>
                                         إلغاء
-                                    </button>
+                                    </Button>
                                 </div>
                             )}
                         </div>

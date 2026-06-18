@@ -1,6 +1,8 @@
 import { Download, Loader2, MessageCircle, Printer, X } from 'lucide-react';
+import IconButton from '../ui/IconButton';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
+import Button from '../ui/Button';
 
 // ── Receipt HTML builder ──────────────────────────────────────────────────────
 
@@ -267,9 +269,7 @@ export default function MaintenanceReceiptModal({ taskId, isOpen, onClose }: Pro
             <h3 className="text-base font-black text-slate-800">وصل الصيانة</h3>
             <p className="mt-0.5 text-xs text-slate-500">مهمة #{taskId}</p>
           </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-white hover:text-slate-600 transition-colors">
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </div>
 
         {/* Preview */}
@@ -290,18 +290,15 @@ export default function MaintenanceReceiptModal({ taskId, isOpen, onClose }: Pro
 
         {/* Actions */}
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-6 py-4 shrink-0 bg-slate-50">
-          <button onClick={handleDownload} disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors">
-            <Download className="h-4 w-4" /> تنزيل HTML
-          </button>
-          <button onClick={handleWhatsapp} disabled={loading || !whatsappText}
-            className="inline-flex items-center gap-2 rounded-xl border border-green-300 bg-green-50 px-4 py-2 text-sm font-bold text-green-700 hover:bg-green-100 disabled:opacity-50 transition-colors">
-            <MessageCircle className="h-4 w-4" /> مشاركة واتساب
-          </button>
-          <button onClick={handlePrint} disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-50 shadow-sm transition-colors">
-            <Printer className="h-4 w-4" /> طباعة / PDF
-          </button>
+          <Button variant="secondary" icon={Download} disabled={loading} onClick={handleDownload}>
+            تنزيل HTML
+          </Button>
+          <Button variant="secondary" icon={MessageCircle} disabled={loading || !whatsappText} onClick={handleWhatsapp}>
+            مشاركة واتساب
+          </Button>
+          <Button variant="danger" icon={Printer} disabled={loading} onClick={handlePrint}>
+            طباعة / PDF
+          </Button>
         </div>
       </div>
     </div>

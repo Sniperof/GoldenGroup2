@@ -5,6 +5,7 @@ import type { ColumnDef, FilterDef } from '../../components/SmartTable';
 import type { Contract } from '../../lib/types';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
+import Button from '../../components/ui/Button';
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                              */
@@ -119,21 +120,14 @@ export default function ContractList() {
                 searchPlaceholder="بحث عن عقد..."
                 getId={(c) => c.id}
                 headerActions={
-                    <button
-                        onClick={() => navigate('/contracts/new')}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-colors shadow-sm"
-                    >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>عقد جديد</span>
-                    </button>
+                    <Button icon={Plus} onClick={() => navigate('/contracts/new')}>
+                        عقد جديد
+                    </Button>
                 }
                 actions={(c) => (
-                    <button
-                        onClick={() => navigate(`/contracts/${c.id}`)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium transition-colors"
-                    >
-                        <Eye className="w-3.5 h-3.5" /><span>عرض</span>
-                    </button>
+                    <Button size="sm" icon={Eye} onClick={() => navigate(`/contracts/${c.id}`)}>
+                        عرض
+                    </Button>
                 )}
                 emptyIcon={FileText}
                 emptyMessage="لا توجد عقود"

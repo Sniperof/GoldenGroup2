@@ -19,6 +19,11 @@
 import { useEffect, useState } from 'react';
 import { Plus, Wrench, CheckCircle2, Clock, XCircle, AlertCircle } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../ui/Select';
+import Input from '../ui/Input';
+import Card from '../ui/Card';
+import Badge from '../ui/Badge';
+import Button from '../ui/Button';
 
 interface Problem {
   id: number;
@@ -245,39 +250,32 @@ export default function EmergencyProblemsSection({
   const useTable = totalCount > 3; // #4 — auto-switch to table for many rows
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm mb-4" dir="rtl">
+    <Card padding="none" className="overflow-hidden mb-4" dir="rtl">
       {/* Header */}
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-rose-600" />
           <h3 className="font-bold text-slate-800 text-sm">إجراء الصيانة</h3>
-          <span className="text-[10px] font-bold text-slate-500 bg-white border border-slate-200 rounded-full px-2 py-0.5">
+          <Badge size="sm">
             {active.length} {active.length === 1 ? 'عطل' : 'أعطال'}
-          </span>
+          </Badge>
         </div>
         <div className="flex items-center gap-2">
           {/* #6 — Goal indicator chip */}
           {totalCount > 0 && (
-            <span className={`text-[10px] font-bold rounded-full border px-2.5 py-0.5 ${
-              resolvedCount === totalCount ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : pct >= 50 ? 'bg-sky-50 text-sky-700 border-sky-200'
-                : 'bg-amber-50 text-amber-700 border-amber-200'
-            }`}>
+            <Badge variant={resolvedCount === totalCount ? 'success' : pct >= 50 ? 'info' : 'warning'} size="sm">
               {resolvedCount}/{totalCount} محلولة ({pct}%)
-            </span>
+            </Badge>
           )}
           {derivedOutcome && (
-            <span className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded-full px-2.5 py-0.5">
+            <Badge size="sm">
               المحصلة: <strong className="text-rose-700">{derivedOutcome.outcome}</strong>
-            </span>
+            </Badge>
           )}
           {!readOnly && (
-            <button
-              onClick={() => setShowAdd((v) => !v)}
-              className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 border border-rose-200 rounded-xl px-3 py-1.5 hover:bg-rose-50 transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" /> عطل مُكتشَف ميدانياً
-            </button>
+            <Button variant="secondary" size="sm" icon={Plus} onClick={() => setShowAdd((v) => !v)} className="border-rose-200 text-rose-600 hover:bg-rose-50">
+              عطل مُكتشَف ميدانياً
+            </Button>
           )}
         </div>
       </div>
@@ -291,18 +289,14 @@ export default function EmergencyProblemsSection({
         {showAdd && (
           <div className="bg-rose-50/40 border border-rose-200 rounded-xl p-3 space-y-2">
             <div className="text-xs font-bold text-rose-700 mb-1">إضافة عطل مكتشَف ميدانياً</div>
-            <select
+            <Select
               value={newTypeId}
-              onChange={(e) => setNewTypeId(e.target.value)}
-              className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white"
-            >
-              <option value="">— نوع العطل —</option>
-              {problemTypes.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.value}
-                </option>
-              ))}
-            </select>
+              onChange={setNewTypeId}
+              placeholder="— نوع العطل —"
+              ariaLabel="نوع العطل"
+              className="w-full"
+              options={problemTypes.map(t => ({ value: String(t.id), label: t.value }))}
+            />
             <textarea
               value={newDetails}
               onChange={(e) => setNewDetails(e.target.value)}
@@ -311,19 +305,12 @@ export default function EmergencyProblemsSection({
               className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white resize-none"
             />
             <div className="flex gap-2">
-              <button
-                disabled={busy}
-                onClick={addNew}
-                className="text-sm bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg font-bold"
-              >
+              <Button size="sm" loading={busy} onClick={addNew} className="bg-rose-600 hover:bg-rose-700">
                 {busy ? 'جاري الحفظ...' : 'حفظ'}
-              </button>
-              <button
-                onClick={() => setShowAdd(false)}
-                className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-1.5 rounded-lg font-bold"
-              >
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setShowAdd(false)}>
                 إلغاء
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -427,31 +414,19 @@ export default function EmergencyProblemsSection({
                       {!readOnly && !isResolved && (
                         <div className="flex flex-col gap-1 items-stretch shrink-0">
                           {(p.status === 'reported' || p.status === 'confirmed' || p.status === 'deferred') && (
-                            <button
-                              disabled={busy}
-                              onClick={() => startResolve(p.id)}
-                              className="text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-bold inline-flex items-center gap-1"
-                            >
-                              <CheckCircle2 className="h-3 w-3" /> حُلَّ
-                            </button>
+                            <Button size="sm" icon={CheckCircle2} disabled={busy} onClick={() => startResolve(p.id)} className="bg-emerald-600 hover:bg-emerald-700">
+                              حُلَّ
+                            </Button>
                           )}
                           {(p.status === 'reported' || p.status === 'confirmed') && (
-                            <button
-                              disabled={busy}
-                              onClick={() => startDefer(p.id, 'deferred')}
-                              className="text-xs border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50 px-3 py-1.5 rounded-lg font-bold inline-flex items-center gap-1"
-                            >
-                              <Clock className="h-3 w-3" /> تأجيل
-                            </button>
+                            <Button variant="secondary" size="sm" icon={Clock} disabled={busy} onClick={() => startDefer(p.id, 'deferred')} className="border-amber-300 text-amber-700 hover:bg-amber-50">
+                              تأجيل
+                            </Button>
                           )}
                           {(p.status === 'reported' || p.status === 'confirmed') && (
-                            <button
-                              disabled={busy}
-                              onClick={() => startDefer(p.id, 'unresolvable_field')}
-                              className="text-xs border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 px-3 py-1.5 rounded-lg font-bold inline-flex items-center gap-1"
-                            >
-                              <XCircle className="h-3 w-3" /> غير قابل
-                            </button>
+                            <Button variant="secondary" size="sm" icon={XCircle} disabled={busy} onClick={() => startDefer(p.id, 'unresolvable_field')} className="border-red-300 text-red-700 hover:bg-red-50">
+                              غير قابل
+                            </Button>
                           )}
                         </div>
                       )}
@@ -463,30 +438,21 @@ export default function EmergencyProblemsSection({
                         <div className="text-xs font-bold text-amber-700">
                           {deferring.to === 'deferred' ? 'سَبب التَأجيل' : 'سَبب عَدم القَابلية ميدانياً'}
                         </div>
-                        <select
+                        <Select
                           value={deferReason}
-                          onChange={(e) => setDeferReason(e.target.value)}
-                          className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white"
-                        >
-                          <option value="">— اختر السبب —</option>
-                          {NO_RESOLVE_REASONS.map((r) => (
-                            <option key={r.value} value={r.value}>{r.label}</option>
-                          ))}
-                        </select>
+                          onChange={setDeferReason}
+                          placeholder="— اختر السبب —"
+                          ariaLabel="السبب"
+                          className="w-full"
+                          options={NO_RESOLVE_REASONS.map(r => ({ value: r.value, label: r.label }))}
+                        />
                         <div className="flex gap-2">
-                          <button
-                            disabled={busy || !deferReason}
-                            onClick={confirmDefer}
-                            className="text-sm bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg font-bold"
-                          >
+                          <Button size="sm" disabled={busy || !deferReason} onClick={confirmDefer} className="bg-amber-600 hover:bg-amber-700">
                             تأكيد
-                          </button>
-                          <button
-                            onClick={() => setDeferring(null)}
-                            className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-1.5 rounded-lg font-bold"
-                          >
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => setDeferring(null)}>
                             إلغاء
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     )}
@@ -511,18 +477,14 @@ export default function EmergencyProblemsSection({
                               </span>
                             )}
                           </label>
-                          <select
+                          <Select
                             value={resolveRepairedBy}
-                            onChange={(e) => setResolveRepairedBy(e.target.value)}
-                            className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white"
-                          >
-                            <option value="">— اختر —</option>
-                            {employees.map((e) => (
-                              <option key={e.id} value={e.id}>
-                                {e.name}
-                              </option>
-                            ))}
-                          </select>
+                            onChange={setResolveRepairedBy}
+                            placeholder="— اختر —"
+                            ariaLabel="الفني الذي أَصلَح"
+                            className="w-full"
+                            options={employees.map(e => ({ value: String(e.id), label: e.name }))}
+                          />
                         </div>
                         <textarea
                           value={resolveNotes}
@@ -532,19 +494,12 @@ export default function EmergencyProblemsSection({
                           className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white resize-none"
                         />
                         <div className="flex gap-2">
-                          <button
-                            disabled={busy || !resolveRepairedBy}
-                            onClick={() => confirmResolve(p.id)}
-                            className="text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg font-bold"
-                          >
+                          <Button size="sm" disabled={busy || !resolveRepairedBy} onClick={() => confirmResolve(p.id)} className="bg-emerald-600 hover:bg-emerald-700">
                             تأكيد الحلّ
-                          </button>
-                          <button
-                            onClick={() => setResolving(null)}
-                            className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-1.5 rounded-lg font-bold"
-                          >
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => setResolving(null)}>
                             إلغاء
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     )}
@@ -555,7 +510,7 @@ export default function EmergencyProblemsSection({
           </ul>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -639,22 +594,19 @@ function ProblemsTable(props: ProblemsTableProps) {
                     {!readOnly && !isResolved && (
                       <div className="flex gap-1 justify-center flex-wrap">
                         {(p.status === 'reported' || p.status === 'confirmed' || p.status === 'deferred') && (
-                          <button onClick={() => startResolve(p.id)} disabled={busy}
-                            className="text-[10px] bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-2 py-1 rounded font-bold">
+                          <Button size="sm" onClick={() => startResolve(p.id)} disabled={busy} className="bg-emerald-600 hover:bg-emerald-700 px-2 text-[10px] h-7">
                             حُلَّ
-                          </button>
+                          </Button>
                         )}
                         {(p.status === 'reported' || p.status === 'confirmed') && (
-                          <button onClick={() => startDefer(p.id, 'deferred')} disabled={busy}
-                            className="text-[10px] border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50 px-2 py-1 rounded font-bold">
+                          <Button variant="secondary" size="sm" onClick={() => startDefer(p.id, 'deferred')} disabled={busy} className="border-amber-300 text-amber-700 hover:bg-amber-50 px-2 text-[10px] h-7">
                             تأجيل
-                          </button>
+                          </Button>
                         )}
                         {(p.status === 'reported' || p.status === 'confirmed') && (
-                          <button onClick={() => startDefer(p.id, 'unresolvable_field')} disabled={busy}
-                            className="text-[10px] border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 px-2 py-1 rounded font-bold">
+                          <Button variant="secondary" size="sm" onClick={() => startDefer(p.id, 'unresolvable_field')} disabled={busy} className="border-red-300 text-red-700 hover:bg-red-50 px-2 text-[10px] h-7">
                             غير قابل
-                          </button>
+                          </Button>
                         )}
                       </div>
                     )}
@@ -666,24 +618,26 @@ function ProblemsTable(props: ProblemsTableProps) {
                     <div className="space-y-2">
                       <div className="text-xs font-bold text-emerald-700">تَسجيل حلّ العطل #{p.id}</div>
                       <div className="flex gap-2 flex-wrap">
-                        <select value={resolveRepairedBy} onChange={(e) => setResolveRepairedBy(e.target.value)}
-                          className="flex-1 min-w-[200px] text-sm border border-slate-300 rounded-lg p-2 bg-white">
-                          <option value="">— الفني {defaultTechnicianName ? `(افتراضي: ${defaultTechnicianName})` : ''} —</option>
-                          {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                        </select>
-                        <input type="text" value={resolveNotes} onChange={(e) => setResolveNotes(e.target.value)}
-                          placeholder="ملاحظات (اختياري)"
-                          className="flex-[2] min-w-[200px] text-sm border border-slate-300 rounded-lg p-2 bg-white" />
+                        <Select
+                          value={resolveRepairedBy}
+                          onChange={setResolveRepairedBy}
+                          placeholder={`— الفني ${defaultTechnicianName ? `(افتراضي: ${defaultTechnicianName})` : ''} —`}
+                          ariaLabel="الفني"
+                          className="flex-1 min-w-[200px]"
+                          options={employees.map(e => ({ value: String(e.id), label: e.name }))}
+                        />
+                        <div className="flex-[2] min-w-[200px]">
+                          <Input value={resolveNotes} onChange={(e) => setResolveNotes(e.target.value)}
+                            placeholder="ملاحظات (اختياري)" inputSize="sm" />
+                        </div>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => confirmResolve(p.id)} disabled={busy || !resolveRepairedBy}
-                          className="text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-bold">
+                        <Button size="sm" onClick={() => confirmResolve(p.id)} disabled={busy || !resolveRepairedBy} className="bg-emerald-600 hover:bg-emerald-700">
                           تأكيد الحلّ
-                        </button>
-                        <button onClick={() => setResolving(null)}
-                          className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded-lg font-bold">
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => setResolving(null)}>
                           إلغاء
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   </td></tr>
@@ -695,20 +649,21 @@ function ProblemsTable(props: ProblemsTableProps) {
                       <div className="text-xs font-bold text-amber-700">
                         {deferring!.to === 'deferred' ? 'سَبب التَأجيل' : 'سَبب عَدم القَابلية ميدانياً'} للعطل #{p.id}
                       </div>
-                      <select value={deferReason} onChange={(e) => setDeferReason(e.target.value)}
-                        className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white">
-                        <option value="">— اختر السبب —</option>
-                        {NO_RESOLVE_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-                      </select>
+                      <Select
+                        value={deferReason}
+                        onChange={setDeferReason}
+                        placeholder="— اختر السبب —"
+                        ariaLabel="السبب"
+                        className="w-full"
+                        options={NO_RESOLVE_REASONS.map(r => ({ value: r.value, label: r.label }))}
+                      />
                       <div className="flex gap-2">
-                        <button onClick={confirmDefer} disabled={busy || !deferReason}
-                          className="text-sm bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-bold">
+                        <Button size="sm" onClick={confirmDefer} disabled={busy || !deferReason} className="bg-amber-600 hover:bg-amber-700">
                           تأكيد
-                        </button>
-                        <button onClick={() => setDeferring(null)}
-                          className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded-lg font-bold">
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => setDeferring(null)}>
                           إلغاء
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   </td></tr>

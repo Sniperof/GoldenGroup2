@@ -1,7 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
+import IconButton from '../ui/IconButton';
 import { AlertTriangle, Clock, Image, Loader2, Paperclip, Send, Video, X, Zap } from 'lucide-react';
 import { api } from '../../lib/api';
 import { uploadFile } from '../../lib/uploadFile';
+import Select from '../ui/Select';
+import Button from '../ui/Button';
 
 interface Contract {
   id: number;
@@ -142,7 +145,7 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
             <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
               <Clock className="h-3 w-3" /> 48 ساعة
             </span>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1"><X className="h-4 w-4" /></button>
+            <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
           </div>
         </div>
 
@@ -153,15 +156,14 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
           {contracts.length > 0 && (
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-1.5">العقد / الجهاز</label>
-              <select value={contractId} onChange={e => setContractId(Number(e.target.value) || '')}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20">
-                <option value="">— اختر العقد —</option>
-                {contracts.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.contractNumber} — {c.deviceModelName || 'جهاز'}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={contractId === '' ? '' : String(contractId)}
+                onChange={v => setContractId(v === '' ? '' : Number(v))}
+                placeholder="— اختر العقد —"
+                ariaLabel="العقد / الجهاز"
+                className="w-full"
+                options={contracts.map(c => ({ value: String(c.id), label: `${c.contractNumber} — ${c.deviceModelName || 'جهاز'}` }))}
+              />
               {contractId && contracts.find(c => c.id === contractId)?.installationAddressText && (
                 <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
                   <span className="font-bold text-slate-500">موقع الجهاز:</span>
@@ -177,11 +179,14 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
               نوع الإجراء المطلوب
               <span className="font-normal text-slate-400 mr-1">(اختياري)</span>
             </label>
-            <select value={actionTypeId} onChange={e => setActionTypeId(Number(e.target.value) || '')}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20">
-              <option value="">— لم يُحدَّد —</option>
-              {actionTypes.map(t => <option key={t.id} value={t.id}>{t.arabicLabel}</option>)}
-            </select>
+            <Select
+              value={actionTypeId === '' ? '' : String(actionTypeId)}
+              onChange={v => setActionTypeId(v === '' ? '' : Number(v))}
+              placeholder="— لم يُحدَّد —"
+              ariaLabel="نوع الإجراء"
+              className="w-full"
+              options={actionTypes.map(t => ({ value: String(t.id), label: t.arabicLabel }))}
+            />
           </div>
 
           {/* Problem description */}
@@ -214,60 +219,7 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
                 { v: 'High',     label: 'عالية',   cls: 'border-amber-400 bg-amber-500 text-white' },
                 { v: 'Normal',   label: 'عادية',   cls: 'border-slate-400 bg-slate-500 text-white' },
               ] as { v: 'Critical'|'High'|'Normal'; label: string; cls: string }[]).map(opt => (
-                <button key={opt.v} type="button"
-                  onClick={() => setPriority(opt.v)}
-                  className={`flex-1 py-2 rounded-xl border-2 text-xs font-bold transition-all ${
-                    priority === opt.v ? opt.cls : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}>
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Attachments */}
-          <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1.5">
-              المرفقات
-              <span className="font-normal text-slate-400 mr-1">(اختيارية — حتى 3 صور + فيديو واحد ≤20 ثانية)</span>
-            </label>
-
-            {/* Upload buttons */}
-            <div className="flex gap-2 mb-2">
-              <button type="button" onClick={() => photoInputRef.current?.click()}
-                disabled={!canAddPhoto}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-200 py-2.5 text-xs font-bold text-slate-500 hover:border-rose-300 hover:text-rose-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                <Image className="h-3.5 w-3.5" />
-                صور ({photos.length}/3)
-              </button>
-              <button type="button" onClick={() => videoInputRef.current?.click()}
-                disabled={!canAddVideo}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-200 py-2.5 text-xs font-bold text-slate-500 hover:border-rose-300 hover:text-rose-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                <Video className="h-3.5 w-3.5" />
-                فيديو ({videos.length}/1)
-              </button>
-            </div>
-            <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden"
-              onChange={e => addFiles(e.target.files, 'image')} />
-            <input ref={videoInputRef} type="file" accept="video/*" className="hidden"
-              onChange={e => addFiles(e.target.files, 'video')} />
-
-            {/* File list */}
-            {attachments.length > 0 && (
-              <div className="space-y-1.5">
-                {attachments.map((a, i) => (
-                  <div key={i} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${
-                    a.error ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'
-                  }`}>
-                    {a.type === 'image' ? <Image className="h-3.5 w-3.5 text-slate-400 shrink-0" /> : <Video className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
-                    <span className="flex-1 truncate font-medium text-slate-700">{a.file.name}</span>
-                    <span className="text-slate-400 shrink-0">{formatFileSize(a.file.size)}</span>
-                    {a.uploading && <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500 shrink-0" />}
-                    {a.url && !a.error && <span className="text-emerald-500 shrink-0">✓</span>}
-                    {a.error && <span className="text-red-600 shrink-0 max-w-[120px] truncate" title={a.error}>!</span>}
-                    <button onClick={() => removeAttachment(a.file)} className="text-slate-400 hover:text-red-500 shrink-0">
-                      <X className="h-3 w-3" />
-                    </button>
+                <IconButton icon={X} label="إغلاق" onClick={() => setPriority(opt.v)} disabled={!canAddPhoto} />
                   </div>
                 ))}
               </div>
@@ -289,12 +241,17 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
 
         {/* Footer */}
         <div className="flex gap-3 border-t border-slate-100 px-5 py-4 shrink-0">
-          <button onClick={onClose} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-          <button onClick={handleSubmit} disabled={saving || attachments.some(a => a.uploading)}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-rose-600 py-2.5 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60 shadow-sm">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          <Button variant="secondary" fullWidth onClick={onClose}>إلغاء</Button>
+          <Button
+            variant="danger"
+            fullWidth
+            icon={Send}
+            loading={saving}
+            disabled={saving || attachments.some(a => a.uploading)}
+            onClick={handleSubmit}
+          >
             {saving ? 'جاري الإرسال...' : 'إرسال الطلب'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

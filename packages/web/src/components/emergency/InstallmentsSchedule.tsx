@@ -1,5 +1,7 @@
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import Button from '../ui/Button';
+import Input from '../ui/Input';
 
 export interface Installment {
   installmentNumber: number;
@@ -117,13 +119,14 @@ export default function InstallmentsSchedule({
       {!disabled && (
         <div className="flex items-center gap-2">
           <label className="text-xs font-bold text-slate-600 shrink-0">عدد الأقساط</label>
-          <input type="number" min="1" max="60" value={count}
+          <Input type="number" min={1} max={60} value={count}
             onChange={e => setCount(e.target.value)}
-            className="w-20 rounded-xl border border-slate-200 px-3 py-2 text-sm text-center font-bold focus:outline-none focus:border-rose-400 bg-white" />
-          <button type="button" onClick={handleGenerate}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors">
+            inputSize="sm"
+            fullWidth={false}
+            className="w-20 text-center font-bold" />
+          <Button variant="secondary" size="sm" onClick={handleGenerate}>
             توليد تلقائي
-          </button>
+          </Button>
           <span className="text-xs text-slate-400">
             كل {Math.ceil(installableAmount / (Number(count) || 1)).toLocaleString('ar-SY')} ل.س / شهر
           </span>
@@ -152,10 +155,11 @@ export default function InstallmentsSchedule({
                       className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:border-rose-400 bg-white" />
                   </td>
                   <td className="px-2 py-1.5">
-                    <input type="number" min="0" value={r.amountSyp}
+                    <Input type="number" min={0} value={r.amountSyp}
                       onChange={e => updateRow(idx, 'amountSyp', e.target.value)}
                       disabled={disabled}
-                      className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-left font-bold focus:outline-none focus:border-rose-400 bg-white" dir="ltr" />
+                      inputSize="sm"
+                      className="text-left font-bold" dir="ltr" />
                   </td>
                 </tr>
               ))}
@@ -191,20 +195,19 @@ export default function InstallmentsSchedule({
       {/* أزرار */}
       {!disabled && rows.length > 0 && (
         <div className="flex gap-2">
-          <button type="button" onClick={handleSave} disabled={saving}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50 transition-colors">
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          <Button variant="secondary" size="sm" onClick={handleSave} loading={saving} className="flex-1">
             حفظ مسودة
-          </button>
-          <button type="button" onClick={handleConfirm} disabled={!balanced || confirming}
-            className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition-colors shadow-sm ${
-              balanced
-                ? 'bg-emerald-600 text-white hover:bg-emerald-500'
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-            } disabled:opacity-60`}>
-            {confirming ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+          </Button>
+          <Button
+            size="sm"
+            icon={CheckCircle2}
+            onClick={handleConfirm}
+            disabled={!balanced}
+            loading={confirming}
+            className="flex-1"
+          >
             اعتماد الجدول وإنشاء الاستحقاقات
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -7,6 +7,9 @@ import { api } from '../lib/api';
 import type { GeoUnit } from '../lib/types';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
+import Select from '../components/ui/Select';
+import IconButton from '../components/ui/IconButton';
+import Button from '../components/ui/Button';
 import { usePermissions } from '../hooks/usePermissions';
 
 const tabs = [
@@ -243,27 +246,26 @@ export default function GeoSettings() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={resetData} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm transition-all">
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>إعادة تعيين</span>
-                        </button>
+                        <Button variant="danger" size="sm" icon={RotateCcw} onClick={resetData}>
+                            إعادة تعيين
+                        </Button>
                     </div>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                {/* Tabs — pill segmented (Golden Group design system) */}
+                <div className="flex gap-1 bg-[#EEF1F4] p-1 rounded-full">
                     {tabs.map(tab => (
                         <button
                             key={tab.level}
                             onClick={() => setActiveTab(tab.level)}
-                            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === tab.level
-                                ? 'bg-white shadow-sm text-sky-600 font-bold'
+                            className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-bold transition-all ${activeTab === tab.level
+                                ? 'bg-white shadow-sm text-sky-600'
                                 : 'text-slate-500 hover:text-slate-700'
                                 }`}
                         >
                             <tab.icon className="w-4 h-4" />
                             <span>{tab.label}</span>
-                            <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${activeTab === tab.level ? 'bg-sky-50 text-sky-600' : 'bg-gray-200 text-gray-500'}`}>
+                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === tab.level ? 'bg-[#D7E6F5] text-[#12426F]' : 'bg-[#E3E7EC] text-[#6B7889]'}`}>
                                 {byLevel(tab.level).length}
                             </span>
                         </button>
@@ -297,10 +299,9 @@ export default function GeoSettings() {
                         </div>
                     )}
                     headerActions={
-                        <button onClick={openAddModal} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all">
-                            <Plus className="w-4 h-4" />
-                            <span>إضافة {levelNames[activeTab]}</span>
-                        </button>
+                        <Button icon={Plus} onClick={openAddModal}>
+                            إضافة {levelNames[activeTab]}
+                        </Button>
                     }
                     emptyIcon={currentTab.icon}
                     emptyMessage={`لا توجد ${currentTab.label}`}
@@ -337,9 +338,7 @@ export default function GeoSettings() {
                         >
                             <div className="p-5 border-b border-gray-100 flex justify-between items-center">
                                 <h2 className="text-lg font-bold text-slate-900">تعديل {levelNames[editUnit.level]}</h2>
-                                <button onClick={() => setEditUnit(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
-                                    <X className="w-5 h-5" />
-                                </button>
+                                <IconButton icon={X} label="إغلاق" onClick={() => setEditUnit(null)} />
                             </div>
                             <div className="p-5 space-y-4">
                                 <div>
@@ -361,12 +360,8 @@ export default function GeoSettings() {
                                 )}
                             </div>
                             <div className="p-5 border-t border-gray-100 flex gap-3">
-                                <button onClick={() => setEditUnit(null)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm transition-colors">
-                                    إلغاء
-                                </button>
-                                <button onClick={handleEdit} className="flex-1 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-bold text-sm transition-colors">
-                                    حفظ التعديل
-                                </button>
+                                <Button variant="secondary" fullWidth onClick={() => setEditUnit(null)}>إلغاء</Button>
+                                <Button fullWidth onClick={handleEdit}>حفظ التعديل</Button>
                             </div>
                         </motion.div>
                     </div>
@@ -386,9 +381,7 @@ export default function GeoSettings() {
                             {/* Modal Header */}
                             <div className="p-5 border-b border-gray-100 flex justify-between items-center">
                                 <h2 className="text-lg font-bold text-slate-900">إضافة {levelNames[activeTab]}</h2>
-                                <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
-                                    <X className="w-5 h-5" />
-                                </button>
+                                <IconButton icon={X} label="إغلاق" onClick={() => setIsModalOpen(false)} />
                             </div>
 
                             {/* Modal Body */}
@@ -397,44 +390,47 @@ export default function GeoSettings() {
                                 {activeTab >= 2 && (
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1.5">المحافظة <span className="text-red-500">*</span></label>
-                                        <select
+                                        <Select<string>
                                             value={modalGov}
-                                            onChange={e => { setModalGov(e.target.value); setModalRegion(''); setModalSubDistrict(''); }}
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:border-sky-500 focus:outline-none transition-colors"
-                                        >
-                                            <option value="">اختر المحافظة...</option>
-                                            {governorates.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                                        </select>
+                                            onChange={(v) => { setModalGov(v); setModalRegion(''); setModalSubDistrict(''); }}
+                                            options={[
+                                                { value: '', label: 'اختر المحافظة...' },
+                                                ...governorates.map(g => ({ value: String(g.id), label: g.name })),
+                                            ]}
+                                            className="w-full"
+                                        />
                                     </div>
                                 )}
 
                                 {activeTab >= 3 && (
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1.5">المنطقة <span className="text-red-500">*</span></label>
-                                        <select
+                                        <Select<string>
                                             value={modalRegion}
-                                            onChange={e => { setModalRegion(e.target.value); setModalSubDistrict(''); }}
+                                            onChange={(v) => { setModalRegion(v); setModalSubDistrict(''); }}
                                             disabled={!modalGov}
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:border-sky-500 focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            <option value="">اختر المنطقة...</option>
-                                            {regions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                                        </select>
+                                            options={[
+                                                { value: '', label: 'اختر المنطقة...' },
+                                                ...regions.map(r => ({ value: String(r.id), label: r.name })),
+                                            ]}
+                                            className="w-full"
+                                        />
                                     </div>
                                 )}
 
                                 {activeTab >= 4 && (
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1.5">الناحية <span className="text-red-500">*</span></label>
-                                        <select
+                                        <Select<string>
                                             value={modalSubDistrict}
-                                            onChange={e => setModalSubDistrict(e.target.value)}
+                                            onChange={setModalSubDistrict}
                                             disabled={!modalRegion}
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:border-sky-500 focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            <option value="">اختر الناحية...</option>
-                                            {subDistricts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                        </select>
+                                            options={[
+                                                { value: '', label: 'اختر الناحية...' },
+                                                ...subDistricts.map(s => ({ value: String(s.id), label: s.name })),
+                                            ]}
+                                            className="w-full"
+                                        />
                                     </div>
                                 )}
 
@@ -461,13 +457,8 @@ export default function GeoSettings() {
 
                             {/* Modal Footer */}
                             <div className="p-5 border-t border-gray-100 flex gap-3">
-                                <button onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm transition-colors">
-                                    إلغاء
-                                </button>
-                                <button onClick={handleAdd} className="flex-1 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-bold text-sm transition-colors flex items-center justify-center gap-2">
-                                    <Plus className="w-4 h-4" />
-                                    <span>إضافة</span>
-                                </button>
+                                <Button variant="secondary" fullWidth onClick={() => setIsModalOpen(false)}>إلغاء</Button>
+                                <Button fullWidth icon={Plus} onClick={handleAdd}>إضافة</Button>
                             </div>
                         </motion.div>
                     </div>

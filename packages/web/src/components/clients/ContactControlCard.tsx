@@ -11,6 +11,8 @@ import { Ban, Clock, ShieldOff, Lock, Unlock } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import type { Client } from '../../lib/types';
+import Button from '../ui/Button';
+import Input from '../ui/Input';
 
 interface Props {
   client: Client;
@@ -115,18 +117,15 @@ export default function ContactControlCard({ client, onChange }: Props) {
               عند تفعيله، يُحجب الزبون من كل قوائم التواصل بشكل دائم.
             </p>
           </div>
-          <button
-            type="button"
+          <Button
+            variant={doNotContact ? 'danger' : 'secondary'}
+            size="sm"
             disabled={busy}
             onClick={toggleDoNotContact}
-            className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold border transition ${
-              doNotContact
-                ? 'bg-red-600 text-white border-red-600 hover:bg-red-700'
-                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-            }`}
+            className="shrink-0"
           >
             {doNotContact ? 'مُفعَّل — اضغط للإلغاء' : 'تفعيل الحظر'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -146,14 +145,15 @@ export default function ContactControlCard({ client, onChange }: Props) {
               )}
             </div>
             {canUnlock ? (
-              <button
-                type="button"
+              <Button
+                size="sm"
+                fullWidth
                 disabled={busy}
+                icon={Unlock}
                 onClick={clearCooldown}
-                className="w-full px-3 py-2 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center justify-center gap-1.5"
               >
-                <Unlock className="w-3.5 h-3.5" /> فك التهدئة (مدير الفرع)
-              </button>
+                فك التهدئة (مدير الفرع)
+              </Button>
             ) : (
               <div className="text-[11px] text-slate-500 inline-flex items-center gap-1">
                 <Lock className="w-3 h-3" /> فك التهدئة محصور بصلاحية مدير الفرع.
@@ -164,54 +164,54 @@ export default function ContactControlCard({ client, onChange }: Props) {
           <div className="space-y-2">
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-1">
-                <label className="block text-[11px] font-bold text-slate-600 mb-0.5">عدد الأيام</label>
-                <input
+                <Input
+                  label="عدد الأيام"
                   type="number"
                   min={1}
                   value={days}
                   onChange={(e) => setDays(Math.max(1, Number(e.target.value) || 0))}
-                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"
+                  inputSize="sm"
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-[11px] font-bold text-slate-600 mb-0.5">السبب</label>
-                <input
-                  type="text"
+                <Input
+                  label="السبب"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="مثال: عدم اهتمام متكرر"
-                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"
+                  inputSize="sm"
                 />
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
+              <Button
+                variant="gold"
+                size="sm"
                 disabled={busy}
                 onClick={activateCooldown}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700"
               >
                 تفعيل
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 disabled={busy}
                 onClick={() => { setShowCooldownForm(false); setError(null); setReason(''); }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
               >
                 إلغاء
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
+            fullWidth
             disabled={busy}
             onClick={() => setShowCooldownForm(true)}
-            className="w-full px-3 py-2 rounded-lg text-xs font-bold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
           >
             تفعيل فترة تهدئة جديدة
-          </button>
+          </Button>
         )}
       </div>
     </div>

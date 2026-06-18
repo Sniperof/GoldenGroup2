@@ -1,5 +1,7 @@
 import { Plus, X } from 'lucide-react';
 import { useSystemListItems } from '../../hooks/useSystemListItems';
+import Select from '../ui/Select';
+import Input from '../ui/Input';
 
 export interface PaymentEntry {
   _key: string;       // client-side unique key
@@ -18,8 +20,6 @@ interface Props {
   grandTotal?: number;   // for comparison display
   label?: string;
 }
-
-const inp = "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 bg-white";
 
 let keyCounter = 0;
 export function newEntry(): PaymentEntry {
@@ -90,15 +90,15 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
               <div className="grid grid-cols-2 gap-2">
                 <div className="col-span-2 space-y-1">
                   <label className="block text-[10px] font-bold text-slate-500">ماذا تم المقايضة عليه</label>
-                  <input type="text" value={e.barterDescription}
+                  <Input value={e.barterDescription}
                     onChange={ev => update(e._key, { barterDescription: ev.target.value })}
-                    placeholder="وصف الشيء المقايض..." disabled={disabled} className={inp} />
+                    placeholder="وصف الشيء المقايض..." disabled={disabled} />
                 </div>
                 <div className="space-y-1">
                   <label className="block text-[10px] font-bold text-slate-500">القيمة (ل.س)</label>
-                  <input type="number" min="0" value={e.amountValue}
+                  <Input type="number" min={0} value={e.amountValue}
                     onChange={ev => update(e._key, { amountValue: ev.target.value })}
-                    placeholder="0" disabled={disabled} className={inp} dir="ltr" />
+                    placeholder="0" disabled={disabled} dir="ltr" />
                 </div>
                 {syp > 0 && (
                   <div className="flex items-end">
@@ -115,13 +115,15 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
                 {e.method === 'transfer' && (
                   <div className="space-y-1">
                     <label className="block text-[10px] font-bold text-slate-500">شركة الحوالة</label>
-                    <select value={e.transferCompanyId}
-                      onChange={ev => update(e._key, { transferCompanyId: ev.target.value })}
+                    <Select
+                      value={e.transferCompanyId}
+                      onChange={v => update(e._key, { transferCompanyId: v })}
                       disabled={disabled || transferCompanies.loading}
-                      className={inp + ' appearance-none cursor-pointer'}>
-                      <option value="">— اختر —</option>
-                      {transferCompanies.items.map(r => <option key={r.id} value={r.id}>{r.value}</option>)}
-                    </select>
+                      placeholder="— اختر —"
+                      ariaLabel="شركة الحوالة"
+                      className="w-full"
+                      options={transferCompanies.items.map(r => ({ value: String(r.id), label: r.value }))}
+                    />
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-2">
@@ -145,18 +147,18 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
                     <label className="block text-[10px] font-bold text-slate-500">
                       المبلغ {e.currency === 'usd' ? '($)' : '(ل.س)'}
                     </label>
-                    <input type="number" min="0" value={e.amountValue}
+                    <Input type="number" min={0} value={e.amountValue}
                       onChange={ev => update(e._key, { amountValue: ev.target.value })}
-                      placeholder="0" disabled={disabled} className={inp} dir="ltr" />
+                      placeholder="0" disabled={disabled} dir="ltr" />
                   </div>
                 </div>
                 {e.currency === 'usd' && (
                   <div className="grid grid-cols-2 gap-2 items-end">
                     <div className="space-y-1">
                       <label className="block text-[10px] font-bold text-slate-500">سعر الصرف</label>
-                      <input type="number" min="0" value={e.exchangeRate}
+                      <Input type="number" min={0} value={e.exchangeRate}
                         onChange={ev => update(e._key, { exchangeRate: ev.target.value })}
-                        placeholder="ل.س / $" disabled={disabled} className={inp} dir="ltr" />
+                        placeholder="ل.س / $" disabled={disabled} dir="ltr" />
                     </div>
                     <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-center">
                       <div className="text-[9px] text-blue-500 font-bold">يعادل</div>

@@ -7,9 +7,11 @@
 //   - حقول العنوان/walk-in مَحذوفة من V1.0 (تُؤخَذ من الجهاز عند promote)
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
+import IconButton from '../ui/IconButton';
 import { useNavigate } from 'react-router-dom';
 import { X, Send, AlertCircle, Loader2, Search, Check } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../ui/Select';
 
 type Channel = 'internal_button' | 'client_detail_button' | 'admin_manual' | 'phone';
 
@@ -234,9 +236,7 @@ export default function NewServiceRequestModal({
               قناة: <span className="font-medium">{channel}</span>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </header>
 
         <div className="p-4 space-y-4">
@@ -326,20 +326,19 @@ export default function NewServiceRequestModal({
                 لا أجهزة مُسجَّلة لهذا الزبون. لا يُمكن إنشاء طلب صيانة بدون جهاز (V1.0).
               </div>
             ) : (
-              <select
-                value={deviceId ?? ''}
-                onChange={(e) => setDeviceId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full text-sm border border-gray-300 rounded p-2"
-              >
-                <option value="">— اختر جهازاً —</option>
-                {devices.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {(d.deviceModelName ?? 'جهاز') +
-                      (d.serialNumber ? ` · S/N: ${d.serialNumber}` : '') +
-                      (d.status ? ` · ${d.status}` : '')}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={deviceId == null ? '' : String(deviceId)}
+                onChange={v => setDeviceId(v === '' ? null : Number(v))}
+                placeholder="— اختر جهازاً —"
+                ariaLabel="الجهاز"
+                className="w-full"
+                options={devices.map(d => ({
+                  value: String(d.id),
+                  label: (d.deviceModelName ?? 'جهاز')
+                    + (d.serialNumber ? ` · S/N: ${d.serialNumber}` : '')
+                    + (d.status ? ` · ${d.status}` : ''),
+                }))}
+              />
             )}
           </section>
 
@@ -372,16 +371,18 @@ export default function NewServiceRequestModal({
           {/* (5) Priority */}
           <section className="flex items-center gap-2">
             <span className="text-xs text-gray-500">الأولوية:</span>
-            <select
+            <Select<'Critical' | 'High' | 'Normal' | 'Low'>
               value={priority}
-              onChange={(e) => setPriority(e.target.value as any)}
-              className="text-sm border border-gray-300 rounded p-1.5"
-            >
-              <option value="Critical">حرجة</option>
-              <option value="High">عالية</option>
-              <option value="Normal">عادية</option>
-              <option value="Low">منخفضة</option>
-            </select>
+              onChange={setPriority}
+              ariaLabel="الأولوية"
+              size="sm"
+              options={[
+                { value: 'Critical', label: 'حرجة' },
+                { value: 'High', label: 'عالية' },
+                { value: 'Normal', label: 'عادية' },
+                { value: 'Low', label: 'منخفضة' },
+              ]}
+            />
           </section>
 
           <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded">

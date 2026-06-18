@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
 import EmployeeFormModal from '../components/employees/EmployeeFormModal';
+import Button from '../components/ui/Button';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
@@ -206,16 +207,15 @@ export default function Employees() {
         searchPlaceholder="بحث بالاسم أو الرقم..."
         onRowClick={(employee) => navigate(`/employees/${employee.id}`)}
         headerActions={canCreateEmployees ? (
-          <button
+          <Button
+            icon={Plus}
             onClick={() => {
               setCreateError('');
               setShowCreateModal(true);
             }}
-            className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-600"
           >
-            <Plus className="h-4 w-4" />
             إضافة موظف
-          </button>
+          </Button>
         ) : null}
         getId={(employee) => employee.id}
         emptyIcon={Users}

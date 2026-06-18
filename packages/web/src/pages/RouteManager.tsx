@@ -6,9 +6,11 @@ import {
     Route as RouteIcon, ChevronRight,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import IconButton from '../components/ui/IconButton';
 import { levelNames } from '../lib/geoConstants';
 import type { Route, GeoUnit, RoutePoint } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
+import Button from '../components/ui/Button';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -168,14 +170,9 @@ export default function RouteManager() {
                     <h1 className="text-xl font-bold text-slate-900 mb-1">إدارة خطوط السير</h1>
                     <p className="text-slate-500 text-sm">عرض وإدارة مسارات التوزيع والصيانة.</p>
                 </div>
-                <button
-                    onClick={() => openBuilder()}
-                    disabled={!canManageGeo}
-                    className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all disabled:opacity-50"
-                >
-                    <Plus className="w-4 h-4" />
-                    <span>مسار جديد</span>
-                </button>
+                <Button icon={Plus} onClick={() => openBuilder()} disabled={!canManageGeo}>
+                    مسار جديد
+                </Button>
             </div>
 
             {/* ── Search ── */}
@@ -277,9 +274,7 @@ export default function RouteManager() {
                                         {editRoute ? 'تعديل المسار' : 'مسار جديد'}
                                     </h3>
                                 </div>
-                                <button onClick={() => setShowBuilder(false)} className="text-slate-400 hover:text-slate-700">
-                                    <X className="w-5 h-5" />
-                                </button>
+                                <IconButton icon={X} label="إغلاق" onClick={() => setShowBuilder(false)} />
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll">
@@ -392,9 +387,9 @@ export default function RouteManager() {
                             </div>
 
                             <div className="p-4 border-t border-gray-200">
-                                <button onClick={saveRoute} className="w-full bg-sky-600 hover:bg-sky-500 text-white py-2.5 rounded-lg font-bold text-sm transition-all">
+                                <Button fullWidth onClick={saveRoute}>
                                     {editRoute ? 'حفظ التعديلات' : 'إنشاء المسار'}
-                                </button>
+                                </Button>
                             </div>
                         </motion.div>
                     </>

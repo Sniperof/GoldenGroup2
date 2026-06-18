@@ -5,6 +5,8 @@ import type { Branch, Department, SystemList, DeviceModel } from '../../lib/type
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
 import { usePermissions } from '../../hooks/usePermissions';
+import Select from '../../components/ui/Select';
+import IconButton from '../../components/ui/IconButton';
 import {
   Building2, ArrowRight, Plus, Edit, Trash2, X,
   Layers, Cpu, Users, StickyNote, ChevronDown, CheckSquare, Square,
@@ -315,9 +317,7 @@ export default function BranchDetail() {
                 <Layers className="w-5 h-5 text-sky-500" />
                 {editingDept ? 'تعديل القسم' : 'إضافة قسم جديد'}
               </h3>
-              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-1">
-                <X className="w-5 h-5" />
-              </button>
+              <IconButton icon={X} label="إغلاق" onClick={closeModal} />
             </div>
 
             <form onSubmit={handleSave} className="overflow-y-auto flex-1">
@@ -341,17 +341,15 @@ export default function BranchDetail() {
                 {/* Department type */}
                 <div className="space-y-1.5">
                   <label className="text-sm font-semibold text-slate-700">نوع القسم</label>
-                  <select
-                    value={form.departmentTypeId}
-                    onChange={e => setForm(f => ({ ...f, departmentTypeId: e.target.value !== '' ? Number(e.target.value) : '', deviceModelIds: [] }))}
+                  <Select
+                    value={form.departmentTypeId === '' ? '' : String(form.departmentTypeId)}
+                    onChange={v => setForm(f => ({ ...f, departmentTypeId: v === '' ? '' : Number(v), deviceModelIds: [] }))}
                     disabled={!canManageBranches}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none"
-                  >
-                    <option value="">— بدون نوع —</option>
-                    {deptTypes.map(t => (
-                      <option key={t.id} value={t.id}>{t.value}</option>
-                    ))}
-                  </select>
+                    placeholder="— بدون نوع —"
+                    ariaLabel="نوع القسم"
+                    className="w-full"
+                    options={deptTypes.map(t => ({ value: String(t.id), label: t.value }))}
+                  />
                   {selectedType && (selectedType.metadata as any)?.canSelectDevice && (
                     <p className="text-xs text-indigo-600 flex items-center gap-1 mt-1">
                       <Cpu className="w-3.5 h-3.5" />

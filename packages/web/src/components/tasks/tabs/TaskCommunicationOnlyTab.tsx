@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus, getOutcomeMeta } from '@golden-crm/shared';
 import { Card, EmptyState, TabAlert, formatDateTime } from '../shared';
+import Button from '../../ui/Button';
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   status_change: 'تغيير الحالة',
@@ -201,15 +202,14 @@ export default function TaskCommunicationOnlyTab({ calls, activity, onSubmitNote
             placeholder="أضف ملاحظة متابعة داخلية..."
           />
           <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={handleSubmit}
+            <Button
+              icon={Send}
+              loading={submitting}
               disabled={submitting || !noteText.trim()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              onClick={handleSubmit}
             >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               حفظ الملاحظة
-            </button>
+            </Button>
           </div>
         </div>
       </Card>

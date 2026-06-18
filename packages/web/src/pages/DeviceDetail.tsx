@@ -6,6 +6,7 @@ import {
     Zap, Tag, Plus, Pencil, Trash2, X, Save, ShieldCheck,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import IconButton from '../components/ui/IconButton';
 import type { DeviceModel, DeviceDiscount, SparePart, MaintenancePartType } from '../lib/types';
 
 /* ------------------------------------------------------------------ */
@@ -561,9 +562,7 @@ function DiscountModal({ deviceId, editingDiscount, onClose, onSaved }: {
                     <h3 className="text-base font-bold text-slate-800">
                         {editingDiscount ? 'تعديل حملة الخصم' : 'إضافة حملة خصم'}
                     </h3>
-                    <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
-                        <X className="w-4 h-4" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
                 </div>
 
                 <div className="px-5 py-5 space-y-4">

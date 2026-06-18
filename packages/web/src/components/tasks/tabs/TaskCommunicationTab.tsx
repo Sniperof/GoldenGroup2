@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus, getOutcomeMeta } from '@golden-crm/shared';
 import { Card, EmptyState, TabAlert, formatDateTime } from '../shared';
+import Button from '../../ui/Button';
 
 // سياق المهمة — labels for the execution-attempt chain
 const VISIT_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
@@ -291,14 +292,15 @@ export default function TaskCommunicationTab({ calls, activity, attempts = [], o
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
             />
             {error && <p className="text-xs text-rose-600">{error}</p>}
-            <button
+            <Button
+              size="sm"
+              icon={Send}
               onClick={handleSubmit}
-              disabled={submitting || !noteText.trim()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors disabled:opacity-50"
+              disabled={!noteText.trim()}
+              loading={submitting}
             >
-              {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
               إضافة الملاحظة
-            </button>
+            </Button>
           </div>
 
           {notes.length > 0 ? (

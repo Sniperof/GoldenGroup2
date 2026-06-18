@@ -6,6 +6,9 @@ import {
     Target, Users, X, Zap,
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../../components/ui/Select';
+import Button from '../../components/ui/Button';
+import IconButton from '../../components/ui/IconButton';
 import { getOutcomeMeta } from '@golden-crm/shared';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -227,9 +230,7 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                             </div>
                         </div>
                     </div>
-                    <button onClick={onClose} className="mt-0.5 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
-                        <X className="h-4 w-4" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" size="sm" className="mt-0.5" onClick={onClose} />
                 </div>
 
                 {/* Appointment banner */}
@@ -336,16 +337,13 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
 
                 {/* Footer */}
                 <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-                    <button type="button" onClick={onClose}
-                        className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                    <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
                         إغلاق
-                    </button>
+                    </Button>
                     {canEdit && editableTasks.length > 0 && (
-                        <button type="button" onClick={handleSave} disabled={saving}
-                            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60">
-                            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        <Button type="button" onClick={handleSave} loading={saving} className="flex-1 bg-indigo-600 hover:bg-indigo-500">
                             حفظ
-                        </button>
+                        </Button>
                     )}
                 </div>
             </div>
@@ -629,11 +627,9 @@ export default function PlanningContactTargets() {
 
                 {/* Back + Header */}
                 <div>
-                    <button type="button" onClick={() => navigate('/planning/overview')}
-                        className="mb-3 inline-flex items-center gap-1.5 text-sm font-bold text-slate-500 hover:text-sky-600 transition-colors">
-                        <ArrowRight className="h-4 w-4" />
+                    <Button variant="ghost" size="sm" icon={ArrowRight} onClick={() => navigate('/planning/overview')} className="mb-3 text-slate-500 hover:text-sky-600 hover:bg-sky-50 px-2">
                         العودة إلى ملخص الخطة
-                    </button>
+                    </Button>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                             <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
@@ -647,11 +643,9 @@ export default function PlanningContactTargets() {
                             </p>
                         </div>
                         <div className="flex items-center gap-2">
-                            <button type="button" onClick={handleSyncContacts} disabled={syncingContacts || loading}
-                                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors shadow-sm">
-                                {syncingContacts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                            <Button type="button" variant="secondary" size="sm" icon={Zap} loading={syncingContacts} disabled={syncingContacts || loading} onClick={handleSyncContacts} className="bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100">
                                 {syncingContacts ? 'جاري التحديث...' : 'تحديث جهات الاتصال'}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -712,11 +706,9 @@ export default function PlanningContactTargets() {
                                     </div>
                                 </div>
                             </div>
-                            <button type="button" onClick={handleGenerate} disabled={generating}
-                                className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 shadow-sm whitespace-nowrap transition-colors shrink-0">
-                                {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                            <Button type="button" variant="secondary" icon={RotateCcw} loading={generating} disabled={generating} onClick={handleGenerate} className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 whitespace-nowrap shrink-0">
                                 {generating ? 'جاري التوليد...' : newEligibleCount > 0 ? 'إعادة التوليد لإدراج الجدد' : 'إعادة التوليد'}
-                            </button>
+                            </Button>
                         </div>
                     ) : assignedCount > 0 ? (
                         /* PRE-GENERATION: contacts ready, prompt to generate */
@@ -736,15 +728,9 @@ export default function PlanningContactTargets() {
                                     </p>
                                 </div>
                             </div>
-                            <button type="button" onClick={handleGenerate} disabled={generating}
-                                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60 shadow-sm whitespace-nowrap transition-colors shrink-0 ${
-                                    phaseFilter === 'assigned'
-                                        ? 'bg-amber-600 hover:bg-amber-500'
-                                        : 'bg-indigo-600 hover:bg-indigo-500'
-                                }`}>
-                                {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneCall className="h-4 w-4" />}
+                            <Button type="button" icon={PhoneCall} loading={generating} disabled={generating} onClick={handleGenerate} className={`whitespace-nowrap shrink-0 ${phaseFilter === 'assigned' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'}`}>
                                 {generating ? 'جاري التوليد...' : 'توليد قائمة الاتصال'}
-                            </button>
+                            </Button>
                         </div>
                     ) : null
                 )}
@@ -762,39 +748,39 @@ export default function PlanningContactTargets() {
                                 />
                             </div>
 
-                            <select
+                            <Select
                                 value={stationFilter}
-                                onChange={e => setStationFilter(e.target.value)}
-                                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-sky-400"
-                            >
-                                <option value="all">كل المحطات</option>
-                                {stationOptions.map(station => (
-                                    <option key={station} value={station}>{station}</option>
-                                ))}
-                            </select>
+                                onChange={v => setStationFilter(v)}
+                                variant="filled"
+                                size="sm"
+                                ariaLabel="المحطة"
+                                options={[
+                                    { value: 'all', label: 'كل المحطات' },
+                                    ...stationOptions.map(station => ({ value: station, label: station })),
+                                ]}
+                            />
 
-                            <select
+                            <Select<'all' | '1' | '3' | '5'>
                                 value={attemptFilter}
-                                onChange={e => setAttemptFilter(e.target.value as 'all' | '1' | '3' | '5')}
-                                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-sky-400"
-                            >
-                                <option value="all">كل المحاولات</option>
-                                <option value="1">1+ محاولة</option>
-                                <option value="3">3+ محاولات</option>
-                                <option value="5">5+ محاولات</option>
-                            </select>
+                                onChange={v => setAttemptFilter(v)}
+                                variant="filled"
+                                size="sm"
+                                ariaLabel="المحاولات"
+                                options={[
+                                    { value: 'all', label: 'كل المحاولات' },
+                                    { value: '1', label: '1+ محاولة' },
+                                    { value: '3', label: '3+ محاولات' },
+                                    { value: '5', label: '5+ محاولات' },
+                                ]}
+                            />
                         </div>
 
                         {hasActiveFilters && (
                             <div className="flex items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-700">
                                 <span>النتائج المعروضة: {filteredClients.length} من أصل {allClients.length}</span>
-                                <button
-                                    type="button"
-                                    onClick={clearFilters}
-                                    className="font-bold hover:underline"
-                                >
+                                <Button type="button" variant="ghost" size="sm" onClick={clearFilters} className="text-sky-700 hover:text-sky-800 hover:bg-sky-100 px-2 font-bold">
                                     مسح الفلاتر
-                                </button>
+                                </Button>
                             </div>
                         )}
                     </div>
@@ -825,21 +811,16 @@ export default function PlanningContactTargets() {
                 ) : loadError ? (
                     <div className="rounded-2xl border border-red-100 bg-red-50 py-16 text-center">
                         <p className="text-sm font-bold text-red-600">تعذر تحميل البيانات</p>
-                        <button onClick={loadData} className="mt-3 text-xs font-bold text-red-500 hover:underline">إعادة المحاولة</button>
+                        <Button variant="ghost" size="sm" onClick={loadData} className="mt-3 text-red-500 hover:text-red-600 hover:bg-red-100 px-2">إعادة المحاولة</Button>
                     </div>
                 ) : allClients.length === 0 ? (
                     <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center space-y-2">
                         <Users className="mx-auto h-10 w-10 text-slate-200" />
                         <p className="text-sm font-bold text-slate-500">لا توجد جهات اتصال لهذا الفريق</p>
                         <p className="text-xs text-slate-400">احفظ نطاق العمل أولاً من صفحة الخطة</p>
-                        <button
-                            type="button"
-                            onClick={() => navigate('/planning/overview')}
-                            className="mt-3 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500"
-                        >
-                            <ArrowRight className="h-4 w-4" />
+                        <Button type="button" icon={ArrowRight} onClick={() => navigate('/planning/overview')} className="mt-3">
                             الذهاب إلى صفحة الخطة
-                        </button>
+                        </Button>
                     </div>
                 ) : filteredClients.length === 0 ? (
                     <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center space-y-3">
@@ -848,14 +829,9 @@ export default function PlanningContactTargets() {
                             {hasActiveFilters ? 'جرّب تعديل الفلاتر أو مسحها لعرض بقية الجهات.' : 'غيّر المرحلة المختارة أو راجع التوليد الحالي.'}
                         </p>
                         {hasActiveFilters && (
-                            <button
-                                type="button"
-                                onClick={clearFilters}
-                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                            >
-                                <RotateCcw className="h-4 w-4" />
+                            <Button type="button" variant="secondary" icon={RotateCcw} onClick={clearFilters}>
                                 مسح الفلاتر
-                            </button>
+                            </Button>
                         )}
                     </div>
                 ) : (

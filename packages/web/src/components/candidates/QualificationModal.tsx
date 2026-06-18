@@ -6,6 +6,9 @@ import {
 } from 'lucide-react';
 import { Candidate, Client, ClientSmartMatchResponse, GeoUnit } from '../../lib/types';
 import { api } from '../../lib/api';
+import Button from '../ui/Button';
+import Input from '../ui/Input';
+import IconButton from '../ui/IconButton';
 
 type SmartMatchResult = ClientSmartMatchResponse;
 type SmartMatchClient = Extract<SmartMatchResult, { client: unknown }>['client'];
@@ -149,18 +152,8 @@ function LinkConfirmOverlay({
 
                 {/* Actions */}
                 <div className="px-5 pb-5 flex gap-2">
-                    <button
-                        onClick={onCancel}
-                        className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
-                    >
-                        إلغاء
-                    </button>
-                    <button
-                        onClick={onConfirm}
-                        className="flex-1 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-colors"
-                    >
-                        تأكيد الربط
-                    </button>
+                    <Button variant="secondary" onClick={onCancel} className="flex-1">إلغاء</Button>
+                    <Button onClick={onConfirm} className="flex-1">تأكيد الربط</Button>
                 </div>
             </motion.div>
         </motion.div>
@@ -330,12 +323,7 @@ export default function QualificationModal({
                                 </p>
                             </div>
                         </div>
-                        <button
-                            onClick={handleClose}
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" onClick={handleClose} />
                     </div>
 
                     {/* Content */}
@@ -474,23 +462,15 @@ export default function QualificationModal({
                                         onSubmit={(e) => { e.preventDefault(); setActiveSearch(searchQuery); }}
                                         className="flex gap-2"
                                     >
-                                        <div className="relative flex-1">
-                                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                                            <input
-                                                type="text"
+                                        <div className="flex-1">
+                                            <Input
                                                 placeholder="اسم، رقم، كنية، ID..."
                                                 value={searchQuery}
                                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                                className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
+                                                leading={<Search className="w-4 h-4" />}
                                             />
                                         </div>
-                                        <button
-                                            type="submit"
-                                            className="px-5 py-2.5 bg-sky-600 text-white rounded-xl font-bold text-sm hover:bg-sky-500 transition-all flex items-center gap-2 shadow-sm shrink-0"
-                                        >
-                                            <Search className="w-4 h-4" />
-                                            <span>بحث</span>
-                                        </button>
+                                        <Button type="submit" icon={Search} className="shrink-0">بحث</Button>
                                     </form>
 
                                     {activeSearch && (
@@ -535,13 +515,14 @@ export default function QualificationModal({
 
                                 {/* ── متابعة الإجراء — only after confirmed NO_MATCH ── */}
                                 {canProceed && (
-                                    <button
+                                    <Button
+                                        size="lg"
+                                        fullWidth
                                         onClick={() => setStep(2)}
-                                        className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white py-3.5 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20"
                                     >
                                         <span>متابعة الإجراء</span>
                                         <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
-                                    </button>
+                                    </Button>
                                 )}
                             </div>
                         ) : (

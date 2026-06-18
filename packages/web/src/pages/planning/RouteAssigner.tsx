@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Calendar, Users, Save, Plus, MapPin, Route as RouteIcon, ListOrdered, X, ArrowRight, ArrowLeft, Loader2, GripVertical } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../../components/ui/Select';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import { levelNames } from '../../lib/geoConstants';
 import type { Route, GeoUnit, DaySchedule, RouteComposition, RouteAssignmentData } from '../../lib/types';
@@ -430,10 +431,15 @@ export default function RouteAssigner() {
                 <div className="h-8 w-px bg-gray-200" />
                 <div className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-sky-600" />
-                    <select value={selectedTeam} onChange={e => onTeamChange(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none w-56">
-                        <option value="">اختر الفريق...</option>
-                        {teamOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
+                    <Select
+                        value={selectedTeam}
+                        onChange={v => onTeamChange(v)}
+                        variant="filled"
+                        placeholder="اختر الفريق..."
+                        className="w-56"
+                        ariaLabel="الفريق"
+                        options={teamOptions.map(o => ({ value: o.value, label: o.label }))}
+                    />
                 </div>
                 <div className="mr-auto">
                     <button onClick={saveAssignment} disabled={!canSaveAssignment} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all">
@@ -461,10 +467,16 @@ export default function RouteAssigner() {
                                 <Plus className="w-3.5 h-3.5" /><span>إضافة مسار</span>
                             </button>
                         </div>
-                        <select value={selectedRouteId} onChange={e => setSelectedRouteId(e.target.value)} disabled={!selectedTeam} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 disabled:opacity-60 disabled:cursor-not-allowed focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none">
-                            <option value="">{selectedTeam ? 'اختر مساراً محدداً مسبقاً...' : 'اختر الفريق أولاً...'}</option>
-                            {availableRoutes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                        </select>
+                        <Select
+                            value={selectedRouteId}
+                            onChange={v => setSelectedRouteId(v)}
+                            disabled={!selectedTeam}
+                            variant="filled"
+                            placeholder={selectedTeam ? 'اختر مساراً محدداً مسبقاً...' : 'اختر الفريق أولاً...'}
+                            className="w-full"
+                            ariaLabel="المسار"
+                            options={availableRoutes.map(r => ({ value: String(r.id), label: r.name }))}
+                        />
                     </div>
 
                     {/* Composed Routes */}

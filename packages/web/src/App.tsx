@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { useAuthStore } from './hooks/useAuthStore';
 import Login from './pages/auth/Login';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -67,6 +68,27 @@ export default function App() {
     return (
         <BrowserRouter>
             <ErrorBoundary>
+                {/* Variant border + icon colors are applied via CSS in index.css
+                    using sonner's data-type attribute. */}
+                <Toaster
+                    position="bottom-left"
+                    dir="rtl"
+                    duration={3200}
+                    closeButton
+                    toastOptions={{
+                        style: {
+                            background: '#FFFFFF',
+                            borderRadius: '12px',
+                            border: '1px solid #E3E7EC',
+                            boxShadow: '0 12px 32px rgba(20,32,46,.14)',
+                            fontFamily: "'Plus Jakarta Sans','Alexandria',system-ui,sans-serif",
+                            color: '#14202E',
+                            padding: '12px 14px',
+                            minWidth: '280px',
+                            maxWidth: '380px',
+                        },
+                    }}
+                />
                 <Routes>
                     <Route path="/login" element={<Login />} />
                     <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>

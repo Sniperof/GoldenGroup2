@@ -3,6 +3,9 @@ import { X, UserCheck, Loader2 } from 'lucide-react';
 import { useCollectionStore } from '../hooks/useCollectionStore';
 import { api } from '../lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
+import Select from './ui/Select';
+import Button from './ui/Button';
+import IconButton from './ui/IconButton';
 
 interface AssignAgentModalProps {
     isOpen: boolean;
@@ -47,9 +50,7 @@ export default function AssignAgentModal({ isOpen, onClose, selectedDueIds }: As
                 >
                     <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                         <h3 className="text-lg font-bold text-slate-900">تعيين موظف</h3>
-                        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
-                            <X className="w-5 h-5" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" shape="circle" onClick={onClose} />
                     </div>
 
                     <form onSubmit={handleSubmit} className="p-6 space-y-6">
@@ -60,34 +61,33 @@ export default function AssignAgentModal({ isOpen, onClose, selectedDueIds }: As
 
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-700">اختر الموظف</label>
-                            <select
-                                required
+                            <Select
                                 value={selectedAgentId}
-                                onChange={(e) => setSelectedAgentId(e.target.value)}
-                                className="w-full p-3 rounded-xl border border-gray-200 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none bg-white"
-                            >
-                                <option value="">-- اختر --</option>
-                                {telemarketers.map(t => (
-                                    <option key={t.id} value={t.id}>{t.name}</option>
-                                ))}
-                            </select>
+                                onChange={setSelectedAgentId}
+                                placeholder="-- اختر --"
+                                ariaLabel="اختر الموظف"
+                                className="w-full"
+                                options={telemarketers.map(t => ({ value: String(t.id), label: t.name }))}
+                            />
                         </div>
 
                         <div className="flex gap-3 pt-2">
-                            <button
-                                type="button"
+                            <Button
+                                variant="secondary"
+                                size="lg"
+                                fullWidth
                                 onClick={onClose}
-                                className="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-slate-600 font-medium hover:bg-gray-50 transition-colors"
                             >
                                 إلغاء
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                                 type="submit"
+                                size="lg"
+                                fullWidth
                                 disabled={!selectedAgentId}
-                                className="flex-1 py-3 px-4 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-sky-200"
                             >
                                 تعيين
-                            </button>
+                            </Button>
                         </div>
                     </form>
                 </motion.div>

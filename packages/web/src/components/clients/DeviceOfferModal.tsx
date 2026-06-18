@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { CheckCircle2, Download, Loader2, Plus, Printer, Share2, Trash2, X } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
+import Select from '../ui/Select';
+import IconButton from '../ui/IconButton';
 
 type PreOfferDraft = {
   deviceModelId: string;
@@ -313,9 +315,7 @@ function ReceiptModal(props: {
             <h3 className="text-lg font-black text-slate-800">إيصال العرض</h3>
             <p className="mt-1 text-xs text-slate-500">مراجعة قبل الحفظ أو المشاركة</p>
           </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-white hover:text-slate-600">
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </div>
 
         <div className="max-h-[75vh] overflow-y-auto p-6 space-y-5">
@@ -621,9 +621,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
             <h3 className="text-lg font-black text-slate-800">إضافة عرض جهاز</h3>
             <p className="mt-1 text-xs text-slate-500">{client.name}</p>
           </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600">
-            <X className="w-5 h-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </div>
 
         <div className="max-h-[80vh] overflow-y-auto bg-slate-50/50 px-6 py-6 space-y-6">
@@ -642,18 +640,16 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                 <div className="flex gap-3 items-end">
                   <div className="flex-1 space-y-1">
                     <label className="text-xs font-bold text-slate-600">الجهاز</label>
-                    <select
+                    <Select
                       value={devicePickerId}
-                      onChange={e => setDevicePickerId(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                    >
-                      <option value="">اختر الجهاز...</option>
-                      {deviceModels
+                      onChange={setDevicePickerId}
+                      placeholder="اختر الجهاز..."
+                      ariaLabel="الجهاز"
+                      className="w-full"
+                      options={deviceModels
                         .filter(m => !selectedDevices.some(d => d.deviceModelId === m.id))
-                        .map(m => (
-                          <option key={m.id} value={m.id}>{m.nameAr || m.name}</option>
-                        ))}
-                    </select>
+                        .map(m => ({ value: String(m.id), label: m.nameAr || m.name }))}
+                    />
                   </div>
                   <div className="w-24 space-y-1">
                     <label className="text-xs font-bold text-slate-600">الكمية</label>
@@ -728,16 +724,14 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                     {/* Device dropdown — only from selectedDevices */}
                     <div className="space-y-2 xl:col-span-2">
                       <label className="text-sm font-bold text-slate-700">الجهاز</label>
-                      <select
+                      <Select
                         value={draftOffer.deviceModelId}
-                        onChange={e => updateDraftOffer('deviceModelId', e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
-                      >
-                        <option value="">اختر الجهاز...</option>
-                        {availableOfferDevices.map(d => (
-                          <option key={d.deviceModelId} value={d.deviceModelId}>{d.deviceName}</option>
-                        ))}
-                      </select>
+                        onChange={v => updateDraftOffer('deviceModelId', v)}
+                        placeholder="اختر الجهاز..."
+                        ariaLabel="الجهاز"
+                        className="w-full"
+                        options={availableOfferDevices.map(d => ({ value: String(d.deviceModelId), label: d.deviceName }))}
+                      />
                       {availableOfferDevices.length === 0 && (
                         <p className="text-xs text-slate-400">كل الأجهزة المختارة لديها عروض مثبتة.</p>
                       )}
@@ -746,13 +740,17 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                     {/* Offer type */}
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700">نوع العرض</label>
-                      <select value={draftOffer.offerType}
-                        onChange={e => updateDraftOffer('offerType', e.target.value as PreOfferDraft['offerType'])}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
-                        <option value="">اختر نوع العرض...</option>
-                        <option value="cash">كاش</option>
-                        <option value="installment">تقسيط</option>
-                      </select>
+                      <Select
+                        value={draftOffer.offerType}
+                        onChange={v => updateDraftOffer('offerType', v as PreOfferDraft['offerType'])}
+                        placeholder="اختر نوع العرض..."
+                        ariaLabel="نوع العرض"
+                        className="w-full"
+                        options={[
+                          { value: 'cash', label: 'كاش' },
+                          { value: 'installment', label: 'تقسيط' },
+                        ]}
+                      />
                     </div>
 
                     {/* Quantity */}
@@ -775,19 +773,18 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                     {draftOffer.deviceModelId ? (
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-slate-700">حسم الجهاز</label>
-                        <select value={draftOffer.appliedDeviceDiscountId}
-                          onChange={e => {
-                            const selectedId = e.target.value;
-                            const disc = deviceDiscounts.find(d => String(d.id) === selectedId);
-                            updateDraftOffer('appliedDeviceDiscountId', selectedId);
+                        <Select
+                          value={draftOffer.appliedDeviceDiscountId}
+                          onChange={v => {
+                            const disc = deviceDiscounts.find(d => String(d.id) === v);
+                            updateDraftOffer('appliedDeviceDiscountId', v);
                             updateDraftOffer('discountPercentage', disc ? String(disc.percentage) : '');
                           }}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
-                          <option value="">بدون حسم</option>
-                          {deviceDiscounts.map(d => (
-                            <option key={d.id} value={String(d.id)}>{d.label} ({d.percentage}%)</option>
-                          ))}
-                        </select>
+                          placeholder="بدون حسم"
+                          ariaLabel="حسم الجهاز"
+                          className="w-full"
+                          options={deviceDiscounts.map(d => ({ value: String(d.id), label: `${d.label} (${d.percentage}%)` }))}
+                        />
                         {deviceDiscounts.length === 0 && (
                           <p className="text-xs text-slate-400">لا توجد حسومات فعالة لهذا الجهاز.</p>
                         )}
@@ -802,34 +799,34 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                     {/* Closing employee */}
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700">موظف التسكير</label>
-                      <select value={draftOffer.closedByEmployeeId}
-                        onChange={e => {
-                          updateDraftOffer('closedByEmployeeId', e.target.value);
-                          if (e.target.value) updateDraftOffer('noClosingReason', '');
+                      <Select
+                        value={draftOffer.closedByEmployeeId}
+                        onChange={v => {
+                          updateDraftOffer('closedByEmployeeId', v);
+                          if (v) updateDraftOffer('noClosingReason', '');
                         }}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
-                        <option value="">اختياري</option>
-                        {closers.map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
+                        placeholder="اختياري"
+                        ariaLabel="موظف التسكير"
+                        className="w-full"
+                        options={closers.map(c => ({ value: String(c.id), label: c.name }))}
+                      />
                     </div>
 
                     {/* No-closing reason */}
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700">سبب عدم التسكير</label>
-                      <select value={draftOffer.noClosingReason}
-                        onChange={e => {
-                          updateDraftOffer('noClosingReason', e.target.value);
-                          if (e.target.value) updateDraftOffer('closedByEmployeeId', '');
+                      <Select
+                        value={draftOffer.noClosingReason}
+                        onChange={v => {
+                          updateDraftOffer('noClosingReason', v);
+                          if (v) updateDraftOffer('closedByEmployeeId', '');
                         }}
                         disabled={!!draftOffer.closedByEmployeeId}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                        <option value="">بدون سبب</option>
-                        {noClosingReasons.map(r => (
-                          <option key={r.value} value={r.value}>{r.label}</option>
-                        ))}
-                      </select>
+                        placeholder="بدون سبب"
+                        ariaLabel="سبب عدم التسكير"
+                        className="w-full"
+                        options={noClosingReasons.map(r => ({ value: r.value, label: r.label }))}
+                      />
                     </div>
 
                     {/* Installment fields */}
@@ -916,11 +913,14 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
               <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-3">
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">سبب إنشاء المهمة <span className="text-red-500">*</span></label>
-                  <select value={reason} onChange={e => setReason(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
-                    <option value="">اختر السبب...</option>
-                    {creationReasons.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
+                  <Select
+                    value={reason}
+                    onChange={setReason}
+                    placeholder="اختر السبب..."
+                    ariaLabel="سبب إنشاء المهمة"
+                    className="w-full"
+                    options={creationReasons.map(o => ({ value: o.value, label: o.label }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">تاريخ مستحق <span className="text-red-500">*</span></label>
@@ -929,13 +929,18 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">الأولوية</label>
-                  <select value={priority} onChange={e => setPriority(e.target.value as '' | 'high' | 'medium' | 'low')}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
-                    <option value="">غير محددة</option>
-                    <option value="high">عالية</option>
-                    <option value="medium">متوسطة</option>
-                    <option value="low">منخفضة</option>
-                  </select>
+                  <Select<'' | 'high' | 'medium' | 'low'>
+                    value={priority}
+                    onChange={setPriority}
+                    placeholder="غير محددة"
+                    ariaLabel="الأولوية"
+                    className="w-full"
+                    options={[
+                      { value: 'high', label: 'عالية' },
+                      { value: 'medium', label: 'متوسطة' },
+                      { value: 'low', label: 'منخفضة' },
+                    ]}
+                  />
                 </div>
                 <div className="space-y-2 md:col-span-3">
                   <label className="text-sm font-bold text-slate-700">ملاحظات</label>

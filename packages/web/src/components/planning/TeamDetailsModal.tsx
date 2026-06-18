@@ -2,6 +2,8 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, PhoneCall, User, Briefcase, MapPin } from 'lucide-react';
 import { Candidate, Client, GeoUnit } from '../../lib/types';
+import Button from '../ui/Button';
+import IconButton from '../ui/IconButton';
 
 interface TeamDetailsModalProps {
     isOpen: boolean;
@@ -63,12 +65,7 @@ export default function TeamDetailsModal({
                                 <span>إجمالي الزبائن المستهدفين: {totalCustomers}</span>
                             </p>
                         </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" shape="circle" onClick={onClose} />
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 custom-scroll bg-slate-50/30">
@@ -82,13 +79,9 @@ export default function TeamDetailsModal({
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center">
                                     <h3 className="text-sm font-bold text-slate-700">قائمة الزبائن المستهدفين</h3>
-                                    <button
-                                        onClick={handleGenerateClick}
-                                        className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all text-sm"
-                                    >
-                                        <PhoneCall className="w-4 h-4" />
-                                        <span>توليد/تحديث قائمة الاتصال</span>
-                                    </button>
+                                    <Button onClick={handleGenerateClick} icon={PhoneCall}>
+                                        توليد/تحديث قائمة الاتصال
+                                    </Button>
                                 </div>
 
                                 <div className="bg-white border text-sm border-gray-200 rounded-xl overflow-hidden shadow-sm">
@@ -136,12 +129,7 @@ export default function TeamDetailsModal({
                     </div>
 
                     <div className="p-4 border-t border-gray-100 bg-white flex justify-end">
-                        <button
-                            onClick={onClose}
-                            className="px-8 py-2.5 rounded-xl border border-gray-200 text-slate-600 font-bold hover:bg-gray-50 transition-colors"
-                        >
-                            إغلاق
-                        </button>
+                        <Button variant="secondary" onClick={onClose}>إغلاق</Button>
                     </div>
                 </motion.div>
             </div>

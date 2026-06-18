@@ -7,6 +7,7 @@ import { ExternalLink, FileText, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../../lib/api';
 import { SectionShell } from './SectionShell';
+import Button from '../../../components/ui/Button';
 
 interface Props {
   contract: any | null;
@@ -74,17 +75,15 @@ export function LinkedContractSection({ contract }: Props) {
       subtitle={`عقد رقم #${contract.contractNumber}`}
       actions={
         <>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={FileText}
             onClick={openPrintable}
-            disabled={printLoading}
-            className="inline-flex items-center gap-1 bg-white border border-slate-200 hover:border-sky-300 text-slate-700 text-xs font-bold rounded-xl px-3 py-2 disabled:opacity-60 disabled:cursor-wait"
+            loading={printLoading}
           >
-            {printLoading
-              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              : <FileText className="w-3.5 h-3.5" />}
             النسخة القانونية
-          </button>
+          </Button>
           <Link
             to={`/contracts/${contract.id}`}
             className="inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl px-3 py-2"

@@ -4,6 +4,7 @@
 // ============================================================
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import {
   ArrowRight,
   ArrowUpCircle,
@@ -22,6 +23,7 @@ import { useAuthStore } from '../../hooks/useAuthStore';
 import ProblemsList from '../../components/service-requests/ProblemsList';
 import SuggestedMatchesPanel from '../../components/service-requests/SuggestedMatchesPanel';
 import AuditLogTimeline from '../../components/service-requests/AuditLogTimeline';
+import Button from '../../components/ui/Button';
 import MergeOrSplitModal from '../../components/service-requests/MergeOrSplitModal';
 import TerminalTransitionModal, { type ModalMode } from '../../components/service-requests/TerminalTransitionModal';
 
@@ -59,9 +61,8 @@ export default function ServiceRequestDetailPage() {
   const [data, setData] = useState<{ request: any; auditLog: any[]; problems: any[] } | null>(null);
   const [collision, setCollision] = useState<{ existingOpenTaskId: number; installedDeviceId: number } | null>(null);
   const [busy, setBusy] = useState(false);
-  // Phase 4 polish — modal for the 4 in_review actions + inline toast
+  // Phase 4 polish — modal for the 4 in_review actions; toasts via sonner
   const [actionModal, setActionModal] = useState<ModalMode | null>(null);
-  const [toast, setToast] = useState<{ message: string; kind: 'success' | 'error' } | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -103,8 +104,8 @@ export default function ServiceRequestDetailPage() {
   const canDoPromote = promoteMissing.length === 0;
 
   function showToast(message: string, kind: 'success' | 'error' = 'success') {
-    setToast({ message, kind });
-    setTimeout(() => setToast(null), 4000);
+    if (kind === 'error') toast.error(message);
+    else toast.success(message);
   }
 
   async function safeRun(fn: () => Promise<any>, success?: string) {
@@ -172,13 +173,9 @@ export default function ServiceRequestDetailPage() {
     <div className="max-w-6xl mx-auto p-4" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <button
-          onClick={() => navigate(-1)}
-          className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
-        >
-          <ArrowRight className="h-4 w-4 transform scale-x-[-1]" />
+        <Button variant="ghost" size="sm" icon={ArrowRight} onClick={() => navigate(-1)}>
           عودة
-        </button>
+        </Button>
         <span className={`text-sm px-3 py-1 rounded-full ${STATUS_COLORS[req.status]}`}>
           {STATUS_LABELS[req.status] ?? req.status}
         </span>
@@ -226,29 +223,31 @@ export default function ServiceRequestDetailPage() {
       {isActive && (
         <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-4 flex flex-wrap gap-2">
           {req.status === 'received' && canReview && (
-            <button
+            <Button
+              size="sm"
               disabled={busy}
               onClick={() => safeRun(() => api.serviceRequests.claim(requestId))}
-              className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:opacity-50"
             >
               تَولّي الطلب
-            </button>
+            </Button>
           )}
           {req.status === 'in_review' && !isOwner && canReview && (
-            <button
+            <Button
+              size="sm"
               disabled={busy}
               onClick={() => safeRun(() => api.serviceRequests.takeOver(requestId))}
-              className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:opacity-50"
             >
               نَقل الـ Ownership إليّ
-            </button>
+            </Button>
           )}
           {req.status === 'in_review' && canReview && (
             <>
               {/* V1.0: "طلب معلومة من الزبون" مُؤجَّل (awaiting_customer_info خارج V1.0).
                   الكود يَبقى في الـ stateMachine للـ V2. */}
               {canPromote && (
-                <button
+                <Button
+                  size="sm"
+                  icon={ArrowUpCircle}
                   disabled={busy || !canDoPromote}
                   onClick={doPromote}
                   title={
@@ -256,83 +255,78 @@ export default function ServiceRequestDetailPage() {
                       ? 'تَرقية الطلب إلى مهمة طوارئ'
                       : `يَنقصك: ${promoteMissing.join(' + ')}`
                   }
-                  className={`text-sm px-3 py-1.5 rounded flex items-center gap-1 ${
-                    canDoPromote
-                      ? 'bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50'
-                      : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                  }`}
                 >
-                  <ArrowUpCircle className="h-4 w-4" />
-                  ترقية إلى مهمة
-                  {!canDoPromote && (
-                    <span className="text-xs">({promoteMissing.length} ينقص)</span>
-                  )}
-                </button>
+                  ترقية إلى مهمة{!canDoPromote && ` (${promoteMissing.length} ينقص)`}
+                </Button>
               )}
-              <button
+              <Button
+                size="sm"
+                icon={ClipboardCheck}
                 disabled={busy}
                 onClick={() => setActionModal('resolveAtIntake')}
-                className="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded disabled:opacity-50 flex items-center gap-1"
               >
-                <ClipboardCheck className="h-4 w-4" />
                 حُلَّ في الاستلام
-              </button>
+              </Button>
               {!req.reviewRequiredFlag && (
-                <button
+                <Button
+                  variant="danger"
+                  size="sm"
                   disabled={busy}
                   onClick={() => setActionModal('escalate')}
-                  className="text-sm bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded disabled:opacity-50"
                 >
                   تَصعيد للمدقّق
-                </button>
+                </Button>
               )}
             </>
           )}
           {/* V1.0: awaiting_customer_info خارج النطاق — زر "العَودة للمراجعة" مَخفي.
               لو وُجد سجل قديم بهذه الحالة، يَبقى الزر للأمان. */}
           {req.status === 'awaiting_customer_info' && canReview && (
-            <button
+            <Button
+              size="sm"
               disabled={busy}
               onClick={() => safeRun(() => api.serviceRequests.resumeReview(requestId))}
-              className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded disabled:opacity-50"
             >
               العَودة للمراجعة (سجل قديم)
-            </button>
+            </Button>
           )}
           {req.reviewRequiredFlag && canReject && (
-            <button
+            <Button
+              variant="danger"
+              size="sm"
+              icon={X}
               disabled={busy}
               onClick={() => {
                 const outcome = prompt('سبب الرفض (duplicate/invalid_request/spam/out_of_scope/unverified_caller/device_not_company):');
                 if (!outcome) return;
                 safeRun(() => api.serviceRequests.reject(requestId, { triageOutcome: outcome }));
               }}
-              className="text-sm bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded disabled:opacity-50 flex items-center gap-1"
             >
-              <X className="h-4 w-4" />
               رَفض (مدقّق)
-            </button>
+            </Button>
           )}
           {canReview && req.status !== 'received' && (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               disabled={busy}
               onClick={() => setActionModal('cancel')}
-              className="text-sm bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded disabled:opacity-50"
             >
               إلغاء إداري
-            </button>
+            </Button>
           )}
         </div>
       )}
       {isTerminal && canArchive && !req.archivedAt && (
         <div className="bg-gray-50 border border-gray-200 rounded p-3 mb-4">
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             disabled={busy}
             onClick={() => safeRun(() => api.serviceRequests.archive(requestId, prompt('سبب الأرشفة (اختياري):') ?? null))}
-            className="text-sm bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded disabled:opacity-50"
           >
             أرشفة
-          </button>
+          </Button>
         </div>
       )}
 
@@ -373,15 +367,14 @@ export default function ServiceRequestDetailPage() {
               </ul>
               <div className="mt-2 flex gap-2 flex-wrap">
                 {!req.beneficiaryClientId && (
-                  <button
-                    onClick={() => setTab('linkage')}
-                    className="text-xs bg-yellow-700 hover:bg-yellow-800 text-white px-2 py-1 rounded"
-                  >
+                  <Button variant="gold" size="sm" onClick={() => setTab('linkage')}>
                     اذهب إلى الربط ←
-                  </button>
+                  </Button>
                 )}
                 {req.beneficiaryClientId && !req.installedDeviceId && canReview && (
-                  <button
+                  <Button
+                    variant="gold"
+                    size="sm"
                     onClick={async () => {
                       const idStr = prompt('أَدخِل installed_device_id من أجهزة الزبون:');
                       const did = Number(idStr);
@@ -391,18 +384,14 @@ export default function ServiceRequestDetailPage() {
                         '✓ تَمَّ ربط الجهاز',
                       );
                     }}
-                    className="text-xs bg-yellow-700 hover:bg-yellow-800 text-white px-2 py-1 rounded"
                   >
                     ربط جهاز
-                  </button>
+                  </Button>
                 )}
                 {activeProblems.length === 0 && (
-                  <button
-                    onClick={() => setTab('problems')}
-                    className="text-xs bg-yellow-700 hover:bg-yellow-800 text-white px-2 py-1 rounded"
-                  >
+                  <Button variant="gold" size="sm" onClick={() => setTab('problems')}>
                     إضافة عطل ←
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -514,17 +503,6 @@ export default function ServiceRequestDetailPage() {
         />
       )}
 
-      {toast && (
-        <div
-          className={`fixed top-4 left-4 z-[60] max-w-md rounded-lg shadow-lg px-4 py-3 text-sm border-2 transition-opacity ${
-            toast.kind === 'success'
-              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-              : 'bg-red-50 border-red-300 text-red-900'
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
     </div>
   );
 }

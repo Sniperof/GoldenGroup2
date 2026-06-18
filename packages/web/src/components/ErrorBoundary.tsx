@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertOctagon, RefreshCw, Trash2 } from 'lucide-react';
+import Button from './ui/Button';
 
 interface Props {
     children: ReactNode;
@@ -48,20 +49,23 @@ export class ErrorBoundary extends Component<Props, State> {
                         </div>
 
                         <div className="flex flex-col gap-3">
-                            <button
+                            <Button
+                                size="lg"
+                                fullWidth
+                                icon={RefreshCw}
                                 onClick={() => window.location.reload()}
-                                className="w-full flex items-center justify-center gap-2 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold transition-all"
                             >
-                                <RefreshCw className="w-4 h-4" />
                                 تحديث الصفحة
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                                variant="danger"
+                                size="lg"
+                                fullWidth
+                                icon={Trash2}
                                 onClick={this.handleReset}
-                                className="w-full flex items-center justify-center gap-2 py-3 bg-white border border-red-200 text-red-600 hover:bg-red-50 rounded-xl font-bold transition-all"
                             >
-                                <Trash2 className="w-4 h-4" />
                                 إعادة ضبط البيانات (حذف الكل)
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>

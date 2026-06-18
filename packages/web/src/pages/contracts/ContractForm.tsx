@@ -14,6 +14,8 @@ import { useAuthStore } from '../../hooks/useAuthStore';
 import MapPicker from '../../components/MapPicker';
 import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathToSelection } from '../../components/GeoSmartSearch';
 import type { GeoSelection } from '../../components/GeoSmartSearch';
+import Select from '../../components/ui/Select';
+import Button from '../../components/ui/Button';
 import type { GeoUnit } from '../../lib/types';
 import type { ClientReferrer } from '@golden-crm/shared';
 
@@ -1238,14 +1240,13 @@ export default function ContractForm() {
                     </div>
 
                     {/* Continue Button */}
-                    <button
-                        type="button"
+                    <Button
+                        size="lg"
+                        fullWidth
                         onClick={() => setStep('details')}
-                        className="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold transition-colors shadow-sm flex items-center justify-center gap-2"
                     >
-                        <span>متابعة لإدخال التفاصيل</span>
-                        <ArrowRightLeft className="w-4 h-4 rotate-180" />
-                    </button>
+                        متابعة لإدخال التفاصيل
+                    </Button>
                 </div>
             </div>
         );
@@ -1268,14 +1269,18 @@ export default function ContractForm() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={handleReset} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg border border-gray-200 text-slate-600 hover:bg-gray-50 text-sm font-medium transition-colors">
-                            <RotateCcw className="w-4 h-4" /><span>إعادة تعيين</span>
-                        </button>
-                        <button onClick={handleSubmit} disabled={!isValid || saving}
+                        <Button variant="secondary" icon={RotateCcw} onClick={handleReset}>
+                            إعادة تعيين
+                        </Button>
+                        <Button
+                            icon={Save}
+                            loading={saving}
+                            disabled={!isValid || saving}
+                            onClick={handleSubmit}
                             title={!isValid ? validationIssues.join(' • ') : (isDraftMode ? 'حفظ كمسودة' : 'حفظ العقد')}
-                            className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-bold transition-colors shadow-sm disabled:shadow-none">
-                            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>{saving ? 'جاري الحفظ...' : (isDraftMode ? 'حفظ كمسودة' : 'حفظ العقد')}</span>
-                        </button>
+                        >
+                            {saving ? 'جاري الحفظ...' : (isDraftMode ? 'حفظ كمسودة' : 'حفظ العقد')}
+                        </Button>
                     </div>
                 </div>
                 {validationIssues.length > 0 && (
@@ -1643,21 +1648,19 @@ export default function ContractForm() {
                             </Field>
 
                             <Field label="مصادر أخرى">
-                                <select
+                                <Select<string>
                                     value={saleSource !== 'device_demo_task' ? saleSource : ''}
-                                    onChange={e => {
-                                        const val = e.target.value;
-                                        setSaleSource(val as SaleSource);
+                                    onChange={(v) => {
+                                        setSaleSource(v as SaleSource);
                                         // Reset offer wizard if choosing another source
                                         handleResetOffer();
                                     }}
-                                    className={selectClass}
-                                >
-                                    <option value="">اختر مصدراً آخر...</option>
-                                    {customSaleSources.map(item => (
-                                        <option key={item.id} value={item.value}>{item.valueAr || item.value}</option>
-                                    ))}
-                                </select>
+                                    options={[
+                                        { value: '', label: 'اختر مصدراً آخر...' },
+                                        ...customSaleSources.map(item => ({ value: item.value, label: item.valueAr || item.value })),
+                                    ]}
+                                    className="w-full"
+                                />
                             </Field>
                         </div>
 
@@ -1675,16 +1678,15 @@ export default function ContractForm() {
                                 <div className="grid grid-cols-1 gap-4 border-t border-slate-100 pt-4">
                                     <Field label="موظف نسبة البيعة" hint={saleOwnerFrozen ? 'مُجمَّد — البيعة منسوبة عند الاعتماد' : (canEdit ? 'يمكنك تغييره' : 'يُحدَّد تلقائياً من فريق العرض')}>
                                         {canEdit ? (
-                                            <select
-                                                value={saleOwnerId}
-                                                onChange={e => setSaleOwnerId(e.target.value ? Number(e.target.value) : '')}
-                                                className={selectClass}
-                                            >
-                                                <option value="">{fallbackLabel}</option>
-                                                {branchEmployees.map((emp: any) => (
-                                                    <option key={emp.id} value={emp.id}>{emp.name}</option>
-                                                ))}
-                                            </select>
+                                            <Select<string>
+                                                value={saleOwnerId === '' ? '' : String(saleOwnerId)}
+                                                onChange={(v) => setSaleOwnerId(v ? Number(v) : '')}
+                                                options={[
+                                                    { value: '', label: fallbackLabel },
+                                                    ...branchEmployees.map((emp: any) => ({ value: String(emp.id), label: emp.name })),
+                                                ]}
+                                                className="w-full"
+                                            />
                                         ) : (
                                             <div className={`w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm flex items-center gap-2 ${saleOwnerFrozen ? 'text-slate-500' : 'text-slate-700'}`}>
                                                 <User className="w-4 h-4 text-slate-400" />
@@ -1727,23 +1729,23 @@ export default function ContractForm() {
                                                     <span>لا يوجد مهام عرض جهاز تحتوي على عروض مقبولة غير مرتبطة لهذا العميل.</span>
                                                 </div>
                                             ) : (
-                                                <select
-                                                    value={selectedTask ? selectedTask.id : ''}
-                                                    onChange={e => {
-                                                        const task = clientTasks.find(t => String(t.id) === e.target.value);
+                                                <Select<string>
+                                                    value={selectedTask ? String(selectedTask.id) : ''}
+                                                    onChange={(v) => {
+                                                        const task = clientTasks.find(t => String(t.id) === v);
                                                         setSelectedTask(task || null);
                                                         setSelectedOffer(null);
                                                         setSourceTaskId(task ? String(task.id) : '');
                                                     }}
-                                                    className={selectClass}
-                                                >
-                                                    <option value="">اختر المهمة...</option>
-                                                    {clientTasks.map(t => (
-                                                        <option key={t.id} value={t.id}>
-                                                            مهمة رقم #{t.id} - بتاريخ {t.completedAt ? t.completedAt.slice(0,10) : t.createdAt.slice(0,10)}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    options={[
+                                                        { value: '', label: 'اختر المهمة...' },
+                                                        ...clientTasks.map(t => ({
+                                                            value: String(t.id),
+                                                            label: `مهمة رقم #${t.id} - بتاريخ ${t.completedAt ? t.completedAt.slice(0,10) : t.createdAt.slice(0,10)}`,
+                                                        })),
+                                                    ]}
+                                                    className="w-full"
+                                                />
                                             )}
                                         </div>
 
@@ -1825,12 +1827,16 @@ export default function ContractForm() {
                     {/* Device Row */}
                     <div className="grid grid-cols-3 gap-4">
                         <Field label="موديل الجهاز" required>
-                            <select value={deviceModelId} onChange={e => { setDeviceModelId(Number(e.target.value) || ''); setSelectedDiscountId(''); }} className={selectClass} disabled={isOfferLocked}>
-                                <option value="">اختر الموديل...</option>
-                                {deviceModels.map(d => (
-                                    <option key={d.id} value={d.id}>{d.nameAr || d.name}</option>
-                                ))}
-                            </select>
+                            <Select<string>
+                                value={deviceModelId === '' ? '' : String(deviceModelId)}
+                                onChange={(v) => { setDeviceModelId(v ? Number(v) : ''); setSelectedDiscountId(''); }}
+                                disabled={isOfferLocked}
+                                options={[
+                                    { value: '', label: 'اختر الموديل...' },
+                                    ...deviceModels.map(d => ({ value: String(d.id), label: d.nameAr || d.name })),
+                                ]}
+                                className="w-full"
+                            />
                         </Field>
                         <Field label="الرقم التسلسلي" required>
                             <div className="relative">
@@ -1845,12 +1851,16 @@ export default function ContractForm() {
                         {selectedDevice && saleSubtype !== 'free' && (
                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
                                 <Field label="حسم الجهاز">
-                                    <select value={selectedDiscountId} onChange={e => setSelectedDiscountId(Number(e.target.value) || '')} className={selectClass} disabled={isOfferLocked}>
-                                        <option value="">بدون حسم</option>
-                                        {deviceDiscounts.map((d: any) => (
-                                            <option key={d.id} value={d.id}>{d.label} — {d.percentage}%</option>
-                                        ))}
-                                    </select>
+                                    <Select<string>
+                                        value={selectedDiscountId === '' ? '' : String(selectedDiscountId)}
+                                        onChange={(v) => setSelectedDiscountId(v ? Number(v) : '')}
+                                        disabled={isOfferLocked}
+                                        options={[
+                                            { value: '', label: 'بدون حسم' },
+                                            ...deviceDiscounts.map((d: any) => ({ value: String(d.id), label: `${d.label} — ${d.percentage}%` })),
+                                        ]}
+                                        className="w-full"
+                                    />
                                     {selectedDiscountId && (() => {
                                         const disc = deviceDiscounts.find(d => d.id === Number(selectedDiscountId));
                                         if (!disc) return null;
@@ -1943,46 +1953,41 @@ export default function ContractForm() {
                                 {compatibleSpareParts.length > 0 && (
                                     <div className="flex gap-2 items-center">
                                         {/* Step 1: category */}
-                                        <select
+                                        <Select<string>
                                             value={addingAccessoryCategory}
-                                            onChange={e => setAddingAccessoryCategory(e.target.value)}
-                                            className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-sky-400 cursor-pointer"
-                                        >
-                                            <option value="">+ إضافة ملحق — اختر الفئة...</option>
-                                            {[['Periodic','قطع الصيانة الدورية'],['Emergency','قطع الصيانة الطارئة'],['Accessory','اكسسوارات']].map(([v,l]) =>
-                                                compatibleSpareParts.some((p: any) => p.maintenanceType === v) && (
-                                                    <option key={v} value={v}>{l}</option>
-                                                )
-                                            )}
-                                        </select>
+                                            onChange={setAddingAccessoryCategory}
+                                            options={[
+                                                { value: '', label: '+ إضافة ملحق — اختر الفئة...' },
+                                                ...([['Periodic','قطع الصيانة الدورية'],['Emergency','قطع الصيانة الطارئة'],['Accessory','اكسسوارات']] as const)
+                                                    .filter(([v]) => compatibleSpareParts.some((p: any) => p.maintenanceType === v))
+                                                    .map(([v, l]) => ({ value: v, label: l })),
+                                            ]}
+                                            className="flex-1"
+                                        />
                                         {/* Step 2: pick specific part */}
                                         {addingAccessoryCategory && (
-                                            <select
+                                            <Select<string>
                                                 value=""
-                                                onChange={e => {
-                                                    const part = spareParts.find((p: any) => p.id === Number(e.target.value));
+                                                onChange={(v) => {
+                                                    const part = spareParts.find((p: any) => p.id === Number(v));
                                                     if (!part) return;
                                                     setLineItems(prev => [...prev, { itemType: 'accessory', sparePartId: part.id, description: part.name, quantity: 1, unitPrice: part.basePrice || 0 }]);
                                                     setAddingAccessoryCategory('');
                                                 }}
-                                                className="flex-1 text-xs border border-sky-300 rounded-lg px-3 py-2 bg-sky-50 focus:outline-none focus:border-sky-500 cursor-pointer"
-                                            >
-                                                <option value="">اختر القطعة...</option>
-                                                {compatibleSpareParts
-                                                    .filter((p: any) => p.maintenanceType === addingAccessoryCategory)
-                                                    .map((p: any) => (
-                                                        <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
-                                                    ))
-                                                }
-                                            </select>
+                                                options={[
+                                                    { value: '', label: 'اختر القطعة...' },
+                                                    ...compatibleSpareParts
+                                                        .filter((p: any) => p.maintenanceType === addingAccessoryCategory)
+                                                        .map((p: any) => ({ value: String(p.id), label: `${p.name} (${p.code})` })),
+                                                ]}
+                                                className="flex-1"
+                                            />
                                         )}
                                     </div>
                                 )}
-                                <button type="button"
-                                    onClick={() => setLineItems(prev => [...prev, { itemType: 'service_fee', description: 'رسوم خدمة', quantity: 1, unitPrice: 0 }])}
-                                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+                                <Button type="button" variant="secondary" size="sm" onClick={() => setLineItems(prev => [...prev, { itemType: 'service_fee', description: 'رسوم خدمة', quantity: 1, unitPrice: 0 }])}>
                                     + إضافة رسوم خدمة
-                                </button>
+                                </Button>
                             </div>
                         </div>
                     )}
@@ -2004,32 +2009,26 @@ export default function ContractForm() {
 
                     {selectedDevice && (
                         <Field label="فترة كفالة العقد">
-                            <div className="relative">
-                                <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
-                                <select
-                                    value={warrantyMonths}
-                                    onChange={e => {
-                                        const months = Number(e.target.value);
-                                        setWarrantyMonths(months);
-                                        const period = (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).find((p: { months: number }) => p.months === months);
-                                        setWarrantyVisits((period as any)?.visits ?? 0);
-                                    }}
-                                    className={`${inputClass} pr-10`}
-                                >
-                                    <option value={0}>بدون كفالة</option>
-                                    {(selectedDevice.warrantyPeriods || []).length > 0
-                                        ? (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).map((p: { months: number; label: string; visits: number }) => (
-                                            <option key={p.months} value={p.months}>{p.label}</option>
-                                        ))
-                                        : <>
-                                            <option value={6}>6 أشهر</option>
-                                            <option value={12}>12 شهرًا</option>
-                                            <option value={24}>24 شهرًا</option>
-                                            <option value={36}>36 شهرًا</option>
-                                        </>
-                                    }
-                                </select>
-                            </div>
+                            <Select<number>
+                                value={warrantyMonths}
+                                onChange={(months) => {
+                                    setWarrantyMonths(months);
+                                    const period = (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).find((p: { months: number }) => p.months === months);
+                                    setWarrantyVisits((period as any)?.visits ?? 0);
+                                }}
+                                options={[
+                                    { value: 0, label: 'بدون كفالة' },
+                                    ...((selectedDevice.warrantyPeriods || []).length > 0
+                                        ? (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).map((p) => ({ value: p.months, label: p.label }))
+                                        : [
+                                            { value: 6, label: '6 أشهر' },
+                                            { value: 12, label: '12 شهرًا' },
+                                            { value: 24, label: '24 شهرًا' },
+                                            { value: 36, label: '36 شهرًا' },
+                                        ]),
+                                ]}
+                                className="w-full"
+                            />
                             {warrantyMonths > 0 && (
                                 <p className="text-xs text-slate-400 mt-1 pr-1">
                                     {warrantyVisits > 0 ? `${warrantyVisits} زيارة ضمن مدة الكفالة` : 'تطبق الكفالة عند تشغيل الجهاز ودخوله الخدمة الفعلية.'}
@@ -2168,11 +2167,9 @@ export default function ContractForm() {
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs font-semibold text-slate-600">{paymentType === 'cash' ? 'الدفعات' : 'الدفعة الأولى'}</span>
                                     {!isOfferLocked && (
-                                        <button type="button"
-                                            onClick={() => setPaymentEntries(prev => [...prev, newPaymentEntry()])}
-                                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50 text-sky-700 text-xs font-bold hover:bg-sky-100 transition-colors">
-                                            <Plus className="w-3.5 h-3.5" /> إضافة دفعة
-                                        </button>
+                                        <Button type="button" variant="secondary" size="sm" icon={Plus} onClick={() => setPaymentEntries(prev => [...prev, newPaymentEntry()])} className="bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100">
+                                            إضافة دفعة
+                                        </Button>
                                     )}
                                 </div>
 
@@ -2218,19 +2215,22 @@ export default function ContractForm() {
                                             <>
                                                 {/* Row 1: نوع الدفع + amount + delete */}
                                                 <div className="flex items-center gap-2">
-                                                    <select value={entry.paymentCategory}
-                                                        onChange={e => {
-                                                            const cat = e.target.value as PaymentCategory;
+                                                    <Select<string>
+                                                        value={entry.paymentCategory}
+                                                        onChange={(v) => {
+                                                            const cat = v as PaymentCategory;
                                                             let method: PaymentMethod = 'cash';
                                                             if (cat === 'transfer') method = 'sham_cash';
                                                             if (cat === 'barter') method = 'barter';
                                                             updateEntry(idx, { paymentCategory: cat, method, referenceNumber: '', barterName: '', barterValueSyp: '' });
                                                         }}
-                                                        className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-2 focus:outline-none focus:border-sky-400 bg-white">
-                                                        <option value="hand">تسليم باليد</option>
-                                                        <option value="transfer">حوالة</option>
-                                                        <option value="barter">مقايضة</option>
-                                                    </select>
+                                                        options={[
+                                                            { value: 'hand', label: 'تسليم باليد' },
+                                                            { value: 'transfer', label: 'حوالة' },
+                                                            { value: 'barter', label: 'مقايضة' },
+                                                        ]}
+                                                        className="flex-1"
+                                                    />
                                                     {entry.paymentCategory !== 'barter' && (
                                                         <input type="number" min={0} value={entry.amountValue}
                                                             onChange={e => updateEntry(idx, { amountValue: e.target.value })}
@@ -2238,12 +2238,15 @@ export default function ContractForm() {
                                                             className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
                                                     )}
                                                     {!isBarter(entry.method) && (
-                                                        <select value={entry.currency}
-                                                            onChange={e => updateEntry(idx, { currency: e.target.value as 'SYP' | 'USD', exchangeRate: e.target.value === 'SYP' ? '' : entry.exchangeRate })}
-                                                            className="w-20 text-xs border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:border-sky-400 bg-white">
-                                                            <option value="SYP">ل.س</option>
-                                                            <option value="USD">USD</option>
-                                                        </select>
+                                                        <Select<string>
+                                                            value={entry.currency}
+                                                            onChange={(v) => updateEntry(idx, { currency: v as 'SYP' | 'USD', exchangeRate: v === 'SYP' ? '' : entry.exchangeRate })}
+                                                            options={[
+                                                                { value: 'SYP', label: 'ل.س' },
+                                                                { value: 'USD', label: 'USD' },
+                                                            ]}
+                                                            className="w-20"
+                                                        />
                                                     )}
                                                     <button type="button" onClick={() => deleteEntry(idx)}
                                                         className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
@@ -2271,15 +2274,18 @@ export default function ContractForm() {
                                                 {/* Row 2: conditional sub-fields */}
                                                 {entry.paymentCategory === 'transfer' && (
                                                     <div className="flex gap-2">
-                                                        <select value={entry.method}
-                                                            onChange={e => updateEntry(idx, { method: e.target.value as PaymentMethod })}
-                                                            className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-2 focus:outline-none focus:border-sky-400 bg-white">
-                                                            <option value="sham_cash">شام كاش</option>
-                                                            <option value="syriatel_cash">سيرياتيل كاش</option>
-                                                            <option value="mtn_cash">MTN كاش</option>
-                                                            <option value="alharam">الهرم</option>
-                                                            <option value="bank_transfer">حوالة بنكية</option>
-                                                        </select>
+                                                        <Select<string>
+                                                            value={entry.method}
+                                                            onChange={(v) => updateEntry(idx, { method: v as PaymentMethod })}
+                                                            options={[
+                                                                { value: 'sham_cash', label: 'شام كاش' },
+                                                                { value: 'syriatel_cash', label: 'سيرياتيل كاش' },
+                                                                { value: 'mtn_cash', label: 'MTN كاش' },
+                                                                { value: 'alharam', label: 'الهرم' },
+                                                                { value: 'bank_transfer', label: 'حوالة بنكية' },
+                                                            ]}
+                                                            className="flex-1"
+                                                        />
                                                         <input type="text" value={entry.referenceNumber}
                                                             onChange={e => updateEntry(idx, { referenceNumber: e.target.value })}
                                                             placeholder="رقم الحوالة *"
@@ -2312,10 +2318,9 @@ export default function ContractForm() {
                                                 )}
 
                                                 {/* Confirm button */}
-                                                <button type="button" onClick={() => confirmEntry(idx)}
-                                                    className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
-                                                    <CheckCircle2 className="w-3.5 h-3.5" /> تأكيد
-                                                </button>
+                                                <Button type="button" variant="secondary" size="sm" fullWidth icon={CheckCircle2} onClick={() => confirmEntry(idx)} className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
+                                                    تأكيد
+                                                </Button>
                                             </>
                                         )}
                                     </div>
@@ -2359,15 +2364,18 @@ export default function ContractForm() {
                             <div className="space-y-3">
                                 <div className="grid grid-cols-2 gap-3">
                                     <Field label="عدد الأقساط">
-                                        <select value={installmentCount} onChange={e => setInstallmentCount(e.target.value)} className={selectClass} disabled={installmentsConfirmed || isOfferLocked}>
-                                            {[3, 6, 9, 12, 18, 24].map(n => <option key={n} value={n}>{n} أقساط</option>)}
-                                        </select>
+                                        <Select<string>
+                                            value={installmentCount}
+                                            onChange={setInstallmentCount}
+                                            disabled={installmentsConfirmed || isOfferLocked}
+                                            options={[3, 6, 9, 12, 18, 24].map(n => ({ value: String(n), label: `${n} أقساط` }))}
+                                            className="w-full"
+                                        />
                                     </Field>
                                     <div className="flex items-end">
-                                        <button type="button" onClick={generateInstallments} disabled={grandTotal <= 0 || installmentsConfirmed}
-                                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-amber-300 text-amber-600 hover:bg-amber-50 transition-all text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed">
-                                            <Calculator className="w-4 h-4" /> توليد الجدول
-                                        </button>
+                                        <Button type="button" variant="secondary" fullWidth icon={Calculator} onClick={generateInstallments} disabled={grandTotal <= 0 || installmentsConfirmed} className="border-dashed border-amber-300 text-amber-600 hover:bg-amber-50">
+                                            توليد الجدول
+                                        </Button>
                                     </div>
                                 </div>
 
@@ -2430,11 +2438,9 @@ export default function ContractForm() {
                                         </table>
                                         {!installmentsConfirmed && (
                                             <div className="px-4 py-3 bg-slate-50 border-t border-slate-200">
-                                                <button type="button"
-                                                    onClick={() => setInstallmentsConfirmed(true)}
-                                                    className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
-                                                    <CheckCircle2 className="w-3.5 h-3.5" /> تأكيد الأقساط
-                                                </button>
+                                                <Button type="button" variant="secondary" size="sm" fullWidth icon={CheckCircle2} onClick={() => setInstallmentsConfirmed(true)} className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
+                                                    تأكيد الأقساط
+                                                </Button>
                                             </div>
                                         )}
                                         {installmentsConfirmed && (

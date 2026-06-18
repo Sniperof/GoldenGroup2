@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import IconButton from '../ui/IconButton';
 import {
   Clock3,
   Loader2,
@@ -22,6 +23,8 @@ import type {
   SystemList,
 } from '@golden-crm/shared';
 import { api } from '../../lib/api';
+import Select from '../ui/Select';
+import Button from '../ui/Button';
 
 interface MarketingVisitOutcomeModalProps {
   isOpen: boolean;
@@ -993,14 +996,7 @@ export default function MarketingVisitOutcomeModal({
               {visit.customerName || '—'} · {visit.scheduledDate || '—'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-white hover:text-slate-600"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
         </div>
 
         <div className="border-b border-slate-100 bg-white px-6 py-4">
@@ -1036,598 +1032,7 @@ export default function MarketingVisitOutcomeModal({
                     const isSelected = wizardState.overallOutcome === option.value;
                     const isDisabled = isOutcomeLocked && !isSelected;
                     return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => handleSelectOutcome(option.value)}
-                        disabled={isDisabled}
-                        className={`flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-right transition-all ${
-                          isDisabled
-                            ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300'
-                            : isSelected
-                            ? `${option.color} ring-2 ring-current ring-offset-1`
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon className="h-4 w-4 shrink-0" />
-                          <span className="text-sm font-bold">{option.label}</span>
-                        </div>
-                        <span className="text-xs opacity-80">{option.description}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {isOutcomeLocked && (
-                  <p className="text-[11px] text-amber-600">
-                    🔒 نوع النتيجة مقفل بعد تسجيل رد الزبون. البيع يُسجل من داخل رد العرض المقبول ضمن مسار "تقديم عرض".
-                  </p>
-                )}
-              </section>
-            )}
-            {/* Compact outcome badge shown on steps 1–4 */}
-            {useOfferUI && wizardState.step > 0 && (
-              <div className={`flex items-center justify-between rounded-xl border px-4 py-2.5 ${
-                isOutcomeLocked ? 'border-amber-100 bg-amber-50' : 'border-sky-100 bg-sky-50'
-              }`}>
-                <span className={`text-sm font-semibold ${isOutcomeLocked ? 'text-amber-800' : 'text-sky-800'}`}>
-                  {isOutcomeLocked && '🔒 '}نوع النتيجة:{' '}
-                  {OUTCOME_OPTIONS.find((o) => o.value === wizardState.overallOutcome)?.label ?? '—'}
-                </span>
-                {!isOutcomeLocked && (
-                  <button
-                    type="button"
-                    onClick={() => setWizardState((current) => ({ ...current, step: 0, overallOutcome: '' }))}
-                    className="text-xs font-bold text-sky-600 hover:underline"
-                  >
-                    تغيير
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* device_sold now uses the multi-device offer flow (steps 1+) — old single-dropdown removed */}
-
-            {!isOfferFlow && wizardState.overallOutcome === 'needs_reschedule' && (
-              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">
-                    سبب إعادة الجدولة <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={rescheduleReasonId}
-                    onChange={(event) => setRescheduleReasonId(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  >
-                    <option value="">اختر السبب...</option>
-                    {rescheduleReasons.map((reason) => (
-                      <option key={reason.id} value={reason.id}>
-                        {reason.value}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">
-                    التاريخ المتوقع <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={followUpDueDate}
-                    onChange={(event) => setFollowUpDueDate(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  />
-                </div>
-              </section>
-            )}
-
-            {!isOfferFlow && wizardState.overallOutcome === 'cancelled' && (
-              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">
-                    سبب الإلغاء <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={cancellationReasonId}
-                    onChange={(event) => setCancellationReasonId(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  >
-                    <option value="">اختر السبب...</option>
-                    {cancellationReasons.map((reason) => (
-                      <option key={reason.id} value={reason.id}>
-                        {reason.value}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </section>
-            )}
-
-            {!isOfferFlow && wizardState.overallOutcome && (
-              <section className="space-y-2 rounded-2xl border border-slate-200 bg-white p-5">
-                <label className="text-sm font-bold text-slate-700">
-                  ملاحظات <span className="text-xs font-normal text-slate-400">(اختياري)</span>
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  rows={3}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  placeholder="أي تفاصيل إضافية حول النتيجة"
-                />
-              </section>
-            )}
-
-            {useOfferUI && wizardState.step === 1 && (
-              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-800">
-                      {isDeviceSoldFlow ? 'الأجهزة المباعة' : 'أجهزة الزيارة — بيان العروض'}
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      {isDeviceSoldFlow
-                        ? 'أضف كل جهاز تم بيعه — لكل جهاز سيُولَّد رقم بيعة مستقل.'
-                        : 'أضف العروض لكل جهاز، ثم راجع ملخص العروض قبل تسجيل ردود الزبون.'}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => openCreateOffer()}
-                    disabled={deviceModels.length === 0}
-                    className="inline-flex items-center gap-1 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    إضافة عرض
-                  </button>
-                </div>
-
-                {wizardState.deviceOffers.length === 0 ? (
-                  <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-6 text-center text-sm text-amber-700">
-                    ⚠️ لا توجد عروض مسجلة بعد. استخدم زر "إضافة عرض" لاختيار جهاز وإدخال العرض.
-                  </div>
-                ) : (
-                  wizardState.deviceOffers.map((group) => (
-                    <div key={group.deviceModelId} className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-bold text-slate-800">💻 {group.deviceModelName}</h4>
-                      </div>
-
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full text-right text-sm">
-                          <thead>
-                            <tr className="border-b border-slate-200 text-slate-500">
-                              <th className="px-3 py-2 font-semibold">النوع</th>
-                              <th className="px-3 py-2 font-semibold">الكمية</th>
-                              <th className="px-3 py-2 font-semibold">تفاصيل المبلغ</th>
-                              <th className="px-3 py-2 font-semibold">التسكير</th>
-                              <th className="px-3 py-2 font-semibold">الحالة</th>
-                              <th className="px-3 py-2 font-semibold">إجراء</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {group.offers.length === 0 ? (
-                              <tr>
-                                <td colSpan={7} className="px-3 py-5 text-center text-slate-400">
-                                  ○ فاضي
-                                </td>
-                              </tr>
-                            ) : (
-                              group.offers.map((offer) => {
-                                const status = renderOfferStatus(offer);
-                                return (
-                                  <tr key={offer.id} className="border-b border-slate-100 last:border-b-0">
-                                    <td className="px-3 py-3 font-medium text-slate-700">{getOfferLabel(offer.offerType)}</td>
-                                    <td className="px-3 py-3 text-slate-700">{offer.quantity}</td>
-                                    <td className="px-3 py-3 text-slate-700">{formatOfferAmountDetails(offer)}</td>
-                                    <td className="px-3 py-3 text-slate-700">{getOfferCloserLabel(offer)}</td>
-                                    <td className={`px-3 py-3 font-semibold ${status.className}`}>{status.label}</td>
-                                    <td className="px-3 py-3">
-                                      <div className="flex items-center justify-end gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => openEditOffer(group.deviceModelId, offer)}
-                                          disabled={offer.customerResponse != null}
-                                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white disabled:cursor-not-allowed disabled:border-slate-100 disabled:text-slate-300"
-                                        >
-                                          <Pencil className="h-3 w-3" />
-                                          تعديل
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteOffer(group.deviceModelId, offer.id)}
-                                          disabled={offer.customerResponse != null}
-                                          className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                          حذف
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </section>
-            )}
-
-            {isOfferFlow && wizardState.step === 2 && (
-              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">ملخص العروض المقدمة</h3>
-                  <p className="text-xs text-slate-500">راجع كل العروض المسجلة قبل الانتقال إلى ردود الزبون.</p>
-                </div>
-
-                <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                  <table className="min-w-full text-right text-sm">
-                    <thead className="bg-slate-50 text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2 font-semibold">اسم الجهاز</th>
-                        <th className="px-3 py-2 font-semibold">نوع العرض</th>
-                        <th className="px-3 py-2 font-semibold">الكمية</th>
-                        <th className="px-3 py-2 font-semibold">القيمة الكاملة</th>
-                        <th className="px-3 py-2 font-semibold">تفاصيل التقسيط</th>
-                        <th className="px-3 py-2 font-semibold">التسكير</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {flatOffers.map(({ deviceModelName, offer }) => (
-                        <tr key={offer.id} className="border-t border-slate-100">
-                          <td className="px-3 py-3 text-slate-700">{deviceModelName}</td>
-                          <td className="px-3 py-3 text-slate-700">{getOfferLabel(offer.offerType)}</td>
-                          <td className="px-3 py-3 text-slate-700">{offer.quantity}</td>
-                          <td className="px-3 py-3 text-slate-700">{formatOfferAmountDetails(offer)}</td>
-                          <td className="px-3 py-3 text-slate-700">
-                            {offer.offerType === 'installment'
-                              ? `${offer.firstPaymentAmount == null ? '—' : new Intl.NumberFormat('en-US').format(offer.firstPaymentAmount)} / ${offer.installmentMonths == null ? '—' : `${offer.installmentMonths} شهر`}`
-                              : '—'}
-                          </td>
-                          <td className="px-3 py-3 text-slate-700">{getOfferCloserLabel(offer)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-
-            {isOfferFlow && wizardState.step === 3 && (
-              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">ردود الزبون على العروض المقدمة</h3>
-                  <p className="text-xs text-slate-500">يجب تحديد رد الزبون لكل عرض قبل الوصول إلى الملخص.</p>
-                </div>
-
-                {pendingOffers.length === 0 ? (
-                  <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-6 text-center text-sm text-emerald-700">
-                    ✅ تم تسجيل ردود الزبون على كل العروض. اضغط &quot;التالي&quot; للملخص.
-                  </div>
-                ) : (
-                  pendingOffers.map(({ deviceModelId, deviceModelName, offer }) => (
-                      <div key={offer.id} className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="text-sm font-bold text-slate-800">
-                        💻 {deviceModelName} — عرض {getOfferLabel(offer.offerType)} ({formatOfferAmountDetails(offer)})
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="text-sm font-semibold text-slate-700">رد الزبون:</div>
-                        <div className="flex flex-wrap gap-2">
-                          {[
-                            { value: 'accepted', label: '✅ تم البيع', style: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
-                            { value: 'rejected', label: '❌ رفض', style: 'border-red-200 bg-red-50 text-red-700' },
-                            { value: 'extension_requested', label: '⏳ مهلة', style: 'border-amber-200 bg-amber-50 text-amber-700' },
-                          ].map((option) => {
-                            const isSelected = offer.customerResponse === option.value;
-                            return (
-                              <button
-                                key={option.value}
-                                type="button"
-                                onClick={() => {
-                                  setValidationError('');
-                                  updateOffer(deviceModelId, offer.id, (current) => ({
-                                    ...current,
-                                    customerResponse: option.value as Exclude<CustomerResponse, null>,
-                                    rejectionReasonId: option.value === 'rejected' ? current.rejectionReasonId : null,
-                                    noClosingReason: option.value === 'rejected' ? current.noClosingReason : current.noClosingReason,
-                                    extensionReasonId:
-                                      option.value === 'extension_requested' ? current.extensionReasonId : null,
-                                    extensionDueDate:
-                                      option.value === 'extension_requested' ? current.extensionDueDate : null,
-                                  }));
-                                }}
-                                className={`rounded-xl border px-4 py-2 text-sm font-bold transition-colors ${
-                                  isSelected ? option.style : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
-                                }`}
-                              >
-                                {option.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {offer.customerResponse === 'accepted' && (
-                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                          <div className="font-bold">✅ تم البيع!</div>
-                          <div className="mt-1">
-                            رقم البيعة:{' '}
-                            {offer.saleReferenceNumber
-                              ? <span className="font-mono font-black tracking-widest">#{offer.saleReferenceNumber}</span>
-                              : <span className="text-emerald-600 italic text-xs">سيُولَّد تلقائياً عند الحفظ</span>}
-                          </div>
-                          <div className="mt-1">الجهاز: {deviceModelName}</div>
-                          <div className="mt-1">
-                            العرض: {getOfferLabel(offer.offerType)} —{' '}
-                            {getOfferCloserLabel(offer)}
-                          </div>
-                        </div>
-                      )}
-
-                      {offer.customerResponse === 'rejected' && (
-                        <div className="space-y-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
-                          <label className="text-sm font-bold text-slate-700">
-                            سبب الرفض <span className="text-red-500">*</span>
-                          </label>
-                          <select
-                            value={offer.rejectionReasonId ?? ''}
-                            onChange={(event) =>
-                              updateOffer(deviceModelId, offer.id, (current) => ({
-                                ...current,
-                                rejectionReasonId: event.target.value ? Number(event.target.value) : null,
-                                noClosingReason:
-                                  rejectionReasonOptions.find((reason) => String(reason.id) === event.target.value)?.value
-                                  ?? null,
-                              }))
-                            }
-                            className="w-full rounded-xl border border-red-100 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                          >
-                            <option value="">اختر سبب الرفض...</option>
-                            {rejectionReasonOptions.map((reason) => (
-                              <option key={reason.id} value={reason.id}>
-                                {reason.value}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-
-                      {offer.customerResponse === 'extension_requested' && (
-                        <div className="grid gap-3 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <label className="text-sm font-bold text-slate-700">
-                              سبب التأجيل <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                              value={offer.extensionReasonId ?? ''}
-                              onChange={(event) =>
-                                updateOffer(deviceModelId, offer.id, (current) => ({
-                                  ...current,
-                                  extensionReasonId: event.target.value ? Number(event.target.value) : null,
-                                }))
-                              }
-                              className="w-full rounded-xl border border-amber-100 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                            >
-                              <option value="">اختر السبب...</option>
-                              {rescheduleReasons.map((reason) => (
-                                <option key={reason.id} value={reason.id}>
-                                  {reason.value}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-sm font-bold text-slate-700">
-                              التاريخ المتوقع <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                              type="date"
-                              value={offer.extensionDueDate ?? ''}
-                              onChange={(event) =>
-                                updateOffer(deviceModelId, offer.id, (current) => ({
-                                  ...current,
-                                  extensionDueDate: event.target.value.trim() || null,
-                                }))
-                              }
-                              className="w-full rounded-xl border border-amber-100 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </section>
-            )}
-
-            {useOfferUI && wizardState.step === 4 && (
-              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">ملخص النتيجة النهائية</h3>
-                  <p className="text-xs text-slate-500">مراجعة سريعة قبل إرسال النتيجة الحالية إلى الواجهة الخلفية.</p>
-                </div>
-
-                <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sm text-slate-700">
-                  <div className="mb-2 flex items-center gap-2 font-bold text-sky-800">
-                    <Package2 className="h-4 w-4" />
-                    إحصائيات العروض
-                  </div>
-                  <div>إجمالي العروض: {summary.totalOffers}</div>
-                  <div>✅ تم البيع: {summary.acceptedCount}</div>
-                  <div>❌ رفض: {summary.rejectedCount}</div>
-                  <div>⏳ مهلة: {summary.extensionCount}</div>
-                  <div className="mt-3 rounded-xl border border-sky-200 bg-white px-3 py-2 font-semibold text-sky-800">
-                    النتيجة النهائية:{' '}
-                    {summary.outcome === 'device_sold'
-                      ? 'تم البيع'
-                      : summary.outcome === 'needs_reschedule'
-                        ? 'تحتاج إعادة جدولة'
-                        : 'لم يتم البيع'}
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                  <table className="min-w-full text-right text-sm">
-                    <thead className="bg-slate-50 text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2 font-semibold">الجهاز</th>
-                        <th className="px-3 py-2 font-semibold">العرض</th>
-                        <th className="px-3 py-2 font-semibold">الكمية</th>
-                        <th className="px-3 py-2 font-semibold">تفاصيل العرض</th>
-                        <th className="px-3 py-2 font-semibold">رد الزبون</th>
-                        <th className="px-3 py-2 font-semibold">رقم البيعة</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {flatOffers.map(({ deviceModelName, offer }) => (
-                        <tr key={offer.id} className="border-t border-slate-100">
-                          <td className="px-3 py-3 text-slate-700">{deviceModelName}</td>
-                          <td className="px-3 py-3 text-slate-700">{getOfferLabel(offer.offerType)}</td>
-                          <td className="px-3 py-3 text-slate-700">{offer.quantity}</td>
-                          <td className="px-3 py-3 text-slate-700">{formatOfferAmountDetails(offer)}</td>
-                          <td className="px-3 py-3 font-medium text-slate-700">{getResponseLabel(offer.customerResponse)}</td>
-                          <td className="px-3 py-3">
-                            {offer.customerResponse === 'accepted'
-                              ? offer.saleReferenceNumber
-                                ? <span className="font-mono font-black tracking-widest text-emerald-700">#{offer.saleReferenceNumber}</span>
-                                : <span className="text-xs text-slate-400 italic">سيُولَّد عند الحفظ</span>
-                              : <span className="text-slate-400">—</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">
-                    ملاحظات <span className="text-xs font-normal text-slate-400">(اختياري)</span>
-                  </label>
-                  <textarea
-                    value={wizardState.notes}
-                    onChange={(event) =>
-                      setWizardState((current) => ({
-                        ...current,
-                        notes: event.target.value,
-                      }))
-                    }
-                    rows={4}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                    placeholder="ملاحظات نهائية حول العروض وردود الزبون"
-                  />
-                </div>
-              </section>
-            )}
-
-            {(validationError || error) && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {validationError || error}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between border-t border-slate-100 bg-white px-6 py-4">
-          <div className="flex items-center gap-3">
-            {useOfferUI && wizardState.step > 0 && (
-              <button
-                type="button"
-                onClick={handleBack}
-                disabled={saving}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {wizardState.step === 2 ? 'رجوع لتعديل العروض »' : 'السابق »'}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={saving}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              إلغاء
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Next button: for offer_presented (steps 0–3) and device_sold (step 0 and 1) */}
-            {useOfferUI && wizardState.step < 4 && (
-              <button
-                type="button"
-                onClick={handleNext}
-                disabled={saving}
-                className="rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {wizardState.step === 2 ? 'تأكيد وتابع لردود الزبون «' : 'التالي «'}
-              </button>
-            )}
-
-            {/* Submit: offer_presented step 4 */}
-            {isOfferFlow && wizardState.step === 4 && (
-              <button
-                type="button"
-                onClick={handleOfferFlowSubmit}
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                حفظ النتيجة ✅
-              </button>
-            )}
-
-            {/* Submit: device_sold step 4 */}
-            {isDeviceSoldFlow && wizardState.step === 4 && (
-              <button
-                type="button"
-                onClick={handleDeviceSoldSubmit}
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                تأكيد البيع ✅
-              </button>
-            )}
-
-            {/* Submit: needs_reschedule / cancelled (simple outcomes) */}
-            {!useOfferUI && wizardState.overallOutcome && (
-              <button
-                type="button"
-                onClick={handleSimpleSubmit}
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                حفظ النتيجة
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {offerEditor && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">
-                  {offerEditor.offerId ? 'تعديل العرض' : 'إضافة عرض جديد'}
-                </h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  {wizardState.deviceOffers.find((group) => group.deviceModelId === offerEditor.deviceModelId)?.deviceModelName}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setOfferEditor(null)}
-                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600"
-              >
-                <X className="h-4 w-4" />
-              </button>
+                      <IconButton icon={X} label="إغلاق" size="sm" onClick={() => handleSelectOutcome(option.value)} disabled={isDisabled} />
             </div>
 
             <div className="space-y-4 px-5 py-5">
@@ -1641,10 +1046,10 @@ export default function MarketingVisitOutcomeModal({
                 <label className="text-sm font-bold text-slate-700">
                   الجهاز <span className="text-red-500">*</span>
                 </label>
-                <select
-                  value={offerEditor.deviceModelId}
-                  onChange={(event) => {
-                    const newDeviceModelId = Number(event.target.value);
+                <Select
+                  value={String(offerEditor.deviceModelId)}
+                  onChange={v => {
+                    const newDeviceModelId = Number(v);
                     const model = deviceModels.find((m) => m.id === newDeviceModelId);
                     const basePrice = model?.basePrice ?? 0;
                     setOfferEditor((current) => {
@@ -1661,14 +1066,10 @@ export default function MarketingVisitOutcomeModal({
                       };
                     });
                   }}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                >
-                  {deviceModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.nameAr || model.name}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="الجهاز"
+                  className="w-full"
+                  options={deviceModels.map(model => ({ value: String(model.id), label: model.nameAr || model.name }))}
+                />
               </div>
 
               <div className="space-y-2">
@@ -1749,11 +1150,10 @@ export default function MarketingVisitOutcomeModal({
                           <label className="text-sm font-bold text-slate-700">
                             نسبة الحسم % <span className="text-xs font-normal text-slate-400">(اختياري)</span>
                           </label>
-                          <select
+                          <Select
                             value={offerEditor.draft.appliedDeviceDiscountId}
-                            onChange={(event) => {
-                              const selectedId = event.target.value;
-                              const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === selectedId);
+                            onChange={v => {
+                              const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === v);
                               setOfferEditor((current) => (
                                 current == null
                                   ? null
@@ -1761,21 +1161,17 @@ export default function MarketingVisitOutcomeModal({
                                       ...current,
                                       draft: {
                                         ...current.draft,
-                                        appliedDeviceDiscountId: selectedId,
+                                        appliedDeviceDiscountId: v,
                                         discountPercentage: selectedDiscount ? String(selectedDiscount.percentage) : '',
                                       },
                                     }
                               ));
                             }}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                          >
-                            <option value="">بدون حسم</option>
-                            {deviceDiscounts.map((d) => (
-                              <option key={d.id} value={String(d.id)}>
-                                {d.label} ({d.percentage}%)
-                              </option>
-                            ))}
-                          </select>
+                            placeholder="بدون حسم"
+                            ariaLabel="نسبة الحسم"
+                            className="w-full"
+                            options={deviceDiscounts.map(d => ({ value: String(d.id), label: `${d.label} (${d.percentage}%)` }))}
+                          />
                         </div>
                       )}
                     </>
@@ -1852,11 +1248,10 @@ export default function MarketingVisitOutcomeModal({
                             <label className="text-sm font-bold text-slate-700">
                               نسبة الحسم % <span className="text-xs font-normal text-slate-400">(اختياري)</span>
                             </label>
-                            <select
+                            <Select
                               value={offerEditor.draft.appliedDeviceDiscountId}
-                              onChange={(event) => {
-                                const selectedId = event.target.value;
-                                const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === selectedId);
+                              onChange={v => {
+                                const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === v);
                                 setOfferEditor((current) => (
                                   current == null
                                     ? null
@@ -1864,21 +1259,17 @@ export default function MarketingVisitOutcomeModal({
                                         ...current,
                                         draft: {
                                           ...current.draft,
-                                          appliedDeviceDiscountId: selectedId,
+                                          appliedDeviceDiscountId: v,
                                           discountPercentage: selectedDiscount ? String(selectedDiscount.percentage) : '',
                                         },
                                       }
                                 ));
                               }}
-                              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                            >
-                              <option value="">بدون حسم</option>
-                              {deviceDiscounts.map((d) => (
-                                <option key={d.id} value={String(d.id)}>
-                                  {d.label} ({d.percentage}%)
-                                </option>
-                              ))}
-                            </select>
+                              placeholder="بدون حسم"
+                              ariaLabel="نسبة الحسم"
+                              className="w-full"
+                              options={deviceDiscounts.map(d => ({ value: String(d.id), label: `${d.label} (${d.percentage}%)` }))}
+                            />
                           </div>
                         )}
                       </div>
@@ -1889,9 +1280,9 @@ export default function MarketingVisitOutcomeModal({
 
               <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-700">تم التسكير مع</label>
-                <select
+                <Select
                   value={offerEditor.draft.closedByEmployeeId}
-                  onChange={(event) =>
+                  onChange={v =>
                     setOfferEditor((current) => (
                       current == null
                         ? null
@@ -1899,28 +1290,24 @@ export default function MarketingVisitOutcomeModal({
                             ...current,
                             draft: {
                               ...current.draft,
-                              closedByEmployeeId: event.target.value,
-                              noClosingReason: event.target.value ? '' : current.draft.noClosingReason,
+                              closedByEmployeeId: v,
+                              noClosingReason: v ? '' : current.draft.noClosingReason,
                             },
                           }
                     ))
                   }
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                >
-                  <option value="">لم يتم التسكير</option>
-                  {closers.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="لم يتم التسكير"
+                  ariaLabel="موظف التسكير"
+                  className="w-full"
+                  options={closers.map(employee => ({ value: String(employee.id), label: employee.name }))}
+                />
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-700">سبب عدم التسكير</label>
-                <select
+                <Select
                   value={offerEditor.draft.noClosingReason}
-                  onChange={(event) =>
+                  onChange={v =>
                     setOfferEditor((current) => (
                       current == null
                         ? null
@@ -1928,22 +1315,18 @@ export default function MarketingVisitOutcomeModal({
                             ...current,
                             draft: {
                               ...current.draft,
-                              noClosingReason: event.target.value,
-                              closedByEmployeeId: event.target.value ? '' : current.draft.closedByEmployeeId,
+                              noClosingReason: v,
+                              closedByEmployeeId: v ? '' : current.draft.closedByEmployeeId,
                             },
                           }
                     ))
                   }
                   disabled={!!offerEditor.draft.closedByEmployeeId}
-                  className={`w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100 ${
-                    offerEditor.draft.closedByEmployeeId ? 'cursor-not-allowed opacity-50' : ''
-                  }`}
-                >
-                  <option value="">بدون سبب</option>
-                  {noClosingReasons.map((reason) => (
-                    <option key={reason.id} value={reason.value}>{reason.value}</option>
-                  ))}
-                </select>
+                  placeholder="بدون سبب"
+                  ariaLabel="سبب عدم التسكير"
+                  className="w-full"
+                  options={noClosingReasons.map(reason => ({ value: reason.value, label: reason.value }))}
+                />
               </div>
 
               {offerEditorError && (
@@ -1956,21 +1339,12 @@ export default function MarketingVisitOutcomeModal({
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setOfferEditor(null)}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50"
-              >
+              <Button type="button" variant="secondary" onClick={() => setOfferEditor(null)}>
                 إلغاء
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveOffer}
-                disabled={deviceModels.length === 0}
-                className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
+              </Button>
+              <Button type="button" onClick={handleSaveOffer} disabled={deviceModels.length === 0}>
                 تثبيت العرض
-              </button>
+              </Button>
             </div>
           </div>
         </div>

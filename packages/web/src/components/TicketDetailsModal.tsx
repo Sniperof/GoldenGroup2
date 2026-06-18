@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import IconButton from './ui/IconButton';
 import { motion } from 'framer-motion';
 import { X, MapPin, ShieldCheck, Calendar, User, AlertTriangle, FileText, Paperclip, History, ChevronDown, Wrench } from 'lucide-react';
 import { api } from '../lib/api';
 import type { EmergencyTicket, EmergencyTicketPriority, MaintenanceRequest, ClientRating } from '../lib/types';
+import Select from './ui/Select';
 
 interface Props {
     ticket: EmergencyTicket;
@@ -94,21 +96,21 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                                     <span className={`text-[11px] font-bold px-2 py-0.5 rounded-lg ${status.color}`}>{status.label}</span>
 
                                     {/* Priority dropdown (changeable from details) */}
-                                    <select
+                                    <Select<EmergencyTicketPriority>
                                         value={ticket.priority}
-                                        onChange={e => onUpdate({ priority: e.target.value as EmergencyTicketPriority })}
-                                        className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border-0 cursor-pointer ${PRIORITY_CONFIG[ticket.priority].color}`}
-                                    >
-                                        <option value="Critical">حرج</option>
-                                        <option value="High">عالي</option>
-                                        <option value="Normal">عادي</option>
-                                    </select>
+                                        onChange={v => onUpdate({ priority: v })}
+                                        ariaLabel="الأولوية"
+                                        size="sm"
+                                        options={[
+                                            { value: 'Critical', label: 'حرج' },
+                                            { value: 'High', label: 'عالي' },
+                                            { value: 'Normal', label: 'عادي' },
+                                        ]}
+                                    />
                                 </div>
                             </div>
                         </div>
-                        <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
-                            <X className="w-5 h-5 text-slate-400" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" onClick={onClose} />
                     </div>
                 </div>
 

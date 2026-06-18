@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import Select from '../../components/ui/Select';
 import {
   TASK_SCHEDULING_PATTERN_LABELS,
   TASK_SCHEDULING_PATTERN_DESCRIPTIONS,
@@ -250,23 +251,20 @@ export default function TaskTypes() {
                           {/* Location basis selector */}
                           <td className="p-3">
                             {canManage ? (
-                              <select
+                              <Select<TaskLocationBasis>
                                 value={draft.locationBasis}
-                                onChange={e => setDrafts(prev => ({
+                                onChange={v => setDrafts(prev => ({
                                   ...prev,
-                                  [config.taskType]: { ...prev[config.taskType], locationBasis: e.target.value as TaskLocationBasis },
+                                  [config.taskType]: { ...prev[config.taskType], locationBasis: v },
                                 }))}
-                                className={`w-full text-xs rounded-lg border px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500/20 ${
-                                  draft.locationBasis === 'contract'
-                                    ? 'border-violet-200 bg-violet-50 text-violet-700'
-                                    : 'border-sky-200 bg-sky-50 text-sky-700'
-                                }`}
-                                title={TASK_LOCATION_BASIS_DESCRIPTIONS[draft.locationBasis]}
-                              >
-                                {(Object.keys(TASK_LOCATION_BASIS_LABELS) as TaskLocationBasis[]).map(b => (
-                                  <option key={b} value={b}>{TASK_LOCATION_BASIS_LABELS[b]}</option>
-                                ))}
-                              </select>
+                                ariaLabel="أساس الموقع"
+                                size="sm"
+                                className="w-full"
+                                options={(Object.keys(TASK_LOCATION_BASIS_LABELS) as TaskLocationBasis[]).map(b => ({
+                                  value: b,
+                                  label: TASK_LOCATION_BASIS_LABELS[b],
+                                }))}
+                              />
                             ) : (
                               <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
                                 config.locationBasis === 'contract'

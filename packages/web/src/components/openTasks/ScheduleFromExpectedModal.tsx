@@ -8,8 +8,11 @@
 // ============================================================
 
 import { useState } from 'react';
+import IconButton from '../ui/IconButton';
 import { X, CalendarClock, Save } from 'lucide-react';
 import { api } from '../../lib/api';
+import Button from '../ui/Button';
+import Input from '../ui/Input';
 
 interface Props {
   taskId: number;
@@ -63,9 +66,7 @@ export default function ScheduleFromExpectedModal({
             <CalendarClock className="w-4 h-4 text-indigo-700" />
             <h2 className="text-sm font-bold text-slate-800">حجز زيارة من الموعد المتوقع</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-200">
-            <X className="w-4 h-4 text-slate-600" />
-          </button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </header>
 
         <div className="px-5 py-4 space-y-3">
@@ -80,16 +81,13 @@ export default function ScheduleFromExpectedModal({
             لا يُسمح إلا للمهام بحالة needs_follow_up وعليها expected_date.
           </p>
 
-          <div>
-            <label className="block text-[11px] font-bold text-slate-600 mb-1">teamKey</label>
-            <input
-              type="text"
-              value={teamKey}
-              onChange={(e) => setTeamKey(e.target.value)}
-              placeholder="team_0"
-              className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-            />
-          </div>
+          <Input
+            label="teamKey"
+            value={teamKey}
+            onChange={(e) => setTeamKey(e.target.value)}
+            placeholder="team_0"
+            inputSize="sm"
+          />
 
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -102,13 +100,12 @@ export default function ScheduleFromExpectedModal({
               />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">الوقت</label>
-              <input
-                type="text"
+              <Input
+                label="الوقت"
                 value={overrideTime}
                 onChange={(e) => setOverrideTime(e.target.value)}
                 placeholder="10:00-12:00"
-                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                inputSize="sm"
               />
             </div>
           </div>
@@ -125,21 +122,8 @@ export default function ScheduleFromExpectedModal({
         </div>
 
         <footer className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
-          <button
-            onClick={onClose}
-            disabled={busy}
-            className="px-3 py-1.5 rounded-md text-xs font-bold border border-slate-300 text-slate-700 bg-white hover:bg-slate-100"
-          >
-            إلغاء
-          </button>
-          <button
-            onClick={() => void save()}
-            disabled={busy}
-            className="px-3 py-1.5 rounded-md text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 inline-flex items-center gap-1"
-          >
-            <Save className="w-3.5 h-3.5" />
-            حجز
-          </button>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>إلغاء</Button>
+          <Button size="sm" onClick={() => void save()} disabled={busy} icon={Save}>حجز</Button>
         </footer>
       </div>
     </div>

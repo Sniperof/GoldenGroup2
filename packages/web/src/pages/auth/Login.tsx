@@ -8,11 +8,12 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
-  Loader2,
-  Building2,
   Shield,
   CheckCircle2,
 } from 'lucide-react';
+import logoMark from '../../assets/logo-mark.png';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -76,7 +77,7 @@ export default function Login() {
         <div className="relative z-10 flex flex-col items-center justify-center text-white px-12 xl:px-20">
           <div className="mb-8">
             <div className="inline-flex items-center justify-center w-20 h-20 bg-white/20 backdrop-blur-sm rounded-3xl shadow-xl mb-6 transition-transform duration-300 hover:scale-105">
-              <Building2 className="w-10 h-10 text-white" />
+              <img src={logoMark} alt="Golden Group" className="w-14 h-14 object-contain" />
             </div>
           </div>
 
@@ -111,8 +112,8 @@ export default function Login() {
         <div className="w-full max-w-[420px]">
           {/* Mobile-only logo */}
           <div className="lg:hidden text-center mb-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-sky-500 to-sky-400 rounded-2xl shadow-lg shadow-sky-500/30 mb-3 transition-transform duration-300 hover:scale-105">
-              <Building2 className="w-8 h-8 text-white" />
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg shadow-sky-500/20 mb-3 transition-transform duration-300 hover:scale-105 border border-slate-100">
+              <img src={logoMark} alt="Golden Group" className="w-11 h-11 object-contain" />
             </div>
             <h1 className="text-xl font-bold text-slate-800">Golden Group</h1>
             <p className="text-sm text-slate-500 mt-1">نظام إدارة العملاء والموارد</p>
@@ -140,100 +141,58 @@ export default function Login() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Username Field */}
-              <div>
-                <label
-                  htmlFor="username"
-                  className="block text-sm font-semibold text-slate-700 mb-2"
-                >
-                  اسم المستخدم
-                </label>
-                <div className="relative">
-                  <div
-                    className={`absolute right-3 top-1/2 -translate-y-1/2 transition-colors duration-200 ${
-                      focusedField === 'username' ? 'text-sky-500' : 'text-slate-400'
-                    }`}
-                  >
-                    <User className="w-5 h-5" />
-                  </div>
-                  <input
-                    id="username"
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    onFocus={() => setFocusedField('username')}
-                    onBlur={() => setFocusedField(null)}
-                    required
-                    autoComplete="username"
-                    autoFocus
-                    disabled={loading}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-11 pl-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 transition-all duration-200 outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 hover:border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                    placeholder="أدخل اسم المستخدم"
-                  />
-                </div>
-              </div>
+              <Input
+                id="username"
+                label="اسم المستخدم"
+                inputSize="lg"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onFocus={() => setFocusedField('username')}
+                onBlur={() => setFocusedField(null)}
+                required
+                autoComplete="username"
+                autoFocus
+                disabled={loading}
+                placeholder="أدخل اسم المستخدم"
+                leading={<User className={`w-4 h-4 ${focusedField === 'username' ? 'text-sky-500' : ''}`} />}
+              />
 
-              {/* Password Field */}
-              <div>
-                <label
-                  htmlFor="password"
-                  className="block text-sm font-semibold text-slate-700 mb-2"
-                >
-                  كلمة المرور
-                </label>
-                <div className="relative">
-                  <div
-                    className={`absolute right-3 top-1/2 -translate-y-1/2 transition-colors duration-200 ${
-                      focusedField === 'password' ? 'text-sky-500' : 'text-slate-400'
-                    }`}
-                  >
-                    <Lock className="w-5 h-5" />
-                  </div>
-                  <input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onFocus={() => setFocusedField('password')}
-                    onBlur={() => setFocusedField(null)}
-                    required
-                    autoComplete="current-password"
-                    disabled={loading}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-11 pl-12 py-3 text-sm text-slate-800 placeholder:text-slate-400 transition-all duration-200 outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 hover:border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                    placeholder="أدخل كلمة المرور"
-                  />
-                  {/* Show/Hide toggle */}
+              <Input
+                id="password"
+                label="كلمة المرور"
+                inputSize="lg"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => setFocusedField(null)}
+                required
+                autoComplete="current-password"
+                disabled={loading}
+                placeholder="أدخل كلمة المرور"
+                leading={<Lock className={`w-4 h-4 ${focusedField === 'password' ? 'text-sky-500' : ''}`} />}
+                trailing={
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     disabled={loading}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors duration-200 p-1 rounded-md hover:bg-slate-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="pointer-events-auto text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-md hover:bg-slate-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
                   >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
-                </div>
-              </div>
+                }
+              />
 
-              {/* Submit Button */}
-              <button
+              <Button
                 type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-sky-500 hover:bg-sky-600 active:bg-sky-700 disabled:bg-sky-300 text-white rounded-xl font-semibold text-sm transition-all duration-200 shadow-lg shadow-sky-500/25 hover:shadow-sky-500/40 hover:-translate-y-0.5 active:translate-y-0 disabled:hover:translate-y-0 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                variant="primary"
+                size="lg"
+                fullWidth
+                loading={loading}
               >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>جاري تسجيل الدخول...</span>
-                  </>
-                ) : (
-                  <span>تسجيل الدخول</span>
-                )}
-              </button>
+                {loading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
+              </Button>
             </form>
 
             {/* Footer note */}

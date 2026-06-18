@@ -4,6 +4,8 @@ import type { JobApplicationDetail, AuditLog, ApplicationStage, ContactEntry, In
 import { authFetch } from '../../lib/authFetch';
 import { useInterviewStore } from '../../hooks/useInterviewStore';
 import EmployeeFormModal, { type EmployeeFormInitialValues } from '../../components/employees/EmployeeFormModal';
+import Select from '../../components/ui/Select';
+import Button from '../../components/ui/Button';
 import {
   ArrowRight, User, Briefcase, MapPin, Phone, Mail, Calendar, Users, GraduationCap,
   FileText, Clock, CheckCircle, XCircle, UserPlus, AlertTriangle, Award,
@@ -642,34 +644,32 @@ export default function ApplicationDetail() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-slate-100 rounded-xl p-1 w-fit flex-wrap">
-        <button
-          onClick={() => setActiveTab('details')}
-          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'details' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          <span className="flex items-center gap-2"><FileText className="w-4 h-4" /> التفاصيل</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('interviews')}
-          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'interviews' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          <span className="flex items-center gap-2"><Users className="w-4 h-4" /> المقابلات ({detail.interviews?.length || 0})</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('training')}
-          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'training' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          <span className="flex items-center gap-2"><BookOpen className="w-4 h-4" /> التدريب ({detail.trainings?.length || 0})</span>
-        </button>
-        <PermissionGate permission="jobs.applications.view_audit_logs">
-          <button
-            onClick={() => setActiveTab('audit')}
-            className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'audit' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            <span className="flex items-center gap-2"><Clock className="w-4 h-4" /> سجل التدقيق ({auditLogs.length})</span>
-          </button>
-        </PermissionGate>
+      {/* Tabs — underline pattern (Golden Group design system) */}
+      <div className="flex gap-1 mb-6 border-b border-[#E3E7EC] flex-wrap">
+        {(() => {
+          const tabBase = 'relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors';
+          const tabActive = 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t';
+          const tabIdle = 'text-slate-500 hover:text-slate-800';
+          const cls = (active: boolean) => `${tabBase} ${active ? tabActive : tabIdle}`;
+          return (
+            <>
+              <button onClick={() => setActiveTab('details')} className={cls(activeTab === 'details')}>
+                <FileText className="w-4 h-4" /> التفاصيل
+              </button>
+              <button onClick={() => setActiveTab('interviews')} className={cls(activeTab === 'interviews')}>
+                <Users className="w-4 h-4" /> المقابلات ({detail.interviews?.length || 0})
+              </button>
+              <button onClick={() => setActiveTab('training')} className={cls(activeTab === 'training')}>
+                <BookOpen className="w-4 h-4" /> التدريب ({detail.trainings?.length || 0})
+              </button>
+              <PermissionGate permission="jobs.applications.view_audit_logs">
+                <button onClick={() => setActiveTab('audit')} className={cls(activeTab === 'audit')}>
+                  <Clock className="w-4 h-4" /> سجل التدقيق ({auditLogs.length})
+                </button>
+              </PermissionGate>
+            </>
+          );
+        })()}
       </div>
 
       {activeTab === 'details' ? (
@@ -1103,25 +1103,21 @@ export default function ApplicationDetail() {
                     {detail.hiredEmployeeId ? (
                       <div className="rounded-xl border border-emerald-200 bg-white/70 px-3 py-3 text-sm text-emerald-800 flex items-center justify-between gap-3">
                         <span>تم إنشاء سجل الموظف وربطه بهذا الطلب برقم #{detail.hiredEmployeeId}.</span>
-                        <button
-                          onClick={() => navigate(`/employees/${detail.hiredEmployeeId}`)}
-                          className="shrink-0 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
-                        >
+                        <Button size="sm" onClick={() => navigate(`/employees/${detail.hiredEmployeeId}`)} className="shrink-0 bg-emerald-600 hover:bg-emerald-700">
                           فتح ملف الموظف
-                        </button>
+                        </Button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => {
-                          setEmployeeError('');
-                          setShowEmployeeModal(true);
-                        }}
-                        disabled={employeeLoading}
-                        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all disabled:opacity-50"
+                      <Button
+                        fullWidth
+                        size="sm"
+                        icon={UserPlus}
+                        loading={employeeLoading}
+                        onClick={() => { setEmployeeError(''); setShowEmployeeModal(true); }}
+                        className="bg-emerald-600 hover:bg-emerald-700"
                       >
-                        {employeeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                         إضافة مقدم الطلب إلى سجلات الموظفين
-                      </button>
+                      </Button>
                     )}
 
                     {employeeError && (
@@ -1138,11 +1134,9 @@ export default function ApplicationDetail() {
               {ARCHIVABLE_STATUSES.includes(detail.applicationStatus) && !detail.isArchived && (
                 <PermissionGate permission="jobs.applications.archive">
                   <div className="px-5 pb-4">
-                    <button onClick={handleArchive} disabled={actionLoading}
-                      className="w-full py-2 px-4 rounded-xl text-xs font-medium border border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                      <Archive className="w-3.5 h-3.5" />
+                    <Button variant="secondary" size="sm" fullWidth icon={Archive} onClick={handleArchive} disabled={actionLoading}>
                       أرشفة الطلب
-                    </button>
+                    </Button>
                   </div>
                 </PermissionGate>
               )}
@@ -1164,12 +1158,9 @@ export default function ApplicationDetail() {
                   <p className="text-xs text-sky-700 leading-relaxed">
                     لم تتم مراجعة الطلب بعد — انقر أدناه لمراجعة الطلب ومقارنته بمتطلبات الشاغر واتخاذ قرار التأهيل أو الرفض مباشرةً.
                   </p>
-                  <button
-                    onClick={() => setShowReviewModal(true)}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-sky-500 hover:bg-sky-600 text-white transition-all"
-                  >
-                    <Eye className="w-3.5 h-3.5" /> بدء مراجعة الطلب واتخاذ القرار
-                  </button>
+                  <Button fullWidth size="sm" icon={Eye} onClick={() => setShowReviewModal(true)}>
+                    بدء مراجعة الطلب واتخاذ القرار
+                  </Button>
                 </div>
               </PermissionGate>
             )}
@@ -1188,24 +1179,18 @@ export default function ApplicationDetail() {
                         <p className="text-xs text-amber-700 leading-relaxed">
                           المقابلة مجدولة — يتم تحديث حالة الطلب تلقائياً عند تسجيل النتيجة من خلال وحدة المقابلات.
                         </p>
-                        <button
-                          onClick={() => navigate(`/jobs/interviews?applicationId=${detail.id}&highlightInterviewId=${scheduledInterview.id}`)}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white transition-all"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" /> فتح صفحة المقابلة وتسجيل النتيجة
-                        </button>
+                        <Button variant="gold" fullWidth size="sm" icon={ExternalLink} onClick={() => navigate(`/jobs/interviews?applicationId=${detail.id}&highlightInterviewId=${scheduledInterview.id}`)}>
+                          فتح صفحة المقابلة وتسجيل النتيجة
+                        </Button>
                       </>
                     ) : (
                       <>
                         <p className="text-xs text-amber-700 leading-relaxed">
                           لم تُجدَّل مقابلة بعد — يمكنك جدولة المقابلة مباشرةً من هنا أو من تاب المقابلات.
                         </p>
-                        <button
-                          onClick={() => setShowScheduleInterviewModal(true)}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white transition-all"
-                        >
-                          <Plus className="w-3.5 h-3.5" /> جدولة مقابلة الآن
-                        </button>
+                        <Button variant="gold" fullWidth size="sm" icon={Plus} onClick={() => setShowScheduleInterviewModal(true)}>
+                          جدولة مقابلة الآن
+                        </Button>
                       </>
                     )}
                   </div>
@@ -1239,12 +1224,9 @@ export default function ApplicationDetail() {
                             {enrollment.startDate && <> · {new Date(enrollment.startDate).toLocaleDateString('ar-IQ')}</>}
                           </p>
                         )}
-                        <button
-                          onClick={() => navigate(`/jobs/training-courses/${enrollment.trainingCourseId}`)}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-600 text-white transition-all"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" /> فتح صفحة الدورة التدريبية
-                        </button>
+                        <Button fullWidth size="sm" icon={ExternalLink} onClick={() => navigate(`/jobs/training-courses/${enrollment.trainingCourseId}`)} className="bg-cyan-500 hover:bg-cyan-600">
+                          فتح صفحة الدورة التدريبية
+                        </Button>
                       </>
                     ) : (
                       <p className="text-xs text-cyan-700 leading-relaxed">
@@ -1357,27 +1339,17 @@ export default function ApplicationDetail() {
                 {/* Escalate */}
                 {!detail.isEscalated && (
                   <PermissionGate permission="jobs.applications.escalate">
-                    <button
-                      onClick={() => { setEscalateError(''); setEscalateReason(''); setShowEscalateConfirm(true); }}
-                      disabled={actionLoading}
-                      className="flex-1 py-2.5 px-3 rounded-xl text-xs font-medium border border-dashed border-orange-300 text-orange-400 hover:text-orange-600 hover:border-orange-400 hover:bg-orange-50 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
-                    >
-                      <AlertTriangle className="w-3.5 h-3.5" />
+                    <Button variant="secondary" size="sm" icon={AlertTriangle} onClick={() => { setEscalateError(''); setEscalateReason(''); setShowEscalateConfirm(true); }} disabled={actionLoading} className="flex-1 border-dashed border-orange-300 text-orange-500 hover:border-orange-400 hover:bg-orange-50">
                       تصعيد للإدارة
-                    </button>
+                    </Button>
                   </PermissionGate>
                 )}
 
                 {/* Retreat */}
                 <PermissionGate permission="jobs.applications.change_stage">
-                  <button
-                    onClick={handleRetreat}
-                    disabled={actionLoading}
-                    className="flex-1 py-2.5 px-3 rounded-xl text-xs font-medium border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 hover:bg-slate-50 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
+                  <Button variant="secondary" size="sm" icon={LogOut} onClick={handleRetreat} disabled={actionLoading} className="flex-1 border-dashed">
                     تسجيل انسحاب
-                  </button>
+                  </Button>
                 </PermissionGate>
               </div>
             )}
@@ -1393,14 +1365,9 @@ export default function ApplicationDetail() {
                       الطلب مصعّد حالياً ويمكن فك التصعيد فقط من خلال هذه الصلاحية.
                     </p>
                   </div>
-                  <button
-                    onClick={handleResolveEscalation}
-                    disabled={resolveEscalationLoading}
-                    className="py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
-                  >
-                    {resolveEscalationLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  <Button size="sm" icon={RotateCcw} loading={resolveEscalationLoading} onClick={handleResolveEscalation} className="bg-emerald-600 hover:bg-emerald-700">
                     فك التصعيد
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -1872,19 +1839,27 @@ export default function ApplicationDetail() {
 
               {/* Footer */}
               <div className="px-6 py-4 border-t border-slate-100 shrink-0 flex items-center justify-between bg-white">
-                <button onClick={() => setShowReviewModal(false)}
-                  className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
+                <Button variant="secondary" onClick={() => setShowReviewModal(false)}>
                   إغلاق
-                </button>
+                </Button>
                 <div className="flex items-center gap-3">
-                  <button onClick={() => handleReviewDecision('reject')} disabled={actionLoading}
-                    className="px-5 py-2.5 text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2">
-                    {actionLoading ? 'جاري...' : <><XCircle className="w-4 h-4" /> رفض</>}
-                  </button>
-                  <button onClick={() => handleReviewDecision('qualify')} disabled={actionLoading}
-                    className="px-6 py-2.5 text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-xl shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
-                    {actionLoading ? 'جاري...' : <><CheckCircle className="w-4 h-4" /> تأهيل للقائمة القصيرة</>}
-                  </button>
+                  <Button
+                    variant="danger"
+                    icon={XCircle}
+                    disabled={actionLoading}
+                    loading={actionLoading}
+                    onClick={() => handleReviewDecision('reject')}
+                  >
+                    {actionLoading ? 'جاري...' : 'رفض'}
+                  </Button>
+                  <Button
+                    icon={CheckCircle}
+                    disabled={actionLoading}
+                    loading={actionLoading}
+                    onClick={() => handleReviewDecision('qualify')}
+                  >
+                    {actionLoading ? 'جاري...' : 'تأهيل للقائمة القصيرة'}
+                  </Button>
                 </div>
               </div>
             </motion.div>
@@ -1936,48 +1911,51 @@ export default function ApplicationDetail() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-bold text-slate-500 block mb-1.5">نوع المقابلة</label>
-                    <select value={interviewForm.interviewType}
-                      onChange={e => setInterviewForm(f => ({ ...f, interviewType: e.target.value as any }))}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white"
-                    >
-                      <option value="HR Interview">مقابلة HR</option>
-                      <option value="Technical Interview">مقابلة تقنية</option>
-                    </select>
+                    <Select<string>
+                      value={interviewForm.interviewType}
+                      onChange={(v) => setInterviewForm(f => ({ ...f, interviewType: v as any }))}
+                      options={[
+                        { value: 'HR Interview', label: 'مقابلة HR' },
+                        { value: 'Technical Interview', label: 'مقابلة تقنية' },
+                      ]}
+                      className="w-full"
+                    />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 block mb-1.5">رقم المقابلة</label>
-                    <select value={interviewForm.interviewNumber}
-                      onChange={e => setInterviewForm(f => ({ ...f, interviewNumber: e.target.value as any }))}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white"
-                    >
-                      <option value="First Interview">الأولى</option>
-                      <option value="Second Interview">الثانية</option>
-                    </select>
+                    <Select<string>
+                      value={interviewForm.interviewNumber}
+                      onChange={(v) => setInterviewForm(f => ({ ...f, interviewNumber: v as any }))}
+                      options={[
+                        { value: 'First Interview', label: 'الأولى' },
+                        { value: 'Second Interview', label: 'الثانية' },
+                      ]}
+                      className="w-full"
+                    />
                   </div>
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-500 block mb-1.5">المقابِل <span className="text-red-400">*</span></label>
-                  <select
+                  <Select<string>
                     value={interviewForm.interviewerUserId}
-                    onChange={e => setInterviewForm(f => ({ ...f, interviewerUserId: e.target.value }))}
+                    onChange={(v) => setInterviewForm(f => ({ ...f, interviewerUserId: v }))}
                     disabled={loadingInterviewers || interviewerOptions.length === 0}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 bg-white disabled:bg-slate-50 disabled:text-slate-400"
-                  >
-                    <option value="">
-                      {loadingInterviewers
-                        ? 'جاري تحميل المقابلين...'
-                        : interviewerOptions.length === 0
-                          ? 'لا يوجد مقابِلون مؤهلون لهذا الفرع'
-                          : 'اختر المقابِل...'}
-                    </option>
-                    {interviewerOptions.map(opt => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.name}
-                        {opt.username ? ` (@${opt.username})` : ''}
-                        {opt.roleDisplayName ? ` — ${opt.roleDisplayName}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      {
+                        value: '',
+                        label: loadingInterviewers
+                          ? 'جاري تحميل المقابلين...'
+                          : interviewerOptions.length === 0
+                            ? 'لا يوجد مقابِلون مؤهلون لهذا الفرع'
+                            : 'اختر المقابِل...',
+                      },
+                      ...interviewerOptions.map(opt => ({
+                        value: String(opt.id),
+                        label: `${opt.name}${opt.username ? ` (@${opt.username})` : ''}${opt.roleDisplayName ? ` — ${opt.roleDisplayName}` : ''}`,
+                      })),
+                    ]}
+                    className="w-full"
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -2011,14 +1989,15 @@ export default function ApplicationDetail() {
               </div>
 
               <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
-                <button onClick={() => setShowScheduleInterviewModal(false)}
-                  className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
-                  إلغاء
-                </button>
-                <button onClick={handleScheduleInterview} disabled={interviewSubmitting}
-                  className="px-6 py-2.5 text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
-                  {interviewSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري...</> : <><Calendar className="w-4 h-4" /> جدولة المقابلة</>}
-                </button>
+                <Button variant="secondary" onClick={() => setShowScheduleInterviewModal(false)}>إلغاء</Button>
+                <Button
+                  icon={Calendar}
+                  loading={interviewSubmitting}
+                  disabled={interviewSubmitting}
+                  onClick={handleScheduleInterview}
+                >
+                  {interviewSubmitting ? 'جاري...' : 'جدولة المقابلة'}
+                </Button>
               </div>
             </motion.div>
           </motion.div>
@@ -2067,16 +2046,23 @@ export default function ApplicationDetail() {
                 </div>
               )}
               <div className="flex gap-3">
-                <button onClick={() => { setShowEscalateConfirm(false); setEscalateReason(''); }}
-                  className="flex-1 px-4 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors font-medium">
+                <Button
+                  variant="secondary"
+                  fullWidth
+                  onClick={() => { setShowEscalateConfirm(false); setEscalateReason(''); }}
+                >
                   إلغاء
-                </button>
-                <button onClick={handleEscalate} disabled={escalateLoading}
-                  className="flex-1 px-4 py-2.5 text-sm bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold shadow-lg shadow-orange-500/25 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                  {escalateLoading
-                    ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري...</>
-                    : <><AlertTriangle className="w-4 h-4" /> تأكيد التصعيد</>}
-                </button>
+                </Button>
+                <Button
+                  variant="gold"
+                  fullWidth
+                  icon={AlertTriangle}
+                  loading={escalateLoading}
+                  disabled={escalateLoading}
+                  onClick={handleEscalate}
+                >
+                  {escalateLoading ? 'جاري...' : 'تأكيد التصعيد'}
+                </Button>
               </div>
             </motion.div>
           </motion.div>
@@ -2103,11 +2089,13 @@ export default function ApplicationDetail() {
                 className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-sky-500 mb-4"
               />
               <div className="flex gap-3 justify-end">
-                <button onClick={() => { setShowReasonModal(null); setRejectReason(''); }}
-                  className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
+                <Button variant="secondary" onClick={() => { setShowReasonModal(null); setRejectReason(''); }}>
                   إلغاء
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="danger"
+                  loading={actionLoading}
+                  disabled={actionLoading}
                   onClick={() => {
                     if (showReasonModal.newStatus === 'Final Rejected' && detail.currentStage === 'Final Decision') {
                       handleDecisionAction('Rejected', rejectReason);
@@ -2115,11 +2103,9 @@ export default function ApplicationDetail() {
                     }
                     handleStageAction(showReasonModal.newStage, showReasonModal.newStatus, rejectReason);
                   }}
-                  disabled={actionLoading}
-                  className="px-5 py-2.5 text-sm bg-red-500 text-white rounded-xl hover:bg-red-600 font-bold shadow-lg shadow-red-500/25 transition-all disabled:opacity-50"
                 >
                   {actionLoading ? 'جاري...' : 'تأكيد'}
-                </button>
+                </Button>
               </div>
             </motion.div>
           </motion.div>

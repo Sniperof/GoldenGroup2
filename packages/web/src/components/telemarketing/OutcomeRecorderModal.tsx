@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import IconButton from '../ui/IconButton';
 import { useSystemList } from '../../hooks/useSystemList';
 import { api } from '../../lib/api';
 import { motion } from 'framer-motion';
@@ -16,6 +17,8 @@ import type { PhoneStatusUpdate } from '@golden-crm/shared';
 import { TaskListItem, ContactStatus } from '../../lib/types';
 import { getEntityContacts } from '../../lib/contactUtils';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import Select from '../ui/Select';
+import Button from '../ui/Button';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -217,239 +220,7 @@ function OutcomeButton({
     if (!meta) return null;
     const colors = OUTCOME_ICON_COLORS[code] || { color: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200' };
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border-2 transition-all text-right ${isActive
-                ? `${colors.bg} ${colors.border} ${colors.color} ring-2 ring-offset-1 ring-violet-300 shadow-sm`
-                : 'bg-white border-gray-100 text-slate-600 hover:border-gray-200 hover:bg-gray-50'}`}
-        >
-            <span className="text-sm font-bold">{meta.label}</span>
-            {isActive && <CheckCircle2 className="w-4 h-4 shrink-0" />}
-        </button>
-    );
-}
-
-// ── Component ─────────────────────────────────────────────────────────────────
-
-export default function OutcomeRecorderModal({
-    isOpen,
-    onClose,
-    task,
-    entityDetails,
-    title,
-    preselectedContactId,
-    canBook = false,
-    customerOpenTasks = [],
-    onSave,
-}: OutcomeRecorderModalProps) {
-    const [method, setMethod] = useState<'cellular' | 'whatsapp'>('cellular');
-    const [cellularSubtype, setCellularSubtype] = useState<'cellular_call' | 'cellular_text'>('cellular_call');
-    const [whatsappSubtype, setWhatsappSubtype] = useState<'whatsapp_text' | 'whatsapp_voice'>('whatsapp_text');
-    const [selectedContactId, setSelectedContactId] = useState<string>('');
-    const [outcome, setOutcome] = useState<TelemarketingOutcomeCode | null>(null);
-    const [notes, setNotes] = useState('');
-    const [answeredBy, setAnsweredBy] = useState<AnsweredBy | ''>('');
-    const [topLevel, setTopLevel] = useState<'not_reached' | 'reached' | null>(null);
-    const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-    const [callDateTime, setCallDateTime] = useState<string>(nowLocal);
-    const [selectedPhoneStatus, setSelectedPhoneStatus] = useState<Exclude<PhoneStatusUpdate, 'none'> | ''>('');
-    const [rejectScheduling, setRejectScheduling] = useState(false);
-    const [rejectionReason, setRejectionReason] = useState('');
-    const [followUpDueDate, setFollowUpDueDate] = useState('');
-    const [followUpPriority, setFollowUpPriority] = useState<'high' | 'medium' | 'low' | ''>('');
-    const [rescheduleReason, setRescheduleReason] = useState('');
-    const [saving, setSaving] = useState(false);
-    const currentUser = useAuthStore((state) => state.user);
-    const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
-    const { items: rescheduleReasons } = useSystemList('telemarketing_reschedule_reason');
-    const [taskTypeOptions, setTaskTypeOptions] = useState<{ taskType: string; arabicLabel: string }[]>([]);
-    const [serviceTaskType, setServiceTaskType] = useState('');
-    // ── Inline appointment booking state ─────────────────────────────────────────
-    const [visitDate, setVisitDate] = useState('');
-    const [visitTime, setVisitTime] = useState('');
-    const [apptWaterSource, setApptWaterSource] = useState('');
-    const [apptNotes, setApptNotes] = useState('');
-
-    useEffect(() => {
-        api.telemarketing.taskTypeOptions()
-            .then(data => setTaskTypeOptions(data))
-            .catch(() => setTaskTypeOptions([]));
-    }, []);
-
-    const outcomeMeta = outcome ? OUTCOME_MAP[outcome] : null;
-    const isFreeCall = !task;
-
-    useEffect(() => {
-        if (isOpen) {
-            setMethod('cellular');
-            setCellularSubtype('cellular_call');
-            setWhatsappSubtype('whatsapp_text');
-            setSelectedContactId(preselectedContactId ?? '');
-            setOutcome(null);
-            setNotes('');
-            setAnsweredBy('');
-            setTopLevel(null);
-            setExpandedGroup(null);
-            setCallDateTime(nowLocal());
-            setSelectedPhoneStatus('');
-            setRejectScheduling(false);
-            setRejectionReason('');
-            setFollowUpDueDate('');
-            setFollowUpPriority('');
-            setRescheduleReason('');
-            setServiceTaskType('');
-            setVisitDate(getTomorrow());
-            setVisitTime('');
-            setApptWaterSource((entityDetails as any)?.waterSource || '');
-            setApptNotes('');
-        }
-    }, [isOpen, task, preselectedContactId]);
-
-    // Auto-populate default phone status when outcome changes
-    useEffect(() => {
-        if (outcome) {
-            const meta = OUTCOME_MAP[outcome];
-            if (meta?.requiresPhoneStatusUpdate && meta.defaultPhoneStatus) {
-                setSelectedPhoneStatus(meta.defaultPhoneStatus);
-            } else {
-                setSelectedPhoneStatus('');
-            }
-        } else {
-            setSelectedPhoneStatus('');
-        }
-    }, [outcome]);
-
-    if (!isOpen || !entityDetails) return null;
-
-    const contacts = getEntityContacts(entityDetails);
-    const preselectedContact = contacts.find(c => c.id === preselectedContactId);
-    const selectedContact = contacts.find(c => c.id === selectedContactId);
-    const relevantContact = preselectedContact || selectedContact;
-    const hasWhatsAppTarget = relevantContact?.hasWhatsApp === true;
-    const showWhatsAppOption = !relevantContact || hasWhatsAppTarget;
-
-    // Auto-switch to cellular if whatsapp selected but contact doesn't support it
-    if (method === 'whatsapp' && relevantContact && !hasWhatsAppTarget) {
-        setMethod('cellular');
-    }
-
-    const isWhatsAppSelectable = method === 'whatsapp' ? hasWhatsAppTarget : true;
-
-    const requiresNotes = outcomeMeta?.requiresNotes ?? false;
-    const isReached = outcomeIsReached(outcome);
-
-    // "من ردّ؟" shown when: method is cellular_call or whatsapp_voice AND outcome is in a "reached" group
-    const showAnsweredBy =
-        isReached &&
-        ((method === 'cellular' && cellularSubtype === 'cellular_call') || (method === 'whatsapp' && whatsappSubtype === 'whatsapp_voice'));
-
-    const isTextMessage =
-        (method === 'cellular' && cellularSubtype === 'cellular_text') ||
-        (method === 'whatsapp' && whatsappSubtype === 'whatsapp_text');
-
-    const requiresPhoneStatus = !isTextMessage && (outcomeMeta?.requiresPhoneStatusUpdate ?? false);
-    const isFollowUpOutcome = !!outcome && ['currently_busy', 'customer_requested_followup', 'other_company_callback', 'seen_offer_callback'].includes(outcome);
-    const isNotReachedOutcome = outcomeMeta?.group === 'not_reached';
-    const showRejectScheduling = !isFreeCall && isNotReachedOutcome && !!outcome && !isTextMessage;
-    const showFollowUpDate = isFollowUpOutcome && !isTextMessage;
-
-    const requiresRejectionReason = showRejectScheduling && rejectScheduling;
-
-    // Inline booking
-    const isBookingOutcome = outcome === 'booked_marketing_appointment' && !isFreeCall;
-    const hasDeviceDemo = customerOpenTasks.some(t => t.openTaskType === 'device_demo');
-    const bookingValid = !isBookingOutcome || (
-        !!visitDate && !!visitTime && (!hasDeviceDemo || !!apptWaterSource)
-    );
-
-    const canSave =
-        !!(selectedContactId || preselectedContactId) &&
-        (isTextMessage || !!outcome) &&
-        isWhatsAppSelectable &&
-        (!requiresNotes || notes.trim().length > 0) &&
-        (!requiresPhoneStatus || !!selectedPhoneStatus) &&
-        (!requiresRejectionReason || !!rejectionReason) &&
-        bookingValid;
-
-    const handleSave = async () => {
-        if (!canSave || saving) return;
-        setSaving(true);
-
-        const communicationChannel = methodToChannel(method, cellularSubtype, whatsappSubtype);
-        const status: 'pending' | 'completed' = isTextMessage ? 'pending' : 'completed';
-
-        // For text messages, auto-set outcome to message_sent
-        const finalOutcome = isTextMessage ? 'message_sent' : outcome!;
-
-        const extras: SaveExtras = {
-            communicationChannel,
-            status,
-            answeredBy: answeredBy || undefined,
-            callDateTime,
-            phoneStatusUpdate: (outcomeMeta?.requiresPhoneStatusUpdate && selectedPhoneStatus)
-                ? selectedPhoneStatus as Exclude<PhoneStatusUpdate, 'none'>
-                : null,
-            rejectScheduling: showRejectScheduling ? rejectScheduling : undefined,
-            serviceTaskType: (finalOutcome === 'service_request' && serviceTaskType) ? serviceTaskType : undefined,
-            visitDate:  isBookingOutcome ? visitDate  : undefined,
-            visitTime:  isBookingOutcome ? visitTime  : undefined,
-            waterSource: isBookingOutcome ? apptWaterSource : undefined,
-            technicianNotes: isBookingOutcome && apptNotes ? apptNotes : undefined,
-            // rejectionReason is shared by two flows:
-            //   1. "رفض الجدولة" checkbox (not-reached outcomes)
-            //   2. "غير مهتم" reason picker (reached, telemarketer only)
-            rejectionReason: rejectionReason || undefined,
-            followUpDueDate: showFollowUpDate && followUpDueDate ? followUpDueDate : undefined,
-            followUpPriority: showFollowUpDate && followUpPriority ? followUpPriority as 'high' | 'medium' | 'low' : undefined,
-            rescheduleReason: showFollowUpDate && rescheduleReason ? rescheduleReason : undefined,
-        };
-
-        try {
-            await onSave(selectedContactId || preselectedContactId || '', finalOutcome, notes, extras);
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    // ── Outcome groups to render ──────────────────────────────────────────────
-    const groupsToRender = isFreeCall
-        ? FREE_CALL_GROUPS
-        : OUTCOMES_BY_GROUP.map(g => ({
-              key: g.key,
-              label: g.label,
-              isReached: g.key !== 'not_reached',
-              outcomes: g.outcomes.map(o => o.code),
-          }));
-
-    return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
-            dir="rtl"
-        >
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-            >
-                {/* Header */}
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-violet-50 shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                            <Send className="w-5 h-5 text-violet-600" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-800">{title || 'تسجيل نتيجة التواصل'}</h2>
-                            {task?.name && <p className="text-xs text-slate-500">{task.name}</p>}
-                        </div>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-colors"
-                    >
-                        <X className="w-5 h-5" />
-                    </button>
+        <IconButton icon={X} label="إغلاق" onClick={onClick} />
                 </div>
 
                 {/* Body */}
@@ -583,26 +354,18 @@ export default function OutcomeRecorderModal({
                                 <Phone className="w-4 h-4 text-violet-500" />
                                 الرقم المستخدم للتواصل <span className="text-red-500">*</span>
                             </label>
-                            <select
+                            <Select
                                 value={selectedContactId}
-                                onChange={(e) => setSelectedContactId(e.target.value)}
-                                className={`w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none transition-all ${method === 'whatsapp' && selectedContactId && !hasWhatsAppTarget
-                                    ? 'border-red-300 ring-2 ring-red-200 bg-red-50'
-                                    : ''}`}
-                            >
-                                <option value="" disabled>-- اختر الرقم --</option>
-                                {contacts.map(contact => (
-                                    <option
-                                        key={contact.id}
-                                        value={contact.id}
-                                        disabled={method === 'whatsapp' && !contact.hasWhatsApp}
-                                    >
-                                        {contact.label} - {contact.number}
-                                        {contact.hasWhatsApp ? ' (واتساب)' : ''}
-                                        {method === 'whatsapp' && !contact.hasWhatsApp ? ' - لا يدعم واتساب' : ''}
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={setSelectedContactId}
+                                placeholder="-- اختر الرقم --"
+                                ariaLabel="الرقم المستخدم"
+                                className="w-full"
+                                options={contacts.map(contact => ({
+                                    value: contact.id,
+                                    label: `${contact.label} - ${contact.number}${contact.hasWhatsApp ? ' (واتساب)' : ''}${method === 'whatsapp' && !contact.hasWhatsApp ? ' - لا يدعم واتساب' : ''}`,
+                                    disabled: method === 'whatsapp' && !contact.hasWhatsApp,
+                                }))}
+                            />
                             {method === 'whatsapp' && selectedContactId && !hasWhatsAppTarget && (
                                 <p className="text-xs text-red-600 font-bold mt-1">
                                     هذا الرقم لا يدعم واتساب. يرجى اختيار رقم آخر أو تغيير طريقة التواصل.
@@ -666,13 +429,9 @@ export default function OutcomeRecorderModal({
                                 {(['no_answer','busy','auto_disconnected','out_of_coverage','wrong_number','not_in_service'] as TelemarketingOutcomeCode[]).map(code => (
                                     <OutcomeButton key={code} code={code} isActive={outcome===code} onClick={() => setOutcome(code)} />
                                 ))}
-                                <button
-                                    type="button"
-                                    onClick={() => { setTopLevel(null); setOutcome(null); }}
-                                    className="w-full text-xs text-slate-400 font-bold py-2 hover:text-slate-600"
-                                >
+                                <Button type="button" variant="ghost" size="sm" fullWidth onClick={() => { setTopLevel(null); setOutcome(null); }} className="text-slate-400 hover:text-slate-600 hover:bg-slate-50">
                                     ← تغيير
-                                </button>
+                                </Button>
                             </div>
                         )}
 
@@ -715,13 +474,9 @@ export default function OutcomeRecorderModal({
                                     </div>
                                 )}
 
-                                <button
-                                    type="button"
-                                    onClick={() => { setTopLevel(null); setOutcome(null); setExpandedGroup(null); setRejectionReason(''); }}
-                                    className="w-full text-xs text-slate-400 font-bold py-2 hover:text-slate-600"
-                                >
+                                <Button type="button" variant="ghost" size="sm" fullWidth onClick={() => { setTopLevel(null); setOutcome(null); setExpandedGroup(null); setRejectionReason(''); }} className="text-slate-400 hover:text-slate-600 hover:bg-slate-50">
                                     ← تغيير
-                                </button>
+                                </Button>
                             </div>
                         )}
                     </div>
@@ -734,16 +489,14 @@ export default function OutcomeRecorderModal({
                                 <span>نوع الخدمة المطلوبة</span>
                                 <span className="text-xs text-slate-400 font-normal">اختياري</span>
                             </label>
-                            <select
+                            <Select
                                 value={serviceTaskType}
-                                onChange={e => setServiceTaskType(e.target.value)}
-                                className="w-full bg-slate-50 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"
-                            >
-                                <option value="">— اختر نوع الخدمة —</option>
-                                {taskTypeOptions.map(t => (
-                                    <option key={t.taskType} value={t.taskType}>{t.arabicLabel}</option>
-                                ))}
-                            </select>
+                                onChange={setServiceTaskType}
+                                placeholder="— اختر نوع الخدمة —"
+                                ariaLabel="نوع الخدمة المطلوبة"
+                                className="w-full"
+                                options={taskTypeOptions.map(t => ({ value: t.taskType, label: t.arabicLabel }))}
+                            />
                         </div>
                     )}
 
@@ -795,16 +548,14 @@ export default function OutcomeRecorderModal({
                                             <Droplets className="w-3.5 h-3.5" />
                                             مصدر المياه <span className="text-red-500">*</span>
                                         </label>
-                                        <select
+                                        <Select
                                             value={apptWaterSource}
-                                            onChange={e => setApptWaterSource(e.target.value)}
-                                            className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none"
-                                        >
-                                            <option value="">— اختر مصدر المياه —</option>
-                                            {['الاسالة الحكومية','شراء قناني معبأة (RO)','ماء بئر / جوفي','تناكر / حوضيات','غير معروف'].map(o => (
-                                                <option key={o} value={o}>{o}</option>
-                                            ))}
-                                        </select>
+                                            onChange={setApptWaterSource}
+                                            placeholder="— اختر مصدر المياه —"
+                                            ariaLabel="مصدر المياه"
+                                            className="w-full"
+                                            options={['الاسالة الحكومية','شراء قناني معبأة (RO)','ماء بئر / جوفي','تناكر / حوضيات','غير معروف'].map(o => ({ value: o, label: o }))}
+                                        />
                                     </div>
                                 )}
 
@@ -1059,28 +810,17 @@ export default function OutcomeRecorderModal({
 
                 {/* Footer */}
                 <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
-                    >
-                        إلغاء
-                    </button>
-                    <button
-                        onClick={handleSave}
+                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                    <Button
+                        icon={CheckCircle2}
+                        loading={saving}
                         disabled={!canSave || saving}
-                        className={`flex items-center gap-2 px-6 py-2.5 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl text-sm font-bold shadow-md disabled:shadow-none transition-all ${
-                            isBookingOutcome
-                                ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
-                                : 'bg-violet-600 hover:bg-violet-700 shadow-violet-500/20'
-                        }`}
+                        onClick={handleSave}
                     >
-                        {saving
-                            ? <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                            : <CheckCircle2 className="w-4 h-4" />}
                         {isTextMessage ? 'إرسال الرسالة'
                             : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
                             : 'حفظ النتيجة'}
-                    </button>
+                    </Button>
                 </div>
             </motion.div>
         </div>

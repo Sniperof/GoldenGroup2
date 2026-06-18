@@ -10,6 +10,8 @@ import type { DeviceModel, SparePart, MaintenancePartType } from '../lib/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
+import Tabs from '../components/ui/Tabs';
+import Button from '../components/ui/Button';
 
 /* ------------------------------------------------------------------ */
 /*  Shared Config                                                       */
@@ -296,10 +298,9 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
         >
             {/* Page header */}
             <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0 flex items-center gap-3">
-                <button onClick={onCancel} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
-                    <ChevronRight className="w-4 h-4" />
-                    <span>الأجهزة</span>
-                </button>
+                <Button variant="ghost" size="sm" icon={ChevronRight} onClick={onCancel} className="text-slate-500 hover:text-slate-700 hover:bg-slate-100 px-2">
+                    الأجهزة
+                </Button>
                 <span className="text-slate-300">/</span>
                 <span className="text-sm font-semibold text-slate-800">إضافة جهاز جديد</span>
             </div>
@@ -483,13 +484,8 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
                                     onChange={e => setWpVisits(e.target.value)}
                                     className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
                                 />
-                                <button
-                                    type="button" onClick={addWarrantyPeriod}
-                                    disabled={!wpMonths || !wpVisits}
-                                    className="px-3 py-2 rounded-lg bg-sky-500 text-white text-xs font-bold hover:bg-sky-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                    <Plus className="w-4 h-4" />
-                                </button>
+                                <Button type="button" size="sm" icon={Plus} onClick={addWarrantyPeriod} disabled={!wpMonths || !wpVisits} aria-label="إضافة فترة كفالة" />
+
                             </div>
                         </div>
 
@@ -597,16 +593,19 @@ function AddDevicePage({ onCancel, onSaved }: { onCancel: () => void; onSaved: (
 
                     {/* ── Actions ── */}
                     <div className="flex gap-3 pb-6">
-                        <button type="button" onClick={onCancel} className="flex-1 px-6 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm transition-colors">
+                        <Button variant="secondary" size="lg" fullWidth onClick={onCancel}>
                             إلغاء
-                        </button>
-                        <button
-                            type="submit" disabled={saving}
-                            className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-xl hover:bg-sky-500 font-semibold text-sm transition-colors disabled:opacity-60"
+                        </Button>
+                        <Button
+                            type="submit"
+                            size="lg"
+                            fullWidth
+                            icon={Save}
+                            loading={saving}
+                            disabled={saving}
                         >
-                            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                             {saving ? 'جاري الحفظ...' : 'حفظ الجهاز'}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </form>
@@ -823,22 +822,12 @@ const DeviceManagement = () => {
             <div className="h-full flex flex-col overflow-hidden">
                 {/* TAB HEADER — hidden when adding device */}
                 {!isAddingDevice && (
-                    <div className="bg-white border-b border-gray-200 flex gap-1 px-6 pt-4 shrink-0">
-                        {tabs.map(tab => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
-                                className={`flex items-center gap-2 px-5 py-3 text-sm font-bold rounded-t-lg transition-all relative top-[1px] ${activeTab === tab.id
-                                    ? 'bg-slate-50 text-sky-600 border border-gray-200 border-b-slate-50 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-gray-50'}`}
-                            >
-                                <tab.icon className="w-4 h-4" />
-                                <span>{tab.label}</span>
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${activeTab === tab.id ? 'bg-sky-100 text-sky-600' : 'bg-gray-100 text-gray-500'}`}>
-                                    {tab.count}
-                                </span>
-                            </button>
-                        ))}
+                    <div className="bg-white px-6 pt-4 shrink-0">
+                        <Tabs
+                            tabs={tabs}
+                            activeKey={activeTab}
+                            onChange={setActiveTab}
+                        />
                     </div>
                 )}
 
@@ -864,12 +853,9 @@ const DeviceManagement = () => {
                                     getId={(d) => d.id}
                                     onRowClick={(d) => navigate(`/devices/${d.id}`)}
                                     headerActions={
-                                        <button
-                                            onClick={() => setIsAddingDevice(true)}
-                                            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
-                                        >
-                                            <Plus className="w-4 h-4" /><span>إضافة جهاز</span>
-                                        </button>
+                                        <Button icon={Plus} onClick={() => setIsAddingDevice(true)}>
+                                            إضافة جهاز
+                                        </Button>
                                     }
                                     emptyIcon={Package}
                                     emptyMessage="لا توجد أجهزة"
@@ -888,12 +874,9 @@ const DeviceManagement = () => {
                                     getId={(p) => p.id}
                                     onRowClick={(p) => openPartForm(p)}
                                     headerActions={
-                                        <button
-                                            onClick={() => openPartForm()}
-                                            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
-                                        >
-                                            <Plus className="w-4 h-4" /><span>إضافة قطعة</span>
-                                        </button>
+                                        <Button icon={Plus} onClick={() => openPartForm()}>
+                                            إضافة قطعة
+                                        </Button>
                                     }
                                     emptyIcon={Cog}
                                     emptyMessage="لا توجد قطع غيار"
@@ -1010,11 +993,10 @@ const DeviceManagement = () => {
                                 </div>
 
                                 <div className="pt-2 flex gap-3">
-                                    <button type="button" onClick={() => { setIsAddingPart(false); setEditingPart(null); }} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm">إلغاء</button>
-                                    <button type="submit" className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-medium text-sm">
-                                        <Save className="w-4 h-4" />
-                                        <span>{editingPart ? 'حفظ التعديلات' : 'إضافة القطعة'}</span>
-                                    </button>
+                                    <Button variant="secondary" fullWidth onClick={() => { setIsAddingPart(false); setEditingPart(null); }}>إلغاء</Button>
+                                    <Button type="submit" fullWidth icon={Save}>
+                                        {editingPart ? 'حفظ التعديلات' : 'إضافة القطعة'}
+                                    </Button>
                                 </div>
                             </form>
                         </motion.div>

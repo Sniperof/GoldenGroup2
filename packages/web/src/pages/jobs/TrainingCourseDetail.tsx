@@ -8,6 +8,7 @@ import {
   UserPlus, ChevronDown,
 } from 'lucide-react';
 import PermissionGate from '../../components/PermissionGate';
+import Select from '../../components/ui/Select';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -492,20 +493,19 @@ export default function TrainingCourseDetail() {
                 ) : (
                   <PermissionGate permission="jobs.training.record_result">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <div className="relative">
-                        <select
-                          value={pendingResults[t.applicationId] || ''}
-                          onChange={e => setPendingResults(p => ({ ...p, [t.applicationId]: e.target.value }))}
-                          className="appearance-none bg-white border border-slate-200 rounded-lg px-3 py-1.5 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
-                        >
-                          <option value="">اختر النتيجة...</option>
-                          <option value="Passed">ناجح</option>
-                          <option value="Retraining">إعادة تدريب</option>
-                          <option value="Rejected">مرفوض</option>
-                          <option value="Retreated">منسحب</option>
-                        </select>
-                        <ChevronDown className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                      </div>
+                      <Select
+                        value={pendingResults[t.applicationId] || ''}
+                        onChange={v => setPendingResults(p => ({ ...p, [t.applicationId]: v }))}
+                        placeholder="اختر النتيجة..."
+                        ariaLabel="نتيجة التدريب"
+                        size="sm"
+                        options={[
+                          { value: 'Passed', label: 'ناجح' },
+                          { value: 'Retraining', label: 'إعادة تدريب' },
+                          { value: 'Rejected', label: 'مرفوض' },
+                          { value: 'Retreated', label: 'منسحب' },
+                        ]}
+                      />
                       <button
                         onClick={() => handleRecordResult(t)}
                         disabled={savingResult[t.applicationId]}

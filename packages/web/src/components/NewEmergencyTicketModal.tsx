@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import IconButton from './ui/IconButton';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, MapPin, ShieldCheck, FileText, Paperclip, Send, Image, Trash2, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -6,6 +7,8 @@ import { useClientStore } from '../hooks/useClientStore';
 import { useEmergencyStore } from '../hooks/useEmergencyStore';
 import { api } from '../lib/api';
 import type { Client, Contract, ClientRating } from '../lib/types';
+import Select from './ui/Select';
+import Button from './ui/Button';
 
 interface Props {
     isOpen: boolean;
@@ -211,9 +214,7 @@ export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
                                 <p className="text-xs text-slate-400">إنشاء بلاغ صيانة طارئ</p>
                             </div>
                         </div>
-                        <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
-                            <X className="w-5 h-5 text-slate-400" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" onClick={onClose} />
                     </div>
 
                     {/* Success Overlay */}
@@ -330,16 +331,14 @@ export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 block mb-1.5">الجهاز / العقد</label>
                                     {clientContracts.length > 0 ? (
-                                        <select
-                                            value={selectedContractId ?? ''}
-                                            onChange={e => setSelectedContractId(e.target.value ? Number(e.target.value) : null)}
-                                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                        >
-                                            <option value="">— اختر الجهاز —</option>
-                                            {clientContracts.map(c => (
-                                                <option key={c.id} value={c.id}>{c.deviceModelName} — {c.serialNumber || c.contractNumber}</option>
-                                            ))}
-                                        </select>
+                                        <Select
+                                            value={selectedContractId === null ? '' : String(selectedContractId)}
+                                            onChange={v => setSelectedContractId(v === '' ? null : Number(v))}
+                                            placeholder="— اختر الجهاز —"
+                                            ariaLabel="الجهاز / العقد"
+                                            className="w-full"
+                                            options={clientContracts.map(c => ({ value: String(c.id), label: `${c.deviceModelName} — ${c.serialNumber || c.contractNumber}` }))}
+                                        />
                                     ) : (
                                         <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-3 text-center">
                                             <p className="text-xs text-amber-600 font-medium">لا توجد أجهزة مسجلة لهذا الزبون</p>
@@ -422,20 +421,15 @@ export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
 
                     {/* Footer */}
                     <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center gap-3">
-                        <button onClick={onClose} className="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors">
-                            إلغاء
-                        </button>
-                        <button
+                        <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                        <Button
+                            variant="danger"
                             onClick={handleSubmit}
                             disabled={!canSubmit}
-                            className={`px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${canSubmit
-                                    ? 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/30 active:scale-95'
-                                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                }`}
+                            icon={Send}
                         >
-                            <Send className="w-4 h-4" />
                             إرسال الطلب
-                        </button>
+                        </Button>
                     </div>
                 </motion.div>
             </div>

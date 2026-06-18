@@ -9,6 +9,7 @@ import {
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
+import Select from '../../components/ui/Select';
 
 const STAGE_COLORS: Record<ApplicationStage, string> = {
   'Submitted': 'bg-blue-100 text-blue-700',
@@ -212,54 +213,50 @@ export default function Applications() {
           <Filter className="w-4 h-4" />
           <span className="text-sm font-medium">تصفية:</span>
         </div>
-        <div className="relative">
-          <select
-            value={filters.stage}
-            onChange={e => setFilter('stage', e.target.value as ApplicationStage | '')}
-            className="appearance-none bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
-          >
-            <option value="">كل المراحل</option>
-            {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
-          </select>
-          <ChevronDown className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        </div>
-        <div className="relative">
-          <select
-            value={filters.status}
-            onChange={e => setFilter('status', e.target.value as ApplicationStatus | '')}
-            className="appearance-none bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
-          >
-            <option value="">كل الحالات</option>
-            {ALL_STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-          </select>
-          <ChevronDown className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        </div>
-        <div className="relative">
-          <select
-            value={filters.gender}
-            onChange={e => setFilter('gender', e.target.value)}
-            className="appearance-none bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
-          >
-            <option value="">كل الأجناس</option>
-            <option value="ذكر">ذكر</option>
-            <option value="أنثى">أنثى</option>
-          </select>
-          <ChevronDown className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        </div>
-        <div className="relative">
-          <select
-            value={filters.applicationSource}
-            onChange={e => setFilter('applicationSource', e.target.value)}
-            className="appearance-none bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
-          >
-            <option value="">كل المصادر</option>
-            <option value="Mobile App">Mobile App</option>
-            <option value="Website">Website</option>
-            <option value="External Platforms">External Platforms</option>
-            <option value="Internal">Internal</option>
-          </select>
-          <ChevronDown className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        </div>
+        <Select
+          value={filters.stage}
+          onChange={v => setFilter('stage', v as ApplicationStage | '')}
+          placeholder="كل المراحل"
+          ariaLabel="المرحلة"
+          variant="filled"
+          size="sm"
+          options={ALL_STAGES.map(s => ({ value: s, label: STAGE_LABELS[s] }))}
+        />
+        <Select
+          value={filters.status}
+          onChange={v => setFilter('status', v as ApplicationStatus | '')}
+          placeholder="كل الحالات"
+          ariaLabel="الحالة"
+          variant="filled"
+          size="sm"
+          options={ALL_STATUSES.map(s => ({ value: s, label: STATUS_LABELS[s] }))}
+        />
+        <Select
+          value={filters.gender}
+          onChange={v => setFilter('gender', v)}
+          placeholder="كل الأجناس"
+          ariaLabel="الجنس"
+          variant="filled"
+          size="sm"
+          options={[
+            { value: 'ذكر', label: 'ذكر' },
+            { value: 'أنثى', label: 'أنثى' },
+          ]}
+        />
+        <Select
+          value={filters.applicationSource}
+          onChange={v => setFilter('applicationSource', v)}
+          placeholder="كل المصادر"
+          ariaLabel="المصدر"
+          variant="filled"
+          size="sm"
+          options={[
+            { value: 'Mobile App', label: 'Mobile App' },
+            { value: 'Website', label: 'Website' },
+            { value: 'External Platforms', label: 'External Platforms' },
+            { value: 'Internal', label: 'Internal' },
+          ]}
+        />
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input

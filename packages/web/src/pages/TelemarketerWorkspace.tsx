@@ -18,6 +18,8 @@ import MessageReplyOutcomeModal from '../components/customers/MessageReplyOutcom
 import { useSystemList } from '../hooks/useSystemList';
 import AppointmentSchedulerModal, { CustomerOpenTask } from '../components/telemarketing/AppointmentSchedulerModal';
 import ClientModal from '../components/ClientModal';
+import Select from '../components/ui/Select';
+import Button from '../components/ui/Button';
 import type { DaySchedule, Contract, Visit, Employee, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client } from '../lib/types';
 import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
 import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY } from '@golden-crm/shared';
@@ -1004,9 +1006,9 @@ export default function TelemarketerWorkspace() {
                             </button>
                         )}
                         {isLatest && log.outcome !== 'message_sent' && !getOutcomeMeta(log.outcome).closesContactTarget && !getOutcomeMeta(log.outcome).opensAppointment && taskCalls.length < 3 && (
-                            <button onClick={() => setIsOutcomeModalOpen(true)} className="mt-3 text-xs flex items-center gap-1 text-violet-600 font-bold bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-lg border border-violet-200 transition-colors w-full justify-center shadow-sm">
-                                <Phone className="w-3.5 h-3.5" /> محاولة مرة أخرى
-                            </button>
+                            <Button variant="secondary" size="sm" fullWidth icon={Phone} onClick={() => setIsOutcomeModalOpen(true)} className="mt-3 bg-violet-50 border-violet-200 text-violet-600 hover:bg-violet-100">
+                                محاولة مرة أخرى
+                            </Button>
                         )}
                         {isLatest && log.outcome !== 'message_sent' && taskCalls.length >= 3 && !getOutcomeMeta(log.outcome).closesContactTarget && !getOutcomeMeta(log.outcome).opensAppointment && (
                             <div className="mt-3 text-xs font-bold text-amber-700 bg-amber-50 rounded-lg p-3 border border-amber-200 shadow-sm flex items-start gap-2">
@@ -1098,11 +1100,15 @@ export default function TelemarketerWorkspace() {
                     {/* Team Selector */}
                     <div className="p-3 border-b border-gray-100 bg-slate-50">
                         <label className="text-xs font-bold text-slate-500 mb-1.5 block">اختر أحد الفرق النشطة</label>
-                        <select value={selectedTeamKey} onChange={e => { setSelectedTeamKey(e.target.value); setSelectedCustomerKey(null); }}
-                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none">
-                            {availableTeams.length === 0 && <option value="">لا يوجد فرق</option>}
-                            {availableTeams.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-                        </select>
+                        <Select<string>
+                            value={selectedTeamKey}
+                            onChange={(v) => { setSelectedTeamKey(v); setSelectedCustomerKey(null); }}
+                            options={availableTeams.length === 0
+                                ? [{ value: '', label: 'لا يوجد فرق' }]
+                                : availableTeams.map(t => ({ value: t.key, label: t.label }))
+                            }
+                            className="w-full"
+                        />
                     </div>
 
                     {/* CT lifecycle filter tabs */}
@@ -1386,12 +1392,13 @@ export default function TelemarketerWorkspace() {
                             </div>
 
                             {/* Tabs */}
-                            <div className="px-6 flex gap-6 border-b border-gray-100 shrink-0 bg-white shadow-sm z-10">
+                            <div className="px-6 flex gap-1 border-b border-[#E3E7EC] shrink-0 bg-white z-10">
                                 {[{ id: 'journey', label: 'سجل الاتصالات', icon: Activity }, { id: 'contracts', label: 'العقود', icon: FileText }, { id: 'visits', label: 'الزيارات', icon: Wrench }, { id: 'openTasks', label: 'المهام المفتوحة', icon: Layers }].map(tab => (
                                     <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
-                                        className={`py-3.5 text-sm font-bold flex items-center gap-2 relative transition-colors ${activeTab === tab.id ? 'text-violet-800' : 'text-slate-500 hover:text-slate-800'}`}>
+                                        className={`relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors ${activeTab === tab.id
+                                            ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
+                                            : 'text-slate-500 hover:text-slate-800'}`}>
                                         <tab.icon className="w-4 h-4" /> {tab.label}
-                                        {activeTab === tab.id && <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-violet-600 rounded-t-full shadow-[0_-2px_4px_rgba(124,58,237,0.5)]" />}
                                     </button>
                                 ))}
                             </div>
@@ -1472,13 +1479,9 @@ export default function TelemarketerWorkspace() {
                                                                     <td className="px-4 py-3 text-sm text-slate-600">{row.priorityLabel}</td>
                                                                     <td className="px-4 py-3 text-center">
                                                                         {detailPath ? (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => navigate(detailPath)}
-                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-50 text-violet-700 border border-violet-100 hover:bg-violet-100 transition-colors"
-                                                                            >
-                                                                                <Eye className="w-3.5 h-3.5" /> عرض التفاصيل
-                                                                            </button>
+                                                                            <Button type="button" variant="secondary" size="sm" icon={Eye} onClick={() => navigate(detailPath)} className="bg-violet-50 border-violet-100 text-violet-700 hover:bg-violet-100">
+                                                                                عرض التفاصيل
+                                                                            </Button>
                                                                         ) : (
                                                                             <span className="text-xs text-slate-400 font-bold">-</span>
                                                                         )}
@@ -1555,19 +1558,21 @@ export default function TelemarketerWorkspace() {
                                 )}
 
                                 {canDirectBookSelected && (
-                                    <button
+                                    <Button
                                         type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        icon={Calendar}
                                         onClick={async () => {
                                             if (!(await claimSelectedContactTarget())) return;
                                             setAppointmentMode('direct');
                                             setIsAppointmentModalOpen(true);
                                         }}
                                         title="حجز زيارة بدون تسجيل نتيجة مكالمة جديدة"
-                                        className="py-1.5 px-3 flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-700 transition-all active:scale-[0.98] font-black text-[11px]"
+                                        className="bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100"
                                     >
-                                        <Calendar className="w-4 h-4" />
                                         حجز مباشر
-                                    </button>
+                                    </Button>
                                 )}
 
                                 {/* Manual close button — only when CT is not yet closed */}
@@ -1597,30 +1602,28 @@ export default function TelemarketerWorkspace() {
                                         </div>
                                         <div className="px-5 py-4">
                                             <label className="block text-xs font-bold text-slate-600 mb-1">سبب الإغلاق (اختياري)</label>
-                                            <select
+                                            <Select<string>
                                                 value={manualCloseReason}
-                                                onChange={e => setManualCloseReason(e.target.value)}
-                                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 bg-white"
-                                            >
-                                                <option value="">— بدون سبب محدد —</option>
-                                                {rejectionReasons.map(r => (
-                                                    <option key={r} value={r}>{r}</option>
-                                                ))}
-                                            </select>
+                                                onChange={setManualCloseReason}
+                                                options={[
+                                                    { value: '', label: '— بدون سبب محدد —' },
+                                                    ...rejectionReasons.map(r => ({ value: r, label: r })),
+                                                ]}
+                                                className="w-full"
+                                            />
                                         </div>
                                         <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-                                            <button
-                                                onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }}
-                                                className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50"
-                                            >إلغاء</button>
-                                            <button
+                                            <Button variant="secondary" onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} className="flex-1">
+                                                إلغاء
+                                            </Button>
+                                            <Button
+                                                variant="danger"
+                                                loading={manualCloseSaving}
                                                 onClick={handleManualClose}
-                                                disabled={manualCloseSaving}
-                                                className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-red-600 py-2.5 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60"
+                                                className="flex-1"
                                             >
-                                                {manualCloseSaving && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
                                                 إغلاق وإعادة للانتظار
-                                            </button>
+                                            </Button>
                                         </div>
                                     </div>
                                 </div>
@@ -1835,15 +1838,12 @@ export default function TelemarketerWorkspace() {
                             </div>
                         </div>
                         <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-                            <button onClick={() => setIsServiceTaskOpen(false)}
-                                className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                            <Button variant="secondary" onClick={() => setIsServiceTaskOpen(false)} className="flex-1">
                                 تخطي
-                            </button>
-                            <button onClick={handleCreateServiceTask} disabled={serviceTaskSaving}
-                                className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-indigo-600 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60">
-                                {serviceTaskSaving && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
+                            </Button>
+                            <Button loading={serviceTaskSaving} onClick={handleCreateServiceTask} className="flex-1 bg-indigo-600 hover:bg-indigo-500">
                                 إنشاء المهمة
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>

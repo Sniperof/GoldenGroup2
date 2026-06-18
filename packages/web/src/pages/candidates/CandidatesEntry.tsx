@@ -8,6 +8,8 @@ import ImportCSVModal from '../../components/candidates/ImportCSVModal';
 import ReferralSheetDetailsModal from '../../components/candidates/SessionDetailsModal';
 import QualificationModal from '../../components/candidates/QualificationModal';
 import ClientModal from '../../components/ClientModal';
+import Select from '../../components/ui/Select';
+import Button from '../../components/ui/Button';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -224,7 +226,7 @@ export default function CandidatesEntry() {
                         <div className="w-12 h-12 mx-auto bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4"><AlertCircle className="w-6 h-6" /></div>
                         <h3 className="text-lg font-bold text-slate-800 mb-2">تنبيه النظام</h3>
                         <p className="text-sm text-slate-600 mb-6">{errorModal}</p>
-                        <button onClick={() => setErrorModal(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl transition-all">إغلاق</button>
+                        <Button variant="secondary" fullWidth onClick={() => setErrorModal(null)}>إغلاق</Button>
                     </div>
                 </div>
             )}
@@ -238,30 +240,30 @@ export default function CandidatesEntry() {
                     </div>
                     <div className="flex gap-2">
                         {canCreateNameLists && (
-                        <button onClick={() => setIsCreateSheetOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-bold shadow-sm transition-all text-sm">
-                            <FilePlus2 className="w-4 h-4" /> لائحة جديدة
-                        </button>
+                        <Button variant="secondary" icon={FilePlus2} onClick={() => setIsCreateSheetOpen(true)}>
+                            لائحة جديدة
+                        </Button>
                         )}
                         {canCreateCandidates && (
-                        <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all">
-                            <UserPlus className="w-4 h-4" /> إضافة اسم
-                        </button>
+                        <Button icon={UserPlus} onClick={() => setIsAddModalOpen(true)}>
+                            إضافة اسم
+                        </Button>
                         )}
                     </div>
                 </div>
 
-                {/* Tabs Navigation */}
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+                {/* Tabs — pill segmented (Golden Group design system) */}
+                <div className="inline-flex items-center gap-1 bg-[#EEF1F4] p-1 rounded-full w-fit">
                     <button
                         onClick={() => setActiveTab('candidates')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'candidates' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-bold transition-all ${activeTab === 'candidates' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         <List className="w-4 h-4" /> سجل الأسماء ({filteredCandidates.length})
                     </button>
                     {canViewNameLists && (
                     <button
                         onClick={() => setActiveTab('sheets')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'sheets' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-bold transition-all ${activeTab === 'sheets' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         <LayoutGrid className="w-4 h-4" /> لوائح الأسماء ({filteredSheets.length})
                     </button>
@@ -284,36 +286,39 @@ export default function CandidatesEntry() {
                                 className="w-full pl-4 pr-10 py-2 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
                             />
                         </div>
-                        <select
+                        <Select<string>
                             value={candidateStatusFilter}
-                            onChange={(e) => { setCandidateStatusFilter(e.target.value); setCandidatePage(1); }}
-                            className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
-                        >
-                            <option value="">كل الحالات</option>
-                            <option value="Suggested">مقترح</option>
-                            <option value="FollowUp">متابعة</option>
-                            <option value="Qualified">محوَّل</option>
-                            <option value="Junk">مرفوض</option>
-                        </select>
+                            onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }}
+                            variant="filled"
+                            options={[
+                                { value: '', label: 'كل الحالات' },
+                                { value: 'Suggested', label: 'مقترح' },
+                                { value: 'FollowUp', label: 'متابعة' },
+                                { value: 'Qualified', label: 'محوَّل' },
+                                { value: 'Junk', label: 'مرفوض' },
+                            ]}
+                        />
                         {candidateSupervisors.length > 0 && (
-                            <select
+                            <Select<string>
                                 value={candidateSupervisorFilter}
-                                onChange={(e) => { setCandidateSupervisorFilter(e.target.value); setCandidatePage(1); }}
-                                className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
-                            >
-                                <option value="">كل المسؤولين</option>
-                                {candidateSupervisors.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
+                                onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }}
+                                variant="filled"
+                                options={[
+                                    { value: '', label: 'كل المسؤولين' },
+                                    ...candidateSupervisors.map(s => ({ value: s, label: s })),
+                                ]}
+                            />
                         )}
                         {candidateBranches.length > 0 && (
-                            <select
+                            <Select<string>
                                 value={candidateBranchFilter}
-                                onChange={(e) => { setCandidateBranchFilter(e.target.value); setCandidatePage(1); }}
-                                className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
-                            >
-                                <option value="">كل الفروع</option>
-                                {candidateBranches.map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
+                                onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }}
+                                variant="filled"
+                                options={[
+                                    { value: '', label: 'كل الفروع' },
+                                    ...candidateBranches.map(b => ({ value: b, label: b })),
+                                ]}
+                            />
                         )}
                         {(searchQuery || candidateStatusFilter || candidateSupervisorFilter || candidateBranchFilter) && (
                             <button
@@ -503,43 +508,48 @@ export default function CandidatesEntry() {
                                 className="w-full pl-4 pr-10 py-2 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white"
                             />
                         </div>
-                        <select
+                        <Select<string>
                             value={sheetStatusFilter}
-                            onChange={(e) => { setSheetStatusFilter(e.target.value); setSheetsPage(1); }}
-                            className="py-2 px-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white text-slate-700"
-                        >
-                            <option value="">كل الحالات</option>
-                            <option value="New">نشط</option>
-                            <option value="Completed">مكتمل</option>
-                            <option value="Archived">مؤرشف</option>
-                        </select>
+                            onChange={(v) => { setSheetStatusFilter(v); setSheetsPage(1); }}
+                            variant="filled"
+                            options={[
+                                { value: '', label: 'كل الحالات' },
+                                { value: 'New', label: 'نشط' },
+                                { value: 'Completed', label: 'مكتمل' },
+                                { value: 'Archived', label: 'مؤرشف' },
+                            ]}
+                        />
                         {sheetSupervisors.length > 0 && (
-                            <select
+                            <Select<string>
                                 value={sheetSupervisorFilter}
-                                onChange={(e) => { setSheetSupervisorFilter(e.target.value); setSheetsPage(1); }}
-                                className="py-2 px-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white text-slate-700"
-                            >
-                                <option value="">كل المشرفات</option>
-                                {sheetSupervisors.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
+                                onChange={(v) => { setSheetSupervisorFilter(v); setSheetsPage(1); }}
+                                variant="filled"
+                                options={[
+                                    { value: '', label: 'كل المشرفات' },
+                                    ...sheetSupervisors.map(s => ({ value: s, label: s })),
+                                ]}
+                            />
                         )}
                         {sheetBranches.length > 0 && (
-                            <select
+                            <Select<string>
                                 value={sheetBranchFilter}
-                                onChange={(e) => { setSheetBranchFilter(e.target.value); setSheetsPage(1); }}
-                                className="py-2 px-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white text-slate-700"
-                            >
-                                <option value="">كل الفروع</option>
-                                {sheetBranches.map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
+                                onChange={(v) => { setSheetBranchFilter(v); setSheetsPage(1); }}
+                                variant="filled"
+                                options={[
+                                    { value: '', label: 'كل الفروع' },
+                                    ...sheetBranches.map(b => ({ value: b, label: b })),
+                                ]}
+                            />
                         )}
                         {(sheetSearchQuery || sheetStatusFilter || sheetSupervisorFilter || sheetBranchFilter) && (
-                            <button
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                icon={XCircle}
                                 onClick={() => { setSheetSearchQuery(''); setSheetStatusFilter(''); setSheetSupervisorFilter(''); setSheetBranchFilter(''); setSheetsPage(1); }}
-                                className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors"
                             >
-                                <XCircle className="w-4 h-4" /> مسح الفلاتر
-                            </button>
+                                مسح الفلاتر
+                            </Button>
                         )}
                     </div>
 

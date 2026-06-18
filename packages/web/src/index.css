@@ -1,65 +1,363 @@
+@import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
+/* ============================================================
+   Golden Group Water Technology — Brand skin for Golden CRM
+   Drop-in replacement for packages/web/src/index.css
+
+   v2 — EXTENDED: now also remaps Tailwind's RADIUS and SHADOW
+   scales (not just colors), so the brand's softer shape + soft
+   blue-tinted elevation apply app-wide with no component edits.
+   Component-level refinements that tokens can't reach are in
+   COMPONENT_EDITS.md.
+
+   Brand: Primary #1B5FA8 · Gold #B8922A · Teal #4AC9A0 · Red #E95555
+   ============================================================ */
 @theme {
-    --font-sans: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+    /* ---- Type: Alexandria (Arabic) + Plus Jakarta Sans (Latin) ---- */
+    --font-sans: 'Plus Jakarta Sans', 'Alexandria', system-ui, sans-serif;
+
+    /* =========================================================
+       COLORS — remap Tailwind scales to brand
+       ========================================================= */
+
+    /* PRIMARY → brand blue. 'sky' is the app's main accent. */
+    --color-sky-50:  #EFF4FB;
+    --color-sky-100: #D7E6F5;
+    --color-sky-200: #BCD3EC;
+    --color-sky-300: #8FB5DE;
+    --color-sky-400: #5B93CE;
+    --color-sky-500: #1B5FA8; /* PRIMARY */
+    --color-sky-600: #154E84; /* hover */
+    --color-sky-700: #12426F; /* pressed / strong text */
+    --color-sky-800: #0E3357;
+    --color-sky-900: #0B2A47;
+
+    /* 'blue' used alongside sky (gradients, periodic). Same family. */
+    --color-blue-50:  #EFF4FB;
+    --color-blue-100: #E1ECF7;
+    --color-blue-200: #BCD3EC;
+    --color-blue-300: #8FB5DE;
+    --color-blue-400: #5B93CE;
+    --color-blue-500: #2E73BC;
+    --color-blue-600: #1B5FA8;
+    --color-blue-700: #154E84;
+    --color-blue-800: #12426F;
+    --color-blue-900: #0E3357;
+
+    /* SUCCESS → brand teal. emerald + teal + green. */
+    --color-emerald-50:  #EFFBF6;
+    --color-emerald-100: #DCF5EC;
+    --color-emerald-200: #B6E9D6;
+    --color-emerald-300: #8FE0C6;
+    --color-emerald-400: #4AC9A0; /* SUCCESS */
+    --color-emerald-500: #38B58E;
+    --color-emerald-600: #2C9B79; /* success text-on-light */
+    --color-emerald-700: #237D62;
+    --color-emerald-800: #1C6450;
+    --color-emerald-900: #154C3D;
+
+    --color-teal-50:  #EFFBF6;
+    --color-teal-100: #DCF5EC;
+    --color-teal-300: #8FE0C6;
+    --color-teal-400: #4AC9A0;
+    --color-teal-500: #38B58E;
+    --color-teal-600: #2C9B79;
+    --color-teal-700: #237D62;
+
+    --color-green-50:  #EFFBF6;
+    --color-green-100: #DCF5EC;
+    --color-green-200: #B6E9D6;
+    --color-green-400: #4AC9A0;
+    --color-green-500: #38B58E;
+    --color-green-600: #2C9B79;
+    --color-green-700: #237D62;
+
+    /* ACCENT → brand gold. 'amber' = warnings, routes, pending. */
+    --color-amber-50:  #FBF7EB;
+    --color-amber-100: #F4EAD0;
+    --color-amber-200: #EFE0B5;
+    --color-amber-300: #E6CF8D;
+    --color-amber-400: #CBA63E;
+    --color-amber-500: #B8922A; /* GOLD ACCENT */
+    --color-amber-600: #A07D24;
+    --color-amber-700: #8A6A1E;
+    --color-amber-800: #6E5414;
+    --color-amber-900: #574010;
+
+    /* 'orange' (workshop status) → warm gold-brown, kept distinct. */
+    --color-orange-50:  #FBF4E8;
+    --color-orange-100: #F6E8CE;
+    --color-orange-200: #ECD3A3;
+    --color-orange-400: #D29A33;
+    --color-orange-500: #C8851F;
+    --color-orange-600: #A86F1A;
+    --color-orange-700: #8A6A1E;
+
+    /* ERROR → brand red. */
+    --color-red-50:  #FDF0F0;
+    --color-red-100: #FCE5E5;
+    --color-red-200: #F5C9C9;
+    --color-red-300: #F39C9C;
+    --color-red-400: #EF7676;
+    --color-red-500: #E95555; /* ERROR */
+    --color-red-600: #DC4747;
+    --color-red-700: #C53C3C;
+    --color-red-800: #A32F2F;
+    --color-red-900: #822727;
+
+    /* Neutral surfaces nudged to the brand page tone #F5F5F7. */
+    --color-slate-50: #F5F5F7;
+    --color-gray-50:  #F5F5F7;
+
+    /* =========================================================
+       RADIUS — brand shape language (softer cards)
+       Tailwind defaults: lg .5rem/8px · xl .75rem/12px · 2xl 1rem/16px
+       Brand cards = ~12px. Tighten 2xl→12 so rounded-2xl card
+       containers match; keep xl at 12; leave lg/md/sm for controls
+       (buttons/inputs are made full pills in COMPONENT_EDITS / the
+       @layer below).
+       ========================================================= */
+    --radius-lg:  0.5rem;   /* 8px  — small controls/chips (unchanged) */
+    --radius-xl:  0.75rem;  /* 12px — cards, icon chips */
+    --radius-2xl: 0.75rem;  /* 12px — was 16px; large card containers → brand 12 */
+    --radius-3xl: 1rem;     /* 16px — was 24px */
+
+    /* =========================================================
+       SHADOWS — soft, cool blue-grey (never harsh black)
+       The app mostly uses shadow-sm + hover:shadow-md.
+       ========================================================= */
+    --shadow-xs: 0 1px 2px rgba(20, 32, 46, 0.05);
+    --shadow-sm: 0 2px 6px rgba(20, 32, 46, 0.06);
+    --shadow-md: 0 6px 20px rgba(20, 32, 46, 0.10);
+    --shadow-lg: 0 12px 32px rgba(20, 32, 46, 0.14);
+
+    /* =========================================================
+       HEADINGS — shrink main heading scales ~10% on top of the
+       global 93% rescale on <html>. Cards/page titles feel less
+       chunky and align with the Arabic typographic rhythm.
+       Body sizes (xs/sm/base/lg) are untouched.
+       ========================================================= */
+    --text-xl:  1.125rem;  /* 20px → 18px (~×0.9) */
+    --text-2xl: 1.375rem;  /* 24px → 22px */
+    --text-3xl: 1.625rem;  /* 30px → 26px */
+    --text-4xl: 2rem;      /* 36px → 32px */
+    --text-5xl: 2.5rem;    /* 48px → 40px */
+}
+
+/* ============================================================
+   Compact density — shrink every rem-based size by ~7%.
+   Tailwind's text/spacing/icon utilities are all rem-based, so
+   one line on <html> rescales the whole app proportionally
+   (font sizes AND line heights AND icon sizes stay in rhythm).
+   px-based values (icons sized in px, hardcoded padding) are
+   intentionally preserved.
+   ============================================================ */
+html {
+    font-size: 93%;
 }
 
 body {
-    background-color: #f8fafc;
-    /* slate-50 */
-    color: #334155;
-    /* slate-700 */
+    background-color: #F5F5F7; /* brand background */
+    color: #334155;           /* slate-700 */
     font-family: var(--font-sans);
     overflow: hidden;
 }
 
+/* ============================================================
+   Brand control shape — pill text inputs & selects ONLY.
+   IMPORTANT: do NOT globally pill <button> — many buttons in this
+   app are browser-style tabs (rounded-t-lg), pagination, icon
+   buttons, etc., and a blanket rule distorts them. Inputs/selects
+   are safe to pill globally (matches the brand). For ACTION buttons,
+   add `rounded-full` per-component, or use the opt-in `.btn-pill`
+   utility below.
+   ============================================================ */
+@layer components {
+    /* Opt-in pill for action buttons: add className="btn-pill" */
+    .btn-pill {
+        border-radius: 9999px;
+    }
+}
 
-/* Custom scrollbar — light theme (both vertical & horizontal) */
+/* =========================================================
+   Pill text inputs & selects — placed OUTSIDE @layer
+   components so they reliably beat Tailwind utility classes
+   like .rounded-xl that pages still ship on these elements.
+   ========================================================= */
+input[type="text"],
+input[type="search"],
+input[type="password"],
+input[type="email"],
+input[type="tel"],
+input[type="number"],
+select {
+    border-radius: 9999px !important;
+}
+
+/* =========================================================
+   Select — pill dropdown with custom chevron.
+   Replaces the OS default chevron with a brand-grey one
+   (#6B7889) on the inline-start visual edge (left in RTL),
+   so dropdown TRIGGERS stay consistent across browsers.
+   The open menu itself stays native (browser-rendered) —
+   matching the design system's full custom dropdown
+   (checkmark on selected, rounded items, hover state)
+   requires replacing <select> with a custom popover
+   component; see SELECT_COMPONENT_TODO in COMPONENT_EDITS.
+   Pair with `.select-filled` for the filled variant
+   (no border, soft grey background).
+   Opt-out: `.no-select-skin` keeps native rendering.
+   ========================================================= */
+select:not(.no-select-skin) {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: #FFFFFF;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7889' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat;
+    background-position: left 14px center;
+    background-size: 16px 16px;
+    padding-inline-end: 36px;
+    cursor: pointer;
+}
+select:not(.no-select-skin):disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+.select-filled {
+    background-color: #EEF1F4 !important;
+    border-color: transparent !important;
+}
+
+/* ============================================================
+   Auto-pill for filled brand CTAs.
+   Targets buttons with a brand-colored fill + white text — the
+   universal "primary action" pattern across this app. This is
+   surgical: tabs (no bg-*), pagination/icon ghost buttons
+   (no text-white), and outline buttons all skip this rule.
+   Escape hatch: add className="no-pill" to opt out.
+   ============================================================ */
+button:not(.no-pill)[class*="bg-sky-"][class*="text-white"],
+button:not(.no-pill)[class*="bg-blue-"][class*="text-white"],
+button:not(.no-pill)[class*="bg-emerald-"][class*="text-white"],
+button:not(.no-pill)[class*="bg-teal-"][class*="text-white"],
+button:not(.no-pill)[class*="bg-green-"][class*="text-white"],
+button:not(.no-pill)[class*="bg-amber-"][class*="text-white"],
+button:not(.no-pill)[class*="bg-orange-"][class*="text-white"],
+button:not(.no-pill)[class*="bg-red-"][class*="text-white"],
+button:not(.no-pill)[class*="bg-slate-8"][class*="text-white"],
+button:not(.no-pill)[class*="bg-slate-9"][class*="text-white"],
+a:not(.no-pill)[class*="bg-sky-"][class*="text-white"],
+a:not(.no-pill)[class*="bg-emerald-"][class*="text-white"],
+a:not(.no-pill)[class*="bg-amber-"][class*="text-white"],
+a:not(.no-pill)[class*="bg-red-"][class*="text-white"] {
+    border-radius: 9999px !important;
+}
+
+/* ============================================================
+   Softer, more diffuse focus ring on text fields
+   (gentler than the default ring-2). App-wide, no component edits.
+   ============================================================ */
+input:focus,
+input:focus-visible,
+select:focus,
+textarea:focus {
+    --tw-ring-shadow: 0 0 #0000 !important;
+    box-shadow: 0 0 0 4px rgba(27, 95, 168, 0.12) !important;
+    outline: none !important;
+}
+
+/* Gentle colored shadow under primary/CTA buttons (softens the
+   default shadow-lg shadow-sky-500/25 used across the app). */
+button.shadow-lg,
+a.shadow-lg {
+    --tw-shadow: 0 3px 10px rgba(27, 95, 168, 0.16) !important;
+    box-shadow: 0 3px 10px rgba(27, 95, 168, 0.16) !important;
+}
+
+/* ============================================================
+   Sonner toast — brand variant accents
+   Sonner attaches data-type="success|error|info|warning" to each
+   toast root. Adds a 3px colored start-side border per variant
+   and brand colors for the icon + typography hierarchy.
+   ============================================================ */
+[data-sonner-toast] {
+    gap: 11px;
+    align-items: flex-start;
+}
+[data-sonner-toast][data-type="success"] {
+    border-inline-start: 3px solid #4AC9A0 !important;
+}
+[data-sonner-toast][data-type="error"] {
+    border-inline-start: 3px solid #E95555 !important;
+}
+[data-sonner-toast][data-type="info"] {
+    border-inline-start: 3px solid #1B5FA8 !important;
+}
+[data-sonner-toast][data-type="warning"] {
+    border-inline-start: 3px solid #B8922A !important;
+}
+[data-sonner-toast] [data-icon] {
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+}
+[data-sonner-toast][data-type="success"] [data-icon] { color: #4AC9A0; }
+[data-sonner-toast][data-type="error"]   [data-icon] { color: #E95555; }
+[data-sonner-toast][data-type="info"]    [data-icon] { color: #1B5FA8; }
+[data-sonner-toast][data-type="warning"] [data-icon] { color: #B8922A; }
+[data-sonner-toast] [data-title] {
+    font-size: 0.84375rem;
+    font-weight: 700;
+    color: #14202E;
+    line-height: 1.4;
+}
+[data-sonner-toast] [data-description] {
+    font-size: 0.78125rem;
+    color: #6B7889;
+    margin-top: 2px;
+    line-height: 1.5;
+}
+
+/* ============================================================
+   Custom scrollbar — brand-tinted
+   ============================================================ */
 .custom-scroll::-webkit-scrollbar {
     width: 6px;
-    height: 6px;   /* horizontal scrollbar height */
+    height: 6px;
 }
-
 .custom-scroll::-webkit-scrollbar-track {
-    background: #f1f5f9;
-    /* slate-100 */
+    background: #EEF1F4; /* ink-100 */
 }
-
 .custom-scroll::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    /* slate-300 */
+    background: #B4BDC8; /* ink-300 */
     border-radius: 4px;
 }
-
 .custom-scroll::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
-    /* slate-400 */
+    background: #8C97A6; /* ink-400 */
 }
-
-/* Firefox */
 .custom-scroll {
     scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 #f1f5f9;
+    scrollbar-color: #B4BDC8 #EEF1F4;
 }
 
-/* Range slider for route stations */
+/* ============================================================
+   Range slider for route stations — brand blue
+   ============================================================ */
 .route-range-track {
     position: relative;
     height: 6px;
-    background: #e2e8f0;
-    /* slate-200 */
+    background: #E3E7EC; /* ink-150 */
     border-radius: 3px;
     margin: 8px 0;
 }
-
 .route-range-fill {
     position: absolute;
     height: 100%;
-    background: linear-gradient(90deg, #0ea5e9, #38bdf8);
-    /* sky-500 → sky-400 */
+    background: linear-gradient(90deg, #1B5FA8, #5B93CE);
     border-radius: 3px;
 }
-
 input[type='range'].route-slider {
     -webkit-appearance: none;
     appearance: none;
@@ -72,17 +370,15 @@ input[type='range'].route-slider {
     pointer-events: none;
     z-index: 2;
 }
-
 input[type='range'].route-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #0284c7;
-    /* sky-700 */
+    background: #1B5FA8; /* brand primary */
     border: 2px solid white;
     cursor: pointer;
     pointer-events: all;
-    box-shadow: 0 0 6px rgba(14, 165, 233, 0.4);
+    box-shadow: 0 0 6px rgba(27, 95, 168, 0.4);
 }

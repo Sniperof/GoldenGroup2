@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { Loader2, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
+import Select from '../ui/Select';
+import IconButton from '../ui/IconButton';
 
 type OfferDraft = {
   deviceModelId: string;
@@ -187,9 +189,7 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
             <h3 className="text-lg font-black text-slate-800">إنشاء عروض أجهزة مستقلة</h3>
             <p className="mt-1 text-xs text-slate-500">{client.name}</p>
           </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600">
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </div>
 
         <div className="max-h-[78vh] space-y-5 overflow-y-auto bg-slate-50/50 px-6 py-6">
@@ -217,19 +217,27 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
 
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <Field label="الجهاز">
-                    <select value={draft.deviceModelId} onChange={e => updateDraft('deviceModelId', e.target.value)} className={INPUT_CLASS}>
-                      <option value="">اختر الجهاز...</option>
-                      {availableDevices.map(model => (
-                        <option key={model.id} value={model.id}>{model.nameAr || model.name}</option>
-                      ))}
-                    </select>
+                    <Select
+                      value={draft.deviceModelId}
+                      onChange={v => updateDraft('deviceModelId', v)}
+                      placeholder="اختر الجهاز..."
+                      ariaLabel="الجهاز"
+                      className="w-full"
+                      options={availableDevices.map(model => ({ value: String(model.id), label: model.nameAr || model.name }))}
+                    />
                   </Field>
                   <Field label="نوع العرض">
-                    <select value={draft.offerType} onChange={e => updateDraft('offerType', e.target.value)} className={INPUT_CLASS}>
-                      <option value="">اختر...</option>
-                      <option value="cash">كاش</option>
-                      <option value="installment">تقسيط</option>
-                    </select>
+                    <Select
+                      value={draft.offerType}
+                      onChange={v => updateDraft('offerType', v)}
+                      placeholder="اختر..."
+                      ariaLabel="نوع العرض"
+                      className="w-full"
+                      options={[
+                        { value: 'cash', label: 'كاش' },
+                        { value: 'installment', label: 'تقسيط' },
+                      ]}
+                    />
                   </Field>
                   <Field label="الكمية">
                     <input type="number" min={1} value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} className={INPUT_CLASS} />
@@ -240,20 +248,18 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
 
                   {draft.deviceModelId && (
                     <Field label="حسم الجهاز">
-                      <select
+                      <Select
                         value={draft.appliedDeviceDiscountId}
-                        onChange={e => {
-                          const discount = deviceDiscounts.find(item => String(item.id) === e.target.value);
-                          updateDraft('appliedDeviceDiscountId', e.target.value);
+                        onChange={v => {
+                          const discount = deviceDiscounts.find(item => String(item.id) === v);
+                          updateDraft('appliedDeviceDiscountId', v);
                           updateDraft('discountPercentage', discount ? String(discount.percentage) : '');
                         }}
-                        className={INPUT_CLASS}
-                      >
-                        <option value="">بدون حسم</option>
-                        {deviceDiscounts.map(discount => (
-                          <option key={discount.id} value={discount.id}>{discount.label} ({discount.percentage}%)</option>
-                        ))}
-                      </select>
+                        placeholder="بدون حسم"
+                        ariaLabel="حسم الجهاز"
+                        className="w-full"
+                        options={deviceDiscounts.map(discount => ({ value: String(discount.id), label: `${discount.label} (${discount.percentage}%)` }))}
+                      />
                       {deviceDiscounts.length === 0 && (
                         <p className="text-xs text-slate-400">لا توجد حسومات فعالة لهذا الجهاز.</p>
                       )}
@@ -261,31 +267,31 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
                   )}
 
                   <Field label="موظف التسكير">
-                    <select
+                    <Select
                       value={draft.closedByEmployeeId}
-                      onChange={e => {
-                        updateDraft('closedByEmployeeId', e.target.value);
-                        if (e.target.value) updateDraft('noClosingReason', '');
+                      onChange={v => {
+                        updateDraft('closedByEmployeeId', v);
+                        if (v) updateDraft('noClosingReason', '');
                       }}
-                      className={INPUT_CLASS}
-                    >
-                      <option value="">اختياري</option>
-                      {closers.map(closer => <option key={closer.id} value={closer.id}>{closer.name}</option>)}
-                    </select>
+                      placeholder="اختياري"
+                      ariaLabel="موظف التسكير"
+                      className="w-full"
+                      options={closers.map(closer => ({ value: String(closer.id), label: closer.name }))}
+                    />
                   </Field>
                   <Field label="سبب عدم التسكير">
-                    <select
+                    <Select
                       value={draft.noClosingReason}
-                      onChange={e => {
-                        updateDraft('noClosingReason', e.target.value);
-                        if (e.target.value) updateDraft('closedByEmployeeId', '');
+                      onChange={v => {
+                        updateDraft('noClosingReason', v);
+                        if (v) updateDraft('closedByEmployeeId', '');
                       }}
                       disabled={!!draft.closedByEmployeeId}
-                      className={`${INPUT_CLASS} ${draft.closedByEmployeeId ? 'cursor-not-allowed opacity-50' : ''}`}
-                    >
-                      <option value="">بدون سبب</option>
-                      {noClosingReasons.map(reason => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
-                    </select>
+                      placeholder="بدون سبب"
+                      ariaLabel="سبب عدم التسكير"
+                      className="w-full"
+                      options={noClosingReasons.map(reason => ({ value: reason.value, label: reason.label }))}
+                    />
                   </Field>
 
                   {draft.offerType === 'installment' && (
