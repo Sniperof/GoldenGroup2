@@ -10,12 +10,9 @@
 //                       → same endpoint, open_task = cancelled
 // ============================================================
 import { useState, useEffect } from 'react';
-import IconButton from '../../components/ui/IconButton';
 import { X, Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import EmergencyResultWizard from '../../components/emergency/EmergencyResultWizard';
-import Button from '../../components/ui/Button';
-import Select from '../../components/ui/Select';
 
 type Mode = 'choose' | 'apply' | 'reschedule' | 'cancel';
 
@@ -55,7 +52,23 @@ export default function EmergencyResultModal({
         <header className="flex items-center justify-between p-4 border-b border-slate-200 bg-white sticky top-0 z-10">
           <div className="flex items-center gap-2">
             {mode !== 'choose' && mode !== 'apply' && (
-              <IconButton icon={X} label="إغلاق" onClick={() => setMode('choose')} />
+              <button
+                onClick={() => setMode('choose')}
+                className="text-slate-500 hover:text-slate-700 inline-flex items-center gap-1 text-sm"
+              >
+                <ChevronLeft className="h-4 w-4" /> رجوع
+              </button>
+            )}
+            <h2 className="text-lg font-semibold text-slate-800">
+              {mode === 'choose'     && `نتيجة الصيانة الطارئة — مهمة #${taskId}`}
+              {mode === 'apply'      && `تطبيق الصيانة — مهمة #${taskId}`}
+              {mode === 'reschedule' && `إعادة جَدولة المهمة #${taskId}`}
+              {mode === 'cancel'     && `إلغاء المهمة #${taskId}`}
+            </h2>
+          </div>
+          <button onClick={close} className="text-slate-400 hover:text-slate-600" aria-label="إغلاق">
+            <X className="h-5 w-5" />
+          </button>
         </header>
 
         <div className="overflow-auto p-4">
@@ -231,15 +244,16 @@ function LifecycleForm({
           {kind === 'reschedule' ? 'سَبب إعادة الجَدولة' : 'سَبب الإلغاء'}
           <span className="text-rose-500"> *</span>
         </label>
-        <Select<string>
+        <select
           value={reasonId}
-          onChange={setReasonId}
-          options={[
-            { value: '', label: '— اختر —' },
-            ...reasons.map((r) => ({ value: String(r.id), label: r.value })),
-          ]}
-          className="w-full"
-        />
+          onChange={(e) => setReasonId(e.target.value)}
+          className="w-full text-sm border border-slate-300 rounded-lg p-2.5 bg-white"
+        >
+          <option value="">— اختر —</option>
+          {reasons.map((r) => (
+            <option key={r.id} value={r.id}>{r.value}</option>
+          ))}
+        </select>
       </div>
 
       {kind === 'reschedule' && (
@@ -273,17 +287,21 @@ function LifecycleForm({
       </div>
 
       <div className="flex gap-2 justify-end pt-2 border-t border-slate-200">
-        <Button variant="secondary" onClick={onCancel}>
+        <button
+          onClick={onCancel}
+          className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-bold"
+        >
           رجوع
-        </Button>
-        <Button
-          variant={kind === 'reschedule' ? 'gold' : 'danger'}
-          loading={saving}
+        </button>
+        <button
           disabled={saving}
           onClick={submit}
+          className={`text-sm text-white px-4 py-2 rounded-lg font-bold disabled:opacity-50 ${
+            kind === 'reschedule' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'
+          }`}
         >
           {saving ? 'جاري الحفظ...' : (kind === 'reschedule' ? 'تأكيد إعادة الجَدولة' : 'تأكيد الإلغاء')}
-        </Button>
+        </button>
       </div>
     </div>
   );

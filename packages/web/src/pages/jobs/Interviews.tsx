@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import IconButton from '../../components/ui/IconButton';
 import { useSearchParams } from 'react-router-dom';
 import { useInterviewStore } from '../../hooks/useInterviewStore';
 import { useVacancyStore } from '../../hooks/useVacancyStore';
@@ -14,7 +13,6 @@ import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
 import { fetchInterviewersForApplication } from './interviewerLookup';
-import Select from '../../components/ui/Select';
 
 const STATUS_LABELS: Record<string, string> = {
   'Interview Scheduled': 'مجدولة',
@@ -319,7 +317,118 @@ export default function Interviews() {
           <p className="text-sm text-slate-500 mt-1">جدولة وتتبع مقابلات التوظيف</p>
         </div>
         <PermissionGate permission="jobs.interviews.schedule">
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setShowScheduleModal(true)} />
+          <button
+            onClick={() => setShowScheduleModal(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-bold shadow-lg shadow-sky-500/25 text-sm transition-all"
+          >
+            <Plus className="w-4 h-4" /> جدولة مقابلة
+          </button>
+        </PermissionGate>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2 text-slate-500">
+          <Filter className="w-4 h-4" />
+          <span className="text-sm font-medium">تصفية:</span>
+        </div>
+        <div className="relative">
+          <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={filters.interviewerName}
+            onChange={e => setFilter('interviewerName', e.target.value)}
+            placeholder="اسم المقابِل..."
+            className="bg-slate-50 border border-slate-200 rounded-lg pr-9 pl-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500 w-44"
+          />
+        </div>
+        <div className="relative">
+          <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={filters.applicationId}
+            onChange={e => setFilter('applicationId', e.target.value)}
+            placeholder="رقم الطلب..."
+            className="bg-slate-50 border border-slate-200 rounded-lg pr-9 pl-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500 w-36"
+          />
+        </div>
+        <select
+          value={filters.jobVacancyId}
+          onChange={e => setFilter('jobVacancyId', e.target.value)}
+          className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500 w-48"
+        >
+          <option value="">كل الوظائف</option>
+          {vacancies.map(v => (
+            <option key={v.id} value={String(v.id)}>{v.title}</option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={filters.date}
+          onChange={e => setFilter('date', e.target.value)}
+          className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
+        />
+        {(filters.interviewerName || filters.applicationId || filters.date || filters.jobVacancyId) && (
+          <button onClick={resetFilters} className="text-xs text-slate-500 hover:text-red-500 transition-colors">
+            مسح الفلاتر
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <div className="animate-spin w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full" />
+            <span className="text-sm">جاري التحميل...</span>
+          </div>
+        </div>
+      ) : (
+        <SmartTable<any>
+          title="إدارة المقابلات"
+          icon={Users}
+          hideFilterBar={true}
+          data={interviews}
+          columns={interviewColumns}
+          getId={(iv) => iv.id}
+          tableMinWidth={900}
+          emptyIcon={Users}
+          emptyMessage="لا توجد مقابلات"
+          rowClassName={(iv) =>
+            highlightedInterviewId === iv.id
+              ? 'bg-sky-50 ring-1 ring-inset ring-sky-200 hover:bg-sky-100'
+              : ''
+          }
+          actions={(iv) =>
+            iv.interviewStatus === 'Interview Scheduled' ? (
+              <PermissionGate permission="jobs.interviews.record_result">
+                <button
+                  onClick={() => {
+                    setResultModal({ id: iv.id });
+                    setResultNotes('');
+                    setResultStatus('Interview Completed');
+                  }}
+                  className="text-xs px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
+                >
+                  تسجيل النتيجة
+                </button>
+              </PermissionGate>
+            ) : null
+          }
+        />
+      )}
+
+      <AnimatePresence>
+        {showScheduleModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+            onClick={resetScheduleModal}
+          >
+            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-bold text-slate-800">جدولة مقابلة جديدة</h3>
+                <button onClick={resetScheduleModal} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
               {formError && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-sm text-red-700">
@@ -329,63 +438,53 @@ export default function Interviews() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">الشاغر الوظيفي *</label>
-                  <Select
-                    value={form.jobVacancyId}
-                    onChange={handleVacancyChange}
-                    placeholder="اختر الشاغر..."
-                    ariaLabel="الشاغر الوظيفي"
-                    className="w-full"
-                    options={vacancies.filter(v => v.status === 'Open').map(v => ({ value: String(v.id), label: `${v.title} — ${v.branch}` }))}
-                  />
+                  <select value={form.jobVacancyId} onChange={e => handleVacancyChange(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 ${fieldErrors.jobVacancyId ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`}>
+                    <option value="">اختر الشاغر...</option>
+                    {vacancies.filter(v => v.status === 'Open').map(v => (
+                      <option key={v.id} value={v.id}>{v.title} — {v.branch}</option>
+                    ))}
+                  </select>
                   {fieldErrors.jobVacancyId && <p className="mt-1 text-xs text-red-600">{fieldErrors.jobVacancyId}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">المتقدم (الطلبات المؤهلة) *</label>
-                  <Select
-                    value={form.applicationId}
-                    onChange={handleApplicationChange}
+                  <select value={form.applicationId} onChange={e => handleApplicationChange(e.target.value)}
                     disabled={!form.jobVacancyId || loadingEligible}
-                    placeholder={loadingEligible ? 'جاري التحميل...' : 'اختر المتقدم...'}
-                    ariaLabel="المتقدم"
-                    className="w-full"
-                    options={eligibleApps.map(a => ({ value: String(a.id), label: `${a.applicantFirstName} ${a.applicantLastName} (رقم ${a.id})` }))}
-                  />
+                    className={`w-full border rounded-lg px-3 py-2.5 text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400 focus:ring-2 ${fieldErrors.applicationId ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`}>
+                    <option value="">{loadingEligible ? 'جاري التحميل...' : 'اختر المتقدم...'}</option>
+                    {eligibleApps.map(a => (
+                      <option key={a.id} value={a.id}>{a.applicantFirstName} {a.applicantLastName} (رقم {a.id})</option>
+                    ))}
+                  </select>
                   {fieldErrors.applicationId && <p className="mt-1 text-xs text-red-600">{fieldErrors.applicationId}</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">نوع المقابلة</label>
-                    <Select<'HR Interview' | 'Technical Interview'>
-                      value={form.interviewType}
-                      onChange={v => setForm(p => ({ ...p, interviewType: v }))}
-                      ariaLabel="نوع المقابلة"
-                      className="w-full"
-                      options={[
-                        { value: 'HR Interview', label: 'مقابلة HR' },
-                        { value: 'Technical Interview', label: 'مقابلة تقنية' },
-                      ]}
-                    />
+                    <select value={form.interviewType}
+                      onChange={e => setForm(p => ({ ...p, interviewType: e.target.value as any }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500">
+                      <option value="HR Interview">مقابلة HR</option>
+                      <option value="Technical Interview">مقابلة تقنية</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">رقم المقابلة</label>
-                    <Select<'First Interview' | 'Second Interview'>
-                      value={form.interviewNumber}
-                      onChange={v => setForm(p => ({ ...p, interviewNumber: v }))}
-                      ariaLabel="رقم المقابلة"
-                      className="w-full"
-                      options={[
-                        { value: 'First Interview', label: 'الأولى' },
-                        { value: 'Second Interview', label: 'الثانية' },
-                      ]}
-                    />
+                    <select value={form.interviewNumber}
+                      onChange={e => setForm(p => ({ ...p, interviewNumber: e.target.value as any }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500">
+                      <option value="First Interview">الأولى</option>
+                      <option value="Second Interview">الثانية</option>
+                    </select>
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">المقابِل *</label>
-                  <Select
+                  <select
                     value={form.interviewerUserId}
-                    onChange={v => {
-                      setForm(p => ({ ...p, interviewerUserId: v }));
+                    onChange={e => {
+                      setForm(p => ({ ...p, interviewerUserId: e.target.value }));
                       setFieldErrors(prev => {
                         const next = { ...prev };
                         delete next.interviewerUserId;
@@ -393,20 +492,25 @@ export default function Interviews() {
                       });
                     }}
                     disabled={!form.applicationId || loadingInterviewers}
-                    placeholder={!form.applicationId
-                      ? 'اختر المتقدم أولاً'
-                      : loadingInterviewers
-                        ? 'جاري تحميل المقابلين...'
-                        : interviewers.length === 0
-                          ? 'لا يوجد مقابِلون مؤهلون'
-                          : 'اختر المقابِل...'}
-                    ariaLabel="المقابِل"
-                    className="w-full"
-                    options={interviewers.map(option => ({
-                      value: String(option.id),
-                      label: `${option.name}${option.username ? ` (@${option.username})` : ''}${option.roleDisplayName ? ` — ${option.roleDisplayName}` : ''}`,
-                    }))}
-                  />
+                    className={`w-full border rounded-lg px-3 py-2.5 text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400 focus:ring-2 ${fieldErrors.interviewerUserId ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`}
+                  >
+                    <option value="">
+                      {!form.applicationId
+                        ? 'اختر طلب التوظيف أولاً'
+                        : loadingInterviewers
+                          ? 'جاري تحميل المقابلين...'
+                          : interviewers.length === 0
+                            ? 'لا يوجد مقابِلون مؤهلون'
+                            : 'اختر المقابِل...'}
+                    </option>
+                    {interviewers.map(option => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}
+                        {option.username ? ` (@${option.username})` : ''}
+                        {option.roleDisplayName ? ` — ${option.roleDisplayName}` : ''}
+                      </option>
+                    ))}
+                  </select>
                   {fieldErrors.interviewerUserId && <p className="mt-1 text-xs text-red-600">{fieldErrors.interviewerUserId}</p>}
                   {form.applicationId && !loadingInterviewers && interviewers.length === 0 ? (
                     <p className="mt-1 text-xs text-amber-600">
@@ -452,7 +556,36 @@ export default function Interviews() {
                 </div>
               </div>
               <div className="flex gap-3 justify-end mt-5">
-                <IconButton icon={X} label="إغلاق" size="sm" onClick={resetScheduleModal} disabled={submitting} />
+                <button onClick={resetScheduleModal}
+                  className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
+                  إلغاء
+                </button>
+                <button onClick={handleSchedule} disabled={submitting}
+                  className="px-5 py-2.5 text-sm bg-sky-500 text-white rounded-xl hover:bg-sky-600 font-bold shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  {submitting ? 'جاري...' : 'جدولة'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {resultModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+            onClick={() => setResultModal(null)}
+          >
+            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-bold text-slate-800">تسجيل نتيجة المقابلة</h3>
+                <button onClick={() => setResultModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
               <div className="space-y-4">
                 <div className="flex gap-3">

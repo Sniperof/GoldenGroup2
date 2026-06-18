@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import IconButton from '../../components/ui/IconButton';
 import { useNavigate } from 'react-router-dom';
 import { useTrainingStore } from '../../hooks/useTrainingStore';
 import type { CreateTrainingCourseRequest, DeviceModel } from '../../lib/types';
@@ -12,7 +11,6 @@ import {
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
-import Select from '../../components/ui/Select';
 
 const STATUS_COLORS: Record<string, string> = {
   'Training Scheduled': 'bg-blue-100 text-blue-700',
@@ -246,7 +244,91 @@ export default function TrainingCourses() {
           <p className="text-sm text-slate-500 mt-1">إدارة دورات التدريب وسجلات الحضور والنتائج</p>
         </div>
         <PermissionGate permission="jobs.training.create">
-          <IconButton icon={X} label="إغلاق" onClick={() => setShowModal(true)} />
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-xl text-sm font-semibold hover:bg-sky-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            إنشاء دورة تدريبية
+          </button>
+        </PermissionGate>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2 text-slate-500">
+          <Filter className="w-4 h-4" />
+          <span className="text-sm font-medium">تصفية:</span>
+        </div>
+        <div className="relative">
+          <select
+            value={filters.training_status}
+            onChange={e => setFilter('training_status', e.target.value)}
+            className="appearance-none bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
+          >
+            <option value="">كل الحالات</option>
+            <option value="Training Scheduled">مجدولة</option>
+            <option value="Training Started">جارية</option>
+            <option value="Training Completed">مكتملة</option>
+          </select>
+          <ChevronDown className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+        </div>
+        <input type="text" value={filters.branch} onChange={e => setFilter('branch', e.target.value)}
+          placeholder="الفرع..." className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500 w-32" />
+        <input type="text" value={filters.trainer} onChange={e => setFilter('trainer', e.target.value)}
+          placeholder="المدرب..." className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500 w-32" />
+        <input type="date" value={filters.start_date} onChange={e => setFilter('start_date', e.target.value)}
+          className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500" />
+        <input type="date" value={filters.end_date} onChange={e => setFilter('end_date', e.target.value)}
+          className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500" />
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="text" value={filters.search} onChange={e => setFilter('search', e.target.value)}
+            placeholder="بحث بالاسم أو الرقم..."
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg pr-10 pl-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500" />
+        </div>
+        {hasFilters && (
+          <button onClick={resetFilters} className="text-xs text-slate-500 hover:text-red-500 transition-colors">
+            مسح الفلاتر
+          </button>
+        )}
+      </div>
+
+      {/* Table */}
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
+            <span className="text-sm">جاري التحميل...</span>
+          </div>
+        </div>
+      ) : (
+        <SmartTable<any>
+          title="الدورات التدريبية"
+          icon={GraduationCap}
+          hideFilterBar={true}
+          data={courses}
+          columns={trainingColumns}
+          getId={(c) => c.id}
+          tableMinWidth={920}
+          emptyIcon={GraduationCap}
+          emptyMessage="لا توجد دورات تدريبية"
+          onRowClick={(c) => navigate(`/jobs/training-courses/${c.id}`)}
+        />
+      )}
+
+      {/* Create Course Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" dir="rtl">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <GraduationCap className="w-5 h-5 text-sky-500" />
+                إنشاء دورة تدريبية جديدة
+              </h2>
+              <button onClick={closeModal} className="p-1 text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
@@ -265,14 +347,11 @@ export default function TrainingCourses() {
 
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-slate-600 mb-1">الشاغر الوظيفي *</label>
-                  <Select
-                    value={form.job_vacancy_id ? String(form.job_vacancy_id) : ''}
-                    onChange={v => onVacancyChange(Number(v))}
-                    placeholder="اختر الشاغر..."
-                    ariaLabel="الشاغر الوظيفي"
-                    className="w-full"
-                    options={vacancies.map(v => ({ value: String(v.id), label: `${v.title} — ${v.branch}` }))}
-                  />
+                  <select value={form.job_vacancy_id || ''} onChange={e => onVacancyChange(Number(e.target.value))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500">
+                    <option value="">اختر الشاغر...</option>
+                    {vacancies.map(v => <option key={v.id} value={v.id}>{v.title} — {v.branch}</option>)}
+                  </select>
                 </div>
 
                 <div>
@@ -290,14 +369,18 @@ export default function TrainingCourses() {
                   <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
                     <Monitor className="w-3 h-3" /> الجهاز
                   </label>
-                  <Select
+                  <select
                     value={form.device_name}
-                    onChange={v => setForm(f => ({ ...f, device_name: v }))}
-                    placeholder="لا يوجد / اختياري"
-                    ariaLabel="الجهاز"
-                    className="w-full"
-                    options={deviceModels.map(d => ({ value: d.name, label: `${d.name} ${d.brand ? `— ${d.brand}` : ''}` }))}
-                  />
+                    onChange={e => setForm(f => ({ ...f, device_name: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 bg-white"
+                  >
+                    <option value="">لا يوجد / اختياري</option>
+                    {deviceModels.map(d => (
+                      <option key={d.id} value={d.name}>
+                        {d.name} {d.brand ? `— ${d.brand}` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="col-span-2">
@@ -315,14 +398,18 @@ export default function TrainingCourses() {
                       لا يوجد مدربون مؤهلون في هذا الفرع. تأكد من منح صلاحية "التدريب كمدرب" للأدوار المناسبة.
                     </p>
                   ) : (
-                    <Select
+                    <select
                       value={form.trainer}
-                      onChange={v => setForm(f => ({ ...f, trainer: v }))}
-                      placeholder="اختر المدرب..."
-                      ariaLabel="المدرب"
-                      className="w-full"
-                      options={eligibleTrainers.map(t => ({ value: t.name, label: `${t.name} — ${t.roleDisplayName}` }))}
-                    />
+                      onChange={e => setForm(f => ({ ...f, trainer: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 bg-white"
+                    >
+                      <option value="">اختر المدرب...</option>
+                      {eligibleTrainers.map(t => (
+                        <option key={t.id} value={t.name}>
+                          {t.name} — {t.roleDisplayName}
+                        </option>
+                      ))}
+                    </select>
                   )}
                 </div>
 

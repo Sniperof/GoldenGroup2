@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import IconButton from '../../components/ui/IconButton';
 import { AlertCircle, CheckCircle2, Clock, Loader2, MapPin, Plus, Trash2, Wrench, X, XCircle, Zap } from 'lucide-react';
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
 import PaymentEntriesList, { newEntry, type PaymentEntry } from '../../components/emergency/PaymentEntriesList';
-import Select from '../../components/ui/Select';
 
 type InstallationDecision = 'installed_successfully' | 'installation_incomplete' | 'refused_installation';
 
@@ -100,7 +98,277 @@ function AddressFields({
         />
       </label>
       <div className="space-y-2">
-        <IconButton icon={X} label="إغلاق" onClick={() => setPatch({ showMap: !value.showMap })} />
+        <button
+          type="button"
+          onClick={() => setPatch({ showMap: !value.showMap })}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-100"
+        >
+          <MapPin className="h-3.5 w-3.5" />
+          {value.showMap ? 'إخفاء الخريطة' : 'اختيار من الخريطة'}
+        </button>
+        {value.mapPosition && (
+          <span className="mr-2 text-xs font-mono text-slate-500" dir="ltr">
+            {value.mapPosition[0].toFixed(5)}, {value.mapPosition[1].toFixed(5)}
+          </span>
+        )}
+        {value.showMap && (
+          <MapPicker
+            position={value.mapPosition}
+            onLocationSelect={(lat, lng) => {
+              setPatch({ mapPosition: lat === 0 && lng === 0 ? null : [lat, lng] });
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function emptyPart(): InstallationPartDraft {
+  return {
+    source: 'company_stock',
+    placement_state: 'installed',
+    spare_part_id: '',
+    part_name: '',
+    part_code: '',
+    maintenance_type: '',
+    quantity: '1',
+    unit_price: '0',
+    customer_stock_id: '',
+    customer_stock_origin: '',
+    notes: '',
+  };
+}
+
+function paymentEntrySyp(entry: PaymentEntry): number {
+  const amount = Number(entry.amountValue) || 0;
+  if (entry.method === 'barter') return amount;
+  return entry.currency === 'usd' ? amount * (Number(entry.exchangeRate) || 0) : amount;
+}
+
+function formatSyp(value: number): string {
+  return `${Math.round(value).toLocaleString('ar-SY')} ل.س`;
+}
+
+export default function DeviceInstallationResultModal({
+  visitId,
+  taskId,
+  task,
+  onClose,
+  onSaved,
+}: {
+  visitId: number;
+  taskId: number;
+  task: any;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const currentGeoUnitId = Number(task?.currentDeviceGeoUnitId ?? task?.current_device_geo_unit_id) || null;
+  const currentAddressText =
+    task?.currentDeviceAddress ??
+    task?.current_device_address ??
+    task?.deliveryAddress ??
+    task?.delivery_address ??
+    task?.contractSnapshot?.installationAddress?.addressText ??
+    '';
+
+  const [decision, setDecision] = useState<InstallationDecision>('installed_successfully');
+  const [finalAddress, setFinalAddress] = useState<AddressDraft>(() => makeAddress(currentGeoUnitId, currentAddressText));
+  const [activationDueDate, setActivationDueDate] = useState('');
+  const [expectedDate, setExpectedDate] = useState('');
+  const [incompleteReasonId, setIncompleteReasonId] = useState('');
+  const [refusalReasonId, setRefusalReasonId] = useState('');
+  const [customerAcknowledged, setCustomerAcknowledged] = useState(true);
+  const [receiverName, setReceiverName] = useState('');
+  const [receiverSignature, setReceiverSignature] = useState('');
+  const [notes, setNotes] = useState('');
+  const [geoUnits, setGeoUnits] = useState<any[]>([]);
+  const [incompleteReasons, setIncompleteReasons] = useState<any[]>([]);
+  const [refusalReasons, setRefusalReasons] = useState<any[]>([]);
+  const [spareParts, setSpareParts] = useState<any[]>([]);
+  const [customerStock, setCustomerStock] = useState<any[]>([]);
+  const [parts, setParts] = useState<InstallationPartDraft[]>([]);
+  const [paymentType, setPaymentType] = useState<'cash' | 'installment' | ''>('cash');
+  const [paymentEntries, setPaymentEntries] = useState<PaymentEntry[]>([newEntry()]);
+  const [invoiceNotes, setInvoiceNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.geoUnits.list().then((rows) => setGeoUnits(Array.isArray(rows) ? rows : [])).catch(() => setGeoUnits([]));
+    api.systemLists.getItemsByCode('installation_incomplete_reason').then(setIncompleteReasons).catch(() => setIncompleteReasons([]));
+    api.systemLists.getItemsByCode('installation_refusal_reason').then(setRefusalReasons).catch(() => setRefusalReasons([]));
+    api.spareParts.list().then((rows) => setSpareParts(Array.isArray(rows) ? rows : [])).catch(() => setSpareParts([]));
+    const customerId = Number(task?.client_id ?? task?.clientId);
+    if (customerId) {
+      api.customers.getPartsStock(customerId)
+        .then((result: any) => setCustomerStock(Array.isArray(result?.records) ? result.records : []))
+        .catch(() => setCustomerStock([]));
+    }
+  }, [task]);
+
+  const activeGeoUnits = useMemo(() => geoUnits.filter((unit) => unit?.status !== 'inactive'), [geoUnits]);
+  const billableParts = useMemo(
+    () => parts.filter((part) => part.source !== 'customer_stock' && (Number(part.unit_price) || 0) > 0),
+    [parts],
+  );
+  const partsTotal = useMemo(
+    () => billableParts.reduce((sum, part) => sum + (Number(part.unit_price) || 0) * (Number(part.quantity) || 1), 0),
+    [billableParts],
+  );
+  const totalPaidSyp = useMemo(
+    () => paymentEntries.reduce((sum, entry) => sum + paymentEntrySyp(entry), 0),
+    [paymentEntries],
+  );
+  const paymentGap = totalPaidSyp - partsTotal;
+
+  function printReceipt() {
+    const rows = parts.map((part) => {
+      const qty = Number(part.quantity) || 1;
+      const unit = part.source === 'customer_stock' ? 0 : Number(part.unit_price) || 0;
+      const total = unit * qty;
+      const sourceLabel = part.source === 'customer_stock' ? 'مدفوعة مسبقا / مخزون الزبون'
+        : part.source === 'company_stock' ? 'مخزون الشركة' : 'إدخال يدوي';
+      const placementLabel = part.placement_state === 'installed' ? 'مركبة' : 'مسلمة للمخزون';
+      return `<tr><td>${part.part_name || '-'}</td><td>${PART_TYPE_LABELS[part.maintenance_type] || '-'}</td><td>${sourceLabel}</td><td>${placementLabel}</td><td>${qty}</td><td>${formatSyp(unit)}</td><td>${formatSyp(total)}</td></tr>`;
+    }).join('');
+    const paymentRows = paymentEntries
+      .filter((entry) => entry.method && Number(entry.amountValue) > 0)
+      .map((entry, index) => {
+        const method = entry.method === 'hand' ? 'يد'
+          : entry.method === 'transfer' ? 'حوالة'
+            : entry.method === 'barter' ? 'مقايضة' : '-';
+        const detail = entry.method === 'barter'
+          ? entry.barterDescription || '-'
+          : entry.currency === 'usd'
+            ? `${entry.amountValue} $ × ${entry.exchangeRate || '-'}`
+            : `${entry.amountValue} ل.س`;
+        return `<tr><td>الدفعة ${index + 1}</td><td>${method}</td><td>${detail}</td><td>${formatSyp(paymentEntrySyp(entry))}</td></tr>`;
+      }).join('');
+    const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>وصل تركيب جهاز</title><style>
+      body{font-family:Arial,Tahoma,sans-serif;margin:28px;color:#0f172a} h1{font-size:22px;margin:0 0 6px} .muted{color:#64748b;font-size:12px}
+      .box{border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:14px} table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+      th,td{border:1px solid #e2e8f0;padding:8px;text-align:right} th{background:#f8fafc;color:#475569}.total{font-weight:800;font-size:15px}
+      .sign{display:flex;gap:36px;margin-top:28px}.sign div{flex:1;border-top:1px solid #cbd5e1;padding-top:8px;color:#475569}
+      @media print{button{display:none}}
+    </style></head><body>
+      <button onclick="window.print()">طباعة</button>
+      <h1>وصل تركيب جهاز</h1>
+      <div class="muted">المهمة #${taskId} · ${new Date().toLocaleString('ar-SY')}</div>
+      <div class="box"><strong>الزبون:</strong> ${task?.clientName || task?.client_name || '-'}<br><strong>العقد/الجهاز:</strong> ${task?.contractNumber || task?.contract_number || '-'} ${task?.deviceModelName || task?.device_model_name || ''}</div>
+      <div class="box"><strong>القطع</strong><table><thead><tr><th>القطعة</th><th>النوع</th><th>المصدر</th><th>المصير</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows || '<tr><td colspan="7">لا توجد قطع</td></tr>'}</tbody></table></div>
+      <div class="box"><strong>الدفع</strong><table><thead><tr><th>البند</th><th>الطريقة</th><th>التفاصيل</th><th>القيمة</th></tr></thead><tbody>${paymentRows || '<tr><td colspan="4">لا توجد دفعات مسجلة</td></tr>'}</tbody></table></div>
+      <div class="box total">الإجمالي: ${formatSyp(partsTotal)}<br>المدفوع: ${formatSyp(totalPaidSyp)}<br>المتبقي: ${formatSyp(Math.max(0, partsTotal - totalPaidSyp))}</div>
+      ${invoiceNotes ? `<div class="box"><strong>ملاحظات الفاتورة:</strong><br>${invoiceNotes}</div>` : ''}
+      <div class="sign"><div>توقيع المستلم</div><div>توقيع الفني</div></div>
+    </body></html>`;
+    const receiptWindow = window.open('', '_blank');
+    if (!receiptWindow) {
+      setError('تعذر فتح نافذة الوصل. تحقق من إعدادات المتصفح.');
+      return;
+    }
+    receiptWindow.document.write(html);
+    receiptWindow.document.close();
+    receiptWindow.focus();
+  }
+
+  async function submit() {
+    setError(null);
+    const finalGeoUnitId = deepestGeoId(finalAddress.geoSelection);
+    const finalAddressText = finalAddress.detailedAddress.trim();
+
+    if (decision === 'installed_successfully') {
+      if (!finalGeoUnitId || !finalAddressText) {
+        setError('موقع التركيب النهائي يتطلب منطقة وعنوانا تفصيليا');
+        return;
+      }
+      if (!activationDueDate) {
+        setError('تاريخ متابعة التشغيل مطلوب بعد نجاح التركيب');
+        return;
+      }
+      if (!customerAcknowledged || !receiverName.trim() || !receiverSignature.trim()) {
+        setError('إقرار الزبون واسم المستلم وتوقيعه مطلوبة عند نجاح التركيب');
+        return;
+      }
+    }
+    if (decision === 'installation_incomplete' && (!incompleteReasonId || !expectedDate)) {
+      setError('سبب عدم الاكتمال وتاريخ المتابعة مطلوبان');
+      return;
+    }
+    if (decision === 'refused_installation' && !refusalReasonId) {
+      setError('سبب رفض التركيب مطلوب');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await api.fieldVisits.recordTaskResult(visitId, taskId, {
+        final_decision: decision,
+        closing_notes: notes.trim() || null,
+        notes: notes.trim() || null,
+        installation_incomplete_reason_id: decision === 'installation_incomplete' ? Number(incompleteReasonId) : null,
+        installation_refusal_reason_id: decision === 'refused_installation' ? Number(refusalReasonId) : null,
+        expected_date: decision === 'installation_incomplete' ? expectedDate : null,
+        activation_due_date: decision === 'installed_successfully' ? activationDueDate : null,
+        final_installation_geo_unit_id: decision === 'installed_successfully' ? Number(finalGeoUnitId) : null,
+        final_installation_address_text: decision === 'installed_successfully' ? finalAddressText : null,
+        final_installation_address: decision === 'installed_successfully' ? formatAddress(activeGeoUnits, finalAddress) : null,
+        final_installation_lat: decision === 'installed_successfully' ? finalAddress.mapPosition?.[0] ?? null : null,
+        final_installation_lng: decision === 'installed_successfully' ? finalAddress.mapPosition?.[1] ?? null : null,
+        customer_acknowledged: decision === 'installed_successfully' ? customerAcknowledged : null,
+        receiver_name: decision === 'installed_successfully' ? receiverName.trim() : null,
+        receiver_signature: decision === 'installed_successfully' ? receiverSignature.trim() : null,
+        installation_payment: decision === 'installed_successfully' ? {
+          payment_type: paymentType || null,
+          invoice_notes: invoiceNotes.trim() || null,
+          total_parts_amount: partsTotal,
+          total_paid_syp: totalPaidSyp,
+          payment_entries: paymentEntries
+            .filter((entry) => entry.method && Number(entry.amountValue) > 0)
+            .map((entry) => ({
+              method: entry.method,
+              amount_value: Number(entry.amountValue) || 0,
+              currency: entry.currency,
+              exchange_rate: entry.exchangeRate ? Number(entry.exchangeRate) : null,
+              transfer_company_id: entry.transferCompanyId ? Number(entry.transferCompanyId) : null,
+              barter_description: entry.barterDescription || null,
+              amount_syp: paymentEntrySyp(entry),
+            })),
+        } : null,
+        parts: decision === 'installed_successfully'
+          ? parts.map((part) => ({
+              source: part.source,
+              placement_state: part.placement_state,
+              spare_part_id: part.spare_part_id ? Number(part.spare_part_id) : null,
+              part_name: part.part_name.trim() || null,
+              part_code: part.part_code.trim() || null,
+              maintenance_type: part.maintenance_type || null,
+              quantity: Number(part.quantity) || 1,
+              unit_price: part.source === 'customer_stock' ? 0 : Number(part.unit_price) || 0,
+              customer_stock_origin: part.customer_stock_origin.trim() || null,
+              notes: part.notes.trim() || null,
+            }))
+          : [],
+      });
+      onSaved();
+    } catch (err: any) {
+      setError(err?.message ?? 'فشل حفظ نتيجة التركيب');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
+      <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Wrench className="h-5 w-5 text-sky-600" />
+            <h2 className="text-base font-black text-slate-900">تسجيل نتيجة تركيب الجهاز</h2>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <div className="max-h-[75vh] space-y-4 overflow-y-auto px-5 py-4">
@@ -204,45 +472,37 @@ function AddressFields({
                           <div className="grid gap-3 md:grid-cols-3">
                             <label className="space-y-1.5">
                               <span className="text-xs font-bold text-slate-500">المصدر</span>
-                              <Select<InstallationPartDraft['source']>
+                              <select
                                 value={part.source}
-                                onChange={(v) => updatePart({
-                                  source: v,
+                                onChange={(e) => updatePart({
+                                  source: e.target.value as InstallationPartDraft['source'],
                                   spare_part_id: '',
                                   customer_stock_id: '',
                                   part_name: '',
                                   part_code: '',
-                                  unit_price: v === 'customer_stock' ? '0' : part.unit_price,
+                                  unit_price: e.target.value === 'customer_stock' ? '0' : part.unit_price,
                                   customer_stock_origin: '',
                                 })}
-                                className="w-full"
-                                ariaLabel="المصدر"
-                                options={[
-                                  { value: 'company_stock', label: 'مخزون الشركة' },
-                                  { value: 'customer_stock', label: 'مخزون الزبون' },
-                                  { value: 'external_or_manual', label: 'إدخال يدوي' },
-                                ]}
-                              />
+                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
+                                <option value="company_stock">مخزون الشركة</option>
+                                <option value="customer_stock">مخزون الزبون</option>
+                                <option value="external_or_manual">إدخال يدوي</option>
+                              </select>
                             </label>
                             <label className="space-y-1.5">
                               <span className="text-xs font-bold text-slate-500">الحالة</span>
-                              <Select<InstallationPartDraft['placement_state']>
-                                value={part.placement_state}
-                                onChange={(v) => updatePart({ placement_state: v })}
-                                className="w-full"
-                                ariaLabel="الحالة"
-                                options={[
-                                  { value: 'installed', label: 'مركبة' },
-                                  { value: 'customer_stock', label: 'مسلمة للمخزون' },
-                                ]}
-                              />
+                              <select value={part.placement_state} onChange={(e) => updatePart({ placement_state: e.target.value as InstallationPartDraft['placement_state'] })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                                <option value="installed">مركبة</option>
+                                <option value="customer_stock">مسلمة للمخزون</option>
+                              </select>
                             </label>
                             <label className="space-y-1.5">
                               <span className="text-xs font-bold text-slate-500">نوع القطعة</span>
-                              <Select
+                              <select
                                 value={part.maintenance_type}
-                                onChange={(v) => updatePart({
-                                  maintenance_type: v,
+                                onChange={(e) => updatePart({
+                                  maintenance_type: e.target.value,
                                   spare_part_id: '',
                                   customer_stock_id: '',
                                   part_name: '',
@@ -250,30 +510,27 @@ function AddressFields({
                                   unit_price: part.source === 'customer_stock' ? '0' : part.unit_price,
                                   customer_stock_origin: '',
                                 })}
-                                className="w-full"
-                                placeholder="اختر النوع"
-                                ariaLabel="نوع القطعة"
-                                options={[
-                                  { value: '', label: 'اختر النوع' },
-                                  { value: 'Periodic', label: PART_TYPE_LABELS.Periodic },
-                                  { value: 'Emergency', label: PART_TYPE_LABELS.Emergency },
-                                  { value: 'Accessory', label: PART_TYPE_LABELS.Accessory },
-                                ]}
-                              />
+                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
+                                <option value="">اختر النوع</option>
+                                <option value="Periodic">{PART_TYPE_LABELS.Periodic}</option>
+                                <option value="Emergency">{PART_TYPE_LABELS.Emergency}</option>
+                                <option value="Accessory">{PART_TYPE_LABELS.Accessory}</option>
+                              </select>
                             </label>
                           </div>
                           <div className="mt-3 grid gap-3 md:grid-cols-3">
                             {part.source === 'customer_stock' ? (
                               <label className="space-y-1.5 md:col-span-2">
                                 <span className="text-xs font-bold text-slate-500">قطعة من مخزون الزبون</span>
-                                <Select
+                                <select
                                   value={part.customer_stock_id}
                                   disabled={!part.maintenance_type}
-                                  onChange={(v) => {
-                                    const selected = customerStock.find((stock) => String(stock.stockId) === v);
+                                  onChange={(e) => {
+                                    const selected = customerStock.find((stock) => String(stock.stockId) === e.target.value);
                                     updatePart({
                                       spare_part_id: selected?.itemId ? String(selected.itemId) : '',
-                                      customer_stock_id: v,
+                                      customer_stock_id: e.target.value,
                                       part_name: selected?.itemName ?? '',
                                       part_code: selected?.itemCode ?? '',
                                       maintenance_type:
@@ -286,36 +543,37 @@ function AddressFields({
                                         : '',
                                     });
                                   }}
-                                  className="w-full"
-                                  placeholder={part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}
-                                  ariaLabel="قطعة من مخزون الزبون"
-                                  options={filteredCustomerStock.map((stock) => ({
-                                    value: String(stock.stockId),
-                                    label: `${stock.itemName} - المتوفر ${stock.quantityAvailable}`,
-                                  }))}
-                                />
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                                >
+                                  <option value="">{part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}</option>
+                                  {filteredCustomerStock.map((stock) => (
+                                    <option key={stock.stockId} value={stock.stockId}>
+                                      {stock.itemName} - المتوفر {stock.quantityAvailable}
+                                    </option>
+                                  ))}
+                                </select>
                               </label>
                             ) : part.source === 'company_stock' ? (
                               <label className="space-y-1.5 md:col-span-2">
                                 <span className="text-xs font-bold text-slate-500">القطعة</span>
-                                <Select
+                                <select
                                   value={part.spare_part_id}
                                   disabled={!part.maintenance_type}
-                                  onChange={(v) => {
-                                    const selected = spareParts.find((sp) => String(sp.id) === v);
+                                  onChange={(e) => {
+                                    const selected = spareParts.find((sp) => String(sp.id) === e.target.value);
                                     updatePart({
-                                      spare_part_id: v,
+                                      spare_part_id: e.target.value,
                                       part_name: selected?.name ?? '',
                                       part_code: selected?.code ?? '',
                                       maintenance_type: selected?.maintenanceType ?? part.maintenance_type,
                                       unit_price: selected?.basePrice != null ? String(selected.basePrice) : part.unit_price,
                                     });
                                   }}
-                                  className="w-full"
-                                  placeholder={part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}
-                                  ariaLabel="القطعة"
-                                  options={filteredSpareParts.map((sp) => ({ value: String(sp.id), label: sp.name }))}
-                                />
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                                >
+                                  <option value="">{part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}</option>
+                                  {filteredSpareParts.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                                </select>
                               </label>
                             ) : (
                               <label className="space-y-1.5 md:col-span-2">
@@ -365,17 +623,15 @@ function AddressFields({
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="space-y-1.5">
                     <span className="text-xs font-bold text-slate-500">نوع الدفع</span>
-                    <Select<'cash' | 'installment' | ''>
+                    <select
                       value={paymentType}
-                      onChange={(v) => setPaymentType(v)}
-                      className="w-full"
-                      ariaLabel="نوع الدفع"
-                      options={[
-                        { value: '', label: 'غير محدد' },
-                        { value: 'cash', label: 'كاش' },
-                        { value: 'installment', label: 'تقسيط' },
-                      ]}
-                    />
+                      onChange={(e) => setPaymentType(e.target.value as 'cash' | 'installment' | '')}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">غير محدد</option>
+                      <option value="cash">كاش</option>
+                      <option value="installment">تقسيط</option>
+                    </select>
                   </label>
                   <div className="rounded-lg border border-white bg-white px-3 py-2">
                     <div className="flex justify-between text-xs font-bold text-slate-500">
@@ -418,14 +674,10 @@ function AddressFields({
             <div className="grid gap-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4 md:grid-cols-2">
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">سبب عدم الاكتمال</span>
-                <Select
-                  value={incompleteReasonId}
-                  onChange={(v) => setIncompleteReasonId(v)}
-                  className="w-full"
-                  placeholder="اختر السبب"
-                  ariaLabel="سبب عدم الاكتمال"
-                  options={incompleteReasons.map((reason) => ({ value: String(reason.id), label: reason.value }))}
-                />
+                <select value={incompleteReasonId} onChange={(e) => setIncompleteReasonId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <option value="">اختر السبب</option>
+                  {incompleteReasons.map((reason) => <option key={reason.id} value={reason.id}>{reason.value}</option>)}
+                </select>
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ المتابعة</span>
@@ -438,14 +690,10 @@ function AddressFields({
             <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-4">
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">سبب الرفض</span>
-                <Select
-                  value={refusalReasonId}
-                  onChange={(v) => setRefusalReasonId(v)}
-                  className="w-full"
-                  placeholder="اختر السبب"
-                  ariaLabel="سبب الرفض"
-                  options={refusalReasons.map((reason) => ({ value: String(reason.id), label: reason.value }))}
-                />
+                <select value={refusalReasonId} onChange={(e) => setRefusalReasonId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <option value="">اختر السبب</option>
+                  {refusalReasons.map((reason) => <option key={reason.id} value={reason.id}>{reason.value}</option>)}
+                </select>
               </label>
             </div>
           )}
