@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import MapPicker from '../../components/MapPicker';
 import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathToSelection } from '../../components/GeoSmartSearch';
 import type { GeoSelection } from '../../components/GeoSmartSearch';
@@ -182,6 +183,23 @@ const inputClass = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2.
 const selectClass = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all appearance-none cursor-pointer";
 
 /* ------------------------------------------------------------------ */
+/*  Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+// Arabic label for a referrer type. Case-insensitive — stored values may be
+// capitalized ("Client") or lowercase ("client").
+function referrerTypeLabel(type?: string | null): string {
+    switch (String(type || '').toLowerCase()) {
+        case 'client':
+        case 'customer': return 'زبون';
+        case 'employee': return 'موظف';
+        case 'personal': return 'شخصي';
+        case 'unknown':  return 'غير معروف';
+        default: return type || '—';
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main Component                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -191,6 +209,14 @@ export default function ContractForm() {
     const isEdit = Boolean(editId);
     const currentUser = useAuthStore(s => s.user);
     const hasPermission = useAuthStore(s => s.hasPermission);
+    const getPermissionScope = useAuthStore(s => s.getPermissionScope);
+    const contextBranchId = useBranchContextStore(s => s.branchId);
+    // A GLOBAL creator must pick a branch context first; otherwise the server
+    // silently creates the contract in their home branch. Mirrors the list-page
+    // guard and the super-admin server rule (covers direct-link entry too).
+    const mustPickBranch = !isEdit
+        && getPermissionScope('contracts.create') === 'GLOBAL'
+        && contextBranchId == null;
     // ─── API Data ───
     const [customers, setCustomers] = useState<MockCustomer[]>([]);
     const [deviceModels, setDeviceModels] = useState<any[]>([]);
@@ -355,13 +381,19 @@ export default function ContractForm() {
                                 referrers: clientReferrers.length ? clientReferrers : contractReferrers,
                             };
                         setSelectedCustomer(restoredCustomer);
-                        setSelectedReferrerIds(contractReferrers.map((referrer: any) => String(referrer.id)));
+                        // Single-mediator rule: keep only the first on restore (legacy
+                        // contracts may carry more than one).
+                        setSelectedReferrerIds(contractReferrers.slice(0, 1).map((referrer: any) => String(referrer.id)));
                     }
 
                     // Plan §2.2 — discount: API returns discountId / appliedDeviceDiscountId,
                     // not selectedDiscountId. Read the correct field.
                     const restoredDiscountId = c.appliedDeviceDiscountId ?? c.discountId ?? null;
                     if (restoredDiscountId) setSelectedDiscountId(Number(restoredDiscountId));
+
+                    // Signature the device line-item sync effect waits for before
+                    // arming, so it preserves the restored items on initial load.
+                    restoredLineItemSigRef.current = `${c.deviceModelId || ''}|${restoredDiscountId ? Number(restoredDiscountId) : ''}`;
 
                     // Plan §2.3 — warranty months/visits. The device-change effect
                     // (zeroing logic below) is now opt-out on initial load so this
@@ -518,8 +550,26 @@ export default function ContractForm() {
     }, [deviceModelId]);
 
     // ─── Effect: auto-update device line item ───
+    // Edit mode hazard: the line items were restored from the saved contract.
+    // This sync effect must NOT wipe/rebuild them on initial load — the saved
+    // device model may not even be inside the current user's scoped lookup
+    // (selectedDevice === null), which would clear the items and zero the total.
+    // So we suppress the effect until the restored (device|discount) signature
+    // has settled, then arm it to respond normally to genuine user changes.
+    const lineItemSyncArmedRef = useRef<boolean>(!isEdit);
+    const restoredLineItemSigRef = useRef<string | null>(isEdit ? null : '');
     useEffect(() => {
         if (isOfferLocked) return;
+        if (!lineItemSyncArmedRef.current) {
+            // Restore hasn't applied yet — leave line items untouched.
+            if (restoredLineItemSigRef.current === null) return;
+            const currentSig = `${deviceModelId}|${selectedDiscountId}`;
+            // Restored values are now in effect → arm without rebuilding (preserve
+            // the saved items). If they already differ, the user changed something
+            // first, so arm and fall through to sync.
+            lineItemSyncArmedRef.current = true;
+            if (currentSig === restoredLineItemSigRef.current) return;
+        }
         if (saleSubtype === 'free') {
             // Free-sale / gift contracts keep the selected device informational only.
             // Do not add it to financial line items.
@@ -1243,12 +1293,10 @@ export default function ContractForm() {
         if (lat === 0 && lng === 0) { setMapPosition(null); } else { setMapPosition([lat, lng]); }
     }, []);
 
+    // Single-mediator rule: a sale has exactly one referrer. Selecting a chip
+    // replaces any previous choice; clicking the active chip clears it.
     const toggleReferrer = useCallback((referrerId: string) => {
-        setSelectedReferrerIds(prev => (
-            prev.includes(referrerId)
-                ? prev.filter(id => id !== referrerId)
-                : [...prev, referrerId]
-        ));
+        setSelectedReferrerIds(prev => (prev.includes(referrerId) ? [] : [referrerId]));
     }, []);
 
     if (loading) {
@@ -1275,6 +1323,31 @@ export default function ContractForm() {
                             className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl px-5 py-2.5 text-sm font-bold transition-colors"
                         >
                             العودة إلى تفاصيل العقد
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (mustPickBranch) {
+        return (
+            <div className="h-full overflow-y-auto bg-slate-50">
+                <div className="max-w-lg mx-auto px-4 py-16">
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center shadow-sm">
+                        <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center mx-auto mb-4">
+                            <AlertTriangle className="w-6 h-6" />
+                        </div>
+                        <h1 className="text-lg font-bold text-slate-800 mb-2">اختر فرعاً أولاً</h1>
+                        <p className="text-sm text-slate-500 mb-5">
+                            يجب تحديد الفرع المستهدف من فلتر الإدارة قبل إضافة عقد، حتى لا يُنشأ العقد في فرعك الأساسي بالخطأ.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/contracts')}
+                            className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl px-5 py-2.5 text-sm font-bold transition-colors"
+                        >
+                            العودة إلى قائمة العقود
                         </button>
                     </div>
                 </div>
@@ -1607,29 +1680,37 @@ export default function ContractForm() {
                         );
                     })()}
 
-                    {selectedCustomer && (selectedCustomer.referrers?.length || 0) > 0 && (
+                    {selectedCustomer && (
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
                             <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-bold text-slate-600">الوسطاء المرتبطون بالزبون</span>
-                                <span className="text-[11px] text-slate-400">يمكن اختيار وسيط واحد أو عدة وسطاء</span>
+                                <span className="text-xs font-bold text-slate-600">وسيط البيعة</span>
+                                <span className="text-[11px] text-slate-400">اختر وسيطاً واحداً فقط</span>
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                                {selectedCustomer.referrers!.map(referrer => {
-                                    const isActive = selectedReferrerIds.includes(String(referrer.id));
-                                    return (
-                                        <button
-                                            key={referrer.id}
-                                            type="button"
-                                            onClick={() => toggleReferrer(String(referrer.id))}
-                                            className={`px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${isActive
-                                                ? 'bg-sky-600 border-sky-600 text-white shadow-sm'
-                                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
-                                        >
-                                            {referrer.referrerName}
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                            {(selectedCustomer.referrers?.length || 0) === 0 ? (
+                                <p className="text-xs text-slate-400 italic">لا يوجد وسطاء مسجّلون لهذا الزبون.</p>
+                            ) : (
+                                <div className="flex flex-wrap gap-2">
+                                    {selectedCustomer.referrers!.map(referrer => {
+                                        const isActive = selectedReferrerIds.includes(String(referrer.id));
+                                        return (
+                                            <button
+                                                key={referrer.id}
+                                                type="button"
+                                                onClick={() => toggleReferrer(String(referrer.id))}
+                                                aria-pressed={isActive}
+                                                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${isActive
+                                                    ? 'bg-sky-600 border-sky-600 text-white shadow-sm'
+                                                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                                            >
+                                                <span>{referrer.referrerName}</span>
+                                                <span className={`text-[10px] rounded-full px-1.5 py-0.5 ${isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                                    {referrerTypeLabel(referrer.referrerType)}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     )}
                 </Section>
@@ -1755,6 +1836,9 @@ export default function ContractForm() {
                         {selectedCustomer && (() => {
                             const saleOwnerFrozen = isEdit && !isDraftMode;
                             const canEdit = canAssignSaleOwner && !saleOwnerFrozen;
+                            // sale_owner_id FKs to employees(id) (migration 298) — the
+                            // owner is any employee, with or without a system account.
+                            // Match/emit employees.id (NOT hrUserId).
                             const selectedEmp = branchEmployees.find((e: any) => Number(e.id) === Number(saleOwnerId));
                             const fallbackLabel = currentUser?.name ? `${currentUser.name} (المُدخِل نفسه)` : 'المُدخِل نفسه';
                             return (
@@ -1767,9 +1851,11 @@ export default function ContractForm() {
                                                 className={selectClass}
                                             >
                                                 <option value="">{fallbackLabel}</option>
-                                                {branchEmployees.map((emp: any) => (
-                                                    <option key={emp.id} value={emp.id}>{emp.name}</option>
-                                                ))}
+                                                {branchEmployees
+                                                    .filter((emp: any) => emp.status == null || emp.status === 'active')
+                                                    .map((emp: any) => (
+                                                        <option key={emp.id} value={emp.id}>{emp.name}</option>
+                                                    ))}
                                             </select>
                                         ) : (
                                             <div className={`w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm flex items-center gap-2 ${saleOwnerFrozen ? 'text-slate-500' : 'text-slate-700'}`}>
@@ -2451,12 +2537,21 @@ export default function ContractForm() {
                                         </select>
                                     </Field>
                                     <div className="flex items-end">
-                                        <button type="button" onClick={generateInstallments} disabled={grandTotal <= 0 || installmentsConfirmed}
+                                        <button type="button" onClick={generateInstallments} disabled={grandTotal <= 0 || installmentsConfirmed || (hasDownPayment && totalPaidSyp <= 0)}
                                             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-amber-300 text-amber-600 hover:bg-amber-50 transition-all text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed">
                                             <Calculator className="w-4 h-4" /> توليد الجدول
                                         </button>
                                     </div>
                                 </div>
+
+                                {/* The schedule is computed on (الإجمالي − المقدم); the down
+                                    payment value must be entered first so installments don't
+                                    spread over the full total by mistake. */}
+                                {hasDownPayment && totalPaidSyp <= 0 && (
+                                    <p className="text-xs text-amber-600">
+                                        أدخل قيمة الدفعة الأولى (المقدم) أولاً، ثم ولّد جدول الأقساط.
+                                    </p>
+                                )}
 
                                 {installmentDrafts.length > 0 && (
                                     <div className="rounded-xl border border-slate-200 overflow-hidden">

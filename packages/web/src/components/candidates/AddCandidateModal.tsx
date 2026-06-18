@@ -83,7 +83,12 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     const getPermissionScope = useAuthStore(state => state.getPermissionScope);
     const { branchId: contextBranchId } = useBranchContextStore();
     const currentUserDisplayName = authUser?.name?.trim() || '';
-    const canChooseBranch = authUser?.isSuperAdmin === true;
+    const createCandidateScope = getPermissionScope('candidates.create');
+    // Branch field shows for super-admin OR a GLOBAL creator. Mirroring the
+    // clients modal: when a branch is already fixed (management filter or an
+    // existing sheet) the field is HIDDEN and the fixed branch is used silently
+    // — so we never render an unresolved "#id" badge.
+    const canChooseBranch = authUser?.isSuperAdmin === true || createCandidateScope === 'GLOBAL';
     const editCandidateScope = getPermissionScope('candidates.edit');
     const canChooseAssignedOwner =
         authUser?.isSuperAdmin === true ||
@@ -100,51 +105,69 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     useEffect(() => {
         let active = true;
 
-        Promise.all([
-            api.geoUnits.list(),
+        // allSettled (not all): a permission failure on contracts/occupation must
+        // NOT wipe the client list — the mediator search depends on it (§5.1 fail-soft).
+        Promise.allSettled([
             api.clients.list(),
             api.contracts.list(),
             api.systemLists.list({ category: 'occupation', activeOnly: true }),
             canChooseBranch ? api.branches.list() : Promise.resolve([]),
-            canChooseAssignedOwner ? api.admin.hrUsers.assignable() : Promise.resolve([]),
         ])
-            .then(([units, clients, contractsData, occupationList, branchesData, hrUsersData]) => {
+            .then(([clientsRes, contractsRes, occupationRes, branchesRes]) => {
                 if (!active) return;
-                setGeoUnits(units);
-                setAllClients(clients);
-                setContracts(contractsData);
-                setOccupationOptions(occupationList.map((item: any) => item.value));
+                setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
+                setContracts(contractsRes.status === 'fulfilled' ? contractsRes.value : []);
+                setOccupationOptions(
+                    occupationRes.status === 'fulfilled'
+                        ? occupationRes.value.map((item: any) => item.value)
+                        : [],
+                );
                 setBranches(
-                    Array.isArray(branchesData)
-                        ? branchesData.map((branch: any) => ({ id: branch.id, name: branch.name }))
+                    branchesRes.status === 'fulfilled' && Array.isArray(branchesRes.value)
+                        ? branchesRes.value.map((branch: any) => ({ id: branch.id, name: branch.name }))
                         : [],
                 );
-                setHrUsers(
-                    Array.isArray(hrUsersData)
-                        ? hrUsersData.map((user: any) => ({
-                            id: user.id,
-                            name: user.name,
-                            branchId: user.branch_id ?? user.branchId ?? null,
-                            roleDisplayName: user.role_display_name ?? user.roleDisplayName ?? null,
-                        }))
-                        : [],
-                );
-            })
-            .catch((error) => {
-                console.error(error);
-                if (!active) return;
-                setGeoUnits([]);
-                setAllClients([]);
-                setContracts([]);
-                setOccupationOptions([]);
-                setBranches([]);
-                setHrUsers([]);
             });
 
         return () => {
             active = false;
         };
     }, [canChooseAssignedOwner, canChooseBranch]);
+
+    // Address options are constrained to the operation branch's geo coverage
+    // (engineering standard §5.1) — reloads whenever the chosen branch changes,
+    // so a Tartus operation never shows Damascus units.
+    useEffect(() => {
+        if (!isOpen) return;
+        const branchForGeo = selectedBranchId === '' ? (contextBranchId ?? null) : Number(selectedBranchId);
+        if (branchForGeo == null) { setGeoUnits([]); return; }
+        let active = true;
+        api.geoUnits.list(branchForGeo)
+            .then(units => { if (active) setGeoUnits(Array.isArray(units) ? units : []); })
+            .catch(() => { if (active) setGeoUnits([]); });
+        return () => { active = false; };
+    }, [isOpen, selectedBranchId, contextBranchId]);
+
+    // Responsible options are the candidate-eligible staff of the OPERATION branch
+    // (§5.1), reloaded when the branch changes — so a GLOBAL deputy sees the right
+    // branch's staff (like super-admin), not their own acting branch's.
+    useEffect(() => {
+        if (!isOpen || !canChooseAssignedOwner) { setHrUsers([]); return; }
+        const branchForLookup = selectedBranchId === '' ? (contextBranchId ?? null) : Number(selectedBranchId);
+        let active = true;
+        api.admin.hrUsers.candidateAssignable(branchForLookup)
+            .then(rows => {
+                if (!active) return;
+                setHrUsers((rows as any[]).map(u => ({
+                    id: u.id,
+                    name: u.name,
+                    branchId: u.branch_id ?? u.branchId ?? null,
+                    roleDisplayName: u.role_display_name ?? u.roleDisplayName ?? null,
+                })));
+            })
+            .catch(() => { if (active) setHrUsers([]); });
+        return () => { active = false; };
+    }, [isOpen, canChooseAssignedOwner, selectedBranchId, contextBranchId]);
 
     const addCandidate = useCandidateStore((state: any) => state.addCandidate);
     const updateCandidate = useCandidateStore((state: any) => state.updateCandidate);
@@ -222,7 +245,9 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 setSelectedClientId(null);
                 setOriginChannel('Acquaintance');
                 setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
-                setSelectedResponsibleUserId(authUser?.id ?? '');
+                // Default empty so the responsible is an explicit single choice
+                // (no phantom first-option). Users who can't choose self-assign on save.
+                setSelectedResponsibleUserId('');
             }
             isInitialSync.current = false;
         } else {
@@ -336,6 +361,10 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         () => activeSheets.find((sheet: any) => sheet.id === selectedSheetId),
         [activeSheets, selectedSheetId],
     );
+    // When the name belongs to an existing sheet, its branch and responsible are
+    // INHERITED from the sheet and must be locked (a name cannot diverge from its
+    // sheet's owner). The server already enforces this on save.
+    const sheetLocked = !isDirectMode && !!selectedSheetId;
 
     useEffect(() => {
         if (!isOpen || isDirectMode || !selectedSheet) return;
@@ -536,7 +565,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
                             {(canChooseBranch || canChooseAssignedOwner) && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                                    {canChooseBranch && (
+                                    {(canChooseBranch && contextBranchId == null && !sheetLocked) && (
                                         <div>
                                             <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
                                                 <Building2 className="w-3.5 h-3.5" />
@@ -560,18 +589,25 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                 <User className="w-3.5 h-3.5" />
                                                 المسؤول عن السجل <span className="text-red-500">*</span>
                                             </label>
-                                            <select
-                                                value={selectedResponsibleUserId}
-                                                onChange={(e) => setSelectedResponsibleUserId(e.target.value ? Number(e.target.value) : '')}
-                                                className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
-                                            >
-                                                <option value="">-- اختر المسؤول --</option>
-                                                {assignableHrUsers.map(user => (
-                                                    <option key={user.id} value={user.id}>
-                                                        {user.name}{user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                            {sheetLocked ? (
+                                                <div className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-600 text-sm font-bold flex items-center justify-between">
+                                                    <span>{selectedSheet?.assignedHrUserName ?? 'مسؤول اللائحة'}</span>
+                                                    <span className="text-[10px] text-slate-400">مثبّت من اللائحة</span>
+                                                </div>
+                                            ) : (
+                                                <select
+                                                    value={selectedResponsibleUserId}
+                                                    onChange={(e) => setSelectedResponsibleUserId(e.target.value ? Number(e.target.value) : '')}
+                                                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
+                                                >
+                                                    <option value="">-- اختر المسؤول --</option>
+                                                    {assignableHrUsers.map(user => (
+                                                        <option key={user.id} value={user.id}>
+                                                            {user.name}{user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            )}
                                         </div>
                                     )}
                                 </div>

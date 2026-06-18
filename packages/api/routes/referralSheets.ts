@@ -63,6 +63,16 @@ function canManageReferralSheetAssignment(authContext: ReturnType<typeof getRequ
   return false;
 }
 
+// Only super-admin or a GLOBAL assignment grant may assign a name list to a
+// user outside the operation's branch. Everyone else (incl. BRANCH managers)
+// must pick an assignee that belongs to the sheet's branch — enforced on the
+// server, not just filtered in the picker (engineering standard §5.1).
+function canAssignAcrossBranches(authContext: ReturnType<typeof getRequiredAuthContext>): boolean {
+  if (authContext.isSuperAdmin) return true;
+  const grant = authContext.grants.find(item => item.permission === 'candidates.name_lists.assignment.manage');
+  return grant?.scope === 'GLOBAL';
+}
+
 function mapRow(r: any) {
   return {
     ...r,
@@ -108,11 +118,28 @@ function forbidReferralSheetAccess(res: any, reason?: string) {
   return res.status(403).json({ error: 'غير مسموح' });
 }
 
-function resolveReferralSheetTargetBranch(req: any, requestedBranchId?: number | string | null): number | null {
+function resolveReferralSheetTargetBranch(
+  req: any,
+  requestedBranchId?: number | string | null,
+  globalScopePermission?: string,
+): number | null {
   const authContext = getRequiredAuthContext(req);
+  const raw = requestedBranchId ?? req.header('x-branch-id');
+  const explicit = Number(raw);
+  const hasExplicit = Number.isInteger(explicit) && explicit > 0;
+
+  // A GLOBAL grant (or super-admin) may target any branch directly — mirrors the
+  // clients flow so a company-wide deputy can create in any branch. Narrower
+  // grants stay confined to their effective assignments via resolveActingBranch.
+  if (hasExplicit && globalScopePermission) {
+    const grant = authContext.grants?.find((g: any) => g.permission === globalScopePermission);
+    if (authContext.isSuperAdmin || grant?.scope === 'GLOBAL') {
+      return explicit;
+    }
+  }
 
   return resolveActingBranch({
-    headerBranchId: requestedBranchId ?? req.header('x-branch-id'),
+    headerBranchId: raw,
     primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
@@ -144,6 +171,7 @@ async function loadReferralSheetSubject(referralSheetId: string | number): Promi
 
 async function assertAssignedHrUserExists(
   assignedHrUserId: unknown,
+  mustBeInBranchId?: number | null,
 ): Promise<AssignedHrUserCheckResult> {
   const normalized = Number(assignedHrUserId);
   if (!Number.isInteger(normalized) || normalized <= 0) {
@@ -153,6 +181,16 @@ async function assertAssignedHrUserExists(
   // Eligibility: the target must be an active HR user whose role carries
   // candidates.name_lists.can_be_assigned. Being a valid user is not enough —
   // only eligible staff may be made responsible for a name list.
+  // Branch: when mustBeInBranchId is set (assigner is not GLOBAL/super), the
+  // target must also belong to the operation's branch — deny-by-default so a
+  // forged cross-branch assignee is rejected even if the UI filtered it out.
+  const params: any[] = [normalized];
+  let branchClause = '';
+  if (mustBeInBranchId != null) {
+    params.push(mustBeInBranchId);
+    branchClause = `AND u.branch_id = $${params.length}`;
+  }
+
   const { rows } = await pool.query(
     `SELECT u.id
        FROM hr_users u
@@ -163,12 +201,18 @@ async function assertAssignedHrUserExists(
             FROM role_permission_grants rpg
             JOIN permissions p ON p.id = rpg.permission_id
            WHERE p.key = 'candidates.name_lists.can_be_assigned'
-        )`,
-    [normalized],
+        )
+        ${branchClause}`,
+    params,
   );
 
   if (!rows[0]) {
-    return { ok: false, error: 'الموظف المحدد غير مؤهل لإسناد سجلات الأسماء إليه' };
+    return {
+      ok: false,
+      error: mustBeInBranchId != null
+        ? 'الموظف المحدد غير مؤهل للإسناد أو ليس ضمن فرع العملية'
+        : 'الموظف المحدد غير مؤهل لإسناد سجلات الأسماء إليه',
+    };
   }
 
   return { ok: true, assignedHrUserId: normalized };
@@ -377,16 +421,17 @@ router.get('/', requirePermission('candidates.name_lists.view_list'), async (req
 router.post('/', requirePermission('candidates.name_lists.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const targetBranchId = resolveReferralSheetTargetBranch(req, req.body?.branchId);
+    const targetBranchId = resolveReferralSheetTargetBranch(req, req.body?.branchId, 'candidates.name_lists.create');
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
     const canManageAssignment = canManageReferralSheetAssignment(authContext, targetBranchId);
     const requestedAssignedHrUserId = canManageAssignment ? req.body?.assignedHrUserId : authContext.userId;
+    const assigneeBranchGuard = canAssignAcrossBranches(authContext) ? null : targetBranchId;
     const assignedHrUserCheck = requestedAssignedHrUserId == null || requestedAssignedHrUserId === ''
       ? { ok: true as const, assignedHrUserId: authContext.userId }
-      : await assertAssignedHrUserExists(requestedAssignedHrUserId);
+      : await assertAssignedHrUserExists(requestedAssignedHrUserId, assigneeBranchGuard);
     if ('error' in assignedHrUserCheck) {
       return res.status(400).json({ error: assignedHrUserCheck.error });
     }
@@ -498,15 +543,16 @@ router.put('/:id', requirePermission('candidates.name_lists.edit'), async (req, 
 
     const requestedBranchId = req.body?.branchId;
     const resolvedBranchId = requestedBranchId !== undefined
-      ? resolveReferralSheetTargetBranch(req, requestedBranchId)
+      ? resolveReferralSheetTargetBranch(req, requestedBranchId, 'candidates.name_lists.edit')
       : current.branchId;
     if (resolvedBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
     const canManageAssignment = canManageReferralSheetAssignment(authContext, resolvedBranchId);
+    const assigneeBranchGuard = canAssignAcrossBranches(authContext) ? null : resolvedBranchId;
     const assignedHrUserCheck = canManageAssignment && req.body?.assignedHrUserId !== undefined
-      ? await assertAssignedHrUserExists(req.body.assignedHrUserId)
+      ? await assertAssignedHrUserExists(req.body.assignedHrUserId, assigneeBranchGuard)
       : { ok: true as const, assignedHrUserId: current.assignedHrUserId };
     if ('error' in assignedHrUserCheck) {
       return res.status(400).json({ error: assignedHrUserCheck.error });

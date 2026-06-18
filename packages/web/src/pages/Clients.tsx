@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2 } from 'lucide-react';
+import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2, Building2 } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Client, CustomerOwnership, GeoUnit, Contract } from '../lib/types';
 import ClientModal from '../components/ClientModal';
@@ -12,6 +12,7 @@ import QualificationModal from '../components/candidates/QualificationModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useAuthStore } from '../hooks/useAuthStore';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
 
 function extractApiPayload(error: unknown): any | null {
     if (!(error instanceof Error)) {
@@ -53,9 +54,23 @@ function OwnershipCell({ ownership }: { ownership?: CustomerOwnership | null }) 
 
 export default function Clients() {
     const getPermissionScope = useAuthStore(s => s.getPermissionScope);
+    const authUser = useAuthStore(s => s.user);
     // Show assignments only for GLOBAL or BRANCH scope — ASSIGNED scope users must not see who else is assigned
     const clientsViewScope = getPermissionScope('clients.view_list');
     const canSeeAssignments = clientsViewScope === 'GLOBAL' || clientsViewScope === 'BRANCH';
+
+    // ─── Management branch filter (scope-driven, NOT identity-driven) ───
+    // The filter mode follows THIS section's view scope:
+    //  - GLOBAL (super-admin or company manager) → active picker (All + branches)
+    //  - BRANCH (branch manager)                 → locked badge of their branch
+    //  - ASSIGNED (supervisor)                   → no filter at all
+    // Selection is written to the shared branch-context store so the add-client
+    // modal pins the operational branch to it automatically.
+    const branchContextId = useBranchContextStore(s => s.branchId);
+    const setBranchContextId = useBranchContextStore(s => s.setBranchId);
+    const isGlobalClients = clientsViewScope === 'GLOBAL';
+    const isBranchClients = clientsViewScope === 'BRANCH';
+    const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     const [clients, setClients] = useState<Client[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
@@ -80,30 +95,35 @@ export default function Clients() {
     const [filterMediator, setFilterMediator] = useState('all');
 
     const fetchClients = useCallback(async () => {
-        const data = await api.clients.list();
+        // Only a GLOBAL viewer may narrow by branch; BRANCH/ASSIGNED are scoped
+        // by the server, so we never send a cross-branch header for them.
+        const branchParam = isGlobalClients ? branchContextId : null;
+        const data = await api.clients.list(branchParam);
         setClients(data);
+    }, [isGlobalClients, branchContextId]);
+
+    // Contracts are independent of the branch filter — load once.
+    useEffect(() => {
+        api.contracts.list().then(setContracts).catch(() => { /* permission failure must not blank the page */ });
     }, []);
 
+    // Clients refetch whenever the management filter changes (GLOBAL only) or on mount.
     useEffect(() => {
-        const fetchAll = async () => {
-            try {
-                setLoading(true);
-                // Use allSettled so a permission failure on contracts
-                // does NOT prevent the client list from loading.
-                const [clientsRes, contractsRes] = await Promise.allSettled([
-                    api.clients.list(),
-                    api.contracts.list(),
-                ]);
-                if (clientsRes.status === 'fulfilled') setClients(clientsRes.value);
-                if (contractsRes.status === 'fulfilled') setContracts(contractsRes.value);
-            } catch (err) {
-                console.error('Failed to fetch data:', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchAll();
-    }, []);
+        let active = true;
+        setLoading(true);
+        fetchClients()
+            .catch(err => console.error('Failed to fetch clients:', err))
+            .finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, [fetchClients]);
+
+    // Branch list for the management filter (shown only when the filter is visible).
+    useEffect(() => {
+        if (!isGlobalClients && !isBranchClients) return;
+        api.branches.list()
+            .then(rows => setBranchOptions((rows as any[]).map(b => ({ id: b.id, name: b.name }))))
+            .catch(() => setBranchOptions([]));
+    }, [isGlobalClients, isBranchClients]);
 
     // Geo units are global reference data — fetched independently so a
     // permission failure on clients/contracts does NOT blank the map.
@@ -116,7 +136,10 @@ export default function Clients() {
     const getLifecycleStage = useCallback((client: Client) => {
         const serverStage = (client as any).lifecycleStage;
         if (serverStage === 'OP' || serverStage === 'FOP') return serverStage;
-        if (contracts.some(c => c.customerId === client.id)) return 'OP';
+        // Draft/discarded contracts have no operational effect — only a real
+        // (approved) contract promotes the client to OP.
+        if (contracts.some(c => c.customerId === client.id
+            && c.status !== 'draft' && (c.status as string) !== 'discarded')) return 'OP';
         return 'Lead';
     }, [contracts]);
 
@@ -370,6 +393,31 @@ export default function Clients() {
                     <h1 className="text-2xl font-black text-slate-800">سجلات الزبائن</h1>
                     <p className="text-sm text-slate-500 font-medium">إدارة وتحليل بيانات الزبائن والشبكة</p>
                 </div>
+                <div className="flex items-center gap-3">
+                    {/* Management branch filter — visibility & mode follow clients.view_list scope */}
+                    {isGlobalClients && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-sky-50 border border-sky-200 text-sky-700">
+                            <Building2 className="w-4 h-4 shrink-0" />
+                            <select
+                                value={branchContextId ?? ''}
+                                onChange={e => setBranchContextId(e.target.value === '' ? null : Number(e.target.value))}
+                                className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer"
+                            >
+                                <option value="">كل الفروع</option>
+                                {branchOptions.map(b => (
+                                    <option key={b.id} value={b.id}>{b.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    {isBranchClients && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-sm font-bold">
+                            <Building2 className="w-4 h-4 shrink-0" />
+                            <span className="truncate">
+                                {branchOptions.find(b => b.id === authUser?.branchId)?.name ?? `الفرع #${authUser?.branchId ?? ''}`}
+                            </span>
+                        </div>
+                    )}
                 <button
                     onClick={() => {
                         setActiveCandidateForSearch({
@@ -388,6 +436,7 @@ export default function Clients() {
                     <UserPlus className="w-4 h-4" />
                     <span>إضافة اسم مرشح جديد</span>
                 </button>
+                </div>
             </div>
 
             {/* 2. KPI Stat Cards */}

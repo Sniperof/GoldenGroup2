@@ -592,21 +592,24 @@ function buildFallbackApplicantContacts(applicant: any): ContactEntry[] {
 
 export async function getEmployees(scope?: {
   isSuperAdmin: boolean;
-  branchId: number | null;
+  branchId?: number | null;
+  // Union of branches to show; null means "all branches" (GLOBAL / super-admin).
+  branchIds?: number[] | null;
   includeScheduleAppearanceFlag?: boolean;
 }) {
-  if (scope && !scope.isSuperAdmin) {
+  // Explicit branch filter (single or union) takes precedence for any caller.
+  const branchIds = scope?.branchIds != null
+    ? scope.branchIds
+    : (scope?.branchId != null ? [scope.branchId] : null);
+
+  if (branchIds != null) {
     return listEmployees({
-      branchId: scope.branchId,
-      includeScheduleAppearanceFlag: scope.includeScheduleAppearanceFlag,
+      branchIds,
+      includeScheduleAppearanceFlag: scope?.includeScheduleAppearanceFlag,
     });
   }
-  if (scope?.isSuperAdmin && (scope as any).filterBranchId) {
-    return listEmployees({
-      branchId: (scope as any).filterBranchId,
-      includeScheduleAppearanceFlag: scope.includeScheduleAppearanceFlag,
-    });
-  }
+
+  // No branch filter: only a GLOBAL/super-admin viewer reaches here → all branches.
   return listEmployees({ includeScheduleAppearanceFlag: scope?.includeScheduleAppearanceFlag });
 }
 

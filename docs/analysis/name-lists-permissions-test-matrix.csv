@@ -1,0 +1,8 @@
+﻿"المفتاح","الوصف","النطاقات المسموحة","سوبر-أدمن","مدير الشركة","مدير الفرع","المشرفة","الفني","منطقة حرجة للتدقيق","الحالة","المسار المرجعي"
+"candidates.name_lists.view_list","عرض قائمة سجلات الأسماء","GLOBAL/BRANCH/ASSIGNED","GLOBAL","GLOBAL","BRANCH","ASSIGNED","BRANCH","ASSIGNED يطابق assigned_hr_user_id فقط لا المالك","سليم (الخادم)","packages/api/policies/referralSheetPolicy.ts:70"
+"candidates.name_lists.create","إنشاء سجل أسماء","GLOBAL/BRANCH","GLOBAL","GLOBAL","BRANCH","BRANCH","BRANCH","المنشأ يُسنَد تلقائياً للمنشئ إن لم يملك الإسناد","سليم + قصر-دائرة GLOBAL","packages/api/routes/referralSheets.ts:377"
+"candidates.name_lists.edit","تعديل سجل أسماء","GLOBAL/BRANCH/ASSIGNED","GLOBAL","GLOBAL","BRANCH","ASSIGNED","BRANCH","—","سليم","packages/api/routes/referralSheets.ts:476"
+"candidates.name_lists.delete","حذف سجل أسماء","GLOBAL/BRANCH/ASSIGNED","GLOBAL","BRANCH","BRANCH","ASSIGNED","BRANCH","—","سليم","packages/api/routes/referralSheets.ts"
+"candidates.name_lists.assignment.manage","إدارة المسؤول عن السجل (الإسناد)","GLOBAL/BRANCH","GLOBAL","BRANCH","BRANCH","—","—","المُسنَد إليه يجب أن يكون ضمن فرع العملية (أُنفِذ على الخادم)","أُصلِح (إنفاذ الفرع)","packages/api/routes/referralSheets.ts:54"
+"candidates.name_lists.can_be_assigned","أهلية الموظف ليكون مسؤولاً عن سجل","GLOBAL/BRANCH","—","—","—","BRANCH","BRANCH","أهلية فقط؛ لوكب المرشحين مفلتر بالفرع","سليم","packages/api/routes/roles.ts:852"
+"candidates.name_lists.assignment.manage (lookup)","GET /hr-users/name-list-assignable — قائمة المرشحين للإسناد","—","كل المؤهلين","فرع العملية","فرع العملية","—","—","يفلتر بفرع واحد (actingBranchId)؛ UX فقط، الإنفاذ على الخادم في الحفظ","سليم (مع إصلاح C)","packages/api/routes/roles.ts:852"

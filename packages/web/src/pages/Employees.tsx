@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Users } from 'lucide-react';
+import { Building2, Plus, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
@@ -38,12 +38,19 @@ export default function Employees() {
   const [createError, setCreateError] = useState('');
   const { hasPermission } = usePermissions();
   const { user } = useAuthStore();
-  const { branchId: contextBranchId } = useBranchContextStore();
+  const getPermissionScope = useAuthStore((s) => s.getPermissionScope);
+  const contextBranchId = useBranchContextStore((s) => s.branchId);
+  const setBranchContextId = useBranchContextStore((s) => s.setBranchId);
   const { branches, fetchBranches } = useBranchStore();
 
-  const isSuperAdmin = user?.isSuperAdmin === true;
   const canViewEmployees = hasPermission('employees.view_list');
   const canCreateEmployees = hasPermission('employees.create');
+
+  // Management branch filter — visibility & mode follow employees.view_list scope
+  // (NOT identity): GLOBAL → active picker; BRANCH → locked badge; else → none.
+  const viewScope = getPermissionScope('employees.view_list');
+  const isGlobalView = viewScope === 'GLOBAL';
+  const isBranchView = viewScope === 'BRANCH';
 
   useEffect(() => {
     fetchBranches();
@@ -55,15 +62,20 @@ export default function Employees() {
       return;
     }
 
-    api.employees.list()
+    // Only a GLOBAL viewer may narrow by branch; BRANCH/ASSIGNED are scoped by
+    // the server, so we never send a cross-branch header for them.
+    const branchParam = isGlobalView ? contextBranchId : null;
+    setLoading(true);
+    api.employees.list(branchParam)
       .then((data) => setEmployees(data))
       .catch((err) => console.error('Failed to fetch employees:', err))
       .finally(() => setLoading(false));
-  }, [canViewEmployees]);
+  }, [canViewEmployees, isGlobalView, contextBranchId]);
 
-  const fixedBranchId = !isSuperAdmin
-    ? (user?.branchId ?? null)
-    : (contextBranchId ?? null);
+  // Create modal pins to the management filter (GLOBAL) or the user's own branch.
+  const fixedBranchId = isGlobalView
+    ? (contextBranchId ?? null)
+    : (user?.branchId ?? null);
 
   const fixedBranchName = branches.find((branch) => branch.id === fixedBranchId)?.name
     ?? (fixedBranchId != null ? `#${fixedBranchId}` : null);
@@ -205,18 +217,46 @@ export default function Employees() {
         searchKeys={['name', 'mobile', 'jobTitle', 'branch', 'departmentName', 'residence', 'residenceShort', 'employeeNumber']}
         searchPlaceholder="بحث بالاسم أو الرقم..."
         onRowClick={(employee) => navigate(`/employees/${employee.id}`)}
-        headerActions={canCreateEmployees ? (
-          <button
-            onClick={() => {
-              setCreateError('');
-              setShowCreateModal(true);
-            }}
-            className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-600"
-          >
-            <Plus className="h-4 w-4" />
-            إضافة موظف
-          </button>
-        ) : null}
+        headerActions={(
+          <div className="flex items-center gap-3">
+            {/* Management branch filter — mode follows employees.view_list scope */}
+            {isGlobalView && (
+              <div className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sky-700">
+                <Building2 className="h-4 w-4 shrink-0" />
+                <select
+                  value={contextBranchId ?? ''}
+                  onChange={(e) => setBranchContextId(e.target.value === '' ? null : Number(e.target.value))}
+                  className="cursor-pointer bg-transparent text-sm font-bold focus:outline-none"
+                >
+                  <option value="">كل الفروع</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>{branch.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {isBranchView && (
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600">
+                <Building2 className="h-4 w-4 shrink-0" />
+                <span className="truncate">
+                  {branches.find((b) => b.id === user?.branchId)?.name ?? `الفرع #${user?.branchId ?? ''}`}
+                </span>
+              </div>
+            )}
+            {canCreateEmployees && (
+              <button
+                onClick={() => {
+                  setCreateError('');
+                  setShowCreateModal(true);
+                }}
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-600"
+              >
+                <Plus className="h-4 w-4" />
+                إضافة موظف
+              </button>
+            )}
+          </div>
+        )}
         getId={(employee) => employee.id}
         emptyIcon={Users}
         emptyMessage="لا يوجد موظفون"
@@ -231,7 +271,7 @@ export default function Employees() {
         error={createError}
         fixedBranchId={fixedBranchId}
         fixedBranchName={fixedBranchName}
-        branchLocked={!isSuperAdmin || contextBranchId != null}
+        branchLocked={!isGlobalView || contextBranchId != null}
         onClose={() => {
           if (saving) return;
           setShowCreateModal(false);

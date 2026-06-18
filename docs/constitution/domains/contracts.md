@@ -360,9 +360,20 @@ erDiagram
 | `contracts.create` | إنشاء عقد جديد | `GLOBAL`, `BRANCH` | تحرير وإنشاء عقد وإطلاق المهام والذمم المالية. |
 | `contracts.edit` | تعديل العقد | `GLOBAL`, `BRANCH` | تعديل الحقول غير المالية، وإدراج الدفعات والأقساط وتأكيدها. |
 | `contracts.delete` | حذف العقد | `GLOBAL`, `BRANCH` | حذف فيزيائي حاد للعقد والبنود والدفعات والأقساط المتولدة. |
+| `contracts.close` | تسكير العقد واعتماده | `GLOBAL`, `BRANCH` | **البوابة الوحيدة للتسكير** (مسودة→فعال) عبر `/approve` و`/reject`. وحّدت 299 عليها وحذفت `contracts.approve` المكرّر. |
+| `contracts.assign_sale_owner` | نسبة البيعة لموظف آخر | `GLOBAL`, `BRANCH` | نسبة البيعة لموظف غير المُدخِل. الاختصار يسمح بلا صلاحية إذا طابق `employee_id` للمستخدم. |
+
+**الأساس المعتمد (baseline) — هجرة 299، 2026-06-17:**
+
+| الدور | view | create | edit | delete | close | assign_sale_owner |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| سوبر أدمن (SYSTEM_ADMIN) | كل ✅ (تجاوز بعلم `is_super_admin`) | كل | كل | كل | كل | كل |
+| مدير الشركة (company_manager) | GLOBAL | GLOBAL | GLOBAL | GLOBAL | GLOBAL | GLOBAL |
+| مدير الفرع (branch_manager) | BRANCH | BRANCH | BRANCH | BRANCH | BRANCH | BRANCH |
+| المشرفة (supervisor) | BRANCH | BRANCH | BRANCH | — | — | — |
 
 ### 6.1 منطق التحقق الأمني المطبق
-- **GLOBAL Scope:** يتيح عرض وإدارة العقود لكافة الفروع (Super Admin).
+- **GLOBAL Scope:** يتيح عرض وإدارة العقود لكافة الفروع. ويشمل العامل GLOBAL غير السوبر-أدمن (مدير الشركة): يمرّر سياق الفرع عبر `X-Branch-Id` (فلتر الإدارة داخل الصفحة، إذ يُخفى المبدّل الجانبي للعامل GLOBAL)، والخادم يبقى الحارس عبر `allowedBranchIds`. الإنشاء يُلزَم باختيار فرع صريح (لا سقوط صامت للفرع الأساسي).
 - **BRANCH Scope:** يسمح باستعلام وإدارة العقود التي يتطابق حقل `c.branch_id` الخاص بها صراحة مع فروع الموظف المصرحة بالـ JWT. يمنع تعديل أو حذف أي عقد خارج فروع الموظف التشغيلية بترميز `403`.
 - **ملاحظة فنية هامة:** لا تدعم العقود نطاق الوصول الشخصي `ASSIGNED` في قاعدة البيانات (حيث حصرتها الهجرة `054` بـ `GLOBAL` و `BRANCH` فقط لسرية العمليات المالية وتجنب تشتت كشوف المبيعات).
 
@@ -545,6 +556,50 @@ erDiagram
 - **التوصية:** تحديد صفحة نتيجة مهمة التسليم الذهبي وإضافة dropdown + API endpoint لكتابة الكفالة على العقد.
 - **الملف المتوقع:** صفحة نتائج الزيارة الميدانية + `fieldVisits.ts` أو `openTasks.ts`.
 
+### GAP-080: تضارب فضاء معرّف «منشئ البيعة» (employees.id ↔ hr_users.id) ✅ محلول
+- **التضارب:** عمود `contracts.sale_owner_id` مرتبط FK بـ`hr_users(id)`، وفحص الإعفاء الذاتي في `canAssignSaleOwner` يقارن بـ`req.user.id` (= `hr_users.id`). لكن منسدل «موظف نسبة البيعة» في `ContractForm` كان يُملأ من `api.employees.list()` ويرسل `employees.id` — فضاء معرّفات مختلف.
+- **الأثر التشغيلي:** (1) نسبة البيعة لشخص **خاطئ** صامتاً (employees.id يصادف hr_user آخر)، أو (2) **انتهاك FK** عند موظف بلا حساب مقابل → فشل الحفظ، و(3) كسر الإعفاء الذاتي فيُطلب `assign_sale_owner` حتى لاختيار الذات — ومن ثَمّ **تعذّر التسكير عند اختيار أي موظف مختلف عن المُدخِل** (مؤكَّد بالاختبار).
+- **الحل المطبق (2026-06-17):** إضافة `hrUserId` (الحساب المرتبط) لحمولة الموظفين في `employeeRepository.ts`؛ المنسدل في `ContractForm` صار يرسل `hrUserId` ويستثني من بلا حساب، والمطابقة بالاختيار صارت بـ`hrUserId`. كما أُضيف عرض «🏷️ صاحب البيعة» بجانب «👤 منشئ العقد» في `ContractDetail` (الحقل كان مفقوداً).
+- **الملفات:** `employeeRepository.ts` (EMPLOYEE_SELECT_COLS)، `ContractForm.tsx`، `contracts.ts` (contractSelect: `saleOwnerName`)، `ContractDetail.tsx`.
+
+### GAP-081: تجاوز قدرة التسكير عبر `contracts.edit` ✅ محلول
+- **التضارب:** `deriveContractStatus(status, closingEmployeeId)` كان يعيد `'active'` بمجرد وجود `closingEmployeeId`، ومعالجا `POST /` و`PUT /:id` (المحكومان بـ`contracts.create`/`contracts.edit`) يكتبان هذه الحالة. أي أن **التسكير (التفعيل) — أخطر فعل — كان منجَزاً عبر `edit` وحدها**، متجاوزاً قدرة `contracts.close`/`approve` وإعادة تحقّق `collectApprovalIssues` والقفل التشاؤمي في مسار `/approve`.
+- **الأثر التشغيلي:** صاحب `contracts.edit` فقط (مثل المشرف) يستطيع تفعيل عقد بحقن `closingEmployeeId` — كسر الفصل المقصود لقدرة التسكير، وتفعيل بلا توليد رقم عقد ولا تحقّق اكتمال.
+- **الحل المطبق (2026-06-17):** `deriveContractStatus` لم يعد يُنتج `'active'` إطلاقاً في `create/edit` (يبقى `draft` ما لم تكن حالة منتهية صريحة)؛ التفعيل صار **حصراً** عبر `POST /:id/approve`. المُسكِّر المُقترَح يبقى مخزَّناً دون تغيير الحالة. تحقّق ذاتي: `deriveContractStatus` مستعمَلة فقط في POST/PUT، والكتابة الوحيدة لـ`status='active'` في `/approve`.
+- **الملف:** `contracts.ts` (`deriveContractStatus`).
+
+### GAP-082: البيع المزدوج — قراءة العرض المُباع ناقصة + غياب حارس تفرّد ✅ محلول
+- **التضارب:** فلتر أهلية العرض في `ContractForm` (`isAcceptedUnlinkedOffer = accepted && contractId == null`) يعتمد على `contractId`، لكن `openTasks.get` كان يحسبه فقط عبر `source_task_offer_id = otpo.id` — **يُسقط تطابق `sale_reference_number`** الذي يستعمله المنطق المرجعي `customerPreOffers.ts`. كما أن `POST /contracts` لا يملك أي حارس تفرّد على الخادم.
+- **الأثر التشغيلي:** عرض «تم بيعه» (مرتبط بعقد عبر رقم البيعة لا عبر معرّف العرض المباشر) يعود بـ`contractId = null` → يجتاز الفلتر → **يُحوَّل إلى عقد ثانٍ على نفس البيعة** (خلل سلامة مالية).
+- **الحل المطبق (2026-06-17):** (1) **حارس خادم** داخل معاملة `POST /contracts` يرفض بـ409 إن وُجد عقد حيّ (غير `discarded`/`cancelled`) بنفس `source_task_offer_id` **أو** `sale_reference_number`؛ (2) إصلاح حساب `contractId` في `openTasks.get` ليطابق المنطق المتين (المعرّف المباشر **أو** تطابق رقم البيعة، مع استثناء العقود الملغاة لتحرير إعادة البيع). ملاحظة: رقم البيعة يُولَّد عند **قبول** العرض لا عند بيعه، لذا المعيار هو الارتباط بعقد حيّ لا مجرد وجود رقم بيعة. تحقّق ذاتي بمحاكاة CTE (حجب بالمعرّف، حجب برقم البيعة، تحرير عند الإلغاء، سماح لأول بيع).
+- **الملفات:** `contracts.ts` (حارس الإنشاء)، `openTasks.ts` (استعلام `contractId`).
+
+### GAP-083: نموذج نسبة البيعة خاطئ — FK إلى `hr_users` بدل `employees` ✅ محلول (يلغي GAP-080)
+- **التضارب الجذري:** `sale_owner_id` كان FK إلى `hr_users(id)`، بينما نسبة البيعة **سمة موظف** (مُحصِّل البيعة) قد يكون بلا حساب نظام — في dev: **5 من 10 موظفين نشطين بلا `hr_user`**. فالنسبة لهؤلاء **مستحيلة**. وعلاج GAP-080 (فلترة المنسدل على من يملك حساباً + إرسال `hrUserId`) عالج الاتجاه الخاطئ — أخفى الموظفين بلا حساب بدل تصحيح النموذج.
+- **الأثر المثبت:** التعبئة التلقائية تأخذ `teamSnapshot.supervisor.id` (= `employees.id`) وتكتبه في عمود يشير لـ`hr_users` → نسبة لشخص خاطئ بصمت (تحقّق: عقود 12/13/14 كانت تشير لأشخاص غير المقصودين).
+- **الحل المطبق (2026-06-17، هجرة 298):** إعادة توجيه FK إلى `employees(id) ON DELETE SET NULL` مع نقل البيانات (`hr_users.employee_id`)؛ المنسدل صار يعرض **كل الموظفين النشطين** بالقيمة `employees.id`؛ التعبئة التلقائية (employee id) صحيحة الآن مباشرة (يزول خطأ فضاء المعرّفات)؛ الاختصار في `canAssignSaleOwner` يقارن بـ`req.user.employeeId`؛ اسم صاحب البيعة من `employees`. **التسكير يبقى على `hr_users`** (فعل محكوم بصلاحية = مستخدم فعلي).
+- **الملفات:** هجرة 298، `contracts.ts`، `ContractForm.tsx`، `types.ts`.
+
+### GAP-084: قائمة موظفي التسكير مربوطة بمفتاح ميت `sales.can_close` ✅ محلول
+- **التضارب:** `GET /employees/closers` يفلتر على `p.key = 'sales.can_close'` (مفتاح من هجرة 001 غير ممنوح لأي دور)، بينما القدرة الفعلية هي `contracts.close` → **القائمة فارغة للجميع** بمن فيهم السوبر أدمن (استعلام بيانات لا يتجاوزه علم `is_super_admin`).
+- **الحل المطبق (2026-06-17):** إعادة توجيه الاستعلام إلى `contracts.close`؛ وحذف `sales.can_close` الميت في هجرة 299. مثال حيّ لبند التحصين **SH-2** (اختبار تعاقد المفاتيح).
+- **الملف:** `employees.ts` (`/closers`).
+
+### GAP-085: ازدواج `contracts.approve` و`contracts.close` ✅ محلول
+- **التضارب:** مسارا `/approve` و`/reject` يقبلان `close` **أو** `approve` (OR) — بوابة واحدة بمفتاحين، التباس تصميمي؛ `approve` ممنوح لمدير الفرع فقط والبقية على `close`.
+- **الحل المطبق (2026-06-17، هجرة 299):** توحيد على `contracts.close` كبوابة وحيدة؛ حذف `contracts.approve` (CASCADE يزيل منحه)؛ المسارات و`ContractDetail.canApproveDraft` و`employees/closers` كلها على `close`.
+- **الملفات:** هجرة 299، `contracts.ts`، `ContractDetail.tsx`.
+
+### GAP-086: مسح بنود العقد المستعادة عند فتح التعديل ✅ محلول
+- **التضارب:** مؤثّر مزامنة بند الجهاز في `ContractForm` ينفّذ `setLineItems([])` عند `!selectedDevice`. في وضع التعديل، إن لم يكن موديل جهاز العقد ضمن **بحث الأجهزة المتاح لنطاق المستخدم** (مثل مدير الشركة المقيّد)، يصبح `selectedDevice = null` → **تُمسح البنود المستعادة** → الإجمالي = 0 بينما الأقساط محمّلة → فشل تحقّق «مجموع الأقساط لا يساوي الإجمالي».
+- **الحل المطبق (2026-06-17):** حارس «تسليح» للمؤثّر (بنمط حارس الكفالة): في التعديل لا يلمس البنود حتى تستقر توقيعة (الجهاز|الخصم) المستعادة، ثم يتفعّل لتغييرات المستخدم فقط.
+- **الملف:** `ContractForm.tsx`.
+
+### GAP-087: العامل GLOBAL غير قادر على العمل عبر الفروع من الواجهة ✅ محلول
+- **التضارب:** منحة GLOBAL لا تُمرَّر ترويسة `X-Branch-Id` لغير السوبر أدمن (`getBranchContextHeader` محصور به في `api.ts`/`authFetch.ts`)، والمبدّل الجانبي مخفيّ للعامل GLOBAL بالتصميم → مدير الشركة لا يملك أي وسيلة لاختيار فرع، فالإنشاء يقع في فرعه الأساسي صامتاً. مثال حيّ لبندَي التحصين **SH-3/SH-4**.
+- **الحل المطبق (2026-06-17):** (1) إزالة حصر السوبر-أدمن من ترويسة سياق الفرع (الخادم يبقى الحارس عبر `allowedBranchIds`)؛ (2) فلتر إدارة داخل صفحة العقود للعامل GLOBAL؛ (3) **حارس صريح:** تعطيل «عقد جديد» وحجب شاشة النموذج عند «كل الفروع» — لا سقوط صامت للفرع الأساسي (تماثلاً مع `resolveTargetBranchId` للسوبر أدمن).
+- **الملفات:** `api.ts`، `authFetch.ts`، `ContractList.tsx`، `ContractForm.tsx`.
+
 ### ⚠️ 9.2 الثغرة الثانية: تعارض حالة الأحرف لحالات السداد بين جدول الأقساط والديون (Casing Mismatch in Payments Statuses)
 - **التضارب:** يفرض جدول الأقساط `contract_installments` قيد تحقق بحروف صغيرة كلياً:
   `CHECK (status IN ('pending', 'paid', 'partial', 'overdue'))`.
@@ -658,3 +713,7 @@ erDiagram
 | **2026-05-26** | `192_sync_installed_device_trigger.sql` | **Phase 2B (انتقالي):** AFTER UPDATE على `contracts` → مزامنة الحقول الفيزيائية الـ8 إلى `installed_devices`. يُزال في Phase 2C بعد تحويل الكتابات مباشرةً. |
 | **2026-05-26** | *(كود فقط)* | **Phase 2B:** تحويل `contractSelect` + جميع queries في `contracts.ts`, `openTasks.ts`, `customerCalls.ts` لقراءة الحقول الفيزيائية من `installed_devices d` عبر LEFT JOIN. إضافة `/api/installed-devices` endpoint جديد. |
 | **2026-05-26** | `193_drop_sync_trigger.sql` | **Phase 2C:** حذف trigger المزامنة `trg_sync_installed_device` — الكتابات الآن تذهب مباشرةً لـ `installed_devices` في POST و PUT بدون الحاجة للـ trigger. الحقول الفيزيائية حُذفت من contracts INSERT/UPDATE. |
+| **2026-06-17** | *(كود فقط — لا هجرة)* | **تدقيق نزاهة العقد (إضافة/تعديل/تسكير) — قبل ضبط الصلاحيات الجديدة.** **GAP-080:** توحيد فضاء معرّف منشئ البيعة على `hr_users.id` (`hrUserId` في حمولة الموظفين + `ContractForm`) + عرض «صاحب البيعة» في `ContractDetail`. *(لاحقاً أُلغي بـ GAP-083 — الاتجاه الصحيح هو `employees`).* **GAP-081:** منع التسكير عبر `edit` — التفعيل حصراً في `/approve` (`deriveContractStatus` لا يُنتج `active`). **GAP-082:** حارس تفرّد خادمي ضد البيع المزدوج (409 على تكرار `source_task_offer_id`/`sale_reference_number`) + إصلاح قراءة العرض المُباع في `openTasks.get`. |
+| **2026-06-17** | `298_contracts_sale_owner_to_employees.sql` | **GAP-083:** تصحيح نموذج نسبة البيعة — إعادة توجيه FK `sale_owner_id` من `hr_users(id)` إلى **`employees(id)` ON DELETE SET NULL** مع نقل البيانات عبر `hr_users.employee_id`. يلغي علاج GAP-080 (المنسدل يعرض كل الموظفين النشطين بـ`employees.id`) ويُذيب خطأ فضاء المعرّفات في التعبئة التلقائية. التسكير يبقى على `hr_users`. |
+| **2026-06-17** | `299_contracts_permission_baseline.sql` | **أساس صلاحيات العقود + تنظيف:** مدير الشركة←كل القدرات GLOBAL؛ المشرفة←إزالة `assign_sale_owner`؛ **GAP-085:** حذف `contracts.approve` المكرّر (توحيد التسكير على `contracts.close`)؛ **GAP-084:** حذف `sales.can_close` الميت (وإعادة `/closers` إليه على `contracts.close`)؛ تنظيف الدور 2 (CASCADE يزيل المنح). |
+| **2026-06-17** | *(كود فقط — لا هجرة)* | **GAP-086:** حارس تسليح في `ContractForm` يمنع مسح بنود العقد المستعادة عند فتح التعديل (الإجمالي 0). **GAP-087:** تمكين العامل GLOBAL عبر الفروع — إزالة حصر السوبر-أدمن من ترويسة سياق الفرع (`api.ts`/`authFetch.ts`) + فلتر إدارة داخل صفحة العقود + حارس صريح يمنع الإنشاء الصامت في الفرع الأساسي عند «كل الفروع». توحيد `/approve`+`/reject`+`canApproveDraft` على `contracts.close`. |

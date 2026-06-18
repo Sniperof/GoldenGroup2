@@ -1,0 +1,6 @@
+﻿"المفتاح","الوصف","النطاقات المسموحة","سوبر-أدمن","مدير الشركة","مدير الفرع","المشرفة","الفني","منطقة حرجة للتدقيق","الحالة","المسار المرجعي"
+"candidates.view_list","عرض قائمة الأسماء المقترحة","GLOBAL/BRANCH/ASSIGNED","GLOBAL","GLOBAL","BRANCH","ASSIGNED","BRANCH","ASSIGNED عبر candidate_assignments + فرع","سليم","packages/api/policies/candidatePolicy.ts:46"
+"candidates.create","إنشاء اسم مقترح","GLOBAL/BRANCH","GLOBAL","GLOBAL","BRANCH","BRANCH","BRANCH","المنشئ يُضمَّن تلقائياً في الإسناد","سليم + قصر-دائرة GLOBAL","packages/api/routes/candidates.ts:569"
+"candidates.edit","تعديل اسم مقترح","GLOBAL/BRANCH/ASSIGNED","GLOBAL","GLOBAL","BRANCH","ASSIGNED","BRANCH","الإسناد مربوط بـ edit لا بمفتاح مستقل","سليم","packages/api/routes/candidates.ts:829"
+"candidates.delete","حذف اسم مقترح","GLOBAL/BRANCH/ASSIGNED","GLOBAL","BRANCH","BRANCH","ASSIGNED","BRANCH","النائب وُحِّد إلى BRANCH (كان GLOBAL)","أُصلِح (هجرة 293)","packages/api/routes/candidates.ts:955"
+"(إسناد الاسم)","candidate_assignments — من يُسنَد إليه الاسم","—","أي موظف","موظفو فرع العملية","موظفو فرعه فقط","تُسنَد لها تلقائياً","موظفو فرعه","لا مفتاح can_be_assigned؛ إنفاذ فرع العملية فقط (قرار 2026-06-16)","أُصلِح (إنفاذ الفرع)","packages/api/routes/candidates.ts:117"

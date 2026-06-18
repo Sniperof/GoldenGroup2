@@ -88,28 +88,53 @@ function resolveEmployeeTargetBranch(req: any, requestedBranchId?: number | stri
 router.get('/', requirePermission('employees.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const requestedBranchId = req.header('x-branch-id');
-    const targetBranchId = resolveEmployeeTargetBranch(req, requestedBranchId);
 
-    if (!authContext.isSuperAdmin && targetBranchId == null) {
+    // List visibility follows the GRANT scope, not the user's home branch:
+    //  - GLOBAL (super-admin or company manager) → every branch, optionally
+    //    narrowed by the management filter header.
+    //  - BRANCH → the union of the user's assigned branches.
+    // A BRANCH user must never be silently collapsed to one branch, and a
+    // GLOBAL user must never be blocked just for lacking a home branch.
+    const viewScope = authContext.isSuperAdmin
+      ? 'GLOBAL'
+      : (authContext.grants.find(g => g.permission === 'employees.view_list')?.scope ?? 'NONE');
+
+    if (viewScope === 'NONE') {
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+
+    const headerBranchId = req.header('x-branch-id');
+    const requestedBranchId = headerBranchId != null && headerBranchId !== ''
+      ? Number(headerBranchId)
+      : null;
+
+    if (viewScope === 'BRANCH' && authContext.allowedBranchIds.length === 0) {
       return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
     }
 
-    if (targetBranchId != null) {
+    // A non-GLOBAL viewer may only narrow to a branch they are actually assigned to.
+    if (requestedBranchId != null && viewScope === 'BRANCH'
+      && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+      return forbidBranchAccess(res, 'BRANCH_FORBIDDEN');
+    }
+
+    if (requestedBranchId != null) {
       const access = authorize(authContext, {
         permission: 'employees.view_list',
-        branchId: targetBranchId,
+        branchId: requestedBranchId,
       });
       if (!access.allowed) {
         return forbidBranchAccess(res, access.reason);
       }
     }
 
-    if (authContext.isSuperAdmin && targetBranchId == null) {
-      return res.json(await getEmployees({ isSuperAdmin: true, branchId: null }));
-    }
+    // Resolve the branch filter from scope: explicit pick → that branch;
+    // BRANCH → assigned union; GLOBAL with no pick → all branches.
+    const branchIds = requestedBranchId != null
+      ? [requestedBranchId]
+      : (viewScope === 'BRANCH' ? authContext.allowedBranchIds : null);
 
-    res.json(await getEmployees({ isSuperAdmin: false, branchId: targetBranchId }));
+    res.json(await getEmployees({ isSuperAdmin: authContext.isSuperAdmin, branchIds }));
   } catch (err: any) {
     if (err?.status) {
       return res.status(err.status).json(err.payload ?? { error: err.message });
@@ -266,7 +291,9 @@ router.get('/closers', requirePermission('employees.view_list'), async (req, res
       ? (Number(req.header('x-branch-id')) || null)
       : (authContext.actingBranchId ?? null);
 
-    // Find users whose role has the sales.can_close permission. Some legacy
+    // Find users whose role can close contracts (التسكير). The capability is
+    // contracts.close — the legacy 'sales.can_close' key (migration 001) was
+    // never granted to any role, so the old filter returned nobody. Some legacy
     // consumers need hr_users.id, while pre-offer/device-demo tables FK to
     // employees.id; target=employee returns the latter explicitly.
     const target = String(req.query?.target ?? '').trim();
@@ -286,7 +313,7 @@ router.get('/closers', requirePermission('employees.view_list'), async (req, res
       JOIN roles r ON r.id = u.role_id
       JOIN role_permission_grants rpg ON rpg.role_id = r.id
       JOIN permissions p ON p.id = rpg.permission_id
-      WHERE p.key = 'sales.can_close'
+      WHERE p.key = 'contracts.close'
         AND u.is_active = true
         ${target === 'employee' ? 'AND e.id IS NOT NULL' : ''}
         ${branchFilter}

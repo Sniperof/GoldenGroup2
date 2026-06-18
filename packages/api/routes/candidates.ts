@@ -114,6 +114,46 @@ function canManageCandidateAssignments(authContext: ReturnType<typeof getRequire
   return false;
 }
 
+// Only super-admin or a GLOBAL edit grant may assign a candidate to a user
+// outside the operation's branch. Everyone else (incl. BRANCH managers) must
+// keep explicitly-named assignees within the candidate's branch — enforced on
+// the server, not just filtered in the picker (engineering standard §5.1).
+function canAssignCandidatesAcrossBranches(authContext: ReturnType<typeof getRequiredAuthContext>): boolean {
+  if (authContext.isSuperAdmin) return true;
+  const grant = authContext.grants.find(item => item.permission === 'candidates.edit');
+  return grant?.scope === 'GLOBAL';
+}
+
+// Validates an explicit candidate responsible: must be active and eligible
+// (role carries candidates.can_be_assigned — managers are excluded by not
+// holding it). When branchId is set (assigner is not super/GLOBAL), the user
+// must also belong to that branch. deny-by-default (engineering standard §5.1).
+async function assertCandidateResponsible(
+  userId: number,
+  branchId: number | null,
+): Promise<string | null> {
+  const params: any[] = [userId];
+  let branchClause = '';
+  if (branchId != null) {
+    params.push(branchId);
+    branchClause = `AND u.branch_id = $${params.length}`;
+  }
+  const { rows } = await pool.query(
+    `SELECT u.id FROM hr_users u
+      WHERE u.id = $1 AND u.is_active = TRUE
+        AND u.role_id IN (
+          SELECT rpg.role_id FROM role_permission_grants rpg
+            JOIN permissions p ON p.id = rpg.permission_id
+           WHERE p.key = 'candidates.can_be_assigned'
+        )
+        ${branchClause}`,
+    params,
+  );
+  return rows[0]
+    ? null
+    : 'الموظف المحدد غير مؤهل لإسناد الأسماء إليه أو ليس ضمن فرع العملية';
+}
+
 async function insertCandidateAssignments(
   candidateId: number,
   userIds: number[],
@@ -172,11 +212,27 @@ function forbidCandidateAccess(res: any, reason?: string) {
   return res.status(403).json({ error: 'غير مسموح' });
 }
 
-function resolveCandidateTargetBranch(req: any, requestedBranchId?: number | string | null): number | null {
+function resolveCandidateTargetBranch(
+  req: any,
+  requestedBranchId?: number | string | null,
+  globalScopePermission?: string,
+): number | null {
   const authContext = getRequiredAuthContext(req);
+  const raw = requestedBranchId ?? req.header('x-branch-id');
+  const explicit = Number(raw);
+  const hasExplicit = Number.isInteger(explicit) && explicit > 0;
+
+  // A GLOBAL grant (or super-admin) may target any branch directly — mirrors the
+  // clients/name-lists flow so a company-wide deputy can create in any branch.
+  if (hasExplicit && globalScopePermission) {
+    const grant = authContext.grants?.find((g: any) => g.permission === globalScopePermission);
+    if (authContext.isSuperAdmin || grant?.scope === 'GLOBAL') {
+      return explicit;
+    }
+  }
 
   return resolveActingBranch({
-    headerBranchId: requestedBranchId ?? req.header('x-branch-id'),
+    headerBranchId: raw,
     primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
@@ -569,7 +625,7 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
 router.post('/', requirePermission('candidates.create'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const targetBranchId = resolveCandidateTargetBranch(req, req.body?.branchId);
+    const targetBranchId = resolveCandidateTargetBranch(req, req.body?.branchId, 'candidates.create');
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
@@ -611,15 +667,20 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
 
     const candidateId = rows[0].id;
 
-    // Build assignment list: always include creator; merge any explicitly provided IDs
-    const rawUserIds: number[] = canManageAssignments && Array.isArray(req.body?.assignmentUserIds)
-      ? (req.body.assignmentUserIds as any[]).map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
-      : [];
-    const assignmentUserIds = rawUserIds.includes(authContext.userId)
-      ? rawUserIds
-      : [authContext.userId, ...rawUserIds];
-
-    await insertCandidateAssignments(candidateId, assignmentUserIds, authContext.userId);
+    // One responsible per candidate (product decision 2026-06-16): the owner is
+    // the sole assignee. The creator is the owner only when no explicit
+    // responsible was chosen — never added on top of a chosen one. An explicit
+    // responsible must be eligible (and in-branch unless super/GLOBAL).
+    if (ownerUserId !== authContext.userId) {
+      const responsibleError = await assertCandidateResponsible(
+        ownerUserId,
+        canAssignCandidatesAcrossBranches(authContext) ? null : targetBranchId,
+      );
+      if (responsibleError) {
+        return res.status(400).json({ error: responsibleError });
+      }
+    }
+    await insertCandidateAssignments(candidateId, [ownerUserId], authContext.userId);
 
     // Return full record with assignments and branch/user enrichment
     const { rows: full } = await pool.query(
@@ -854,7 +915,7 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
 
     const c = normalizeCandidatePayload(req.body ?? {});
     const targetBranchId = req.body?.branchId !== undefined
-      ? resolveCandidateTargetBranch(req, req.body?.branchId)
+      ? resolveCandidateTargetBranch(req, req.body?.branchId, 'candidates.edit')
       : existing.branchId;
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
@@ -887,13 +948,19 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
       const rawUserIds: number[] = (req.body.assignmentUserIds as any[])
         .map(Number)
         .filter((n: number) => Number.isFinite(n) && n > 0);
-      // Always keep the current user in the assignment list
-      const assignmentUserIds = rawUserIds.includes(authContext.userId)
-        ? rawUserIds
-        : [authContext.userId, ...rawUserIds];
-
+      // One responsible: the chosen user is the sole assignee (no auto-added creator).
+      const responsibleUserId = rawUserIds.length > 0 ? rawUserIds[0] : authContext.userId;
+      if (responsibleUserId !== authContext.userId) {
+        const responsibleError = await assertCandidateResponsible(
+          responsibleUserId,
+          canAssignCandidatesAcrossBranches(authContext) ? null : targetBranchId,
+        );
+        if (responsibleError) {
+          return res.status(400).json({ error: responsibleError });
+        }
+      }
       await pool.query('DELETE FROM candidate_assignments WHERE candidate_id = $1', [candidateId]);
-      await insertCandidateAssignments(Number(candidateId), assignmentUserIds, authContext.userId);
+      await insertCandidateAssignments(Number(candidateId), [responsibleUserId], authContext.userId);
     }
 
     // Return full record with assignments and branch/user enrichment

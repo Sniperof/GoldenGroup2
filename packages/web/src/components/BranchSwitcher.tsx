@@ -19,6 +19,7 @@ interface Branch {
  */
 export default function BranchSwitcher() {
   const user = useAuthStore(s => s.user);
+  const grants = useAuthStore(s => s.grants);
   const { branchId, setBranchId } = useBranchContextStore();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [open, setOpen] = useState(false);
@@ -32,6 +33,10 @@ export default function BranchSwitcher() {
 
   // Non-super users: read-only badge showing their pinned branch name.
   if (user?.isSuperAdmin !== true) {
+    // Company-wide operators (any GLOBAL grant) filter per-page, not from the
+    // sidebar — showing a single pinned-branch badge here would be misleading.
+    const hasGlobalGrant = (grants ?? []).some(g => g.scope === 'GLOBAL');
+    if (hasGlobalGrant) return null;
     if (!user?.branchId) return null;
     const branchName = branches.find(b => b.id === user.branchId)?.name;
     return (

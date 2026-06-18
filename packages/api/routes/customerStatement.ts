@@ -72,6 +72,9 @@ router.get(
         FROM contract_payment_entries p
         JOIN contracts c ON c.id = p.contract_id
         WHERE c.customer_id = $1
+          -- Draft contracts have no financial effect — their payment entries
+          -- must not surface in the statement (matches the installments filter).
+          AND c.status IN ('active', 'completed', 'cancelled')
       )
       SELECT
         kind, source_id, contract_id, contract_number, event_date,

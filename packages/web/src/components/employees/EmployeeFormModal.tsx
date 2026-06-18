@@ -822,17 +822,18 @@ export default function EmployeeFormModal({
 
   function handleClientSearch(value: string) {
     setClientSearch(value);
-    if (!value.trim()) { setClientSuggestions([]); return; }
-    const q = value.toLowerCase();
-    setClientSuggestions(
-      allClients
-        .filter((c) => {
-          const name = (c.name || '').toLowerCase();
-          const phone = c.contacts?.find((cn) => cn.isPrimary)?.number || c.contacts?.[0]?.number || '';
-          return name.includes(q) || phone.includes(q);
-        })
-        .slice(0, 8),
-    );
+    // Mirror the client/candidate modals: focusing an empty field opens the
+    // list (up to 20); typing narrows it. Same data source, same UX.
+    const query = value.trim();
+    const matches = allClients
+      .filter((c) => !c.isCandidate)
+      .filter((c) =>
+        !query ||
+        (c.name || '').includes(query) ||
+        (c.contacts?.some((cn) => cn.number.includes(query)) || false)
+      )
+      .slice(0, query ? 10 : 20);
+    setClientSuggestions(matches);
   }
 
   function handleSelectClient(client: Client) {
@@ -1468,41 +1469,35 @@ export default function EmployeeFormModal({
         {form.referrerType === 'Client' && (
           <div ref={clientSearchRef} className="relative">
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الوسيط</label>
-            {allClients.length === 0 ? (
-              <p className="text-xs text-slate-400 italic py-2 px-1">لا يوجد زبائن متاحون ضمن صلاحياتك.</p>
-            ) : (
-              <>
-                <input
-                  type="text"
-                  value={clientSearch}
-                  onChange={(e) => handleClientSearch(e.target.value)}
-                  onFocus={(e) => handleClientSearch(e.target.value)}
-                  placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-                  className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
-                />
-                {clientSuggestions.length > 0 && (
-                  <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
-                    {clientSuggestions.map((client) => (
-                      <button
-                        key={client.id}
-                        type="button"
-                        onClick={() => handleSelectClient(client)}
-                        className="w-full text-right px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors flex items-center justify-between"
-                      >
-                        <span className="font-bold text-slate-700 text-sm">{client.name}</span>
-                        <span className="text-xs text-slate-400 font-mono" dir="ltr">
-                          {client.contacts?.find((cn) => cn.isPrimary)?.number || client.contacts?.[0]?.number || '--'}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {form.referralEntityId && form.referrerName && (
-                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-                    <CheckCircle className="h-3.5 w-3.5" /> {form.referrerName}
-                  </div>
-                )}
-              </>
+            <input
+              type="text"
+              value={clientSearch}
+              onChange={(e) => handleClientSearch(e.target.value)}
+              onFocus={(e) => handleClientSearch(e.target.value)}
+              placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
+              className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+            />
+            {clientSuggestions.length > 0 && (
+              <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
+                {clientSuggestions.map((client) => (
+                  <button
+                    key={client.id}
+                    type="button"
+                    onClick={() => handleSelectClient(client)}
+                    className="w-full text-right px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors flex items-center justify-between"
+                  >
+                    <span className="font-bold text-slate-700 text-sm">{client.name}</span>
+                    <span className="text-xs text-slate-400 font-mono" dir="ltr">
+                      {client.contacts?.find((cn) => cn.isPrimary)?.number || client.contacts?.[0]?.number || '--'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {form.referralEntityId && form.referrerName && (
+              <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+                <CheckCircle className="h-3.5 w-3.5" /> {form.referrerName}
+              </div>
             )}
           </div>
         )}

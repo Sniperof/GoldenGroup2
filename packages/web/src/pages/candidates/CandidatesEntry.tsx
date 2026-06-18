@@ -11,6 +11,8 @@ import ClientModal from '../../components/ClientModal';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useAuthStore } from '../../hooks/useAuthStore';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { formatGeoUnitLastLevels } from '../../components/GeoSmartSearch';
 
 const referralTypeLabels: Record<string, string> = {
@@ -31,6 +33,19 @@ export default function CandidatesEntry() {
     const canCreateNameLists = hasAnyPermission('candidates.name_lists.create');
     const canCreateCandidates = hasPermission('candidates.create');
     const canEditCandidates = hasPermission('candidates.edit');
+
+    // ─── Management branch filter (scope-driven, NOT identity-driven) ───
+    // Mode follows candidates.view_list scope (the names tab governs the page;
+    // both families share the same per-role scope after the 292/293 baseline):
+    //  GLOBAL → active picker, BRANCH → locked badge, ASSIGNED → no filter.
+    const getPermissionScope = useAuthStore(s => s.getPermissionScope);
+    const authUser = useAuthStore(s => s.user);
+    const candidatesViewScope = getPermissionScope('candidates.view_list');
+    const isGlobalNames = candidatesViewScope === 'GLOBAL';
+    const isBranchNames = candidatesViewScope === 'BRANCH';
+    const branchContextId = useBranchContextStore(s => s.branchId);
+    const setBranchContextId = useBranchContextStore(s => s.setBranchId);
+    const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     // UI State
     const [activeTab, setActiveTab] = useState<'candidates' | 'sheets'>('candidates');
@@ -180,8 +195,18 @@ export default function CandidatesEntry() {
     };
 
     useEffect(() => {
-        void fetchData();
-    }, [fetchData]);
+        // Only a GLOBAL viewer may narrow by branch; BRANCH/ASSIGNED are scoped
+        // by the server, so never send a cross-branch header for them.
+        void fetchData(isGlobalNames ? branchContextId : null);
+    }, [fetchData, isGlobalNames, branchContextId]);
+
+    // Branch list for the management filter (shown only when the filter is visible).
+    useEffect(() => {
+        if (!isGlobalNames && !isBranchNames) return;
+        api.branches.list()
+            .then(rows => setBranchOptions((rows as any[]).map(b => ({ id: b.id, name: b.name }))))
+            .catch(() => setBranchOptions([]));
+    }, [isGlobalNames, isBranchNames]);
 
     useEffect(() => {
         let active = true;
@@ -236,7 +261,31 @@ export default function CandidatesEntry() {
                         <h1 className="text-2xl font-bold text-slate-800">سجلات الأسماء المقترحة</h1>
                         <p className="text-sm text-slate-500 mt-1">فلترة، تدقيق، وتوجيه الأسماء الجديدة</p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
+                        {/* Management branch filter — visibility & mode follow candidates.view_list scope */}
+                        {isGlobalNames && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-sky-50 border border-sky-200 text-sky-700">
+                                <Building2 className="w-4 h-4 shrink-0" />
+                                <select
+                                    value={branchContextId ?? ''}
+                                    onChange={e => setBranchContextId(e.target.value === '' ? null : Number(e.target.value))}
+                                    className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer"
+                                >
+                                    <option value="">كل الفروع</option>
+                                    {branchOptions.map(b => (
+                                        <option key={b.id} value={b.id}>{b.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                        {isBranchNames && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-sm font-bold">
+                                <Building2 className="w-4 h-4 shrink-0" />
+                                <span className="truncate">
+                                    {branchOptions.find(b => b.id === authUser?.branchId)?.name ?? `الفرع #${authUser?.branchId ?? ''}`}
+                                </span>
+                            </div>
+                        )}
                         {canCreateNameLists && (
                         <button onClick={() => setIsCreateSheetOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-bold shadow-sm transition-all text-sm">
                             <FilePlus2 className="w-4 h-4" /> لائحة جديدة

@@ -88,15 +88,40 @@ router.get('/', requirePermission('routes.view'), async (req, res) => {
   const { rows: points } = await pool.query(
     'SELECT route_id AS "routeId", geo_unit_id AS "geoUnitId", level, point_order AS "order" FROM route_points ORDER BY route_id, point_order'
   );
+  // Derive each route's owning branch(es) from its points' geo coverage — routes
+  // carry no branch_id of their own. A route belongs to the branch whose covered
+  // geo unit is an ancestor of (or equals) any of its points. Lets a GLOBAL
+  // manager see/filter which branch each route follows.
+  const { rows: routeBranchRows } = await pool.query(`
+    WITH RECURSIVE up AS (
+      SELECT rp.route_id, rp.geo_unit_id AS gid, g.parent_id
+      FROM route_points rp JOIN geo_units g ON g.id = rp.geo_unit_id
+      UNION ALL
+      SELECT up.route_id, g.id, g.parent_id
+      FROM up JOIN geo_units g ON g.id = up.parent_id
+    )
+    SELECT DISTINCT up.route_id AS "routeId", bgc.branch_id AS "branchId", b.name AS "branchName"
+    FROM up
+    JOIN branch_geo_coverage bgc ON bgc.geo_unit_id = up.gid
+    JOIN branches b ON b.id = bgc.branch_id
+    ORDER BY up.route_id, b.name
+  `);
   const geoUnits = await listAllGeoUnits();
   const scope = req.authContext
     ? await resolveRouteGeoScope(req.authContext, 'view', geoUnits)
     : null;
   const result = routes
-    .map(r => ({
-      ...r,
-      points: points.filter(p => p.routeId === r.id).map(({ routeId, ...rest }) => rest)
-    }))
+    .map(r => {
+      const branches = routeBranchRows
+        .filter((rb: any) => rb.routeId === r.id)
+        .map((rb: any) => ({ branchId: rb.branchId, branchName: rb.branchName }));
+      return {
+        ...r,
+        points: points.filter(p => p.routeId === r.id).map(({ routeId, ...rest }) => rest),
+        branches,
+        branchLabel: branches.map((b: any) => b.branchName).join('، ') || null,
+      };
+    })
     .filter(route => areRoutePointsInScope(route.points, scope));
   res.json(result);
 });

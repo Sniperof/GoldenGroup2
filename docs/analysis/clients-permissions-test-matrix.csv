@@ -1,0 +1,27 @@
+ÇáãİÊÇÍ	ÇáæÕİ	ÇáäØÇŞÇÊ ÇáãÓãæÍÉ	ÓæÈÑ-ÃÏãä	ãÏíÑ ÇáÔÑßÉ	ãÏíÑ ÇáİÑÚ	ÇáãÔÑİÉ	ÇáÈäÏ ÇáãÑÊÈØ	ãäØŞÉ ÍÑÌÉ ááÊÏŞíŞ	ÇáÍÇáÉ	ÇáãÓÇÑ ÇáãÑÌÚí
+clients.view_list	ÚÑÖ ŞÇÆãÉ ÇáÒÈÇÆä	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	"1¡2"	ÇáäØÇŞ ÇáãÓãæÍ ÍÇáíÇğ GLOBAL/BRANCH İŞØ — íÌÈ Ãä íŞÈá ASSIGNED æÅáÇ áÇ íõãäÍ ááãÔÑİÉ	ãäİøĞ (ÇáİáÊÑ)	packages/api/routes/clients.ts:730
+clients.view	ÚÑÖ ÊİÇÕíá ÒÈæä	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	3	íõÓÊÚãá ÏÇÎá ÇáÊÍŞŞ ÇáĞßí — íÌÈ ÃáÇ íßÔİ ÒÈæäÇğ ÎÇÑÌ äØÇŞ ÇáãÓÊÎÏã	Óáíã	packages/api/policies/clientPolicy.ts:63
+clients.create	ÅÖÇİÉ ÒÈæä ÌÏíÏ	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	—	"2¡5"	GLOBAL íÓãÍ ÈÃí İÑÚ (ÕÍíÍ áÔÑßÉ æÇÍÏÉ)º BRANCH íõŞíøÏ ÈİÑÚ ÇáãÓÊÎÏã	Óáíã	packages/api/routes/clients.ts:1275
+clients.edit	ÊÚÏíá ÈíÇäÇÊ ÒÈæä	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ÊÃßøÏ Ãä ÇáãÔÑİÉ ÊÚÏøá ÇáãÓäÏÉ áåÇ İŞØº ÊÛííÑ ÇáİÑÚ íÎÖÚ áäØÇŞ ÇáåÏİ æÇáãÕÏÑ	ÊÍŞøŞ	packages/api/routes/clients.ts:1517
+clients.delete	ÍĞİ ÒÈæä	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	—	—	ÍÓøÇÓ — áÇ íõãäÍ ASSIGNEDº ÊÃßøÏ ÇáÑİÖ ááãÔÑİÉ	ÊÍŞøŞ	packages/api/routes/clients.ts:1776
+clients.assignment.manage	ÅÏÇÑÉ ÇáãÓÄæáíä Úä ÇáÚãíá (ÇáÅÓäÇÏ)	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	—	4	ŞÇÆãÉ ÇáãÑÔÍíä = ãæÙİæ İÑÚ ÇáÚãáíÉ İŞØº ÇáÎÇÏã íÑİÖ ÅÓäÇÏ ãæÙİ ÎÇÑÌ ÇáİÑÚ	ÊÍŞøŞ	packages/api/policies/clientPolicy.ts:77
+clients.can_be_assigned	ÃåáíÉ ÙåæÑ ÇáãæÙİ ßãÓÄæá	GLOBAL/BRANCH	—	—	BRANCH	BRANCH	4	ÃåáíÉ İŞØ — áÇ ÊãäÍ ÍŞ ÇáÅÓäÇÏº ÊÃßøÏ ÚÏã ÎáØåÇ ãÚ assignment.manage	ÊÍŞøŞ	migrations/043 (archive)
+clients.cooldown_unlock	İß ÊÌãíÏ ÇáÊæÇÕá	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	—	—	áíÓÊ ASSIGNED ááãÔÑİÉ æİŞ ÇáÜ baseline	ÊÍŞøŞ	packages/api/routes/clients.ts
+clients.contact_control.edit	ÖÈØ ãäÚ ÇáÊæÇÕá/ÇáÊåÏÆÉ	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ÍŞá ãáİ — ÊÃßøÏ äØÇŞ ÇáãÔÑİÉ Úáì ÇáãÓäÏÉ áåÇ	ÊÍŞøŞ	packages/api/routes/clients.ts
+clients.contacts.edit	ÊÚÏíá ÃÑŞÇã ÇáÊæÇÕá	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ÍŞá ãáİ	ÊÍŞøŞ	packages/api/routes/clients.ts
+clients.contacts.view	ÚÑÖ ÃÑŞÇã ÇáÊæÇÕá	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ÍŞá ãáİ	ÊÍŞøŞ	packages/web/src/pages/ClientProfile.tsx
+clients.network.view	ÚÑÖ ÔÈßÉ ÇáÒÈæä	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	7	ŞÏ ÊßÔİ æÓØÇÁ/ÒÈÇÆä ãÑÊÈØíä — íÌÈ Ãä ÊÊÈÚ ÇáäØÇŞ	ÊÍŞøŞ	packages/api/routes/clients.ts
+clients.account_statement.view	ÚÑÖ ßÔİ ÍÓÇÈ ÇáÒÈæä	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ ãÇáí ÍÓøÇÓ	ÊÍŞøŞ	packages/api/routes/customerStatement.ts
+clients.call_log.view	ÚÑÖ ÓÌá ÇáãßÇáãÇÊ	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ	ÊÍŞøŞ	packages/api/routes/customerCalls.ts
+clients.call_log.create	ÅÖÇİÉ ãßÇáãÉ	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ	ÊÍŞøŞ	packages/api/routes/customerCalls.ts
+clients.call_log.edit	ÊÚÏíá ãßÇáãÉ	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ	ÊÍŞøŞ	packages/api/routes/customerCalls.ts
+clients.devices.view	ÚÑÖ ÃÌåÒÉ ÇáÒÈæä	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ	ÊÍŞøŞ	packages/api/routes/installedDevices.ts
+clients.device_warranties.view	ÚÑÖ ßİÇáÇÊ ÇáÃÌåÒÉ	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ	ÊÍŞøŞ	packages/api/routes/deviceWarranties.ts
+clients.purchase_history.view	ÚÑÖ ÓÌá ÇáÔÑÇÁ	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ	ÊÍŞøŞ	packages/api/routes/customerCalls.ts
+clients.parts_stock.view	ÚÑÖ ãÎÒæä ÇáŞØÚ	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ	ÊÍŞøŞ	packages/api/routes/customerCalls.ts
+clients.pre_offers.view	ÚÑÖ ÇáÚÑæÖ ÇáãÓÈŞÉ	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ	ÊÍŞøŞ	packages/api/routes/customerPreOffers.ts
+clients.visits.view	ÚÑÖ ÒíÇÑÇÊ ÇáÒÈæä	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	ASSIGNED	—	ãáİ — íÚÈÑ Åáì Ïæãíä ÇáÒíÇÑÇÊ	ÊÍŞøŞ	packages/api/routes/fieldVisits.ts
+branches.lookup / reference_data.lookup	ÌáÈ ŞÇÆãÉ ÇáİÑæÚ áãäÓÏá ÇáİáÊÑ æÇáãæÏá	GLOBAL/BRANCH/ASSIGNED	GLOBAL	GLOBAL	BRANCH	—	"1¡5"	ÔÑØ ãÓÈŞ: ÈÏæäåÇ íÈŞì ãäÓÏá ÇáİÑæÚ İÇÑÛÇğ áãÏíÑ ÇáÔÑßÉ	ÔÑØ ãÓÈŞ	packages/api/routes/branches.ts:110
+geo_units.lookup	ÌáÈ æÍÏÇÊ ÇáÚäæÇä ãŞíøÏÉ ÈİÑÚ ÇáÚãáíÉ	GLOBAL/BRANCH/ASSIGNED	GLOBAL	GLOBAL	BRANCH	ASSIGNED	6	ãŞíøÏ ÈÊÛØíÉ ÇáİÑÚ + ŞíÏ ãÓÊæì ÇáÍí Úáì ÇáãäÊŞí æÇáÎÇÏã	Óáíã	packages/api/services/geoScopeService.ts
+employees.view_list	ŞÑÇÁÉ ÇáãæÙİíä (æÓíØ-ÇáãæÙİ + ŞÇÆãÉ ÇáÅÓäÇÏ)	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	BRANCH	"7¡4"	æÓíØ-ÇáãæÙİ íÚÊãÏ ÚáíåÇ ÍÇáíÇğ — íáÒã ãİÊÇÍ lookup ãÎÕøÕ ãŞíøÏ ÈİÑÚ ÇáÚãáíÉ + fail-soft	ÊÚÏíá ŞÇÏã	packages/api/routes/employees.ts:88
+reference_data.lookup (systemLists)	ÇáŞæÇÆã ÇáãÑÌÚíÉ (ãÕÇÏÑ ÇáãíÇå/Çáãåä)	ÚÇã áßá ÇáÃÏæÇÑ	ŞÑÇÁÉ	ŞÑÇÁÉ	ŞÑÇÁÉ	ŞÑÇÁÉ	8	ãÕÏÑ æÇÍÏ ãæÍøÏ ÈáÇ ÊŞííÏ äØÇŞ — ããäæÚ äÓÎ ËÇÈÊ ÈÇáæÇÌåÉ	Óáíã	packages/api/routes/systemLists.ts

@@ -111,6 +111,12 @@ router.get('/', requirePermission('branches.view', 'branches.lookup', 'reference
   try {
     const authContext = req.authContext!;
     const canViewManagement = authorize(authContext, { permission: 'branches.view' }).allowed;
+    // A GLOBAL branch/reference lookup means "all branches as reference data" —
+    // a company-wide operator must see every branch name in pickers, not only
+    // their assigned ones. Otherwise callers are confined to allowedBranchIds.
+    const hasGlobalLookup = (authContext.grants ?? []).some((g: any) =>
+      (g.permission === 'branches.lookup' || g.permission === 'reference_data.lookup') && g.scope === 'GLOBAL');
+    const returnAllBranches = canViewManagement || authContext.isSuperAdmin || hasGlobalLookup;
 
     const { rows } = await pool.query(`
       SELECT b.id, b.name,
@@ -129,7 +135,7 @@ router.get('/', requirePermission('branches.view', 'branches.lookup', 'reference
       WHERE $1::boolean
          OR b.id = ANY($2::int[])
       ORDER BY b.created_at DESC
-    `, [canViewManagement || authContext.isSuperAdmin, authContext.allowedBranchIds]);
+    `, [returnAllBranches, authContext.allowedBranchIds]);
     res.json(rows);
   } catch (err: any) {
     console.error('Error fetching branches:', err);

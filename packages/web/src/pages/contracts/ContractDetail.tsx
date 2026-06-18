@@ -186,10 +186,9 @@ export default function ContractDetail() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Plan 2026-06-10 §5 — approve is gated by EITHER contracts.approve OR
-  // contracts.close (the close permission was split out to let supervisors
-  // close drafts without owning the broader approve permission).
-  const canApproveDraft = hasPermission('contracts.approve') || hasPermission('contracts.close');
+  // التسكير/الاعتماد is gated by the single contracts.close capability
+  // (contracts.approve was retired in migration 299 — they were duplicates).
+  const canApproveDraft = hasPermission('contracts.close');
 
   useEffect(() => {
     if (data?.status !== 'draft' || !canApproveDraft) return;
@@ -446,11 +445,7 @@ export default function ContractDetail() {
                   {approvalLoading === 'reject' ? 'جاري الرفض...' : '✕ رفض'}
                 </button>
               </div>
-            ) : (
-              <span className="text-[11px] text-indigo-500 italic shrink-0">
-                لا تملك صلاحية اعتماد العقود (contracts.approve أو contracts.close).
-              </span>
-            )}
+            ) : null}
           </div>
         </div>
       )}
@@ -513,6 +508,7 @@ export default function ContractDetail() {
             <LabelVal label="تاريخ العقد" value={fmtDate(data.contractDate)} mono />
             <LabelVal label="تاريخ الإنشاء" value={fmtDateTime(data.createdAt)} mono />
             {data.createdByName && <LabelVal label="👤 منشئ العقد" value={data.createdByName} />}
+            <LabelVal label="🏷️ صاحب البيعة" value={data.saleOwnerName || data.createdByName || '—'} />
           </div>
         </Card>
 
@@ -602,22 +598,25 @@ export default function ContractDetail() {
               <>
                 <Divider />
                 <div>
-                  <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">🤝 وسطاء العقد</div>
+                  <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">🤝 وسيط البيعة</div>
                   <div className="flex flex-wrap gap-2">
-                    {data.contractReferrers.map((referrer: any) => (
-                      <div key={referrer.id || referrer.referrerName} className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sm">
-                        <span className="text-slate-700 font-medium">{referrer.referrerName}</span>
-                        {referrer.referrerType && (
-                          <span className="text-xs text-slate-400">
-                            ({referrer.referrerType === 'client' ? 'زبون'
-                              : referrer.referrerType === 'employee' ? 'موظف'
-                              : referrer.referrerType === 'personal' ? 'شخصي'
-                              : referrer.referrerType === 'customer' ? 'عميل'
-                              : referrer.referrerType})
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                    {data.contractReferrers.map((referrer: any) => {
+                      // Case-insensitive — stored values may be capitalized ("Client").
+                      const t = String(referrer.referrerType || '').toLowerCase();
+                      const typeLabel = t === 'client' || t === 'customer' ? 'زبون'
+                        : t === 'employee' ? 'موظف'
+                        : t === 'personal' ? 'شخصي'
+                        : t === 'unknown' ? 'غير معروف'
+                        : referrer.referrerType;
+                      return (
+                        <div key={referrer.id || referrer.referrerName} className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sm">
+                          <span className="text-slate-700 font-medium">{referrer.referrerName}</span>
+                          {referrer.referrerType && (
+                            <span className="text-xs text-slate-400">({typeLabel})</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </>

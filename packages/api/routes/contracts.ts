@@ -70,7 +70,8 @@ const contractSelect = `
   (SELECT value FROM system_lists WHERE id = c.no_closing_reason_id LIMIT 1) AS "noClosingReasonName",
   (SELECT name FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchName",
   (SELECT name FROM branches WHERE id = c.service_branch_id LIMIT 1) AS "serviceBranchName",
-  (SELECT name FROM hr_users WHERE id = c.created_by LIMIT 1) AS "createdByName"
+  (SELECT name FROM hr_users WHERE id = c.created_by LIMIT 1) AS "createdByName",
+  (SELECT name FROM employees WHERE id = c.sale_owner_id LIMIT 1) AS "saleOwnerName"
 `;
 
 function mapContract(c: any) {
@@ -95,12 +96,19 @@ async function loadDraftContractForEdit(db: any, contractId: number | string, lo
 
 function deriveContractStatus(
   status: unknown,
-  closingEmployeeId: unknown,
+  _closingEmployeeId: unknown,
 ): 'draft' | 'active' | 'cancelled' | 'completed' | 'discarded' {
   if (status === 'cancelled' || status === 'completed' || status === 'discarded') {
     return status;
   }
-  return closingEmployeeId ? 'active' : 'draft';
+  // SECURITY: create/edit must NEVER flip a contract to 'active'. Activation
+  // (التسكير) is exclusively the POST /:id/approve path, which enforces
+  // contracts.close, takes a pessimistic lock, and re-runs
+  // collectApprovalIssues. Previously `closingEmployeeId ? 'active' : 'draft'`
+  // let anyone with only contracts.edit activate a contract by passing a closer,
+  // bypassing the close capability and the approval re-validation. The closer is
+  // still stored as a *proposed* closer; it no longer changes status here.
+  return 'draft';
 }
 
 // Plan 2026-06-10 §C — buyer national ID must be exactly 11 digits when present.
@@ -176,17 +184,20 @@ async function syncClientLegalIdentity(
   );
 }
 
-// Plan 2026-06-10 §4 — sale_owner_id is the deal originator and can differ
-// from the data-entry user. Setting a value other than the current user
-// requires the contracts.assign_sale_owner permission.
+// Plan 2026-06-10 §4 — sale_owner_id is the deal originator (an EMPLOYEE, with
+// or without a system account — migration 298 repointed the FK to employees).
+// Attributing the sale to anyone OTHER than the current user's own employee
+// record requires the contracts.assign_sale_owner permission. The self-shortcut
+// compares against the user's employee_id because both ids now live in the
+// employees.id space.
 function canAssignSaleOwner(
   authContext: any,
   branchId: number | null,
-  currentUserId: number | null,
-  desiredOwnerId: number | null,
+  currentUserEmployeeId: number | null,
+  desiredOwnerEmployeeId: number | null,
 ): boolean {
-  if (desiredOwnerId == null) return true;
-  if (currentUserId != null && desiredOwnerId === currentUserId) return true;
+  if (desiredOwnerEmployeeId == null) return true;
+  if (currentUserEmployeeId != null && desiredOwnerEmployeeId === currentUserEmployeeId) return true;
   const check = authorize(authContext, { permission: 'contracts.assign_sale_owner', branchId });
   return check.allowed;
 }
@@ -771,8 +782,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   // Plan §4 — sale_owner_id assignment requires contracts.assign_sale_owner
   // unless the value matches the authenticated user.
   const requestedSaleOwnerId = c.saleOwnerId ? Number(c.saleOwnerId) : null;
-  const currentUserId = (req as any).user?.id ?? null;
-  if (!canAssignSaleOwner((req as any).authContext, targetBranchId, currentUserId, requestedSaleOwnerId)) {
+  const currentUserEmployeeId = (req as any).user?.employeeId ?? null;
+  if (!canAssignSaleOwner((req as any).authContext, targetBranchId, currentUserEmployeeId, requestedSaleOwnerId)) {
     return res.status(403).json({ error: 'لا تملك صلاحية نسبة البيعة لموظف آخر' });
   }
 
@@ -832,6 +843,39 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // SECURITY (anti double-sale): one accepted device-demo offer / sale
+    // reference may back only ONE live contract. Reject if a non-discarded
+    // contract already references the same source_task_offer_id OR
+    // sale_reference_number. The open-tasks read filtering is UX only — this
+    // server check is the real guard against converting an already-sold offer
+    // into a second contract.
+    const dupOfferId = c.sourceTaskOfferId ? Number(c.sourceTaskOfferId) : null;
+    const dupSaleRef = typeof c.saleReferenceNumber === 'string' && c.saleReferenceNumber.trim()
+      ? c.saleReferenceNumber.trim()
+      : null;
+    if (dupOfferId != null || dupSaleRef != null) {
+      const { rows: dup } = await client.query(
+        `SELECT id, contract_number FROM contracts
+          WHERE status NOT IN ('discarded', 'cancelled')
+            AND (
+              ($1::bigint IS NOT NULL AND source_task_offer_id = $1)
+              OR ($2::text IS NOT NULL AND sale_reference_number = $2)
+            )
+          LIMIT 1`,
+        [dupOfferId, dupSaleRef],
+      );
+      if (dup[0]) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'هذا العرض مرتبط بعقد سابق — لا يمكن إنشاء عقد آخر على نفس البيعة',
+          code: 'offer_already_contracted',
+          existingContractId: dup[0].id,
+          existingContractNumber: dup[0].contract_number,
+        });
+      }
+    }
+
     const draftDevicePayload = buildDraftDevicePayload(c);
     await syncClientLegalIdentity(client, c.customerId, {
       fatherName: c.fatherName,
@@ -884,7 +928,9 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        // Permission already enforced at the route entry via canAssignSaleOwner().
        requestedSaleOwnerId,
        c.offerTeamSnapshot ? JSON.stringify(c.offerTeamSnapshot) : null,
-       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]',
+       // Single-mediator rule: a sale has exactly one referrer — store at most one
+       // even if the client sends more (UI is not the guard).
+       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers.slice(0, 1)) : '[]',
        derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null]
     );
     const contractId = rows[0].id;
@@ -1068,8 +1114,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const requestedSaleOwnerId = c.saleOwnerId ? Number(c.saleOwnerId) : null;
   const saleOwnerFrozen = prevStatus !== 'draft';
   if (!saleOwnerFrozen) {
-    const currentUserId = (req as any).user?.id ?? null;
-    if (!canAssignSaleOwner(authContext, existing[0].branch_id, currentUserId, requestedSaleOwnerId)) {
+    const currentUserEmployeeId = (req as any).user?.employeeId ?? null;
+    if (!canAssignSaleOwner(authContext, existing[0].branch_id, currentUserEmployeeId, requestedSaleOwnerId)) {
       return res.status(403).json({ error: 'لا تملك صلاحية نسبة البيعة لموظف آخر' });
     }
   }
@@ -1178,7 +1224,9 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        c.saleSubtype || 'definitive',
        saleOwnerFrozen,
        requestedSaleOwnerId,
-       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers) : '[]',
+       // Single-mediator rule: a sale has exactly one referrer — store at most one
+       // even if the client sends more (UI is not the guard).
+       Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers.slice(0, 1)) : '[]',
        derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null,
        req.params.id]
     );
@@ -1646,8 +1694,9 @@ router.put('/:id/line-items/:itemId/installation', requirePermission('contracts.
 //   POST /api/contracts/:id/approve   draft → active
 //   POST /api/contracts/:id/reject    draft → discarded
 //
-// Both are gated by the dedicated `contracts.approve` permission (seeded by
-// migration 212) so not every editor can flip the legal state of a contract.
+// Both are gated by the dedicated `contracts.close` permission (التسكير) so not
+// every editor can flip the legal state of a contract. (The original split also
+// defined contracts.approve; it was a duplicate and retired in migration 299.)
 //
 // On approve the route:
 //   • sets closing_employee_id (from body, falling back to current user)
@@ -1842,13 +1891,14 @@ async function collectApprovalIssues(
   return issues;
 }
 
-// NOTE: /approve uses requireAuth only (no requirePermission middleware) so that
-// either contracts.approve OR contracts.close is sufficient — see plan §5.
+// NOTE: /approve uses requireAuth only (no requirePermission middleware) so the
+// auth context can be built lazily; the contracts.close check happens below
+// against the contract's own branch. (contracts.approve was retired in
+// migration 299 — التسكير is now a single capability: contracts.close.)
 router.post('/:id/approve', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
-  // /approve skips requirePermission middleware (because either contracts.approve
-  // OR contracts.close is acceptable), so req.authContext is not pre-populated.
-  // Build it here so authorize() below has a real context to read.
+  // requirePermission is skipped so req.authContext is not pre-populated; build
+  // it here so authorize() below has a real context to read.
   const authContext = await getOrBuildAuthContext(req as any);
   const contractId = Number(req.params.id);
   if (!Number.isInteger(contractId) || contractId <= 0) {
@@ -1874,10 +1924,9 @@ router.post('/:id/approve', async (req, res) => {
     }
     const c = cur[0];
 
-    // Plan §5 — approve accepts either contracts.approve OR contracts.close.
+    // التسكير is gated by the single contracts.close capability (migration 299).
     const closeAccess = authorize(authContext, { permission: 'contracts.close', branchId: c.branch_id });
-    const approveAccess = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
-    if (!closeAccess.allowed && !approveAccess.allowed) {
+    if (!closeAccess.allowed) {
       await pgClient.query('ROLLBACK');
       return res.status(403).json({ error: 'غير مسموح' });
     }
@@ -1922,7 +1971,7 @@ router.post('/:id/approve', async (req, res) => {
     const incomingSaleOwner = req.body?.saleOwnerId ? Number(req.body.saleOwnerId) : null;
     let finalSaleOwnerId: number | null = c.saleOwnerId ?? null;
     if (incomingSaleOwner != null && incomingSaleOwner !== finalSaleOwnerId) {
-      if (!canAssignSaleOwner(authContext, c.branch_id, (req as any).user?.id ?? null, incomingSaleOwner)) {
+      if (!canAssignSaleOwner(authContext, c.branch_id, (req as any).user?.employeeId ?? null, incomingSaleOwner)) {
         await pgClient.query('ROLLBACK');
         return res.status(403).json({ error: 'لا تملك صلاحية نسبة البيعة لموظف آخر' });
       }
@@ -1996,9 +2045,9 @@ router.post('/:id/approve', async (req, res) => {
   }
 });
 
-// Plan 2026-06-10 §5 — reject uses requireAuth only (no requirePermission
-// middleware) so that either contracts.approve OR contracts.close is enough,
-// matching the approve route's gating.
+// reject uses requireAuth only (no requirePermission middleware); the
+// contracts.close check happens below against the contract's own branch,
+// matching the approve route's gating (contracts.approve retired in migr 299).
 router.post('/:id/reject', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
   // Same as /approve: this route bypasses requirePermission, so build the
@@ -2024,10 +2073,9 @@ router.post('/:id/reject', async (req, res) => {
     const c = cur[0];
 
     const closeAccess = authorize(authContext, { permission: 'contracts.close', branchId: c.branch_id });
-    const approveAccess = authorize(authContext, { permission: 'contracts.approve', branchId: c.branch_id });
-    if (!closeAccess.allowed && !approveAccess.allowed) {
+    if (!closeAccess.allowed) {
       await pgClient.query('ROLLBACK');
-      return res.status(403).json({ error: 'غير مسموح — يتطلب contracts.approve أو contracts.close' });
+      return res.status(403).json({ error: 'غير مسموح — يتطلب contracts.close' });
     }
 
     if (c.status !== 'draft') {

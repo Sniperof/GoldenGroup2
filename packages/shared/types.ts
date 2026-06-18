@@ -19,6 +19,10 @@ export interface Route {
     name: string;
     points: RoutePoint[];
     status: string;
+    /** Owning branch(es) derived from the route's geo coverage (routes carry no branch_id). */
+    branches?: { branchId: number; branchName: string }[];
+    /** Display label of the owning branch(es), joined. */
+    branchLabel?: string | null;
 }
 
 export type ReferralType = 'Personal' | 'Client' | 'Employee' | 'Unknown';
@@ -951,9 +955,16 @@ export interface Contract {
     paymentEntries?: ContractPaymentEntry[];
     installments?: ContractInstallment[];
     closingEmployeeId?: number | null;
+    /** Display name of the closing (التسكير) employee, resolved from hr_users. */
+    closingEmployeeName?: string | null;
     closingDate?: string | null;
     /** DEC-CT-11 — deal originator, distinct from closing employee. */
     saleOwnerId?: number | null;
+    /** Display name of the sale owner (صاحب البيعة), resolved from hr_users. */
+    saleOwnerName?: string | null;
+    createdById?: number | null;
+    /** Display name of the contract creator (منشئ العقد), resolved from hr_users. */
+    createdByName?: string | null;
     /** DEC-CT-13 — JSON snapshot of the offer team, frozen at contract creation. */
     offerTeamSnapshot?: ContractOfferTeamMember[] | null;
     /** Selected customer referrers frozen on the contract at creation/update time. */

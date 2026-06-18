@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { FileText, Plus, Eye, Loader2 } from 'lucide-react';
+import { FileText, Plus, Eye, Loader2, Building2 } from 'lucide-react';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../../components/SmartTable';
 import type { Contract } from '../../lib/types';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { usePermissions } from '../../hooks/usePermissions';
+import { useAuthStore } from '../../hooks/useAuthStore';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                              */
@@ -30,13 +33,45 @@ export default function ContractList() {
     const navigate = useNavigate();
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [loading, setLoading] = useState(true);
+    const { hasPermission } = usePermissions();
+    const getPermissionScope = useAuthStore((s) => s.getPermissionScope);
+    const contextBranchId = useBranchContextStore((s) => s.branchId);
+    const setBranchContextId = useBranchContextStore((s) => s.setBranchId);
+    const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
+
+    const canViewContracts = hasPermission('contracts.view_list');
+    const canCreateContracts = hasPermission('contracts.create');
+
+    // Branch filter follows contracts.view_list scope (NOT identity): only a
+    // GLOBAL viewer may narrow by branch; BRANCH/ASSIGNED are server-scoped, so
+    // we never send a cross-branch header for them. The sidebar BranchSwitcher is
+    // hidden for GLOBAL-grant operators (e.g. مدير الشركة), so this in-page filter
+    // is their only way to pick a branch context — mirrors Clients/Employees.
+    const isGlobalView = getPermissionScope('contracts.view_list') === 'GLOBAL';
 
     useEffect(() => {
-        api.contracts.list()
+        if (!isGlobalView) return;
+        api.branches.list()
+            .then((rows) => setBranchOptions((rows as any[]).map((b) => ({ id: b.id, name: b.name }))))
+            .catch(() => setBranchOptions([]));
+    }, [isGlobalView]);
+
+    useEffect(() => {
+        if (!canViewContracts) {
+            setLoading(false);
+            return;
+        }
+        const branchParam = isGlobalView ? contextBranchId : null;
+        setLoading(true);
+        api.contracts.list({ branchId: branchParam })
             .then(data => setContracts(data))
             .catch(err => console.error('Failed to load contracts:', err))
             .finally(() => setLoading(false));
-    }, []);
+    }, [canViewContracts, isGlobalView, contextBranchId]);
+
+    // Show the branch column only to a cross-branch viewer (GLOBAL scope with no
+    // single branch selected) — i.e. when "all branches" are in view.
+    const showBranchColumn = isGlobalView && contextBranchId == null;
 
     const columns: ColumnDef<Contract>[] = [
         {
@@ -47,6 +82,10 @@ export default function ContractList() {
             key: 'customerName', label: 'الزبون', sortable: true,
             render: (c) => <span className="text-sm font-semibold text-slate-800">{c.customerName}</span>,
         },
+        ...(showBranchColumn ? [{
+            key: 'branchName', label: 'الفرع', sortable: true,
+            render: (c: Contract) => <span className="text-sm text-slate-600">{c.branchName || '—'}</span>,
+        }] : []),
         {
             key: 'deviceModelName', label: 'الجهاز', sortable: true,
             render: (c) => (
@@ -66,6 +105,14 @@ export default function ContractList() {
                     </span>
                 </div>
             ),
+        },
+        {
+            key: 'saleOwnerName', label: 'صاحب البيعة', sortable: true,
+            render: (c) => <span className="text-sm text-slate-600">{c.saleOwnerName || c.createdByName || '—'}</span>,
+        },
+        {
+            key: 'closingEmployeeName', label: 'موظف التسكير', sortable: true,
+            render: (c) => <span className="text-sm text-slate-600">{c.closingEmployeeName || '—'}</span>,
         },
         {
             key: 'contractDate', label: 'التاريخ', sortable: true,
@@ -119,13 +166,41 @@ export default function ContractList() {
                 searchPlaceholder="بحث عن عقد..."
                 getId={(c) => c.id}
                 headerActions={
-                    <button
-                        onClick={() => navigate('/contracts/new')}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-colors shadow-sm"
-                    >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>عقد جديد</span>
-                    </button>
+                    <div className="flex items-center gap-3">
+                        {isGlobalView && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-700">
+                                <Building2 className="w-4 h-4 shrink-0" />
+                                <select
+                                    value={contextBranchId ?? ''}
+                                    onChange={(e) => setBranchContextId(e.target.value === '' ? null : Number(e.target.value))}
+                                    className="bg-transparent text-xs font-bold focus:outline-none cursor-pointer"
+                                >
+                                    <option value="">كل الفروع</option>
+                                    {branchOptions.map((b) => (
+                                        <option key={b.id} value={b.id}>{b.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                        {canCreateContracts && (() => {
+                            // A GLOBAL operator must pick a branch before creating —
+                            // otherwise the server silently lands the contract in their
+                            // home branch (resolveActingBranch → primaryBranchId). Force
+                            // an explicit choice, mirroring the super-admin server rule.
+                            const mustPickBranch = isGlobalView && contextBranchId == null;
+                            return (
+                                <button
+                                    onClick={() => navigate('/contracts/new')}
+                                    disabled={mustPickBranch}
+                                    title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة عقد' : undefined}
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-colors shadow-sm disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>{mustPickBranch ? 'اختر فرعاً لإضافة عقد' : 'عقد جديد'}</span>
+                                </button>
+                            );
+                        })()}
+                    </div>
                 }
                 actions={(c) => (
                     <button

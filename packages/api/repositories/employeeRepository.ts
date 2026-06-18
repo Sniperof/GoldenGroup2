@@ -63,7 +63,11 @@ const EMPLOYEE_SELECT_COLS = `
   e.status,
   e.avatar,
   COALESCE(NULLIF(e.job_title, ''), NULLIF(jv.title, '')) AS "jobTitle",
-  e.created_at AS "createdAt"
+  e.created_at AS "createdAt",
+  -- Linked system account (hr_users.id). Contracts.sale_owner_id and other
+  -- ownership columns FK to hr_users(id), NOT employees(id) — callers that pick
+  -- an "owner" must use this id, not e.id. NULL when the employee has no account.
+  (SELECT u.id FROM hr_users u WHERE u.employee_id = e.id AND u.is_active = TRUE ORDER BY u.id LIMIT 1) AS "hrUserId"
 `;
 
 const EMPLOYEE_DETAIL_COLS = `
@@ -142,6 +146,7 @@ const APP_COLS = `
 
 export async function listEmployees(filter?: {
   branchId?: number | null;
+  branchIds?: number[] | null;
   includeScheduleAppearanceFlag?: boolean;
 }) {
   const scheduleAppearanceSelect = filter?.includeScheduleAppearanceFlag
@@ -162,14 +167,23 @@ export async function listEmployees(filter?: {
          LIMIT 1) AS "teamSlotType"`
     : '';
 
-  if (filter?.branchId != null) {
+  // Accept either a single branch (legacy callers) or a union of branches
+  // (BRANCH-scope users see every branch they are assigned to, not one).
+  const branchIds = filter?.branchIds != null
+    ? filter.branchIds
+    : (filter?.branchId != null ? [filter.branchId] : null);
+
+  if (branchIds != null) {
+    if (branchIds.length === 0) {
+      return [];
+    }
     const { rows } = await pool.query(
       `SELECT ${EMPLOYEE_SELECT_COLS}
               ${scheduleAppearanceSelect}
        ${HIRED_APPLICATION_JOINS}
-       WHERE e.branch_id = $1
+       WHERE e.branch_id = ANY($1)
        ORDER BY e.created_at DESC NULLS LAST, e.id DESC`,
-      [filter.branchId]
+      [branchIds]
     );
     return rows;
   }

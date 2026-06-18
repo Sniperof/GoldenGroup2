@@ -10,7 +10,13 @@ type BuildCustomerOwnershipSqlArgs = {
 export function buildClientLifecycleStatusSql(clientAlias: string): string {
   return `
     CASE
-      WHEN EXISTS (SELECT 1 FROM contracts lifecycle_ct WHERE lifecycle_ct.customer_id = ${clientAlias}.id)
+      WHEN EXISTS (
+        SELECT 1 FROM contracts lifecycle_ct
+         WHERE lifecycle_ct.customer_id = ${clientAlias}.id
+           -- A draft (or rejected) contract has no operational effect yet: the
+           -- client stays in its prior stage until the contract is approved.
+           AND lifecycle_ct.status NOT IN ('draft', 'discarded')
+      )
         THEN 'OP'
       WHEN EXISTS (
         SELECT 1

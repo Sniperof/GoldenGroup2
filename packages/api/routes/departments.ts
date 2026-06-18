@@ -172,9 +172,20 @@ router.get('/', requirePermission('departments.view_list', 'departments.lookup',
 
     let filterBranchId: number | null;
 
-    if (authContext.isSuperAdmin) {
+    if (requestedBranchId != null && Number.isFinite(requestedBranchId) && requestedBranchId > 0) {
+      // Honor an explicit branch pick (e.g. the employee form's operational
+      // branch) for ANYONE whose lookup scope covers it — the filter follows
+      // scope, not the user's home branch. A user without scope for that branch
+      // is rejected here rather than silently served their own branch.
+      const allowed = ['departments.view_list', 'departments.lookup', 'reference_data.lookup']
+        .some(permission => canAccessBranchPermission(req, permission, requestedBranchId));
+      if (!allowed) {
+        return res.status(403).json({ error: 'غير مسموح' });
+      }
+      filterBranchId = requestedBranchId;
+    } else if (authContext.isSuperAdmin) {
       const hb = Number(req.header('x-branch-id'));
-      filterBranchId = requestedBranchId ?? (Number.isFinite(hb) && hb > 0 ? hb : null);
+      filterBranchId = Number.isFinite(hb) && hb > 0 ? hb : null;
     } else {
       filterBranchId = authContext.actingBranchId;
     }

@@ -20,6 +20,28 @@ import { authorize } from '../services/authorizationService.js';
 
 const router = Router();
 const VALID_SCOPE_TYPES = new Set(['GLOBAL', 'BRANCH', 'ASSIGNED']);
+
+// Resolves which branch an "assignable users" lookup should filter by. The
+// OPERATION branch (?branchId) drives it so a GLOBAL deputy sees the staff of
+// the branch being operated on (like super-admin), while BRANCH actors stay
+// confined to their assigned branches. Returns a branch id, null (no filter =
+// all, for GLOBAL/super without a requested branch), or 'DENY' (out of scope).
+function resolveAssignableBranchFilter(
+  authContext: any,
+  req: any,
+  globalPermissions: string[],
+): number | null | 'DENY' {
+  const requested = Number(req.query.branchId);
+  const hasRequested = Number.isInteger(requested) && requested > 0;
+  const isGlobalAssigner = authContext.isSuperAdmin === true ||
+    (authContext.grants ?? []).some((g: any) => globalPermissions.includes(g.permission) && g.scope === 'GLOBAL');
+  if (isGlobalAssigner) {
+    return hasRequested ? requested : null;
+  }
+  const branchId = hasRequested ? requested : (authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null);
+  if (branchId == null || !authContext.allowedBranchIds.includes(branchId)) return 'DENY';
+  return branchId;
+}
 const VALID_TEAM_SLOT_TYPES = new Set(['SUPERVISOR', 'TECHNICIAN', 'TRAINEE', 'TELEMARKETER']);
 
 /**
@@ -863,12 +885,54 @@ router.get('/hr-users/name-list-assignable', requirePermission('candidates.name_
     ];
     const params: any[] = [];
 
-    if (!authContext.isSuperAdmin) {
-      const branchId = authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null;
-      if (branchId == null) {
-        return res.json([]);
-      }
-      params.push(branchId);
+    const branchFilter = resolveAssignableBranchFilter(authContext, req, ['candidates.name_lists.assignment.manage']);
+    if (branchFilter === 'DENY') return res.json([]);
+    if (branchFilter != null) {
+      params.push(branchFilter);
+      conditions.push(`u.branch_id = $${params.length}`);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const { rows } = await pool.query(
+      `SELECT u.id, u.name, u.branch_id,
+              r.display_name AS role_display_name
+         FROM hr_users u
+         LEFT JOIN roles r ON r.id = u.role_id
+         ${where}
+         ORDER BY u.name`,
+      params,
+    );
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /hr-users/candidate-assignable — Users eligible to own a candidate ───
+// Mirrors /hr-users/name-list-assignable for the candidate-names family: gated
+// by candidates.edit/create (assignment rides on edit), returns active users
+// whose role has candidates.can_be_assigned, branch-filtered for non-super.
+router.get('/hr-users/candidate-assignable', requirePermission('candidates.edit', 'candidates.create'), async (req, res) => {
+  try {
+    const authContext = req.authContext!;
+    const conditions: string[] = [
+      `u.is_active = TRUE`,
+      `u.role_id IN (
+        SELECT rpg.role_id
+          FROM role_permission_grants rpg
+          JOIN permissions p ON p.id = rpg.permission_id
+         WHERE p.key = 'candidates.can_be_assigned'
+      )`,
+    ];
+    const params: any[] = [];
+
+    // Scope to the OPERATION branch (?branchId), not the actor's acting branch,
+    // so a GLOBAL deputy sees the staff of the branch they're adding into — same
+    // as super-admin. BRANCH actors are confined to their assigned branches.
+    const branchFilter = resolveAssignableBranchFilter(authContext, req, ['candidates.edit', 'candidates.create']);
+    if (branchFilter === 'DENY') return res.json([]);
+    if (branchFilter != null) {
+      params.push(branchFilter);
       conditions.push(`u.branch_id = $${params.length}`);
     }
 

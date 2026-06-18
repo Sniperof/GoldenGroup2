@@ -9,6 +9,7 @@ import { api } from '../lib/api';
 import { levelNames } from '../lib/geoConstants';
 import type { Route, GeoUnit, RoutePoint } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAuthStore } from '../hooks/useAuthStore';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -28,12 +29,17 @@ const levelColors: Record<number, { bg: string; text: string; border: string }> 
 export default function RouteManager() {
     const { hasPermission } = usePermissions();
     const canManageGeo = hasPermission('routes.manage');
+    const getPermissionScope = useAuthStore(s => s.getPermissionScope);
+    // Only a GLOBAL viewer sees routes across branches, so the branch filter is
+    // only meaningful for them; BRANCH viewers are already server-scoped to one.
+    const isGlobalView = getPermissionScope('routes.view') === 'GLOBAL';
 
     const [routes, setRoutes] = useState<Route[]>([]);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [branchFilter, setBranchFilter] = useState<number | ''>('');
     const [showBuilder, setShowBuilder] = useState(false);
     const [editRoute, setEditRoute] = useState<Route | null>(null);
 
@@ -67,7 +73,18 @@ export default function RouteManager() {
     const getUnitName = useCallback((id: number) =>
         geoUnits.find(u => u.id === id)?.name || '??', [geoUnits]);
 
-    const filtered = routes.filter(r => r.name.includes(search));
+    // Branch options derived from the routes' attached branches (client-side —
+    // GLOBAL already receives all routes; no server narrowing, per the geo-levels rule).
+    const branchOptions = useMemo(() => {
+        const m = new Map<number, string>();
+        routes.forEach(r => (r.branches ?? []).forEach(b => m.set(b.branchId, b.branchName)));
+        return [...m].map(([id, name]) => ({ id, name }));
+    }, [routes]);
+
+    const filtered = routes.filter(r =>
+        r.name.includes(search)
+        && (branchFilter === '' || (r.branches ?? []).some(b => b.branchId === branchFilter))
+    );
 
     const openBuilder = (route?: Route) => {
         if (route) {
@@ -190,6 +207,18 @@ export default function RouteManager() {
                         className="w-full bg-gray-50 border border-gray-200 rounded-lg pr-10 pl-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
                     />
                 </div>
+                {isGlobalView && (
+                    <select
+                        value={branchFilter}
+                        onChange={e => setBranchFilter(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-bold text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none cursor-pointer"
+                    >
+                        <option value="">كل الفروع</option>
+                        {branchOptions.map(b => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                    </select>
+                )}
             </div>
 
             {/* ── Routes table ── */}
@@ -199,6 +228,7 @@ export default function RouteManager() {
                         <tr className="border-b border-gray-200 bg-gray-50">
                             <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
                             <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">اسم المسار</th>
+                            <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">الفرع التابع</th>
                             <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">عدد المحطات</th>
                             <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">المحطات</th>
                             <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">إجراءات</th>
@@ -207,7 +237,7 @@ export default function RouteManager() {
                     <tbody className="divide-y divide-gray-100">
                         {filtered.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="text-center text-slate-500 py-10 text-sm">لا توجد مسارات</td>
+                                <td colSpan={6} className="text-center text-slate-500 py-10 text-sm">لا توجد مسارات</td>
                             </tr>
                         ) : filtered.map((r, i) => (
                             <motion.tr key={r.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="hover:bg-sky-50 transition-colors">
@@ -219,6 +249,11 @@ export default function RouteManager() {
                                         </div>
                                         <span className="text-slate-900 font-medium text-sm">{r.name}</span>
                                     </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                    {r.branchLabel
+                                        ? <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">{r.branchLabel}</span>
+                                        : <span className="text-xs text-slate-400">—</span>}
                                 </td>
                                 <td className="px-6 py-4 text-sm text-slate-700">{r.points.length}</td>
                                 <td className="px-6 py-4">

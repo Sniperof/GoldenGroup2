@@ -38,18 +38,20 @@ function getToken(): string | null {
 }
 
 /**
- * For super admin only: the currently-selected branch context (if any).
+ * The currently-selected branch context (if any), attached as X-Branch-Id.
  * Read from localStorage to avoid a circular import with the Zustand store.
- * Non-super users never have this set, and global-only admin pages should not
- * send it because they operate outside branch context.
+ *
+ * Set by the super-admin sidebar switcher AND by the per-page management filters
+ * shown to GLOBAL-grant operators (e.g. مدير الشركة), whose sidebar switcher is
+ * hidden. We attach it for any such user, not only super admins, so their
+ * create/lookup calls scope to the picked branch. This is safe: the SERVER still
+ * gates the target branch against the user's allowedBranchIds (resolveActingBranch
+ * / resolveTargetBranchId), so a context outside the user's assignments is
+ * rejected. Global-only admin pages are excluded (shouldAttachBranchContextHeader).
  */
 function getBranchContextHeader(): string | null {
   try {
     if (!shouldAttachBranchContextHeader(window.location.pathname)) return null;
-    const rawUser = localStorage.getItem('hr_user');
-    if (!rawUser) return null;
-    const user = JSON.parse(rawUser);
-    if (user?.isSuperAdmin !== true) return null;
     const raw = localStorage.getItem('hr_branch_context');
     if (!raw) return null;
     const n = Number(raw);
@@ -112,7 +114,12 @@ export const api = {
     hrUsers: {
       list: () => request<any[]>('/admin/hr-users'),
       assignable: () => request<any[]>('/admin/hr-users/assignable'),
-      nameListAssignable: () => request<any[]>('/admin/hr-users/name-list-assignable'),
+      nameListAssignable: (branchId?: number | null) => request<any[]>(
+        `/admin/hr-users/name-list-assignable${branchId != null ? `?branchId=${branchId}` : ''}`,
+      ),
+      candidateAssignable: (branchId?: number | null) => request<any[]>(
+        `/admin/hr-users/candidate-assignable${branchId != null ? `?branchId=${branchId}` : ''}`,
+      ),
     },
     taskTypes: {
       list: (activeOnly = false) => {
@@ -136,7 +143,10 @@ export const api = {
     },
   },
   employees: {
-    list: () => request<any[]>('/employees'),
+    list: (branchId?: number | null) => request<any[]>(
+      '/employees',
+      branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+    ),
     lookup: (branchId?: number | null) => {
       const query = branchId != null ? `?branchId=${encodeURIComponent(String(branchId))}` : '';
       return request<any[]>(`/employees/lookup${query}`);
@@ -156,7 +166,12 @@ export const api = {
     delete: (id: number) => request<any>(`/employees/${id}`, { method: 'DELETE' }),
   },
   clients: {
-    list: () => request<any[]>('/clients'),
+    // branchId narrows a GLOBAL viewer to one branch (sent as X-Branch-Id, the
+    // header the list endpoint reads); null/undefined lets the server scope.
+    list: (branchId?: number | null) => request<any[]>(
+      '/clients',
+      branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+    ),
     get: (id: number) => request<any>(`/clients/${id}`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
     getAccountStatement: (
@@ -212,7 +227,11 @@ export const api = {
       request<any>(`/customers/calls/${callId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
   candidates: {
-    list: () => request<any[]>('/candidates'),
+    // branchId narrows a GLOBAL viewer to one branch (X-Branch-Id); null lets the server scope.
+    list: (branchId?: number | null) => request<any[]>(
+      '/candidates',
+      branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+    ),
     create: (data: any) => request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     linkToClient: (id: number, clientId: number) =>
@@ -220,7 +239,11 @@ export const api = {
     delete: (id: number) => request<any>(`/candidates/${id}`, { method: 'DELETE' }),
   },
   referralSheets: {
-    list: () => request<any[]>('/referral-sheets'),
+    // branchId narrows a GLOBAL viewer to one branch (X-Branch-Id); null lets the server scope.
+    list: (branchId?: number | null) => request<any[]>(
+      '/referral-sheets',
+      branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+    ),
     create: (data: any) => request<any>('/referral-sheets', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/referral-sheets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
@@ -236,9 +259,14 @@ export const api = {
   // were deleted in the same change. Use `api.openTasks` for current work.
 
   contracts: {
-    list: (params?: { customerId?: number }) => {
+    // branchId narrows a GLOBAL viewer to one branch (X-Branch-Id); null lets
+    // the server scope by the user's grants (BRANCH/ASSIGNED are server-scoped).
+    list: (params?: { customerId?: number; branchId?: number | null }) => {
       const qs = params?.customerId ? `?customerId=${params.customerId}` : '';
-      return request<any[]>(`/contracts${qs}`);
+      return request<any[]>(
+        `/contracts${qs}`,
+        params?.branchId != null ? { headers: { 'X-Branch-Id': String(params.branchId) } } : undefined,
+      );
     },
     get: (id: number) => request<any>(`/contracts/${id}`),
     create: (data: any) => request<any>('/contracts', { method: 'POST', body: JSON.stringify(data) }),

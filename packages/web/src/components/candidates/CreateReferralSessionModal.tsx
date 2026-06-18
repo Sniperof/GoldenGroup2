@@ -45,7 +45,11 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const getPermissionScope = useAuthStore(state => state.getPermissionScope);
     const { branchId: contextBranchId } = useBranchContextStore();
     const currentUserDisplayName = authUser?.name?.trim() || '';
-    const canChooseBranch = authUser?.isSuperAdmin === true;
+    // Branch field follows scope, not identity: super-admin OR a GLOBAL creator
+    // (parity with the clients modal). When the management filter pins a branch,
+    // the field is HIDDEN and the fixed branch is used silently.
+    const createSheetScope = getPermissionScope('candidates.name_lists.create');
+    const canChooseBranch = authUser?.isSuperAdmin === true || createSheetScope === 'GLOBAL';
     const assignmentScope = getPermissionScope('candidates.name_lists.assignment.manage');
     const canChooseAssignedOwner =
         authUser?.isSuperAdmin === true ||
@@ -58,7 +62,8 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const [branches, setBranches] = useState<BranchOption[]>([]);
     const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState<number | ''>(contextBranchId ?? authUser?.branchId ?? '');
-    const [selectedResponsibleUserId, setSelectedResponsibleUserId] = useState<number | ''>(authUser?.id ?? '');
+    // Empty default so the responsible is an explicit single choice (no phantom).
+    const [selectedResponsibleUserId, setSelectedResponsibleUserId] = useState<number | ''>('');
     useEffect(() => {
         if (!isOpen) return;
         let active = true;
@@ -68,9 +73,8 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             api.employees.list(),
             api.contracts.list(),
             canChooseBranch ? api.branches.list() : Promise.resolve([]),
-            canChooseAssignedOwner ? api.admin.hrUsers.nameListAssignable() : Promise.resolve([]),
         ])
-            .then(([clientsRes, employeesRes, contractsRes, branchesRes, hrUsersRes]) => {
+            .then(([clientsRes, employeesRes, contractsRes, branchesRes]) => {
                 if (!active) return;
                 setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
                 setEmployees(
@@ -84,22 +88,32 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                         ? branchesRes.value.map((branch: any) => ({ id: branch.id, name: branch.name }))
                         : [],
                 );
-                setHrUsers(
-                    hrUsersRes.status === 'fulfilled'
-                        ? hrUsersRes.value.map((user: any) => ({
-                            id: user.id,
-                            name: user.name,
-                            branchId: user.branch_id ?? user.branchId ?? null,
-                            roleDisplayName: user.role_display_name ?? user.roleDisplayName ?? null,
-                        }))
-                        : [],
-                );
             });
 
         return () => {
             active = false;
         };
-    }, [isOpen, canChooseAssignedOwner, canChooseBranch]);
+    }, [isOpen, canChooseBranch]);
+
+    // Responsible options = name-list-eligible staff of the OPERATION branch
+    // (§5.1), reloaded on branch change so a GLOBAL deputy sees the right branch.
+    useEffect(() => {
+        if (!isOpen || !canChooseAssignedOwner) { setHrUsers([]); return; }
+        const branchForLookup = selectedBranchId === '' ? (contextBranchId ?? null) : Number(selectedBranchId);
+        let active = true;
+        api.admin.hrUsers.nameListAssignable(branchForLookup)
+            .then(rows => {
+                if (!active) return;
+                setHrUsers((rows as any[]).map(u => ({
+                    id: u.id,
+                    name: u.name,
+                    branchId: u.branch_id ?? u.branchId ?? null,
+                    roleDisplayName: u.role_display_name ?? u.roleDisplayName ?? null,
+                })));
+            })
+            .catch(() => { if (active) setHrUsers([]); });
+        return () => { active = false; };
+    }, [isOpen, canChooseAssignedOwner, selectedBranchId, contextBranchId]);
 
     const [referralType, setReferralType] = useState<ReferralType>('Personal');
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
@@ -298,7 +312,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         setClientSuggestions([]);
         setSelectedClientId(null);
         setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
-        setSelectedResponsibleUserId(authUser?.id ?? '');
+        setSelectedResponsibleUserId('');
         setNotes('');
         setError('');
     };
@@ -335,7 +349,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
 
                     {(canChooseBranch || canChooseAssignedOwner) && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl border border-slate-200 bg-slate-50">
-                            {canChooseBranch && (
+                            {(canChooseBranch && contextBranchId == null) && (
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">الفرع</label>
                                     <select

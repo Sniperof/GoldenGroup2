@@ -5,8 +5,11 @@ import { api } from '../lib/api';
 interface CandidateState {
     candidates: Candidate[];
     referralSheets: ReferralSheet[];
+    // Last branch the page scoped to; post-mutation refetches reuse it so a
+    // GLOBAL viewer's branch narrowing survives add/qualify/etc.
+    _lastBranchId: number | null;
 
-    fetchData: () => Promise<void>;
+    fetchData: (branchId?: number | null) => Promise<void>;
 
     addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats' | 'ownerUserId' | 'createdBy'> & { ownerUserId?: number; createdBy?: number }) => Promise<number>;
     closeReferralSheet: (sheetId: number) => Promise<void>;
@@ -24,11 +27,17 @@ interface CandidateState {
 export const useCandidateStore = create<CandidateState>((set, get) => ({
     candidates: [],
     referralSheets: [],
+    _lastBranchId: null,
 
-    fetchData: async () => {
+    fetchData: async (branchId?: number | null) => {
+        // branchId narrows a GLOBAL viewer to one branch; for BRANCH/ASSIGNED the
+        // server scopes regardless, so the page passes it only when GLOBAL.
+        // `undefined` (internal post-mutation refetches) reuses the last branch.
+        const effectiveBranch = branchId !== undefined ? branchId : get()._lastBranchId;
+        set({ _lastBranchId: effectiveBranch });
         const [candidatesResult, referralSheetsResult] = await Promise.allSettled([
-            api.candidates.list(),
-            api.referralSheets.list()
+            api.candidates.list(effectiveBranch),
+            api.referralSheets.list(effectiveBranch)
         ]);
 
         if (candidatesResult.status === 'rejected') {

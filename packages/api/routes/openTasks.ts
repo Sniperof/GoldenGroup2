@@ -2027,9 +2027,22 @@ router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
         otpo.sale_reference_number AS "saleReferenceNumber",
         linked_spo.response_state AS "customerResponse",
         (
+          -- An offer is "already converted" when a live contract links to it by
+          -- source_task_offer_id OR by matching sale_reference_number (the latter
+          -- catches contracts created from the linked standalone pre-offer). This
+          -- mirrors customerPreOffers.ts so the contract form's accepted-unlinked
+          -- filter cannot re-sell an already-sold offer. Discarded/cancelled
+          -- contracts free the offer again.
           SELECT cx.id
           FROM contracts cx
-          WHERE cx.source_task_offer_id = otpo.id
+          WHERE cx.status NOT IN ('discarded', 'cancelled')
+            AND (
+              cx.source_task_offer_id = otpo.id
+              OR (
+                COALESCE(otpo.sale_reference_number, linked_spo.sale_reference_number) IS NOT NULL
+                AND cx.sale_reference_number = COALESCE(otpo.sale_reference_number, linked_spo.sale_reference_number)
+              )
+            )
           ORDER BY cx.id DESC
           LIMIT 1
         ) AS "contractId"

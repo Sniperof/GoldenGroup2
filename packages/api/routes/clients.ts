@@ -156,8 +156,26 @@ const CLIENT_MUTATION_RETURNING = `
 const toJson = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fallback);
 
 function mapClientRow(row: any) {
+  // Many clients still carry their (single) referrer only in the legacy scalar
+  // columns (referrer_name/type/entity) and have an empty `referrers` JSONB.
+  // Synthesize a one-element array from the legacy fields so every consumer
+  // (contract form's mediator picker, snapshot, etc.) sees the referrer
+  // uniformly — without this, those clients look like they have no mediator.
+  const referrers = Array.isArray(row.referrers) && row.referrers.length > 0
+    ? row.referrers
+    : (row.referrerName
+        ? [{
+            id: row.referralEntityId ?? null,
+            referrerName: row.referrerName,
+            referrerType: row.referrerType ?? 'unknown',
+            referralEntityId: row.referralEntityId ?? null,
+            referralDate: row.referralDate ?? null,
+            address: row.referralAddressText ?? null,
+          }]
+        : []);
   return {
     ...row,
+    referrers,
     ownership: mapCustomerOwnership(row),
   };
 }

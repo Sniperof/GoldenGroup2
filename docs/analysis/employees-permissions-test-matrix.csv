@@ -1,0 +1,8 @@
+﻿المفتاح	الوصف	النطاقات المسموحة	سوبر-أدمن	النائب	مدير الفرع	المشرف	الفني	البند	منطقة التدقيق الحرجة	الحالة	المسار المرجعي
+employees.nav	إظهار القسم بالقائمة الجانبية	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	—	GLOBAL	1	التنقّل/فلتر الإدارة	منفّذ (هجرة 297)	migrations/280,297
+employees.view_list	عرض القائمة + فتح /:id	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	BRANCH	BRANCH	1،5	فلتر الإدارة محكوم بالنطاق على الخادم	منفّذ هذه المرحلة	packages/api/routes/employees.ts:88
+employees.create	إضافة موظف	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	—	—	2	الإضافة منفصلة عن الرؤية، الخادم يقيّد الفرع	سليم	packages/api/routes/employees.ts:407
+employees.edit	تعديل موظف	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	—	—	5	authorize على فرع المالك + إعادة تحقق الفرع المستهدف	سليم	packages/api/routes/employees.ts:490
+employees.delete	حذف موظف	GLOBAL/BRANCH	GLOBAL	BRANCH	BRANCH	—	—	5	authorize على فرع المالك	سليم (نائب=BRANCH للتماسك)	packages/api/routes/employees.ts:595
+employees.lookup	قراءة الموظفين داخل الحقول	GLOBAL/BRANCH/ASSIGNED	GLOBAL	GLOBAL	BRANCH	BRANCH	GLOBAL	7	لوكب مقيّد بفرع العملية	سليم (ملاحظة: فني=GLOBAL مفتوح للقرار)	packages/api/routes/employees.ts:172
+employees.manager_lookup	المدير المباشر داخل الحقول	GLOBAL/BRANCH	GLOBAL	GLOBAL	BRANCH	—	—	5	مرشّحون من فرع العملية فقط (WHERE e.branch_id=$1)	سليم	packages/api/routes/employees.ts:121
