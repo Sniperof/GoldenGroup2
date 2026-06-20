@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
@@ -9,6 +9,16 @@ import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDel
 import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
 
 const RECORDABLE_POST_SALE_TYPES = new Set(['device_delivery', 'device_installation', 'device_activation']);
+
+// The component is mounted from four group routes; the back link must point to
+// the group the user actually came from (group segment in /tasks/group/<g>/:id),
+// not a hard-coded one.
+const BACK_BY_GROUP: Record<string, { href: string; label: string }> = {
+  'device-delivery':     { href: '/tasks/group/device-delivery',     label: 'مهام تسليم الجهاز' },
+  'device-installation': { href: '/tasks/group/device-installation', label: 'مهام تركيب الجهاز' },
+  'device-activation':   { href: '/tasks/group/device-activation',   label: 'مهام تشغيل الجهاز' },
+  'after-sale-services': { href: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع' },
+};
 
 const PostSaleResultModal = (props: TaskResultModalProps) => {
   const taskType = props.task?.taskType ?? props.task?.task_type;
@@ -76,13 +86,19 @@ export default function PostSaleTaskDetail() {
   const { id } = useParams<{ id: string }>();
   const taskId = Number(id);
 
+  // Group is the segment immediately before the id, e.g.
+  // /tasks/group/device-installation/32 → "device-installation".
+  const segments = useLocation().pathname.split('/').filter(Boolean);
+  const groupSegment = segments[segments.length - 2] ?? '';
+  const back = BACK_BY_GROUP[groupSegment] ?? BACK_BY_GROUP['after-sale-services'];
+
   return (
     <TaskDetailLayout
       taskId={taskId}
       typeIcon={RefreshCw}
       typeIconColor="text-sky-500"
-      backLabel="مهام خدمات ما بعد البيع"
-      backHref="/tasks/group/after-sale-services"
+      backLabel={back.label}
+      backHref={back.href}
       extension={postSaleExtension}
       scheduleExtraRows={scheduleExtraRows}
       overviewIssuesFor={overviewIssuesFor}

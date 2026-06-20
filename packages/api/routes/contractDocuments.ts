@@ -291,7 +291,8 @@ router.get(
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const frozen = await freezeContractDocument(client, contractId, (req as any).user?.id ?? null);
+      // frozen_by FK → employees.id, so pass employeeId (not the hr_users.id).
+      const frozen = await freezeContractDocument(client, contractId, (req as any).user?.employeeId ?? null);
       await client.query('COMMIT');
       const fresh = await pool.query(
         `SELECT rendered_html, content_hash, template_version FROM contract_documents WHERE id = $1`,
@@ -325,7 +326,8 @@ router.post(
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const frozen = await freezeContractDocument(client, contractId, (req as any).user?.id ?? null);
+      // frozen_by FK → employees.id, so pass employeeId (not the hr_users.id).
+      const frozen = await freezeContractDocument(client, contractId, (req as any).user?.employeeId ?? null);
       await client.query('COMMIT');
       res.status(frozen.createdNow ? 201 : 200).json(frozen);
     } catch (err: any) {
