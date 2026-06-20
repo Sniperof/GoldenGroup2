@@ -19,6 +19,8 @@ import {
     Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers,
 } from 'lucide-react';
 
+const APP_VERSION_LABEL = '3.0v';
+
 const navItems = [
     { path: '/', label: 'نظرة عامة', icon: LayoutDashboard },
 ];
@@ -197,6 +199,9 @@ export default function MainLayout() {
                         <Gem className="w-4 h-4 text-white" />
                     </div>
                     <span className="text-lg font-bold text-slate-800">Golden Group</span>
+                    <span className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-600 border border-sky-100 text-[10px] font-extrabold tracking-wide">
+                        {APP_VERSION_LABEL}
+                    </span>
                 </div>
                 <button
                     onClick={toggleSidebar}
@@ -230,7 +235,12 @@ export default function MainLayout() {
                         <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center shadow-lg shadow-sky-500/30">
                             <Gem className="w-4 h-4 text-white" />
                         </div>
-                        <span className="text-xl font-bold text-slate-800 tracking-wide">Golden Group</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xl font-bold text-slate-800 tracking-wide">Golden Group</span>
+                            <span className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-600 border border-sky-100 text-[10px] font-extrabold tracking-wide">
+                                {APP_VERSION_LABEL}
+                            </span>
+                        </div>
                     </div>
                     {/* Desktop Collapse Toggle */}
                     <button
