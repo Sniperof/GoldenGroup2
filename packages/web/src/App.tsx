@@ -110,7 +110,15 @@ export default function App() {
                         <Route path="/tasks/open" element={<OpenTasks />} />
                         <Route path="/tasks/device-demo" element={<DeviceDemo />} />
                         <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
-                        <Route path="/tasks/after-sale-services/:id" element={<PostSaleTaskDetail />} />
+                        {/* Post-sale detail routes — each group's detailHref is
+                            /tasks/group/<group>, so the per-row link is
+                            /tasks/group/<group>/:id. These must precede the
+                            /tasks/group/:group catch-all below. PostSaleTaskDetail
+                            derives its back link from the group segment. */}
+                        <Route path="/tasks/group/after-sale-services/:id" element={<PostSaleTaskDetail />} />
+                        <Route path="/tasks/group/device-delivery/:id" element={<PostSaleTaskDetail />} />
+                        <Route path="/tasks/group/device-installation/:id" element={<PostSaleTaskDetail />} />
+                        <Route path="/tasks/group/device-activation/:id" element={<PostSaleTaskDetail />} />
                         {/* Unified open_task detail under group URL — V1.0 reuses EmergencyTaskDetail. */}
                         <Route path="/tasks/group/maintenance/:id" element={<EmergencyTaskDetail />} />
                         {/* Unified task groups (2026-06-01) — single page, 6 display_groups */}
