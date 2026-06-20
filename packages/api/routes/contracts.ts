@@ -1251,11 +1251,17 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     // nothing is written, so a redundant transition is safe.
     const newStatus = derivedStatus;
     if (prevStatus === 'draft' && newStatus === 'active') {
+      // SAVEPOINT so a freeze failure rolls back in isolation instead of
+      // aborting (and silently rolling back) the whole update transaction.
+      // frozen_by FK → employees.id, so pass employeeId (not the hr_users.id).
+      await pgClient.query('SAVEPOINT freeze_doc');
       try {
-        await freezeContractDocument(pgClient, Number(req.params.id), (req as any).user?.id ?? null);
+        await freezeContractDocument(pgClient, Number(req.params.id), (req as any).user?.employeeId ?? null);
+        await pgClient.query('RELEASE SAVEPOINT freeze_doc');
       } catch (freezeErr: any) {
         // Don't abort the contract update if freezing fails (e.g. missing template
         // for a sale_subtype we haven't implemented yet). Log and continue.
+        await pgClient.query('ROLLBACK TO SAVEPOINT freeze_doc');
         console.warn('[contracts] auto-freeze skipped for contract', req.params.id, ':', freezeErr?.message);
       }
     }
@@ -1460,8 +1466,19 @@ router.post('/:id/installments', requirePermission('contracts.edit'), async (req
         status: contract.status,
       });
     }
+    // Confirmed installments are locked: we never delete or re-insert them.
+    // We only replace the unconfirmed ones. Re-inserting a payload row whose
+    // installment_number matches a surviving confirmed row would otherwise hit
+    // contract_installments_contract_id_installment_number_key. So skip any
+    // incoming row whose number is already confirmed in the DB.
+    const { rows: confirmedRows } = await pgClient.query(
+      'SELECT installment_number FROM contract_installments WHERE contract_id = $1 AND confirmed = TRUE',
+      [contractId],
+    );
+    const lockedNumbers = new Set(confirmedRows.map((r: any) => Number(r.installment_number)));
     await pgClient.query('DELETE FROM contract_installments WHERE contract_id = $1 AND confirmed = FALSE', [contractId]);
     for (const inst of installments) {
+      if (lockedNumbers.has(Number(inst.installmentNumber))) continue;
       await pgClient.query(
         `INSERT INTO contract_installments
           (contract_id, installment_number, due_date, amount_syp, remaining_balance, confirmed)
@@ -2027,10 +2044,18 @@ router.post('/:id/approve', async (req, res) => {
       await promoteClientToLifecycleStatus(pgClient, Number(refreshed.customerId), 'OP');
     }
 
-    // Freeze the legal copy (DEC-CT-15).
+    // Freeze the legal copy (DEC-CT-15). Wrap in a SAVEPOINT so a freeze
+    // failure (e.g. missing template) can be rolled back in isolation WITHOUT
+    // aborting the whole approval transaction — a plain try/catch is not
+    // enough, because any error marks the surrounding transaction as aborted
+    // and the subsequent COMMIT silently becomes a ROLLBACK.
+    // frozen_by FK → employees.id, so pass employeeId (not the hr_users.id).
+    await pgClient.query('SAVEPOINT freeze_doc');
     try {
-      await freezeContractDocument(pgClient, contractId, (req as any).user?.id ?? null);
+      await freezeContractDocument(pgClient, contractId, (req as any).user?.employeeId ?? null);
+      await pgClient.query('RELEASE SAVEPOINT freeze_doc');
     } catch (freezeErr: any) {
+      await pgClient.query('ROLLBACK TO SAVEPOINT freeze_doc');
       console.warn('[contracts] auto-freeze on approve skipped for', contractId, ':', freezeErr?.message);
     }
 
