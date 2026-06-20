@@ -125,7 +125,7 @@ function Sparkline({ points }: { points: number[] }) {
   });
   const path = coords.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   return (
-    <svg width={w} height={h} className="overflow-visible" dir="ltr">
+    <svg width={w} height={h} className="overflow-visible" style={{ direction: 'ltr' }}>
       <path d={path} fill="none" stroke="currentColor" strokeWidth={1.5} className="text-sky-500" />
       {coords.map(([x, y], i) => <circle key={i} cx={x} cy={y} r={2} className="fill-sky-500" />)}
     </svg>
