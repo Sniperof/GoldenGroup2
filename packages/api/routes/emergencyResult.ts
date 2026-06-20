@@ -253,8 +253,9 @@ router.use(requireAuth);
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const TECH_STATE_FIELDS = `
-  id, contract_id AS "contractId", open_task_id AS "openTaskId", phase,
+export const TECH_STATE_FIELDS = `
+  id, contract_id AS "contractId", open_task_id AS "openTaskId",
+  installed_device_id AS "installedDeviceId", task_type_snapshot AS "taskTypeSnapshot", phase,
   water_source_type AS "waterSourceType", water_source_tds AS "waterSourceTds",
   water_pressure AS "waterPressure", has_pressure_regulator AS "hasPressureRegulator",
   tap_tds_before AS "tapTdsBefore", pump_pressure AS "pumpPressure",
@@ -269,7 +270,7 @@ const TECH_STATE_FIELDS = `
 `;
 
 function mapNum(v: any) { return v != null ? Number(v) : null; }
-function mapTechState(r: any) {
+export function mapTechState(r: any) {
   return {
     ...r,
     waterSourceTds:    mapNum(r.waterSourceTds),
@@ -289,6 +290,7 @@ function mapTechState(r: any) {
 async function getTaskMeta(taskId: number) {
   const { rows } = await pool.query(
     `SELECT ot.id, ot.status, ot.contract_id AS "contractId",
+            ot.task_type AS "taskType",
             ot.em_pre_state_id AS "preStateId", ot.em_post_state_id AS "postStateId",
             ot.em_action_id AS "actionId", ot.em_costs_id AS "costsId",
             ot.source_service_request_id AS "sourceServiceRequestId",
@@ -556,9 +558,13 @@ router.put('/:taskId/pre-state', requirePermission('marketing_visits.update_resu
         [...vals, stateId],
       );
     } else {
-      // Insert new
-      const cols = ['open_task_id', 'contract_id', 'phase', 'recorded_by', ...fields];
-      const vals = [taskId, meta.contractId ?? null, 'pre', recordedBy, ...fields.map(f => b[camel[f]] ?? null)];
+      // Insert new. A health reading is keyed on the physical device (constitution
+      // 01i §2) — refuse explicitly rather than hit a raw constraint error.
+      if (!meta.installedDeviceId) {
+        return res.status(400).json({ error: 'لا يمكن تسجيل حالة فنية لمهمة بلا جهاز مرتبط' });
+      }
+      const cols = ['open_task_id', 'installed_device_id', 'contract_id', 'task_type_snapshot', 'phase', 'recorded_by', ...fields];
+      const vals = [taskId, meta.installedDeviceId, meta.contractId ?? null, meta.taskType ?? null, 'pre', recordedBy, ...fields.map(f => b[camel[f]] ?? null)];
       const params = vals.map((_, i) => `$${i + 1}`);
       const { rows } = await pool.query(
         `INSERT INTO device_technical_states (${cols.join(', ')}) VALUES (${params.join(', ')}) RETURNING id`,
@@ -661,8 +667,12 @@ router.put('/:taskId/post-state', requirePermission('marketing_visits.update_res
         [...vals, stateId],
       );
     } else {
-      const cols = ['open_task_id', 'contract_id', 'phase', 'recorded_by', ...fields];
-      const vals = [taskId, meta.contractId ?? null, 'post', recordedBy, ...fields.map(f => b[camel[f]] ?? null)];
+      // Insert new — device-keyed health reading (constitution 01i §2).
+      if (!meta.installedDeviceId) {
+        return res.status(400).json({ error: 'لا يمكن تسجيل حالة فنية لمهمة بلا جهاز مرتبط' });
+      }
+      const cols = ['open_task_id', 'installed_device_id', 'contract_id', 'task_type_snapshot', 'phase', 'recorded_by', ...fields];
+      const vals = [taskId, meta.installedDeviceId, meta.contractId ?? null, meta.taskType ?? null, 'post', recordedBy, ...fields.map(f => b[camel[f]] ?? null)];
       const params = vals.map((_, i) => `$${i + 1}`);
       const { rows } = await pool.query(
         `INSERT INTO device_technical_states (${cols.join(', ')}) VALUES (${params.join(', ')}) RETURNING id`,

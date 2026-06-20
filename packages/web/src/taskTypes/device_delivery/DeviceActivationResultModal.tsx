@@ -1,6 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock, Gauge, Loader2, MonitorCheck, X, XCircle } from 'lucide-react';
 import { api } from '../../lib/api';
+import {
+  TechnicalStateFields,
+  buildTechnicalStatePayload,
+  hasAnyTechnicalReading,
+  type TechStateForm,
+} from '../../components/devices/TechnicalStateFields';
 
 type ActivationDecision = 'activated_successfully' | 'activation_failed' | 'device_issue';
 
@@ -10,15 +16,10 @@ const DECISION_CARDS: Array<{ value: ActivationDecision; title: string; desc: st
   { value: 'device_issue', title: 'مشكلة بالجهاز', desc: 'يحتاج الجهاز معالجة قبل التشغيل', Icon: XCircle, cls: 'border-rose-200 bg-rose-50 text-rose-700' },
 ];
 
-function numericOrNull(value: string): number | null {
-  if (!value.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 export default function DeviceActivationResultModal({
   visitId,
   taskId,
+  task,
   onClose,
   onSaved,
 }: {
@@ -29,12 +30,8 @@ export default function DeviceActivationResultModal({
   onSaved: () => void;
 }) {
   const [decision, setDecision] = useState<ActivationDecision>('activated_successfully');
-  const [tdsBefore, setTdsBefore] = useState('');
-  const [tdsAfter, setTdsAfter] = useState('');
-  const [pumpPressure, setPumpPressure] = useState('');
-  const [tankPressure, setTankPressure] = useState('');
-  const [membraneOutput, setMembraneOutput] = useState('');
-  const [uvStatus, setUvStatus] = useState('');
+  const [techState, setTechState] = useState<TechStateForm>({});
+  const [hasSterilization, setHasSterilization] = useState(true);
   const [customerTrained, setCustomerTrained] = useState(true);
   const [trainingNotes, setTrainingNotes] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
@@ -43,6 +40,15 @@ export default function DeviceActivationResultModal({
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Resolve the device's sterilization capability to gate that block.
+  const deviceId = Number(task?.device_id ?? task?.deviceId);
+  useEffect(() => {
+    if (!Number.isInteger(deviceId) || deviceId <= 0) return;
+    api.installedDevices.get(deviceId)
+      .then((d: any) => setHasSterilization(d?.hasSterilization !== false))
+      .catch(() => { /* default: show the block */ });
+  }, [deviceId]);
 
   const needsFollowUp = decision !== 'activated_successfully';
 
@@ -66,12 +72,9 @@ export default function DeviceActivationResultModal({
         reason_code: needsFollowUp ? reasonCode.trim() || null : null,
         expected_date: needsFollowUp ? expectedDate : null,
         expected_time: needsFollowUp && expectedTime ? expectedTime : null,
-        tds_before: numericOrNull(tdsBefore),
-        tds_after: numericOrNull(tdsAfter),
-        pump_pressure: numericOrNull(pumpPressure),
-        tank_pressure: numericOrNull(tankPressure),
-        membrane_output: membraneOutput.trim() || null,
-        uv_status: uvStatus.trim() || null,
+        // Integrated technical health reading (constitution 01i) — baseline phase
+        // is set server-side; null when the technician recorded no measurement.
+        technical_state: hasAnyTechnicalReading(techState) ? buildTechnicalStatePayload(techState) : null,
         customer_trained: decision === 'activated_successfully' ? customerTrained : false,
         training_notes: trainingNotes.trim() || null,
         activation_photos: [],
@@ -128,34 +131,10 @@ export default function DeviceActivationResultModal({
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-800">
               <Gauge className="h-4 w-4 text-sky-600" />
-              قياسات التشغيل
+              الحالة الفنية للجهاز
+              <span className="text-[10px] font-bold rounded-full border border-slate-200 bg-slate-50 text-slate-500 px-2 py-0.5">قراءة مرجعية</span>
             </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">TDS قبل التشغيل</span>
-                <input type="number" min="0" value={tdsBefore} onChange={(e) => setTdsBefore(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">TDS بعد التشغيل</span>
-                <input type="number" min="0" value={tdsAfter} onChange={(e) => setTdsAfter(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">ضغط المضخة</span>
-                <input type="number" min="0" step="0.1" value={pumpPressure} onChange={(e) => setPumpPressure(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">ضغط الخزان</span>
-                <input type="number" min="0" step="0.1" value={tankPressure} onChange={(e) => setTankPressure(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">حالة الممبرين</span>
-                <input value={membraneOutput} onChange={(e) => setMembraneOutput(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="طبيعية، ضعيفة..." />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">حالة UV</span>
-                <input value={uvStatus} onChange={(e) => setUvStatus(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="يعمل، لا يعمل..." />
-              </label>
-            </div>
+            <TechnicalStateFields value={techState} onChange={setTechState} hasSterilization={hasSterilization} />
           </div>
 
           {decision === 'activated_successfully' && (

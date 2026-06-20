@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
+import { TECH_STATE_FIELDS, mapTechState } from './emergencyResult.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -20,6 +21,7 @@ const selectFields = `
   d.external_device_notes AS "externalDeviceNotes",
   COALESCE(d.device_model_id, c.device_model_id) AS "deviceModelId",
   COALESCE(d.device_model_name, c.device_model_name, d.external_device_name) AS "deviceModelName",
+  dm.has_sterilization        AS "hasSterilization",
   d.serial_number     AS "serialNumber",
   d.status,
   d.installation_geo_unit_id  AS "installationGeoUnitId",
@@ -37,6 +39,7 @@ const selectFields = `
   d.created_at                AS "createdAt",
   d.updated_at                AS "updatedAt",
   c.contract_number           AS "contractNumber",
+  c.sale_subtype              AS "saleSubtype",
   c.customer_name             AS "customerName",
   b.name                      AS "branchName",
   gu.name                     AS "installationGeoUnitName",
@@ -57,7 +60,7 @@ const selectFields = `
 `;
 
 // GET /api/installed-devices?customerId=X&branchId=Y
-router.get('/', requirePermission('clients.devices.view', 'contracts.view_list'), async (req, res) => {
+router.get('/', requirePermission('installed_devices.view', 'clients.devices.view', 'contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
   const { customerId, branchId, status } = req.query;
   const conditions: string[] = [];
@@ -71,6 +74,7 @@ router.get('/', requirePermission('clients.devices.view', 'contracts.view_list')
     }
     const access = {
       allowed:
+        authorize(authContext, { permission: 'installed_devices.view', branchId: requestedBranchId }).allowed ||
         authorize(authContext, { permission: 'clients.devices.view', branchId: requestedBranchId }).allowed ||
         authorize(authContext, { permission: 'contracts.view_list', branchId: requestedBranchId }).allowed,
     };
@@ -94,6 +98,7 @@ router.get('/', requirePermission('clients.devices.view', 'contracts.view_list')
      LEFT JOIN contracts c ON c.id = d.contract_id
      LEFT JOIN branches b ON b.id = d.branch_id
      LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
+     LEFT JOIN device_models dm ON dm.id = COALESCE(d.device_model_id, c.device_model_id)
      ${where}
      ORDER BY d.created_at DESC`,
     params
@@ -232,7 +237,7 @@ router.post('/external', requirePermission('installed_devices.create_external'),
 });
 
 // GET /api/installed-devices/:id
-router.get('/:id', requirePermission('clients.devices.view', 'contracts.view_list'), async (req, res) => {
+router.get('/:id', requirePermission('installed_devices.view', 'clients.devices.view', 'contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
   const { rows } = await pool.query(
     `SELECT ${selectFields}
@@ -240,12 +245,14 @@ router.get('/:id', requirePermission('clients.devices.view', 'contracts.view_lis
      LEFT JOIN contracts c ON c.id = d.contract_id
      LEFT JOIN branches b ON b.id = d.branch_id
      LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
+     LEFT JOIN device_models dm ON dm.id = COALESCE(d.device_model_id, c.device_model_id)
      WHERE d.id = $1`,
     [req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
   const access = {
     allowed:
+      authorize(authContext, { permission: 'installed_devices.view', branchId: rows[0].branchId }).allowed ||
       authorize(authContext, { permission: 'clients.devices.view', branchId: rows[0].branchId }).allowed ||
       authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId }).allowed,
   };
@@ -300,6 +307,43 @@ router.get('/:id/problems', requirePermission('clients.devices.view', 'contracts
     [deviceId],
   );
   res.json(rows);
+});
+
+// GET /api/installed-devices/:id/technical-states — device-keyed health record
+// (constitution 01i). Read-only history, newest first. Branch-scoped via the
+// device's own branch, guarded by installed_devices.view.
+router.get('/:id/technical-states', requirePermission('installed_devices.view', 'clients.devices.view', 'contracts.view_list'), async (req, res) => {
+  const authContext = req.authContext!;
+  const deviceId = Number(req.params.id);
+  const { rows: devRows } = await pool.query(
+    `SELECT branch_id AS "branchId" FROM installed_devices WHERE id = $1`,
+    [deviceId],
+  );
+  if (!devRows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
+  const access = {
+    allowed:
+      authorize(authContext, { permission: 'installed_devices.view', branchId: devRows[0].branchId }).allowed ||
+      authorize(authContext, { permission: 'clients.devices.view', branchId: devRows[0].branchId }).allowed ||
+      authorize(authContext, { permission: 'contracts.view_list', branchId: devRows[0].branchId }).allowed,
+  };
+  if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
+
+  const { rows } = await pool.query(
+    `SELECT t.*,
+            u.name AS "recordedByName",
+            ot.task_type AS "taskType",
+            ot.status    AS "taskStatus"
+       FROM (
+         SELECT ${TECH_STATE_FIELDS}
+           FROM device_technical_states
+          WHERE installed_device_id = $1
+       ) t
+       LEFT JOIN hr_users u ON u.id = t."recordedBy"
+       LEFT JOIN open_tasks ot ON ot.id = t."openTaskId"
+      ORDER BY t."createdAt" DESC`,
+    [deviceId],
+  );
+  res.json(rows.map(mapTechState));
 });
 
 // PATCH /api/installed-devices/:id  — update physical device fields only
