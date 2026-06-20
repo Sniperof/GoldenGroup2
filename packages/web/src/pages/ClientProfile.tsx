@@ -1090,16 +1090,18 @@ function NetworkTab({ client }: { client: Client }) {
                         <>
                             <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-gray-100 text-xs font-black text-slate-500">
                                 <span className="col-span-1">#</span>
-                                <span className="col-span-3">اسم الوسيط</span>
+                                <span className="col-span-2">اسم الوسيط</span>
+                                <span className="col-span-2">الاسم المقترح</span>
                                 <span className="col-span-2">النوع</span>
                                 <span className="col-span-2">العنوان</span>
                                 <span className="col-span-2">تاريخ الإحالة</span>
-                                <span className="col-span-2">رابط</span>
+                                <span className="col-span-1">رابط</span>
                             </div>
                             {incoming.map((ref: any, i: number) => (
                                 <div key={i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-50 hover:bg-slate-50/50 items-center text-sm">
                                     <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
-                                    <span className="col-span-3 font-bold text-slate-800">{ref.name}</span>
+                                    <span className="col-span-2 font-bold text-slate-800">{ref.name}</span>
+                                    <span className="col-span-2 font-bold text-slate-700">{ref.candidateName || '--'}</span>
                                     <span className="col-span-2">
                                         <span className={`px-2 py-1 rounded-full text-xs font-bold ${typeBadgeClass(ref.type)}`}>
                                             {referrerTypeLabel(ref.type)}
@@ -1107,7 +1109,7 @@ function NetworkTab({ client }: { client: Client }) {
                                     </span>
                                     <span className="col-span-2 text-slate-600">{ref.address || '--'}</span>
                                     <span className="col-span-2 font-mono text-xs text-slate-500">{ref.referralDate || '--'}</span>
-                                    <span className="col-span-2">
+                                    <span className="col-span-1">
                                         {ref.id ? (
                                             <Link to={`/clients/${ref.id}`} className="text-sky-600 font-bold hover:underline">
                                                 عرض

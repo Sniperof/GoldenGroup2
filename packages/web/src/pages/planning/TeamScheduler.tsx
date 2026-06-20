@@ -3,7 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle, LayoutGrid, ArrowLeft } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import type { DaySchedule, Employee } from '../../lib/types';
+
+// A slot owned by another branch arrives redacted to `{ locked: true }` (server keeps
+// the team_key index stable — GAP-DS-005). It is HIDDEN from this branch's manager,
+// but MUST stay in the array so the save round-trips it back unchanged (the PUT merge
+// restores the real slot from storage by index).
+const isLockedSlot = (slot: any): boolean => Boolean(slot) && slot.locked === true;
 
 // Local calendar date (NOT UTC). toISOString() returns the UTC date, which is a day
 // behind between local midnight and the UTC offset (01:00 in Damascus +03 is still
@@ -33,10 +40,12 @@ export default function TeamScheduler() {
     const [loading, setLoading] = useState(true);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [saveError, setSaveError] = useState<string | null>(null);
+    // React to the external branch switcher (no full reload — §4).
+    const branchId = useBranchContextStore(s => s.branchId);
 
     useEffect(() => {
         api.employees.schedulePool().then((data: Employee[]) => setEmployees(data)).catch(() => {});
-    }, []);
+    }, [branchId]);
 
     useEffect(() => {
         setLoading(true);
@@ -48,7 +57,7 @@ export default function TeamScheduler() {
                 setCurrent({ teams: [], solos: [] });
             })
             .finally(() => setLoading(false));
-    }, [date]);
+    }, [date, branchId]);
 
     const updateCurrent = useCallback((sched: DaySchedule) => {
         setCurrent(sched);
@@ -265,6 +274,7 @@ export default function TeamScheduler() {
                     ) : (
                         <div className="space-y-4">
                             {current.teams.map((t, idx) => {
+                                if (isLockedSlot(t)) return null;   // foreign-branch slot: kept in state (round-trips via PUT merge) but hidden from this branch's manager
                                 const teamName = t.supervisor ? `فريق ${getEmpName(t.supervisor)}` : `فريق #${idx + 1}`;
                                 const isSup = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'supervisor';
                                 const isTech = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'technician';
@@ -347,6 +357,7 @@ export default function TeamScheduler() {
                             })}
 
                             {current.solos.map((s, idx) => {
+                                if (isLockedSlot(s)) return null;   // foreign-branch solo slot: kept in state but hidden
                                 const isTech = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx && selectedSlot.role === 'technician';
                                 const isTrainee = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx && selectedSlot.role === 'trainee';
                                 const isTele = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx && selectedSlot.role === 'telemarketer';

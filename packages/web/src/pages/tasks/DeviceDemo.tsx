@@ -118,6 +118,10 @@ function getCreatorLabel(row: any): string {
   return compactText(row.displayCreatedByName) || compactText(row.createdByName) || compactText(row.createdBy?.name) || compactText(row.createdBy?.username) || '—';
 }
 
+function getDateCounterReference(row: any): string | null {
+  return row.taskStatus === 'completed' ? (row.completedAt ?? row.updatedAt ?? null) : null;
+}
+
 export default function DeviceDemo() {
   const navigate = useNavigate();
   const { effectiveBranchId, needsBranchSelection } = useBranchListScope();
@@ -128,8 +132,8 @@ export default function DeviceDemo() {
   const [visitStatusFilter, setVisitStatusFilter] = useState('');
   const [scheduledFilter, setScheduledFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
-  const [hideSnoozed, setHideSnoozed] = useState(true);
-  const [hideFutureTasks, setHideFutureTasks] = useState(true);
+  const [hideSnoozed, setHideSnoozed] = useState(false);
+  const [hideFutureTasks, setHideFutureTasks] = useState(false);
   const [clientPopupId, setClientPopupId] = useState<number | null>(null);
   const [savingPriorityId, setSavingPriorityId] = useState<number | null>(null);
 
@@ -312,6 +316,7 @@ export default function DeviceDemo() {
                   const mobile = getPrimaryMobile(row);
                   const name = getFullCustomerName(row);
                   const phase = (row.phase ?? getTaskPhase(row.taskStatus as OpenTaskStatus)) as keyof typeof OPEN_TASK_PHASE_LABELS;
+                  const dateCounterReference = getDateCounterReference(row);
 
                   return (
                     <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`/tasks/device-demo/${row.id}`)}>
@@ -357,7 +362,7 @@ export default function DeviceDemo() {
                       </td>
                       <td className="px-4 py-3 text-xs">
                         {(() => {
-                          const s = getDueDateStatus(row.dueDate);
+                          const s = getDueDateStatus(row.dueDate, dateCounterReference);
                           if (!s) return <span className="text-slate-300">—</span>;
                           return (
                             <div className="flex flex-col gap-1 items-start">
@@ -372,7 +377,7 @@ export default function DeviceDemo() {
                       <td className="px-4 py-3 text-xs">
                         {(() => {
                           if (!row.expectedDate) return <span className="text-slate-300">—</span>;
-                          const s = getExpectedDateStatus(row.expectedDate);
+                          const s = getExpectedDateStatus(row.expectedDate, dateCounterReference);
                           if (!s) return <span className="text-slate-600">{formatDate(row.expectedDate)}</span>;
                           return (
                             <div className="flex flex-col gap-1 items-start">

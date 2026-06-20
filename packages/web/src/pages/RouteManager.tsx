@@ -10,6 +10,8 @@ import { levelNames } from '../lib/geoConstants';
 import type { Route, GeoUnit, RoutePoint } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../hooks/useAuthStore';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import BranchScopeIndicator from '../components/BranchScopeIndicator';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -30,16 +32,23 @@ export default function RouteManager() {
     const { hasPermission } = usePermissions();
     const canManageGeo = hasPermission('routes.manage');
     const getPermissionScope = useAuthStore(s => s.getPermissionScope);
-    // Only a GLOBAL viewer sees routes across branches, so the branch filter is
-    // only meaningful for them; BRANCH viewers are already server-scoped to one.
-    const isGlobalView = getPermissionScope('routes.view') === 'GLOBAL';
+    // The unified external filter (§4) — its value drives the server-side narrowing
+    // now (X-Branch-Id), replacing the old in-page branch dropdown.
+    const branchContextId = useBranchContextStore(s => s.branchId);
+    // Add gate (§5): a GLOBAL manager on "all branches" has no branch to own the new
+    // route, so creation is blocked until a branch is picked (mirrors the server's
+    // SH-3 reject). A BRANCH manager is pinned, so never blocked.
+    const mustPickBranch = getPermissionScope('routes.manage') === 'GLOBAL' && branchContextId == null;
 
     const [routes, setRoutes] = useState<Route[]>([]);
+    // Scoped geo list for the builder PICKER (form pick = operation's branch coverage, §5.1).
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+    // Global name map for DISPLAY labels — every unit, no scope, so a visible route's
+    // stations always render (§3). Distinct from the scoped picker list above.
+    const [geoNames, setGeoNames] = useState<Map<number, string>>(new Map());
 
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [branchFilter, setBranchFilter] = useState<number | ''>('');
     const [showBuilder, setShowBuilder] = useState(false);
     const [editRoute, setEditRoute] = useState<Route | null>(null);
 
@@ -51,12 +60,14 @@ export default function RouteManager() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [routesData, geoUnitsData] = await Promise.all([
+            const [routesData, geoUnitsData, geoNamesData] = await Promise.all([
                 api.routes.list(),
                 api.geoUnits.list(),
+                api.geoUnits.names(),
             ]);
             setRoutes(routesData);
             setGeoUnits(geoUnitsData);
+            setGeoNames(new Map(geoNamesData.map((u: any) => [u.id, u.name])));
         } catch (e) {
             console.error('Failed to fetch data', e);
         } finally {
@@ -64,27 +75,17 @@ export default function RouteManager() {
         }
     }, []);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
+    // Re-fetch when the external branch filter changes (server narrows via X-Branch-Id).
+    useEffect(() => { fetchData(); }, [fetchData, branchContextId]);
 
     const getChildren = useCallback((level: number, parentId: number | null) => {
         return geoUnits.filter(u => u.level === level && u.parentId === parentId);
     }, [geoUnits]);
 
     const getUnitName = useCallback((id: number) =>
-        geoUnits.find(u => u.id === id)?.name || '??', [geoUnits]);
+        geoNames.get(id) || '??', [geoNames]);
 
-    // Branch options derived from the routes' attached branches (client-side —
-    // GLOBAL already receives all routes; no server narrowing, per the geo-levels rule).
-    const branchOptions = useMemo(() => {
-        const m = new Map<number, string>();
-        routes.forEach(r => (r.branches ?? []).forEach(b => m.set(b.branchId, b.branchName)));
-        return [...m].map(([id, name]) => ({ id, name }));
-    }, [routes]);
-
-    const filtered = routes.filter(r =>
-        r.name.includes(search)
-        && (branchFilter === '' || (r.branches ?? []).some(b => b.branchId === branchFilter))
-    );
+    const filtered = routes.filter(r => r.name.includes(search));
 
     const openBuilder = (route?: Route) => {
         if (route) {
@@ -187,11 +188,12 @@ export default function RouteManager() {
                 </div>
                 <button
                     onClick={() => openBuilder()}
-                    disabled={!canManageGeo}
-                    className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all disabled:opacity-50"
+                    disabled={!canManageGeo || mustPickBranch}
+                    title={mustPickBranch ? 'اختر فرعاً أولاً لإنشاء مسار' : undefined}
+                    className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <Plus className="w-4 h-4" />
-                    <span>مسار جديد</span>
+                    <span>{mustPickBranch ? 'اختر فرعاً لإنشاء مسار' : 'مسار جديد'}</span>
                 </button>
             </div>
 
@@ -207,18 +209,7 @@ export default function RouteManager() {
                         className="w-full bg-gray-50 border border-gray-200 rounded-lg pr-10 pl-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
                     />
                 </div>
-                {isGlobalView && (
-                    <select
-                        value={branchFilter}
-                        onChange={e => setBranchFilter(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-bold text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none cursor-pointer"
-                    >
-                        <option value="">كل الفروع</option>
-                        {branchOptions.map(b => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
-                        ))}
-                    </select>
-                )}
+                <BranchScopeIndicator />
             </div>
 
             {/* ── Routes table ── */}

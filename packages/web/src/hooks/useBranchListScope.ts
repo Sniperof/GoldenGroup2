@@ -11,11 +11,16 @@ import { useBranchContextStore } from './useBranchContextStore';
  * encodes the correct rule once so the bug cannot be reintroduced page by page.
  *
  * Rules:
- *  - `needsBranchSelection` is true ONLY for a super-admin who hasn't picked a
- *    branch (they have no implicit branch and would otherwise pull every
- *    branch at once). Branch/Global users are never flagged.
+ *  - `needsBranchSelection` is ALWAYS false for Group-1 operational lists: a
+ *    super-admin on "all branches" sees the aggregate exactly like a GLOBAL
+ *    company manager (branch-scope-and-visibility-standard.md §4 — "عام = الكل").
+ *    Forcing a branch pick is reserved for Group-3 single-branch pages (§6),
+ *    enforced separately by <RequireBranchContext>. (Previously this flagged a
+ *    super-admin with no branch, which wrongly blocked them while GLOBAL users
+ *    saw the aggregate — an inconsistency reported on the task tables.)
  *  - `effectiveBranchId` is sent to the API only when a branch is actually
- *    selected; otherwise omit it and let the server scope by the user's grants.
+ *    selected; otherwise omit it and let the server scope by the user's grants
+ *    (super-admin → all branches; GLOBAL → their branches; BRANCH → their own).
  *
  * List pages MUST use this hook instead of reading `useBranchContextStore`
  * directly for gating (enforced by scripts/audit-branch-scope.mjs).
@@ -46,6 +51,8 @@ export function useBranchListScope(): BranchListScope {
     hasBranchScope,
     selectedBranchId,
     effectiveBranchId: selectedBranchId ?? undefined,
-    needsBranchSelection: isSuperAdmin && selectedBranchId == null,
+    // Group-1 lists never force a branch pick (§4/§6). Super-admin on "all
+    // branches" loads the aggregate like a GLOBAL manager; the server scopes.
+    needsBranchSelection: false,
   };
 }

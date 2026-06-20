@@ -4,13 +4,17 @@ import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
 import type { TaskResultModalProps, TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
 import DeliveryInfoTab from '../../taskTypes/device_delivery/DeliveryInfoTab';
+import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceActivationResultModal';
 import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
 import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
 
-const RECORDABLE_POST_SALE_TYPES = new Set(['device_delivery', 'device_installation']);
+const RECORDABLE_POST_SALE_TYPES = new Set(['device_delivery', 'device_installation', 'device_activation']);
 
 const PostSaleResultModal = (props: TaskResultModalProps) => {
   const taskType = props.task?.taskType ?? props.task?.task_type;
+  if (taskType === 'device_activation') {
+    return <DeviceActivationResultModal {...props} />;
+  }
   if (taskType === 'device_installation') {
     return <DeviceInstallationResultModal {...props} />;
   }

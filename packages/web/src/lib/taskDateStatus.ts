@@ -24,8 +24,9 @@ function arabicDays(n: number): string {
   return 'يوماً';
 }
 
-function diffDays(dateStr: string): number {
-  const today = new Date();
+function diffDays(dateStr: string, referenceDate?: string | Date | null): number {
+  const today = referenceDate ? new Date(referenceDate) : new Date();
+  if (Number.isNaN(today.getTime())) return 0;
   today.setHours(0, 0, 0, 0);
   const target = new Date(dateStr);
   if (Number.isNaN(target.getTime())) return 0;
@@ -34,9 +35,9 @@ function diffDays(dateStr: string): number {
 }
 
 /** Status for a HARD due_date — overdue is a formal red state. */
-export function getDueDateStatus(date: string | null | undefined): DateStatus | null {
+export function getDueDateStatus(date: string | null | undefined, referenceDate?: string | Date | null): DateStatus | null {
   if (!date) return null;
-  const days = diffDays(date);
+  const days = diffDays(date, referenceDate);
 
   if (days < 0) {
     return {
@@ -79,9 +80,9 @@ export function getDueDateStatus(date: string | null | undefined): DateStatus | 
 }
 
 /** Status for a SOFT expected_date — past is informational (violet), not red. */
-export function getExpectedDateStatus(date: string | null | undefined): DateStatus | null {
+export function getExpectedDateStatus(date: string | null | undefined, referenceDate?: string | Date | null): DateStatus | null {
   if (!date) return null;
-  const days = diffDays(date);
+  const days = diffDays(date, referenceDate);
 
   if (days < 0) {
     return {

@@ -1,13 +1,16 @@
-import { useEffect, useState } from 'react';
-import { Navigate, useParams, useNavigate } from 'react-router-dom';
-import { api } from '../../lib/api';
-import type { Branch, Department, SystemList, DeviceModel } from '../../lib/types';
-import SmartTable from '../../components/SmartTable';
-import type { ColumnDef } from '../../components/SmartTable';
-import { usePermissions } from '../../hooks/usePermissions';
+import { useCallback, useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
+import { api } from '../lib/api';
+import type { Branch, Department, SystemList, DeviceModel } from '../lib/types';
+import SmartTable from '../components/SmartTable';
+import type { ColumnDef } from '../components/SmartTable';
+import { usePermissions } from '../hooks/usePermissions';
+import { useAuthStore } from '../hooks/useAuthStore';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import {
-  Building2, ArrowRight, Plus, Edit, Trash2, X,
-  Layers, Cpu, Users, StickyNote, ChevronDown, CheckSquare, Square,
+  Building2, Plus, Edit, Trash2, X,
+  Layers, Cpu, Users, StickyNote, CheckSquare, Square,
 } from 'lucide-react';
 
 // ─── Department form state ────────────────────────────────────────────────────
@@ -26,22 +29,28 @@ const EMPTY_FORM: DeptForm = {
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function BranchDetail() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+export default function Departments() {
   const { hasPermission, hasAnyPermission } = usePermissions();
-  const branchId = Number(id);
+  const getPermissionScope = useAuthStore(s => s.getPermissionScope);
+
   const canManageDepartments = hasPermission('departments.manage');
   const canViewDeviceAvailability = hasAnyPermission('devices.department_availability.view', 'devices.department_availability.manage');
   const canManageDeviceAvailability = hasPermission('devices.department_availability.manage');
   const canEditDepartmentModal = canManageDepartments || canManageDeviceAvailability;
 
-  if (!hasAnyPermission('branches.nav', 'branches.view')) {
-    return <Navigate to="/" replace />;
-  }
+  // ─── Management branch filter (scope-driven — mirrors the Clients template §4/§5) ───
+  //  - GLOBAL (company manager / super-admin) → external picker (All + branches)
+  //  - BRANCH (branch manager)                → pinned to their branch by the server
+  const viewScope = getPermissionScope('departments.view_list');
+  const branchContextId = useBranchContextStore(s => s.branchId);
+  const isGlobal = viewScope === 'GLOBAL';
+  // Add rule (§5 / SH-3): a GLOBAL operator viewing "all branches" has no explicit
+  // branch to own the new record — the add button is blocked until a branch is
+  // picked (the server rejects the silent fallback too).
+  const mustPickBranch = isGlobal && branchContextId == null;
 
-  const [branch, setBranch] = useState<Branch | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [deptTypes, setDeptTypes] = useState<SystemList[]>([]);
   const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,48 +60,50 @@ export default function BranchDetail() {
   const [form, setForm] = useState<DeptForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
+  // Department-management requires departments.view_list (any scope). Pure lookup
+  // holders (supervisors) use departments only inside form pickers, not this page.
+  if (viewScope == null) {
+    return <Navigate to="/" replace />;
+  }
+
   // Does the currently-selected type allow device selection?
   const selectedType = deptTypes.find(t => t.id === Number(form.departmentTypeId));
   const canSelectDevice = !!(selectedType?.metadata as any)?.canSelectDevice;
 
+  const branchName = (id: number | null | undefined) =>
+    branches.find(b => b.id === id)?.name ?? (id != null ? `#${id}` : '—');
+
   // ── Data loading ────────────────────────────────────────────────────────────
+  const fetchDepartments = useCallback(async () => {
+    // Only a GLOBAL viewer narrows by the external filter; BRANCH is server-scoped.
+    const branchParam = isGlobal ? branchContextId : null;
+    const data = await api.departments.list(branchParam);
+    setDepartments(data as Department[]);
+  }, [isGlobal, branchContextId]);
+
+  // Departments refetch whenever the management filter changes (GLOBAL) or on mount.
   useEffect(() => {
-    if (!branchId) { setLoading(false); return; }
-
     let cancelled = false;
-
-    async function load() {
-      // 1. Load the branch itself — if this fails the page shows an error.
-      try {
-        const b: Branch = await api.branches.get(branchId);
-        if (!cancelled) setBranch(b);
-      } catch {
-        if (!cancelled) setLoading(false);
-        return;
-      }
-
-      // 2. Load supplementary data independently — failures here degrade gracefully.
-      const [depts, types, models] = await Promise.allSettled([
-        api.departments.list(branchId),
-        api.systemLists.list({ category: 'department_type', activeOnly: true }),
-        canViewDeviceAvailability ? api.deviceModels.list() : Promise.resolve([]),
-      ]);
-
-      if (cancelled) return;
-
-      if (depts.status === 'fulfilled') setDepartments(depts.value as Department[]);
-      if (types.status === 'fulfilled') setDeptTypes(types.value as SystemList[]);
-      if (models.status === 'fulfilled') setDeviceModels(models.value as DeviceModel[]);
-
-      setLoading(false);
-    }
-
-    load();
+    setLoading(true);
+    fetchDepartments()
+      .catch(() => { if (!cancelled) setDepartments([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [branchId, canViewDeviceAvailability]);
+  }, [fetchDepartments]);
+
+  // Reference data — load once (branch names are §3 labels for the visible rows).
+  useEffect(() => {
+    api.branches.list().then(setBranches).catch(() => { /* keep page alive */ });
+    api.systemLists.list({ category: 'department_type', activeOnly: true })
+      .then(d => setDeptTypes(d as SystemList[])).catch(() => {});
+    if (canViewDeviceAvailability) {
+      api.deviceModels.list().then(d => setDeviceModels(d as DeviceModel[])).catch(() => {});
+    }
+  }, [canViewDeviceAvailability]);
 
   // ── Modal helpers ────────────────────────────────────────────────────────────
   const openCreate = () => {
+    if (mustPickBranch) return;
     setEditingDept(null);
     setForm(EMPTY_FORM);
     setIsModalOpen(true);
@@ -115,6 +126,10 @@ export default function BranchDetail() {
     setForm(EMPTY_FORM);
   };
 
+  // The branch that a new department will belong to: the picked branch for a
+  // GLOBAL operator, otherwise pinned by the server to the actor's branch.
+  const targetBranchId = editingDept ? editingDept.branchId : (isGlobal ? branchContextId : null);
+
   // ── Form save ────────────────────────────────────────────────────────────────
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,7 +144,9 @@ export default function BranchDetail() {
           ? (canSelectDevice ? form.deviceModelIds : [])
           : (editingDept?.deviceModelIds ?? []),
         notes: form.notes.trim() || null,
-        branchId,
+        // Send the owning branch only when known (create-as-GLOBAL). For a branch
+        // user it is omitted so the server pins it (no cross-branch create).
+        ...(targetBranchId != null ? { branchId: targetBranchId } : {}),
       };
 
       if (editingDept) {
@@ -181,6 +198,15 @@ export default function BranchDetail() {
       render: d => <span className="font-bold text-slate-800">{d.name}</span>,
     },
     {
+      key: 'branchId', label: 'الفرع', sortable: true,
+      render: d => (
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
+          <Building2 className="w-3.5 h-3.5" />
+          {branchName(d.branchId)}
+        </span>
+      ),
+    },
+    {
       key: 'departmentTypeName', label: 'النوع', sortable: true,
       render: d => d.departmentTypeName
         ? <span className="px-2.5 py-1 bg-sky-50 text-sky-700 rounded-lg text-xs font-semibold">{d.departmentTypeName}</span>
@@ -230,64 +256,40 @@ export default function BranchDetail() {
     );
   }
 
-  if (!branch) {
-    return (
-      <div className="p-8 text-center" dir="rtl">
-        <p className="text-slate-500">الفرع غير موجود أو لا تملك صلاحية الوصول إليه.</p>
-        <button onClick={() => navigate('/branches')} className="mt-4 text-sky-600 hover:underline text-sm">
-          ← العودة إلى الفروع
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="p-8 space-y-6" dir="rtl">
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between">
-        <div className="flex items-start gap-3">
-          <button
-            onClick={() => navigate('/branches')}
-            className="mt-1 p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition"
-            title="العودة"
-          >
-            <ArrowRight className="w-5 h-5" />
-          </button>
-          <div>
-            <div className="flex items-center gap-2 text-sm text-slate-400 mb-1">
-              <Building2 className="w-4 h-4" />
-              <span>إدارة الفروع</span>
-              <ChevronDown className="w-3 h-3 -rotate-90" />
-              <span className="font-medium text-slate-600">{branch.name}</span>
-            </div>
-            <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-              <Layers className="w-7 h-7 text-sky-500" />
-              أقسام الفرع
-            </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              إدارة الأقسام التابعة لـ <strong>{branch.name}</strong>
-            </p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+            <Layers className="w-7 h-7 text-sky-500" />
+            الأقسام
+          </h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            إدارة أقسام الفروع وأنواعها وتخصيص الأجهزة لها
+          </p>
         </div>
 
         <button
           onClick={openCreate}
-          disabled={!canManageDepartments}
+          disabled={!canManageDepartments || mustPickBranch}
+          title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة قسم' : undefined}
           className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95 disabled:opacity-50"
         >
           <Plus className="w-4 h-4" />
-          إضافة قسم
+          {mustPickBranch ? 'اختر فرعاً لإضافة قسم' : 'إضافة قسم'}
         </button>
       </div>
 
       {/* ── Departments table ── */}
       <SmartTable<Department>
-        title={`أقسام ${branch.name}`}
+        title="الأقسام"
         icon={Layers}
         data={departments}
         columns={columns}
         getId={d => d.id}
+        scopeIndicator={<BranchScopeIndicator />}
         actions={d => (
           <div className="flex items-center gap-1">
             <button
@@ -426,7 +428,7 @@ export default function BranchDetail() {
                 {/* Branch (read-only info) */}
                 <div className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-slate-500">
                   <Building2 className="w-4 h-4 text-slate-400" />
-                  <span>تبعية الفرع: <strong className="text-slate-700">{branch.name}</strong></span>
+                  <span>تبعية الفرع: <strong className="text-slate-700">{branchName(targetBranchId)}</strong></span>
                 </div>
 
               </div>

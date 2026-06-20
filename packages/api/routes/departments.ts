@@ -83,6 +83,14 @@ function canAccessBranchPermission(req: any, permission: string, branchId?: numb
   }).allowed;
 }
 
+// True when the caller holds a GLOBAL grant on any department-visibility permission
+// — i.e. a cross-branch holder (مدير الشركة) who, on "all branches", must see every
+// branch's departments rather than only their own acting branch.
+function hasGlobalDeptVisibility(req: any): boolean {
+  return ['departments.view_list', 'departments.lookup', 'reference_data.lookup']
+    .some(permission => authorize(req.authContext!, { permission }).reason === 'GRANTED_GLOBAL');
+}
+
 function canReadDepartmentDevices(req: any, branchId?: number | null) {
   return canAccessBranchPermission(req, 'devices.department_availability.view', branchId)
     || canAccessBranchPermission(req, 'devices.department_availability.manage', branchId);
@@ -168,24 +176,29 @@ function normalizeDeviceModelIds(value: unknown): number[] {
 router.get('/', requirePermission('departments.view_list', 'departments.lookup', 'reference_data.lookup'), async (req, res) => {
   try {
     const authContext = req.authContext!;
-    const requestedBranchId = req.query.branchId ? Number(req.query.branchId) : null;
+    // The requested branch may arrive via ?branchId (e.g. the employee form's
+    // operational branch) OR the unified external filter's X-Branch-Id header (§4).
+    const rawRequested = req.query.branchId ?? req.header('x-branch-id');
+    const requestedBranchId =
+      rawRequested == null || `${rawRequested}`.trim() === '' ? null : Number(rawRequested);
 
     let filterBranchId: number | null;
 
     if (requestedBranchId != null && Number.isFinite(requestedBranchId) && requestedBranchId > 0) {
-      // Honor an explicit branch pick (e.g. the employee form's operational
-      // branch) for ANYONE whose lookup scope covers it — the filter follows
-      // scope, not the user's home branch. A user without scope for that branch
-      // is rejected here rather than silently served their own branch.
+      // Honor an explicit branch pick for ANYONE whose scope covers it — the filter
+      // follows scope, not the user's home branch. A user without scope for that
+      // branch is rejected here rather than silently served their own branch.
       const allowed = ['departments.view_list', 'departments.lookup', 'reference_data.lookup']
         .some(permission => canAccessBranchPermission(req, permission, requestedBranchId));
       if (!allowed) {
         return res.status(403).json({ error: 'غير مسموح' });
       }
       filterBranchId = requestedBranchId;
-    } else if (authContext.isSuperAdmin) {
-      const hb = Number(req.header('x-branch-id'));
-      filterBranchId = Number.isFinite(hb) && hb > 0 ? hb : null;
+    } else if (authContext.isSuperAdmin || hasGlobalDeptVisibility(req)) {
+      // "All branches" view for a cross-branch holder (super-admin or GLOBAL): no
+      // branch filter → every branch's departments (§2.6). Without this a GLOBAL
+      // company_manager was wrongly pinned to their own acting branch.
+      filterBranchId = null;
     } else {
       filterBranchId = authContext.actingBranchId;
     }
@@ -364,6 +377,17 @@ router.post('/', requirePermission('departments.manage'), async (req, res) => {
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'اسم القسم مطلوب' });
+    }
+
+    // Add rule (§5 / SH-3): a department is branch-owned. A GLOBAL manager
+    // (company_manager) with the filter on "all branches" supplies no branch —
+    // resolveTargetBranchId would silently fall back to their home branch. Reject
+    // instead: they must pick a branch first. (Super-admin is already rejected by
+    // resolveTargetBranchId; branch-scoped actors are pinned to their own branch.)
+    const explicitBranch = bodyBranchId ?? req.header('x-branch-id');
+    const manageGrant = authorize(req.authContext!, { permission: 'departments.manage' });
+    if (manageGrant.reason === 'GRANTED_GLOBAL' && (explicitBranch == null || `${explicitBranch}`.trim() === '')) {
+      return res.status(400).json({ error: 'اختر فرعاً أولاً لإنشاء القسم' });
     }
 
     const targetBranchId = resolveTargetBranchId(req, res, bodyBranchId);

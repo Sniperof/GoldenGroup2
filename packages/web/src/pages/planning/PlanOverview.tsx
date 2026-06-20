@@ -7,6 +7,7 @@ import {
     Layers, Megaphone, Wrench, Building2
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import type { Route, GeoUnit, DaySchedule, RouteAssignmentData, Client } from '../../lib/types';
 
 const formatDateArabic = (dateStr: string) => {
@@ -60,6 +61,9 @@ const emptyMarketingLoad = {
 
 export default function PlanOverview() {
     const navigate = useNavigate();
+    // React to the external branch switcher (no full reload — §4): refetch when the
+    // selected branch changes so the schedule/teams reflect the new branch context.
+    const branchId = useBranchContextStore(s => s.branchId);
     const [date, setDate] = useState(getToday);
     const [loading, setLoading] = useState(true);
 
@@ -98,7 +102,7 @@ export default function PlanOverview() {
         };
         loadAll();
         return () => { cancelled = true; };
-    }, [date]);
+    }, [date, branchId]);
 
     const isToday = date === getToday();
 
@@ -121,6 +125,10 @@ export default function PlanOverview() {
         }[] = [];
 
         (currentSchedule.teams || []).forEach((t, idx) => {
+            // Foreign-branch slots arrive redacted to `{ locked: true }` (GAP-DS-005);
+            // they belong to another branch's plan — skip them, but keep idx so the
+            // team_key index stays aligned with route_assignments.
+            if ((t as any)?.locked === true) return;
             const teamKey = `team_${idx}`;
             const assignmentKey = `${date}_${teamKey}`;
             const sup = getEmp(t.supervisor);
@@ -136,6 +144,7 @@ export default function PlanOverview() {
         });
 
         (currentSchedule.solos || []).forEach((s, idx) => {
+            if ((s as any)?.locked === true) return;   // foreign-branch solo slot — skip, keep idx
             const soloKey = `solo_${idx}`;
             const assignmentKey = `${date}_${soloKey}`;
             const tech = getEmp(s.technician);

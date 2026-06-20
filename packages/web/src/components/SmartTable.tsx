@@ -42,6 +42,8 @@ export interface SmartTableProps<T> {
     bulkActions?: BulkActionDef<T>[];
     actions?: (item: T) => ReactNode;
     headerActions?: ReactNode;
+    /** Branch-scope indicator ("showing: branch X"), rendered next to the title. §2.5 */
+    scopeIndicator?: ReactNode;
     emptyIcon?: LucideIcon;
     emptyMessage?: string;
     getId: (item: T) => string | number;
@@ -100,6 +102,7 @@ export default function SmartTable<T>({
     bulkActions,
     actions,
     headerActions,
+    scopeIndicator,
     emptyIcon: EmptyIcon,
     emptyMessage = 'لا توجد بيانات',
     getId,
@@ -244,6 +247,7 @@ export default function SmartTable<T>({
                                 : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>}
                         </p>
                     </div>
+                    {scopeIndicator}
                 </div>
 
                 <div className="flex items-center gap-2">

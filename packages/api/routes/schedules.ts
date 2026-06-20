@@ -1,7 +1,74 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import pool from '../db.js';
+import { getOrBuildAuthContext } from '../middleware/permission.js';
+import { resolveListAccessScope } from '../services/authorizationService.js';
+import type { AuthContext, AuthUser } from '@golden-crm/shared';
 
 const router = Router();
+
+// Branch-isolation for the shared global day_schedules row (GAP-DS-005). A slot's
+// owning branch is DERIVED from its lead employee (team → supervisor, solo →
+// technician → employees.branch_id). A non-GLOBAL viewer must not see slots owned
+// by other branches, but the array index IS the team_key (route_assignments key
+// `date_team_N`), so slots can never be removed/reordered — out-of-scope slots are
+// replaced IN PLACE with a `{ locked: true }` placeholder that preserves the index.
+const LOCKED_SLOT = { locked: true } as const;
+
+function isLockedSlot(slot: any): boolean {
+  return Boolean(slot) && typeof slot === 'object' && slot.locked === true;
+}
+
+function slotOwnerEmployeeId(slot: any, isSolo: boolean): number | null {
+  if (!slot || typeof slot !== 'object') return null;
+  const candidate = isSolo ? slot.technician : (slot.supervisor ?? slot.technician);
+  return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
+}
+
+async function scopeScheduleForViewer(authContext: AuthContext, schedule: any) {
+  const teams: any[] = Array.isArray(schedule.teams) ? schedule.teams : [];
+  const solos: any[] = Array.isArray(schedule.solos) ? schedule.solos : [];
+
+  // GLOBAL / super-admin: a specific selected branch (the branch switcher →
+  // actingBranchId) narrows the view to that branch; "all branches" (no selection)
+  // shows every branch's teams unredacted. Branch-scoped viewers always see only
+  // their own branches.
+  const plan = resolveListAccessScope(authContext, 'routes.assign.view');
+  const isGlobal = authContext.isSuperAdmin || plan.scope === 'GLOBAL';
+  const actingBranchId = authContext.actingBranchId ?? null;
+  let allowed: Set<number>;
+  if (isGlobal) {
+    if (actingBranchId == null) return schedule;   // all-branches view — nothing redacted
+    allowed = new Set([actingBranchId]);
+  } else {
+    allowed = new Set(authContext.allowedBranchIds);
+  }
+  const ownerIds = [
+    ...teams.map(t => slotOwnerEmployeeId(t, false)),
+    ...solos.map(s => slotOwnerEmployeeId(s, true)),
+  ].filter((id): id is number => id != null);
+
+  const branchByEmployee = new Map<number, number>();
+  if (ownerIds.length > 0) {
+    const { rows } = await pool.query<{ id: number; branchId: number }>(
+      'SELECT id, branch_id AS "branchId" FROM employees WHERE id = ANY($1::int[])',
+      [[...new Set(ownerIds)]],
+    );
+    rows.forEach(r => branchByEmployee.set(Number(r.id), Number(r.branchId)));
+  }
+
+  const isVisible = (slot: any, isSolo: boolean): boolean => {
+    const empId = slotOwnerEmployeeId(slot, isSolo);
+    if (empId == null) return true;                 // empty/unowned slot: nothing to leak
+    const ownerBranch = branchByEmployee.get(empId);
+    return ownerBranch == null || allowed.has(ownerBranch); // null owner-branch → permissive (GAP-DS-005)
+  };
+
+  return {
+    ...schedule,
+    teams: teams.map(t => (isVisible(t, false) ? t : { ...LOCKED_SLOT })),
+    solos: solos.map(s => (isVisible(s, true) ? s : { ...LOCKED_SLOT })),
+  };
+}
 
 type ScheduleRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
 
@@ -303,12 +370,12 @@ async function validateSchedulePayload(req: any, teams: unknown, solos: unknown)
  *         description: Server error
  */
 router.get('/:date', async (req, res) => {
+  const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
   const { rows } = await pool.query('SELECT * FROM day_schedules WHERE date = $1', [req.params.date]);
-  if (rows.length > 0) {
-    res.json(rows[0]);
-  } else {
-    res.json({ date: req.params.date, teams: [], solos: [] });
+  if (rows.length === 0) {
+    return res.json({ date: req.params.date, teams: [], solos: [] });
   }
+  res.json(await scopeScheduleForViewer(authContext, rows[0]));
 });
 
 /**
@@ -355,17 +422,49 @@ router.get('/:date', async (req, res) => {
  */
 router.put('/:date', async (req, res) => {
   const { teams = [], solos = [] } = req.body ?? {};
-  const validation = await validateSchedulePayload(req, teams, solos);
+  const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+  const plan = resolveListAccessScope(authContext, 'routes.assign.view');
+  // Wholesale replace is safe ONLY for an all-branches GLOBAL view (saw every slot
+  // unredacted). A selected branch — GLOBAL or branch-scoped — saw foreign slots as
+  // `{ locked: true }`, so it MUST merge to avoid wiping other branches' teams.
+  const isGlobal = authContext.isSuperAdmin || plan.scope === 'GLOBAL';
+  const privileged = isGlobal && authContext.actingBranchId == null;
+
+  // Branch-isolation merge (GAP-DS-005). A branch manager only ever edits its own
+  // slots; foreign slots reach the client as `{ locked: true }` placeholders (see
+  // scopeScheduleForViewer) that preserve the team_key index. On save we:
+  //   1. validate ONLY the editor's own (non-locked) slots — all must be its branch,
+  //   2. write a MERGED array: locked slots are restored verbatim from the stored row
+  //      by index, so a branch save never wipes another branch's teams.
+  // The index alignment relies on the FE never removing/reordering a locked slot.
+  const ownTeams = privileged ? teams : (teams as any[]).filter(t => !isLockedSlot(t));
+  const ownSolos = privileged ? solos : (solos as any[]).filter(s => !isLockedSlot(s));
+  const validation = await validateSchedulePayload(req, ownTeams, ownSolos);
   if (!validation.ok) {
     return res.status(validation.status).json({ error: validation.error });
+  }
+
+  let mergedTeams: any[] = teams;
+  let mergedSolos: any[] = solos;
+  if (!privileged && ((teams as any[]).some(isLockedSlot) || (solos as any[]).some(isLockedSlot))) {
+    const { rows: storedRows } = await pool.query(
+      'SELECT teams, solos FROM day_schedules WHERE date = $1',
+      [req.params.date],
+    );
+    const storedTeams: any[] = Array.isArray(storedRows[0]?.teams) ? storedRows[0].teams : [];
+    const storedSolos: any[] = Array.isArray(storedRows[0]?.solos) ? storedRows[0].solos : [];
+    // Keep the index: a locked placeholder is replaced by the stored slot it stood for.
+    mergedTeams = (teams as any[]).map((t, i) => (isLockedSlot(t) ? storedTeams[i] : t));
+    mergedSolos = (solos as any[]).map((s, i) => (isLockedSlot(s) ? storedSolos[i] : s));
   }
 
   const { rows } = await pool.query(
     `INSERT INTO day_schedules (date, teams, solos) VALUES ($1, $2, $3)
     ON CONFLICT (date) DO UPDATE SET teams=$2, solos=$3 RETURNING *`,
-    [req.params.date, JSON.stringify(teams), JSON.stringify(solos)]
+    [req.params.date, JSON.stringify(mergedTeams), JSON.stringify(mergedSolos)]
   );
-  res.json(rows[0]);
+  // Re-scope the response so the saver doesn't receive other branches' identities back.
+  res.json(await scopeScheduleForViewer(authContext, rows[0]));
 });
 
 export default router;

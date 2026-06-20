@@ -16,7 +16,7 @@ import {
   updateRole,
   RoleManagementError,
 } from '../services/roleManagementService.js';
-import { authorize } from '../services/authorizationService.js';
+import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
 
 const router = Router();
 const VALID_SCOPE_TYPES = new Set(['GLOBAL', 'BRANCH', 'ASSIGNED']);
@@ -741,6 +741,8 @@ router.put('/permissions/scopes', requireSuperAdmin, async (req, res) => {
       return res.status(400).json({ error: 'قائمة التحديثات مطلوبة' });
     }
 
+    const normalizedUpdates = [];
+
     for (const update of updates) {
       if (!Number.isInteger(update.id)) {
         return res.status(400).json({ error: 'معرّف الصلاحية غير صالح' });
@@ -748,15 +750,17 @@ router.put('/permissions/scopes', requireSuperAdmin, async (req, res) => {
       if (!Array.isArray(update.allowedScopes) || update.allowedScopes.length === 0) {
         return res.status(400).json({ error: `يجب تحديد نطاق واحد على الأقل للصلاحية رقم ${update.id}` });
       }
-      if (!update.allowedScopes.every((s: string) => VALID_SCOPE_TYPES.has(s))) {
+      const allowedScopes = Array.from(new Set(['GLOBAL', ...update.allowedScopes]));
+      if (!allowedScopes.every((s: string) => VALID_SCOPE_TYPES.has(s))) {
         return res.status(400).json({ error: `نطاق غير صالح للصلاحية رقم ${update.id}` });
       }
-      if (!update.allowedScopes.includes('GLOBAL')) {
+      normalizedUpdates.push({ ...update, allowedScopes });
+      if (!allowedScopes.includes('GLOBAL')) {
         return res.status(400).json({ error: `يجب أن يتضمن النطاق GLOBAL للصلاحية رقم ${update.id}` });
       }
     }
 
-    const ids = updates.map((u: any) => u.id);
+    const ids = normalizedUpdates.map((u: any) => u.id);
     const { rows: existing } = await pool.query(
       'SELECT id FROM permissions WHERE id = ANY($1)',
       [ids]
@@ -767,7 +771,7 @@ router.put('/permissions/scopes', requireSuperAdmin, async (req, res) => {
       return res.status(400).json({ error: `الصلاحية رقم ${invalidId} غير موجودة` });
     }
 
-    for (const update of updates) {
+    for (const update of normalizedUpdates) {
       await pool.query(
         'UPDATE permissions SET allowed_scopes = $1 WHERE id = $2',
         [update.allowedScopes, update.id]
@@ -992,17 +996,37 @@ router.get('/hr-users/candidate-assignable', requirePermission('candidates.edit'
  *       200:
  *         description: Success
  */
-router.get('/hr-users', requirePermission('admin.roles.view', 'admin.roles.users.manage'), async (req, res) => {
+router.get('/hr-users', requirePermission('admin.users.view_list'), async (req, res) => {
   try {
     const authContext = req.authContext!;
     const conditions: string[] = [];
     const params: any[] = [];
-    if (!authContext.isSuperAdmin) {
-      if (authContext.actingBranchId == null) {
-        return res.status(403).json({ error: 'الحساب غير مرتبط بأي فرع' });
+
+    // Records-section treatment (branch-scope standard): GLOBAL sees every user
+    // (optionally narrowed by the external branch filter), BRANCH sees the union
+    // of its allowed branches. Mirrors the clients/employees list-plan pattern.
+    const plan = resolveListAccessScope(authContext, 'admin.users.view_list');
+    if (plan.scope === 'NONE') {
+      return res.status(403).json({ error: 'ليس لديك صلاحية عرض المستخدمين' });
+    }
+    const rawBranch = req.header('x-branch-id');
+    const requestedBranchId = rawBranch == null || rawBranch === '' ? null : Number(rawBranch);
+    const hasRequestedBranch = Number.isInteger(requestedBranchId) && (requestedBranchId as number) > 0;
+
+    if (plan.scope === 'GLOBAL') {
+      if (hasRequestedBranch) {
+        params.push(requestedBranchId);
+        conditions.push(`u.branch_id = $${params.length}`);
       }
-      params.push(authContext.actingBranchId);
-      conditions.push(`u.branch_id = $${params.length}`);
+    } else {
+      if (plan.allowedBranchIds.length === 0) {
+        return res.json([]);
+      }
+      if (hasRequestedBranch && !plan.allowedBranchIds.includes(requestedBranchId as number)) {
+        return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذا الفرع' });
+      }
+      params.push(hasRequestedBranch ? [requestedBranchId] : plan.allowedBranchIds);
+      conditions.push(`u.branch_id = ANY($${params.length}::int[])`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 

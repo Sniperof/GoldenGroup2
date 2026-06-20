@@ -78,10 +78,12 @@ export function resolveActingBranch(
   }
 
   if (options.isSuperAdmin === true) {
-    if (allowedBranchIds.length === 0 || allowedBranchIds.includes(requestedBranchId)) {
-      return requestedBranchId;
-    }
-    return null;
+    // A super admin reaches ANY branch — their own branch assignments must never
+    // restrict them. Previously a super admin who happened to hold assignments was
+    // limited to them, so requesting an unassigned branch (e.g. طرطوس) resolved to
+    // null and the branch-only guard returned 403, while branches they were assigned
+    // to worked — an inconsistency vs GLOBAL managers (who saw every branch).
+    return requestedBranchId;
   }
 
   if (!allowedBranchIds.includes(requestedBranchId)) {

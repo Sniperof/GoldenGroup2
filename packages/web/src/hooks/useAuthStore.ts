@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { AuthUser } from '@golden-crm/shared';
+import { useBranchContextStore } from './useBranchContextStore';
 
 export type { AuthUser };
 
@@ -64,6 +65,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.setItem('hr_user', JSON.stringify(user));
     localStorage.setItem('hr_permissions', JSON.stringify(normalizedPermissions));
     localStorage.setItem('hr_grants', JSON.stringify(grants));
+    // A fresh login may be a different account — reset the admin branch filter so
+    // the new user never inherits the previous user's selected branch (which they
+    // may not be allowed to access, producing a 403 / empty list). null = the safe
+    // default: "all branches" for GLOBAL, server-scoped for branch users.
+    useBranchContextStore.getState().clear();
     set({ token, user, permissions: normalizedPermissions, grants });
   },
   logout() {
@@ -71,6 +77,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem('hr_user');
     localStorage.removeItem('hr_permissions');
     localStorage.removeItem('hr_grants');
+    // The admin branch filter must never survive an account boundary.
+    useBranchContextStore.getState().clear();
     set({ token: null, user: null, permissions: [], grants: [] });
   },
   async refreshSession() {

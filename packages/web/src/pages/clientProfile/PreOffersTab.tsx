@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2, Sparkles, ExternalLink, BadgeDollarSign, Calendar, User, Tag, Plus } from 'lucide-react';
 
 import { api } from '../../lib/api';
+import { useAuthStore } from '../../hooks/useAuthStore';
 import { OutcomeChip, type PreOfferOutcomeState } from '../../components/preOffers/OutcomeChip';
 import DeviceOfferModal from '../../components/clients/DeviceOfferModal';
 import StandaloneDeviceOffersModal from '../../components/clients/StandaloneDeviceOffersModal';
@@ -92,6 +93,7 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
 
 export function PreOffersTab({ client }: Props) {
   const navigate = useNavigate();
+  const hasPermission = useAuthStore(s => s.hasPermission);
   const [data, setData] = useState<Response | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -161,7 +163,11 @@ export function PreOffersTab({ client }: Props) {
       onCreated={(created) => {
         setCreateOpen(false);
         fetchData();
-        if (created?.id) navigate(`/tasks/device-demo/${created.id}`);
+        if (created?.id) {
+          navigate(hasPermission('tasks.demo.view')
+            ? `/tasks/device-demo/${created.id}`
+            : '/tasks/group/my-customers');
+        }
       }}
     />
   ) : null;

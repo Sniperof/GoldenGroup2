@@ -25,7 +25,7 @@ import {
   deactivateUserBranchAssignment,
   setPrimaryUserBranchAssignment,
 } from '../../services/userBranchAssignmentService.js';
-import { authorize } from '../../services/authorizationService.js';
+import { authorize, resolveListAccessScope } from '../../services/authorizationService.js';
 import {
   BranchCatalogItemSchema,
   RoleSchema,
@@ -101,6 +101,8 @@ function toHrUser(u: Record<string, unknown>): z.infer<typeof HrUserSchema> {
     roleId: (u.role_id as number) ?? null,
     roleDisplayName: (u.role_display_name as string) ?? null,
     createdAt: u.created_at as string,
+    branchId: (u.branch_id as number) ?? null,
+    branchName: (u.branch_name as string) ?? null,
   };
 }
 
@@ -402,43 +404,40 @@ export const rolesRouter = router({
       }));
     }),
 
-  hrUsersList: withPermission('admin.roles.view', 'admin.roles.users.manage')
+  hrUsersList: withPermission('admin.users.view_list')
     .query(async ({ ctx }) => {
       const conditions: string[] = [];
       const params: unknown[] = [];
-      const usersManageAccess = authorize(ctx.authContext, { permission: 'admin.roles.users.manage' });
-      const rolesViewAccess = authorize(ctx.authContext, { permission: 'admin.roles.view' });
-      const hasGlobalAccess = ctx.authContext.isSuperAdmin
-        || usersManageAccess.reason === 'GRANTED_GLOBAL'
-        || rolesViewAccess.reason === 'GRANTED_GLOBAL';
-      if (!hasGlobalAccess) {
-        const targetBranchId = ctx.authContext.actingBranchId ?? ctx.authContext.allowedBranchIds[0] ?? null;
-        if (targetBranchId == null) {
+      // Records-section treatment (branch-scope standard): GLOBAL sees every user
+      // (optionally narrowed by the external branch filter / X-Branch-Id), BRANCH
+      // sees the union of its allowed branches. Mirrors clients/employees.
+      const plan = resolveListAccessScope(ctx.authContext, 'admin.users.view_list');
+      if (plan.scope === 'NONE') {
+        return [];
+      }
+      if (plan.scope === 'GLOBAL') {
+        if (ctx.xBranchId != null) {
+          params.push(ctx.xBranchId);
+          conditions.push(`u.branch_id = $${params.length}`);
+        }
+      } else {
+        if (plan.allowedBranchIds.length === 0) {
           return [];
         }
-        params.push(targetBranchId);
-        conditions.push(`u.branch_id = $${params.length}`);
-      } else if (ctx.xBranchId != null) {
-        const branchAccess = authorize(ctx.authContext, {
-          permission: 'admin.roles.users.manage',
-          branchId: ctx.xBranchId,
-        });
-        const viewAccess = authorize(ctx.authContext, {
-          permission: 'admin.roles.view',
-          branchId: ctx.xBranchId,
-        });
-        if (!branchAccess.allowed && !viewAccess.allowed) {
+        if (ctx.xBranchId != null && !plan.allowedBranchIds.includes(ctx.xBranchId)) {
           return [];
         }
-        params.push(ctx.xBranchId);
-        conditions.push(`u.branch_id = $${params.length}`);
+        params.push(ctx.xBranchId != null ? [ctx.xBranchId] : plan.allowedBranchIds);
+        conditions.push(`u.branch_id = ANY($${params.length}::int[])`);
       }
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const { rows } = await pool.query(
         `SELECT u.id, u.name, u.username, u.is_active, u.created_at, u.role_id,
+          u.branch_id, b.name AS branch_name,
           r.display_name AS role_display_name
          FROM hr_users u
          LEFT JOIN roles r ON r.id = u.role_id
+         LEFT JOIN branches b ON b.id = u.branch_id
          ${where}
          ORDER BY u.id`,
         params,

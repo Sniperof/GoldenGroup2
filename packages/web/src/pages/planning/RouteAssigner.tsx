@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Users, Save, Plus, MapPin, Route as RouteIcon, ListOrdered, X, ArrowRight, ArrowLeft, Loader2, GripVertical } from 'lucide-react';
+import { Calendar, Users, Save, Plus, MapPin, Route as RouteIcon, ListOrdered, X, ArrowRight, ArrowLeft, Loader2, GripVertical, RefreshCw } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import { levelNames } from '../../lib/geoConstants';
 import type { Route, GeoUnit, DaySchedule, RouteComposition, RouteAssignmentData } from '../../lib/types';
@@ -48,6 +49,9 @@ type MarketingTargetsResponse = {
 export default function RouteAssigner() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    // React to the external branch switcher (no full reload — §4).
+    const branchId = useBranchContextStore(s => s.branchId);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [savedRoutes, setSavedRoutes] = useState<Route[]>([]);
     const [schedules, setSchedules] = useState<Record<string, DaySchedule>>({});
@@ -102,12 +106,13 @@ export default function RouteAssigner() {
         };
         loadAll();
         return () => { cancelled = true; };
-    }, []);
+    }, [branchId]);
 
     useEffect(() => {
         let cancelled = false;
         const loadSchedule = async () => {
-            if (schedules[date]) return;
+            // No date-cache short-circuit: the branch switcher changes what the server
+            // returns for the same date, so we must refetch on branch change too.
             try {
                 const schedule = await api.schedules.get(date);
                 if (cancelled) return;
@@ -118,17 +123,21 @@ export default function RouteAssigner() {
         };
         loadSchedule();
         return () => { cancelled = true; };
-    }, [date]);
+    }, [date, branchId]);
 
     const teamOptions = useMemo(() => {
         const sched = schedules[date];
         if (!sched) return [];
         const opts: { value: string; label: string }[] = [];
         (sched.teams || []).forEach((t, idx) => {
+            // Foreign-branch slots arrive redacted to `{ locked: true }` (GAP-DS-005) —
+            // skip them, keep idx so team_key stays aligned with route_assignments.
+            if ((t as any)?.locked === true) return;
             const sup = t.supervisor ? employees.find(e => e.id === t.supervisor) : null;
             opts.push({ value: `team_${idx}`, label: sup ? `فريق ${sup.name}` : `فريق #${idx + 1}` });
         });
         (sched.solos || []).forEach((s, idx) => {
+            if ((s as any)?.locked === true) return;   // foreign-branch solo slot — skip, keep idx
             const tech = s.technician ? employees.find(e => e.id === s.technician) : null;
             opts.push({ value: `solo_${idx}`, label: tech ? `طوارئ: ${tech.name}` : `فريق طوارئ #${idx + 1}` });
         });
@@ -399,6 +408,33 @@ export default function RouteAssigner() {
         }
     };
 
+    // DEC-009 لبنة 9 — manual "تحديث": re-run sync + reconcile for the saved scope so
+    // newly-eligible tasks (personal AND branch-owned) are pulled into the dashboard
+    // WITHOUT forcing a zone change to re-enable the save button.
+    const refreshTasks = async () => {
+        if (!selectedTeam || !hasPersistedAssignmentMatch) return;
+        setSyncing(true);
+        setSaveMessage(null);
+        try {
+            const result = await api.planning.syncContactTargetsDashboard(date, selectedTeam);
+            const newlyAssigned = result?.counts?.newlyAssigned ?? 0;
+            const released = result?.counts?.released ?? 0;
+            setStationLeadCounts(null);
+            setStationLeadCountsError(false);
+            setStationLeadCountsRefreshKey(key => key + 1);
+            setSaveMessage({
+                type: 'success',
+                text: `تم تحديث المهام — ${newlyAssigned} مهمة جديدة دخلت الخطة${released > 0 ? `، و${released} خرجت من النطاق` : ''}.`,
+            });
+        } catch (err) {
+            console.error('Failed to refresh tasks:', err);
+            setSaveMessage({ type: 'error', text: 'تعذر تحديث المهام' });
+        } finally {
+            setSyncing(false);
+        }
+    };
+    const canRefreshTasks = hasPersistedAssignmentMatch && !saving && !syncing;
+
     const saveButtonText = saving
         ? 'جاري الحفظ...'
         : hasWorkCoverage && !hasUnsavedChanges
@@ -439,7 +475,15 @@ export default function RouteAssigner() {
                         {teamOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                 </div>
-                <div className="mr-auto">
+                <div className="mr-auto flex items-center gap-2">
+                    <button
+                        onClick={refreshTasks}
+                        disabled={!canRefreshTasks}
+                        title="إعادة مزامنة المهام المؤهلة (بما فيها مهام الفرع الجديدة) دون تغيير النطاق"
+                        className="flex items-center gap-2 border border-sky-200 text-sky-700 hover:bg-sky-50 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg text-sm font-bold transition-all"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} /><span>{syncing ? 'جاري التحديث...' : 'تحديث المهام'}</span>
+                    </button>
                     <button onClick={saveAssignment} disabled={!canSaveAssignment} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all">
                         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>{saveButtonText}</span>
                     </button>

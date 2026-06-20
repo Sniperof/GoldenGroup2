@@ -13,6 +13,7 @@ import { api } from '../../lib/api';
 import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
 import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';
 import DeviceDemoResultModal from '../../taskTypes/device_demo/DeviceDemoResultModal';
+import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceActivationResultModal';
 import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
 import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
 import EmergencyResultModal from '../../taskTypes/emergency_maintenance/EmergencyResultModal';
@@ -630,8 +631,9 @@ export default function VisitDetailPage() {
                             const isDemo = task.task_type === 'device_demo';
                             const isDelivery = task.task_type === 'device_delivery';
                             const isInstallation = task.task_type === 'device_installation';
+                            const isActivation = task.task_type === 'device_activation';
                             const isEmergency = task.task_type === 'emergency_maintenance';
-                            const supportsUnifiedResult = isDemo || isDelivery || isInstallation || isEmergency;
+                            const supportsUnifiedResult = isDemo || isDelivery || isInstallation || isActivation || isEmergency;
                             const canEditResult = visit.status === 'completed' && hasResult && supportsUnifiedResult;
                             const decisionMeta = getFinalDecisionMeta(task.final_decision);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
@@ -807,6 +809,16 @@ export default function VisitDetailPage() {
             )}
             {resultTask?.task_type === 'device_installation' && (
                 <DeviceInstallationResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'device_activation' && (
+                <DeviceActivationResultModal
                     key={`${visit.id}:${resultTask.id}`}
                     visitId={visit.id}
                     taskId={resultTask.id}

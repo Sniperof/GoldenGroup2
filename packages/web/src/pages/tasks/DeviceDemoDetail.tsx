@@ -4,6 +4,7 @@ import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
 import DeviceDemoOfferTab from '../../taskTypes/device_demo/DeviceDemoOfferTab';
 import DeviceDemoResultRenderer from '../../taskTypes/device_demo/DeviceDemoResultRenderer';
+import { useAuthStore } from '../../hooks/useAuthStore';
 import type { TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
 
 const deviceDemoExtension: TaskTypeExtension = {
@@ -72,7 +73,10 @@ function hasResultFor(data: TaskDetailData): boolean {
 
 export default function DeviceDemoDetail() {
   const { id } = useParams<{ id: string }>();
+  const hasPermission = useAuthStore(s => s.hasPermission);
   const taskId = Number(id);
+  const canReturnToDeviceDemoTable = hasPermission('tasks.demo.view');
+  const backHref = canReturnToDeviceDemoTable ? '/tasks/device-demo' : '/tasks/group/my-customers';
 
   return (
     <TaskDetailLayout
@@ -80,7 +84,7 @@ export default function DeviceDemoDetail() {
       typeIcon={Monitor}
       typeIconColor="text-indigo-500"
       backLabel="عروض الأجهزة"
-      backHref="/tasks/device-demo"
+      backHref={backHref}
       extension={deviceDemoExtension}
       scheduleExtraRows={scheduleExtraRows}
       overviewIssuesFor={overviewIssuesFor}

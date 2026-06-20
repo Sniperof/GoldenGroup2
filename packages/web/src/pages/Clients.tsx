@@ -13,6 +13,7 @@ import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import BranchScopeIndicator from '../components/BranchScopeIndicator';
 
 function extractApiPayload(error: unknown): any | null {
     if (!(error instanceof Error)) {
@@ -67,9 +68,12 @@ export default function Clients() {
     // Selection is written to the shared branch-context store so the add-client
     // modal pins the operational branch to it automatically.
     const branchContextId = useBranchContextStore(s => s.branchId);
-    const setBranchContextId = useBranchContextStore(s => s.setBranchId);
     const isGlobalClients = clientsViewScope === 'GLOBAL';
     const isBranchClients = clientsViewScope === 'BRANCH';
+    // Add rule (§5): a GLOBAL operator viewing "all branches" has no explicit branch
+    // to own the new record, so the add button is blocked until a branch is picked —
+    // no silent fallback into the base branch (SH-3). Branch/assigned users are pinned.
+    const mustPickBranch = isGlobalClients && branchContextId == null;
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     const [clients, setClients] = useState<Client[]>([]);
@@ -125,10 +129,12 @@ export default function Clients() {
             .catch(() => setBranchOptions([]));
     }, [isGlobalClients, isBranchClients]);
 
-    // Geo units are global reference data — fetched independently so a
-    // permission failure on clients/contracts does NOT blank the map.
+    // Address NAMES are reference labels — resolved from the global name map
+    // (`names()`, no branch scope) so every visible client's address renders
+    // regardless of the admin branch filter. The scoped picker lives in the add/edit
+    // modal (`api.geoUnits.list(branchId)`). See branch-scope std §3.
     useEffect(() => {
-        api.geoUnits.list()
+        api.geoUnits.names()
             .then(setGeoUnits)
             .catch(() => setGeoUnits([]));
     }, []);
@@ -394,22 +400,8 @@ export default function Clients() {
                     <p className="text-sm text-slate-500 font-medium">إدارة وتحليل بيانات الزبائن والشبكة</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    {/* Management branch filter — visibility & mode follow clients.view_list scope */}
-                    {isGlobalClients && (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-sky-50 border border-sky-200 text-sky-700">
-                            <Building2 className="w-4 h-4 shrink-0" />
-                            <select
-                                value={branchContextId ?? ''}
-                                onChange={e => setBranchContextId(e.target.value === '' ? null : Number(e.target.value))}
-                                className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer"
-                            >
-                                <option value="">كل الفروع</option>
-                                {branchOptions.map(b => (
-                                    <option key={b.id} value={b.id}>{b.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                    )}
+                    {/* GLOBAL branch filter moved to the unified external switcher
+                        (sidebar). Branch users still see their pinned-branch badge. */}
                     {isBranchClients && (
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-sm font-bold">
                             <Building2 className="w-4 h-4 shrink-0" />
@@ -419,6 +411,8 @@ export default function Clients() {
                         </div>
                     )}
                 <button
+                    disabled={mustPickBranch}
+                    title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة زبون' : undefined}
                     onClick={() => {
                         setActiveCandidateForSearch({
                             id: 0,
@@ -431,10 +425,10 @@ export default function Clients() {
                         });
                         setIsPreAddModalOpen(true);
                     }}
-                    className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95"
+                    className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed disabled:active:scale-100"
                 >
                     <UserPlus className="w-4 h-4" />
-                    <span>إضافة اسم مرشح جديد</span>
+                    <span>{mustPickBranch ? 'اختر فرعاً لإضافة زبون' : 'إضافة اسم مرشح جديد'}</span>
                 </button>
                 </div>
             </div>
@@ -521,6 +515,7 @@ export default function Clients() {
             <SmartTable<Client & { lifecycleStage: string }>
                 title="جدول بيانات الزبائن"
                 icon={Users}
+                scopeIndicator={<BranchScopeIndicator />}
                 hideFilterBar={true}
                 data={mainList}
                 columns={visibleClientColumns}

@@ -104,6 +104,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
     try {
       setLoading(true);
       setError('');
+      const expectedDate = new Date().toISOString().split('T')[0];
       const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       await api.openTasks.create({
         clientId: contract.customerId,
@@ -111,7 +112,9 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
         taskType: 'device_activation',
         taskFamily: 'delivery',
         reason: 'service_request',
+        expectedDate,
         dueDate,
+        priority: 'medium',
         contractId: contract.id,
         notes: 'مهمة تشغيل وتنشيط مجدولة تلقائياً بعد التركيب'
       });

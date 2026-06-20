@@ -262,7 +262,7 @@ function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void 
   );
 }
 
-function UserModal({ user, roles, onClose }: { user?: HrUser | null; roles: Role[]; onClose: () => void }) {
+export function UserModal({ user, roles, onClose }: { user?: HrUser | null; roles: Role[]; onClose: () => void }) {
   const { createHrUser, updateHrUser } = useRoleStore();
   const [name, setName] = useState(user?.name ?? '');
   const [username, setUsername] = useState(user?.username ?? '');
@@ -544,7 +544,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
 // ══════════════════════════════════════════════════════════════════
 // User Branch Assignments Modal
 // ══════════════════════════════════════════════════════════════════
-function UserBranchAssignmentsModal({
+export function UserBranchAssignmentsModal({
   user,
   readOnly,
   onClose,
@@ -935,160 +935,18 @@ function RolesTab() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// Users Tab
-// ══════════════════════════════════════════════════════════════════
-function UsersTab() {
-  const { roles, hrUsers, loading, fetchRoles, fetchHrUsers, updateHrUser } = useRoleStore();
-  const { hasPermission } = usePermissions();
-  const [showModal, setShowModal] = useState(false);
-  const [editUser, setEditUser] = useState<HrUser | null>(null);
-  const [branchUser, setBranchUser] = useState<HrUser | null>(null);
-  const [togglingId, setTogglingId] = useState<number | null>(null);
-  const canViewBranchAssignments = hasPermission('users.branch_assignments.view');
-  const canManageBranchAssignments = hasPermission('users.branch_assignments.manage');
-  const canManageRoles = hasPermission('admin.roles.manage');
-  const canManageRoleUsers = hasPermission('admin.roles.users.manage');
-
-  useEffect(() => {
-    fetchRoles();
-    fetchHrUsers();
-  }, [fetchRoles, fetchHrUsers]);
-
-  async function handleToggle(user: HrUser) {
-    setTogglingId(user.id);
-    try { await updateHrUser(user.id, { isActive: !user.isActive }); }
-    finally { setTogglingId(null); }
-  }
-
-  const roleMap = Object.fromEntries(roles.map(r => [r.id, r]));
-
-  return (
-    <>
-      <div className="flex justify-end mb-4">
-        <button onClick={() => { setEditUser(null); setShowModal(true); }}
-          disabled={!canManageRoles}
-          className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm">
-          <UserPlus className="w-4 h-4" />مستخدم جديد
-        </button>
-      </div>
-
-      {loading && <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-sky-400" /></div>}
-
-      {!loading && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          {hrUsers.length === 0 ? (
-            <div className="text-center py-16 text-slate-400">
-              <User className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">لا يوجد مستخدمون بعد</p>
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500">المستخدم</th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500">اسم الدخول</th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500">الدور</th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500">الحالة</th>
-                  <th className="px-5 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {hrUsers.map(user => {
-                  const role = user.roleId ? roleMap[user.roleId] : null;
-                  const readOnlySystemRoleName = !role && user.roleDisplayName
-                    ? user.roleDisplayName
-                    : null;
-                  return (
-                    <tr key={user.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center shrink-0">
-                            <User className="w-4 h-4 text-sky-600" />
-                          </div>
-                          <span className="font-semibold text-slate-800">{user.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5 text-slate-500 font-mono text-xs">{user.username}</td>
-                      <td className="px-5 py-3.5">
-                        {role ? (
-                          <span className="inline-flex items-center gap-1 text-xs bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2.5 py-1 font-medium">
-                            <ShieldCheck className="w-3 h-3" />{role.displayName}
-                          </span>
-                        ) : readOnlySystemRoleName ? (
-                          <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2.5 py-1 font-medium">
-                            <ShieldCheck className="w-3 h-3" />{readOnlySystemRoleName}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-400 italic">بدون دور</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className={`text-[10px] font-medium px-2 py-1 rounded-full border ${user.isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-red-50 text-red-500 border-red-200'}`}>
-                          {user.isActive ? 'نشط' : 'موقوف'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-1 justify-end">
-                          {canViewBranchAssignments && (
-                            <button
-                              onClick={() => setBranchUser(user)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:bg-sky-50 hover:text-sky-600 transition-colors"
-                              title="الفروع المسموحة"
-                            >
-                              <Building2 className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button onClick={() => handleToggle(user)} disabled={!canManageRoleUsers || togglingId === user.id}
-                            title={user.isActive ? 'إيقاف الحساب' : 'تفعيل الحساب'}
-                            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 transition-colors disabled:opacity-50">
-                            {togglingId === user.id ? <Loader2 className="w-4 h-4 animate-spin" /> :
-                              user.isActive ? <ToggleRight className="w-4 h-4 text-emerald-500" /> : <ToggleLeft className="w-4 h-4" />}
-                          </button>
-                          <button onClick={() => { setEditUser(user); setShowModal(true); }}
-                            disabled={!canManageRoleUsers}
-                            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors" title="تعديل">
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {showModal && canManageRoleUsers && (
-        <UserModal
-          user={editUser}
-          roles={roles}
-          onClose={() => { setShowModal(false); setEditUser(null); }}
-        />
-      )}
-      {branchUser && (
-        <UserBranchAssignmentsModal
-          user={branchUser}
-          readOnly={!canManageBranchAssignments}
-          onClose={() => setBranchUser(null)}
-        />
-      )}
-    </>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════
 // Main Page
 // ══════════════════════════════════════════════════════════════════
 export default function Roles() {
   const navigate = useNavigate();
   const { hasPermission } = usePermissions();
 
+  // Roles page is GLOBAL admin only (role + permission management). User management
+  // moved to the standalone /admin/users records page — so a branch manager who only
+  // holds admin.roles.users.manage no longer lands here.
   const canViewRoles = hasPermission('admin.roles.view');
-  const canManageRoleUsers = hasPermission('admin.roles.users.manage');
 
-  if (!canViewRoles && !canManageRoleUsers) {
+  if (!canViewRoles) {
     return <Navigate to="/" replace />;
   }
 
@@ -1143,17 +1001,6 @@ export default function Roles() {
             </p>
           </div>
           <RolesTab />
-        </div>
-
-        {/* All system users management — separate from role cards */}
-        <div className="space-y-3">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">إدارة المستخدمين</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              كل مستخدمي النظام. الدور يحدد الصلاحيات، والفروع المسموحة تحدد أين تطبق هذه الصلاحيات.
-            </p>
-          </div>
-          <UsersTab />
         </div>
 
       </div>

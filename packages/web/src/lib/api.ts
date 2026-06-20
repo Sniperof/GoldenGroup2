@@ -98,6 +98,9 @@ export const api = {
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
     listReference: () => request<any[]>('/geo-units/reference'),
+    // Global name map for DISPLAY (address labels) — all units, no branch scope.
+    // Use this to resolve an existing record's address; use `list(branchId)` for form pickers.
+    names: () => request<any[]>('/geo-units/names'),
     create: (data: any) => request<any>('/geo-units', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: { name: string }) => request<any>(`/geo-units/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     updateStatus: (id: number, status: 'active' | 'inactive') => request<any>(`/geo-units/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
@@ -460,6 +463,14 @@ export const api = {
       if (params.hideFutureTasks) q.set('hideFutureTasks', params.hideFutureTasks);
       return request<any[]>(`/open-tasks/group/${encodeURIComponent(groupKey)}?${q}`);
     },
+    // ASSIGNED-scope "my customers' tasks" — all task types for customers the user
+    // personally owns (server gates by ownership). Only status/taskType filters apply.
+    listMyCustomers: (params: { status?: string; taskType?: string } = {}) => {
+      const q = new URLSearchParams();
+      if (params.status) q.set('status', params.status);
+      if (params.taskType) q.set('taskType', params.taskType);
+      return request<any[]>(`/open-tasks/my-customers?${q}`);
+    },
     getActivity: (id: number) => request<any[]>(`/open-tasks/${id}/activity`),
     addActivity: (id: number, data: any) => request<any>(`/open-tasks/${id}/activity`, { method: 'POST', body: JSON.stringify(data) }),
     getDevices: (id: number) => request<any[]>(`/open-tasks/${id}/devices`),
@@ -583,6 +594,14 @@ export const api = {
       if (params.taskType) qs.append('taskType', params.taskType);
       if (params.mineOnly) qs.append('mineOnly', 'true');
       return request<any[]>(`/field-visits/?${qs.toString()}`);
+    },
+    // "زياراتي" — the field member's own (team-assigned) visits. Gated server-side
+    // by field_visits.my_visits.view (ASSIGNED) + team-membership predicate.
+    myVisits: (params: { date: string; status?: string }) => {
+      const qs = new URLSearchParams();
+      qs.append('date', params.date);
+      if (params.status) qs.append('status', params.status);
+      return request<any[]>(`/field-visits/my-visits?${qs.toString()}`);
     },
     get: (id: number) => request<any>(`/field-visits/${id}`),
     start: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
@@ -843,10 +862,12 @@ export const api = {
     delete: (id: number) => request<any>(`/system-lists/${id}`, { method: 'DELETE' }),
   },
   departments: {
-    list: (branchId?: number) => {
-      const qs = branchId != null ? `?branchId=${branchId}` : '';
-      return request<any[]>(`/departments${qs}`);
-    },
+    // branchId narrows a GLOBAL viewer to one branch (sent as X-Branch-Id, the
+    // header the list endpoint now reads); null/undefined lets the server scope.
+    list: (branchId?: number | null) => request<any[]>(
+      '/departments',
+      branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+    ),
     get: (id: number) => request<any>(`/departments/${id}`),
     create: (data: any) => request<any>('/departments', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/departments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

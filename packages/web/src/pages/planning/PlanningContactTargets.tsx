@@ -6,6 +6,7 @@ import {
     Target, Users, X, Zap,
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { getOutcomeMeta } from '@golden-crm/shared';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -415,6 +416,8 @@ export default function PlanningContactTargets() {
     const [sortKey, setSortKey] = useState<SortKey | null>(parseSortKey(searchParams.get('sort')) || 'clientName');
     const [sortDir, setSortDir] = useState<SortDir>(parseSortDir(searchParams.get('dir')) || 'asc');
     const [syncingContacts, setSyncingContacts] = useState(false);
+    // React to the external branch switcher (no full reload — §4): refetch on change.
+    const branchId = useBranchContextStore(s => s.branchId);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -426,7 +429,7 @@ export default function PlanningContactTargets() {
         } finally {
             setLoading(false);
         }
-    }, [date, teamKey]);
+    }, [date, teamKey, branchId]);
 
     useEffect(() => { loadData(); }, [loadData]);
     useEffect(() => {

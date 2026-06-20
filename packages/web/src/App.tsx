@@ -4,6 +4,7 @@ import { useAuthStore } from './hooks/useAuthStore';
 import Login from './pages/auth/Login';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import MainLayout from './layout/MainLayout';
+import RequireBranchContext from './components/RequireBranchContext';
 import Dashboard from './pages/Dashboard';
 import SupervisorAlertsPage from './pages/supervisor/SupervisorAlertsPage';
 import GeoSettings from './pages/GeoSettings';
@@ -35,7 +36,7 @@ import PostSaleTaskDetail from './pages/tasks/PostSaleTaskDetail';
 import OpenTasks from './pages/OpenTasks';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
-import BranchDetail from './pages/admin/BranchDetail';
+import Departments from './pages/Departments';
 import Vacancies from './pages/jobs/Vacancies';
 import VacancyDetail from './pages/jobs/VacancyDetail';
 import PublicJobs from './pages/jobs/PublicJobs';
@@ -47,11 +48,13 @@ import TrainingCourses from './pages/jobs/TrainingCourses';
 import TrainingCourseDetail from './pages/jobs/TrainingCourseDetail';
 import SystemLists from './pages/admin/SystemLists';
 import Roles from './pages/admin/Roles';
+import Users from './pages/admin/Users';
 import RolePermissions from './pages/admin/RolePermissions';
 import PermissionSettings from './pages/admin/PermissionSettings';
 import TaskTypes from './pages/admin/TaskTypes';
 import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
 import VisitsListPage from './pages/visits/VisitsListPage';
+import MyVisitsPage from './pages/visits/MyVisitsPage';
 import VisitDetailPage from './pages/visits/VisitDetailPage';
 import TaskGroupPage from './pages/tasks/TaskGroupPage';
 import ServiceRequestsListPage from './pages/service-requests/ServiceRequestsListPage';
@@ -94,12 +97,13 @@ export default function App() {
                         <Route path="/clients" element={<Clients />} />
                         <Route path="/clients/:id" element={<ClientProfile />} />
                         <Route path="/candidates" element={<CandidatesEntry />} />
-                        <Route path="/planning/schedule" element={<TeamScheduler />} />
-                        <Route path="/planning/zone-study" element={<ZoneStudy />} />
-                        <Route path="/planning/assign" element={<RouteAssigner />} />
-                        <Route path="/planning/overview" element={<PlanOverview />} />
-                        <Route path="/planning/contact-targets/:teamKey" element={<PlanningContactTargets />} />
-                        <Route path="/planning/team-tasks/:teamKey" element={<TeamTasksDetail />} />
+                        {/* Group 3 — single-branch operational pages: hidden on "all branches" (§6 / Phase 3.2). */}
+                        <Route path="/planning/schedule" element={<RequireBranchContext><TeamScheduler /></RequireBranchContext>} />
+                        <Route path="/planning/zone-study" element={<RequireBranchContext><ZoneStudy /></RequireBranchContext>} />
+                        <Route path="/planning/assign" element={<RequireBranchContext><RouteAssigner /></RequireBranchContext>} />
+                        <Route path="/planning/overview" element={<RequireBranchContext><PlanOverview /></RequireBranchContext>} />
+                        <Route path="/planning/contact-targets/:teamKey" element={<RequireBranchContext><PlanningContactTargets /></RequireBranchContext>} />
+                        <Route path="/planning/team-tasks/:teamKey" element={<RequireBranchContext><TeamTasksDetail /></RequireBranchContext>} />
                         <Route path="/tasks/emergency" element={<EmergencyTasks />} />
                         <Route path="/tasks/emergency/:id" element={<EmergencyTaskDetail />} />
                         <Route path="/tasks/dues" element={<Dues />} />
@@ -116,18 +120,24 @@ export default function App() {
                         <Route path="/service-requests" element={<ServiceRequestsListPage />} />
                         <Route path="/service-requests/new" element={<NewServiceRequestPage />} />
                         <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
-                        <Route path="/field-visits" element={<VisitsListPage />} />
+                        {/* Group 3 — visit management is a single-branch supervisory surface (§6).
+                            Hidden on "all branches"; super-admin / GLOBAL must pick a branch. The
+                            field team uses the standalone "زياراتي" page instead. */}
+                        <Route path="/field-visits" element={<RequireBranchContext><VisitsListPage /></RequireBranchContext>} />
+                        {/* Standalone personal surface for the field team (ASSIGNED) — outside the
+                            management Visits page. Self-scopes by team membership; not branch-gated. */}
+                        <Route path="/my-visits" element={<MyVisitsPage />} />
                         <Route path="/field-visits/:id" element={<VisitDetailPage />} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />
                         <Route path="/contracts/:id/edit" element={<ContractForm />} />
                         <Route path="/contracts/:id" element={<ContractDetail />} />
 
-                        <Route path="/telemarketer" element={<TelemarketerWorkspace />} />
+                        <Route path="/telemarketer" element={<RequireBranchContext><TelemarketerWorkspace /></RequireBranchContext>} />
                         <Route path="/settings" element={<SystemSettings />} />
                         <Route path="/system-lists" element={<SystemLists />} />
                         <Route path="/branches" element={<Branches />} />
-                        <Route path="/branches/:id" element={<BranchDetail />} />
+                        <Route path="/departments" element={<Departments />} />
 
                         {/* Job Applications Epic */}
                         <Route path="/jobs/vacancies" element={<Vacancies />} />
@@ -141,10 +151,13 @@ export default function App() {
                         <Route path="/jobs/training-courses/:id" element={<TrainingCourseDetail />} />
 
                         {/* Supervisor */}
-                        <Route path="/supervisor/alerts" element={<SupervisorAlertsPage />} />
+                        <Route path="/supervisor/alerts" element={<RequireBranchContext><SupervisorAlertsPage /></RequireBranchContext>} />
 
                         {/* Admin */}
                         <Route path="/admin/roles" element={<Roles />} />
+                        {/* Group-1 records page (branch-filtered) living under /admin; excluded
+                            from isGlobalOnlyPath so it honours the external branch filter. */}
+                        <Route path="/admin/users" element={<Users />} />
                         <Route path="/admin/roles/:id/permissions" element={<RolePermissions />} />
                         <Route path="/admin/permissions-settings" element={<PermissionSettings />} />
                         <Route path="/admin/task-types" element={<TaskTypes />} />

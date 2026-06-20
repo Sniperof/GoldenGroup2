@@ -1,5 +1,14 @@
 import pool from '../db.js';
 import { getPlanningWorkScope } from './planningMarketingTargets.js';
+import { resolveAssignmentOwningBranch } from '../policies/routeAssignmentPolicy.js';
+
+/** Thrown when a team is asked to plan/assign a branch it does not belong to. */
+export class CrossBranchAssignmentError extends Error {
+  constructor(public readonly teamKey: string, public readonly owningBranchId: number, public readonly requestedBranchId: number) {
+    super(`تعذّر الإسناد: الفريق ${teamKey} يتبع الفرع ${owningBranchId} لا الفرع ${requestedBranchId} — لا يجوز إسناد مهام فرع لفريق فرع آخر`);
+    this.name = 'CrossBranchAssignmentError';
+  }
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +55,18 @@ export async function syncAssignedTasks(params: {
   const { date, teamKey, branchId, scopeId = null, performedBy = null } = params;
   // FIX-2: use provided client or fall back to pool
   const db = params.db ?? pool;
+
+  // ── Step 0 (branch-isolation guard, GAP-DS-005 / PL-R005): the team's owning
+  // branch is DERIVED from its scheduled supervisor (day_schedules has no branch_id).
+  // Every write path funnels through here, but only route_assignments passes the
+  // derived owning branch — workScopes/planning trust an independent branchId, which
+  // let a foreign-branch task (e.g. Tartous task on a Damascus team) be assigned.
+  // Reject the mismatch at the single write chokepoint. When the owning branch can't
+  // be derived (team not scheduled yet) we stay permissive, per routeAssignmentPolicy.
+  const owningBranchId = await resolveAssignmentOwningBranch(date, teamKey);
+  if (owningBranchId != null && owningBranchId !== branchId) {
+    throw new CrossBranchAssignmentError(teamKey, owningBranchId, branchId);
+  }
 
   // ── Step 1: eligible task IDs from work scope (N-window + ownership + zone already applied)
   // FIX-3: do NOT expand to all client tasks — use only what workScope approved.

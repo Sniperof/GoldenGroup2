@@ -20,6 +20,8 @@ export default function TaskScheduleCard({
   onExpectedDateDraftChange, onExpectedDateBlur,
   extraRows,
 }: TaskScheduleCardProps) {
+  const dateCounterReference = task.status === 'completed' ? (task.completedAt ?? task.updatedAt ?? null) : null;
+
   return (
     <Card title="الجدولة" icon={Calendar} accent="emerald">
       <div className="space-y-1.5">
@@ -40,7 +42,7 @@ export default function TaskScheduleCard({
             {(() => {
               const dateForStatus = expectedDateDraft || task.expectedDate;
               if (!dateForStatus) return null;
-              const s = getExpectedDateStatus(dateForStatus);
+              const s = getExpectedDateStatus(dateForStatus, dateCounterReference);
               if (!s) return null;
               return (
                 <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${s.badgeClass}`}>

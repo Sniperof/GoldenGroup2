@@ -1,10 +1,64 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
-import { listAllGeoUnits } from '../services/geoScopeService.js';
-import { areRoutePointsInScope, resolveRouteGeoScope } from '../policies/routePolicy.js';
+import { authorize } from '../services/authorizationService.js';
+import {
+  listAllGeoUnits,
+  resolveGeoScopeForBranch,
+  type GeoScope,
+  type GeoUnitRow,
+} from '../services/geoScopeService.js';
+import {
+  areRoutePointsInScope,
+  resolveRouteGeoScope,
+  type RouteAction,
+} from '../policies/routePolicy.js';
 
 const router = Router();
+
+function emptyGeoScope(branchId: number | null): GeoScope {
+  return {
+    branchId,
+    coveredGeoIds: [],
+    visibleGeoIds: new Set<number>(),
+    serviceGeoIds: new Set<number>(),
+  };
+}
+
+// Honour the external branch filter (X-Branch-Id) for routes, mirroring
+// geoUnits.ts §2.6: a GLOBAL holder (or super admin) who picked a branch is scoped
+// to THAT branch's coverage; with no branch picked the full (GLOBAL → null) scope
+// applies. Branch-scoped actors stay pinned to their own coverage. This keeps the
+// unified external filter as the single source instead of an in-page dropdown (§4).
+async function resolveRequestedRouteScope(
+  req: any,
+  action: RouteAction,
+  geoUnits: GeoUnitRow[],
+): Promise<GeoScope | null> {
+  const rawBranchId = req.header('x-branch-id');
+  const requestedBranchId = rawBranchId == null || rawBranchId === '' ? null : Number(rawBranchId);
+
+  if (Number.isInteger(requestedBranchId) && requestedBranchId > 0) {
+    const permission = action === 'manage' ? 'routes.manage' : 'routes.view';
+    if (req.authContext?.isSuperAdmin === true) {
+      return resolveGeoScopeForBranch(requestedBranchId, geoUnits);
+    }
+    if (req.authContext) {
+      const check = authorize(req.authContext, { permission });
+      if (check.allowed && check.grant?.scope === 'GLOBAL') {
+        return resolveGeoScopeForBranch(requestedBranchId, geoUnits);
+      }
+    }
+    if (req.authContext?.actingBranchId === requestedBranchId) {
+      return resolveGeoScopeForBranch(requestedBranchId, geoUnits);
+    }
+    return emptyGeoScope(requestedBranchId);
+  }
+
+  return req.authContext
+    ? await resolveRouteGeoScope(req.authContext, action, geoUnits)
+    : null;
+}
 
 /**
  * @swagger
@@ -107,9 +161,7 @@ router.get('/', requirePermission('routes.view'), async (req, res) => {
     ORDER BY up.route_id, b.name
   `);
   const geoUnits = await listAllGeoUnits();
-  const scope = req.authContext
-    ? await resolveRouteGeoScope(req.authContext, 'view', geoUnits)
-    : null;
+  const scope = await resolveRequestedRouteScope(req, 'view', geoUnits);
   const result = routes
     .map(r => {
       const branches = routeBranchRows
@@ -183,9 +235,14 @@ router.get('/', requirePermission('routes.view'), async (req, res) => {
 router.post('/', requirePermission('routes.manage'), async (req, res) => {
   const { name, points, status } = req.body;
   const geoUnits = await listAllGeoUnits();
-  const scope = req.authContext
-    ? await resolveRouteGeoScope(req.authContext, 'manage', geoUnits)
-    : null;
+  const scope = await resolveRequestedRouteScope(req, 'manage', geoUnits);
+  // Add rule (§5 / SH-3): a route is branch-owned (via its points' coverage). A
+  // cross-branch actor (GLOBAL / super-admin) with no branch picked resolves to a
+  // null scope — that is the silent-national-route path, so reject it: they must
+  // pick a branch first. Branch-scoped actors carry a non-null coverage scope.
+  if (scope == null) {
+    return res.status(400).json({ error: 'اختر فرعاً أولاً لإنشاء المسار' });
+  }
   if (!areRoutePointsInScope(points || [], scope)) {
     return res.status(403).json({ error: 'لا يمكن إنشاء مسار خارج نطاق تغطية الفرع' });
   }

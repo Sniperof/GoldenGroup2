@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck } from 'lucide-react';
+import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck, UserCheck } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
@@ -14,6 +14,7 @@ import {
 } from '@golden-crm/shared';
 import { getExpectedDateStatus, getDueDateStatus } from '../../lib/taskDateStatus';
 import { getGeoUnits, type GeoUnit } from '../../lib/geoUnitsCache';
+import BranchScopeIndicator from '../../components/BranchScopeIndicator';
 
 // ============================================================
 // TaskGroupPage — Unified tasks list for all 6 display_groups.
@@ -33,7 +34,8 @@ type GroupKey =
   | 'warranty-services'
   | 'device-delivery'
   | 'device-installation'
-  | 'device-activation';
+  | 'device-activation'
+  | 'my-customers';
 
 type GroupConfig = {
   label: string;
@@ -127,7 +129,27 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     accentRing: 'shadow-indigo-500/20',
     detailHref: '/tasks/group/device-activation',
   },
+  // ASSIGNED-scope aggregate (§7, مُسنَد): every task of customers the user
+  // personally owns, regardless of type. Served by /open-tasks/my-customers;
+  // row clicks route per-row by task type (see TASK_TYPE_DETAIL_HREF).
+  'my-customers': {
+    label: 'مهامي',
+    subtitle: 'كل مهام الزبائن المملوكين لك شخصياً، من جميع الأنواع',
+    taskTypes: [],
+    Icon: UserCheck,
+    accentBg: 'bg-teal-500',
+    accentRing: 'shadow-teal-500/20',
+    detailHref: '/tasks/group/maintenance',
+  },
 };
+
+// Per-type detail route, derived from each group's taskTypes → detailHref. Lets
+// the mixed-type "my customers" table route each row to the right detail page.
+const TASK_TYPE_DETAIL_HREF: Record<string, string> = Object.values(GROUP_CONFIG)
+  .reduce((acc, cfg) => {
+    for (const t of cfg.taskTypes) acc[t] = cfg.detailHref;
+    return acc;
+  }, {} as Record<string, string>);
 
 // ============================================================
 // Display helpers — copied verbatim from DeviceDemo.tsx so the
@@ -320,6 +342,10 @@ function getCreatorLabel(row: any): string {
   return compactText(row.displayCreatedByName) || compactText(row.createdByName) || compactText(row.createdBy?.name) || compactText(row.createdBy?.username) || '—';
 }
 
+function getDateCounterReference(row: any): string | null {
+  return row.taskStatus === 'completed' ? (row.completedAt ?? row.updatedAt ?? null) : null;
+}
+
 // ============================================================
 // Page component
 // ============================================================
@@ -337,8 +363,8 @@ export default function TaskGroupPage() {
   const [visitStatusFilter, setVisitStatusFilter] = useState('');
   const [scheduledFilter, setScheduledFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
-  const [hideSnoozed, setHideSnoozed] = useState(true);
-  const [hideFutureTasks, setHideFutureTasks] = useState(true);
+  const [hideSnoozed, setHideSnoozed] = useState(false);
+  const [hideFutureTasks, setHideFutureTasks] = useState(false);
   const [clientPopupId, setClientPopupId] = useState<number | null>(null);
   const [savingPriorityId, setSavingPriorityId] = useState<number | null>(null);
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
@@ -385,7 +411,9 @@ export default function TaskGroupPage() {
         ...(hideSnoozed ? { hideSnoozed: 'true' } : {}),
         ...(hideFutureTasks ? { hideFutureTasks: 'true' } : {}),
       };
-      if (group === 'device-demo') {
+      if (group === 'my-customers') {
+        setRows(await api.openTasks.listMyCustomers(params));
+      } else if (group === 'device-demo') {
         setRows(await api.openTasks.listDeviceDemo(params));
       } else {
         // All other groups are served by the unified group endpoint, each gated
@@ -439,6 +467,7 @@ export default function TaskGroupPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-800">{config.label}</h1>
             <p className="text-sm text-slate-500">{config.subtitle}</p>
+            <div className="mt-2"><BranchScopeIndicator /></div>
           </div>
         </div>
 
@@ -574,9 +603,10 @@ export default function TaskGroupPage() {
                   const mobile = getPrimaryMobile(row);
                   const name = getFullCustomerName(row);
                   const phase = (row.phase ?? getTaskPhase(row.taskStatus as OpenTaskStatus)) as keyof typeof OPEN_TASK_PHASE_LABELS;
+                  const dateCounterReference = getDateCounterReference(row);
 
                   return (
-                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`${config.detailHref}/${row.id}`)}>
+                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`${(group === 'my-customers' ? (TASK_TYPE_DETAIL_HREF[row.taskType] ?? config.detailHref) : config.detailHref)}/${row.id}`)}>
                       <td className="px-4 py-3 text-slate-700 font-mono text-xs">
                         #{row.id}
                       </td>
@@ -627,7 +657,7 @@ export default function TaskGroupPage() {
                       </td>
                       <td className="px-4 py-3 text-xs">
                         {(() => {
-                          const s = getDueDateStatus(row.dueDate);
+                          const s = getDueDateStatus(row.dueDate, dateCounterReference);
                           if (!s) return <span className="text-slate-300">—</span>;
                           return (
                             <div className="flex flex-col gap-1 items-start">
@@ -642,7 +672,7 @@ export default function TaskGroupPage() {
                       <td className="px-4 py-3 text-xs">
                         {(() => {
                           if (!row.expectedDate) return <span className="text-slate-300">—</span>;
-                          const s = getExpectedDateStatus(row.expectedDate);
+                          const s = getExpectedDateStatus(row.expectedDate, dateCounterReference);
                           if (!s) return <span className="text-slate-600">{formatDate(row.expectedDate)}</span>;
                           return (
                             <div className="flex flex-col gap-1 items-start">

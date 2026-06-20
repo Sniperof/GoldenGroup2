@@ -47,8 +47,9 @@ export default function TaskHeroSummary({ task }: TaskHeroSummaryProps) {
     : attemptsCount > 0 ? 'bg-slate-50 text-slate-700 border-slate-200'
     : 'bg-white text-slate-400 border-slate-200';
 
-  const dueStatus = task.dueDate ? getDueDateStatus(task.dueDate) : null;
-  const expectedStatus = task.expectedDate ? getExpectedDateStatus(task.expectedDate) : null;
+  const dateCounterReference = task.status === 'completed' ? (task.completedAt ?? task.updatedAt ?? null) : null;
+  const dueStatus = task.dueDate ? getDueDateStatus(task.dueDate, dateCounterReference) : null;
+  const expectedStatus = task.expectedDate ? getExpectedDateStatus(task.expectedDate, dateCounterReference) : null;
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-bl from-white via-slate-50/50 to-white p-5 shadow-sm">

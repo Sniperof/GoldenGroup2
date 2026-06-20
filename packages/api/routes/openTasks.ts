@@ -11,6 +11,8 @@ import {
   buildCustomerOwnershipSql,
   buildClientLifecycleStatusSql,
   mapCustomerOwnership,
+  personalOwnershipPredicate,
+  redactPersonalAssignments,
 } from '../services/customerOwnership.js';
 import { claimContactTarget, ContactTargetLockError } from '../services/contactTargetLocks.js';
 
@@ -165,6 +167,7 @@ const OPEN_TASK_SELECT = `
       'closedAt',      last_attempt.closed_at
     ) END AS "lastAttempt",
     COALESCE(attempts_agg.count, 0) AS "attemptsCount",
+    completed_activity.completed_at AS "completedAt",
     COALESCE(
       (SELECT json_agg(json_build_object(
          'userId', u2.id,
@@ -218,6 +221,15 @@ const OPEN_TASK_SELECT = `
     ORDER BY vtr.closed_at DESC NULLS LAST, vt.id DESC
     LIMIT 1
   ) last_attempt ON true
+  LEFT JOIN LATERAL (
+    SELECT tal.created_at AS completed_at
+    FROM task_activity_log tal
+    WHERE tal.task_id = ot.id
+      AND tal.event_type = 'status_change'
+      AND tal.new_value = 'completed'
+    ORDER BY tal.created_at ASC, tal.id ASC
+    LIMIT 1
+  ) completed_activity ON true
   LEFT JOIN LATERAL (
     SELECT COUNT(*)::int AS count
     FROM visit_tasks vt
@@ -279,6 +291,7 @@ function mapOpenTaskRow(row: any) {
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    completedAt: row.completedAt ?? null,
     clientSnapshot: row.clientSnapshot ?? null,
     contractSnapshot: row.contractSnapshot ?? null,
     deviceSnapshot: row.deviceSnapshot ?? null,
@@ -924,7 +937,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   if (!taskTypeConfig.isActive) {
     return res.status(400).json({ error: `نوع المهمة "${taskType}" غير مفعل حاليا` });
   }
-  if (!taskTypeConfig.allowMultiple && !['device_delivery', 'device_installation'].includes(taskType)) {
+  if (!taskTypeConfig.allowMultiple && !['device_delivery', 'device_installation', 'device_activation'].includes(taskType)) {
     const { rows: activeDuplicateRows } = await pool.query(
       `SELECT id, status
        FROM open_tasks
@@ -947,11 +960,12 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   let deviceIdFromContract: number | null = null;
   let deviceBranchIdFromContract: number | null = null;
   let deviceAddressFromCurrentDevice: string | null = null;
+  let deviceGeoUnitIdFromCurrentDevice: number | null = null;
   let deviceStatusFromCurrentDevice: string | null = null;
   if (installedDeviceId) {
     const { rows: devRows } = await pool.query(
       `SELECT id, branch_id AS "branchId", customer_id, contract_id,
-              status, installation_address_text
+              status, installation_geo_unit_id, installation_address_text
          FROM installed_devices
         WHERE id = $1
         LIMIT 1`,
@@ -970,15 +984,17 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     deviceIdFromContract = Number(dev.id);
     deviceBranchIdFromContract = dev.branchId ?? null;
     deviceAddressFromCurrentDevice = dev.installation_address_text ?? null;
+    deviceGeoUnitIdFromCurrentDevice = dev.installation_geo_unit_id ?? null;
     deviceStatusFromCurrentDevice = dev.status ?? null;
   } else if (contractId) {
     const { rows: devRows } = await pool.query(
-      'SELECT id, branch_id AS "branchId", status, installation_address_text FROM installed_devices WHERE contract_id = $1 LIMIT 1',
+      'SELECT id, branch_id AS "branchId", status, installation_geo_unit_id, installation_address_text FROM installed_devices WHERE contract_id = $1 LIMIT 1',
       [contractId],
     );
     deviceIdFromContract = devRows[0]?.id ?? null;
     deviceBranchIdFromContract = devRows[0]?.branchId ?? null;
     deviceAddressFromCurrentDevice = devRows[0]?.installation_address_text ?? null;
+    deviceGeoUnitIdFromCurrentDevice = devRows[0]?.installation_geo_unit_id ?? null;
     deviceStatusFromCurrentDevice = devRows[0]?.status ?? null;
   }
 
@@ -1031,6 +1047,44 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     if (activeDuplicateRows.length > 0) {
       return res.status(409).json({
         error: 'لا يمكن إنشاء أكثر من مهمة تركيب نشطة لنفس الجهاز',
+        existingTaskId: activeDuplicateRows[0].id,
+        existingTaskStatus: activeDuplicateRows[0].status,
+      });
+    }
+  }
+
+  if (taskType === 'device_activation') {
+    if (!deviceIdFromContract) {
+      return res.status(400).json({ error: 'device_activation يتطلب installedDeviceId أو عقدا مرتبطا بجهاز' });
+    }
+    if (deviceStatusFromCurrentDevice !== 'installed') {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة تشغيل إلا لجهاز حالته installed' });
+    }
+    if (!deviceGeoUnitIdFromCurrentDevice || !deviceAddressFromCurrentDevice) {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة تشغيل قبل اكتمال عنوان التركيب النهائي للجهاز' });
+    }
+    if (!dueDate) {
+      return res.status(400).json({ error: 'التاريخ المطلوب مطلوب عند إنشاء مهمة تشغيل' });
+    }
+    if (!expectedDate) {
+      return res.status(400).json({ error: 'موعد التنفيذ مطلوب عند إنشاء مهمة تشغيل' });
+    }
+    if (!priority) {
+      return res.status(400).json({ error: 'الأولوية مطلوبة عند إنشاء مهمة تشغيل' });
+    }
+    const { rows: activeDuplicateRows } = await pool.query(
+      `SELECT id, status
+         FROM open_tasks
+        WHERE device_id = $1
+          AND task_type = 'device_activation'
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (activeDuplicateRows.length > 0) {
+      return res.status(409).json({
+        error: 'لا يمكن إنشاء أكثر من مهمة تشغيل نشطة لنفس الجهاز',
         existingTaskId: activeDuplicateRows[0].id,
         existingTaskStatus: activeDuplicateRows[0].status,
       });
@@ -1094,7 +1148,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
 
     // Phase 3: resolve device_id from installed_devices when contract_id is known
     const deviceId: number | null = deviceIdFromContract;
-    const deliveryAddress = taskType === 'device_delivery' || taskType === 'device_installation'
+    const deliveryAddress = taskType === 'device_delivery' || taskType === 'device_installation' || taskType === 'device_activation'
       ? (deliveryAddressInput || deviceAddressFromCurrentDevice)
       : null;
     if (taskType === 'device_delivery' && !deliveryAddress) {
@@ -1489,6 +1543,117 @@ router.get('/client/:clientId', requirePermission('clients.visits.view', 'open_t
  *       500:
  *         description: Internal Server Error
  */
+// Shared SELECT + FROM (no WHERE / ORDER) for task-table rows. Used by the
+// per-group tables (listTaskGroupRows) AND the ASSIGNED "my customers" view so
+// both render identical columns/ownership/visit data from a single source.
+function buildTaskRowsSelectFrom(hasDeliveryAddressColumn: boolean): string {
+  return `
+      SELECT
+        ot.id,
+        ot.status AS "taskStatus",
+        ot.task_type AS "taskType",
+        ${hasDeliveryAddressColumn
+          ? 'ot.delivery_address'
+          : 'idev.installation_address_text'} AS "deliveryAddress",
+        ot.device_id AS "deviceId",
+        idev.installation_address_text AS "currentDeviceAddress",
+        idev.installation_geo_unit_id AS "currentDeviceGeoUnitId",
+        ot.reason,
+        ot.task_family AS "taskFamily",
+        ot.created_at AS "createdAt",
+        ot.updated_at AS "updatedAt",
+        completed_activity.completed_at AS "completedAt",
+        ot.client_id AS "clientId",
+        ot.due_date AS "dueDate",
+        ot.expected_date AS "expectedDate",
+        ot.priority AS "priority",
+        ot.waiting_reason_id AS "waitingReasonId",
+        ot.waiting_reason_text AS "waitingReasonText",
+        ot.attempt_count AS "attemptCount",
+        ot.last_attempt_at AS "lastAttemptAt",
+        ot.last_waiting_status AS "lastWaitingStatus",
+        ot.team_snapshot AS "teamSnapshot",
+        ot.client_snapshot AS "clientSnapshot",
+        c.name AS "clientName",
+        c.first_name AS "clientFirstName",
+        c.father_name AS "clientFatherName",
+        c.last_name AS "clientLastName",
+        c.mobile AS "clientMobile",
+        c.neighborhood AS "clientNeighborhood",
+        -- Lifecycle classification: LEAD (candidate or no activity) / FOP (has visits, no contract) / OP (has a contract).
+        ${buildClientLifecycleStatusSql('c')} AS "clientClassification",
+        c.governorate AS "clientGovernorate",
+        c.district AS "clientDistrict",
+        c.detailed_address AS "clientDetailedAddress",
+        b.name AS "taskBranchName",
+        cb.name AS "clientBranchName",
+        b.name AS "branchName",
+        COALESCE(creator.name, creator.username, '') AS "createdByName",
+        ${buildCustomerOwnershipSelectColumns()},
+        -- Active visit fields (legacy aliases — sourced from the live booking only).
+        active_visit_fv.id AS "marketingVisitId",
+        active_visit_fv.status AS "visitStatus",
+        active_visit_fv.scheduled_date AS "scheduledDate",
+        active_visit_fv.scheduled_time AS "scheduledTime",
+        (active_visit_fv.customer_snapshot->>'requestedDeviceName') AS "requestedDeviceName",
+        (active_visit_fv.customer_snapshot->>'requestedDeviceModelId')::integer AS "requestedDeviceModelId",
+        active_visit_fv.team_snapshot AS "visitTeamSnapshot",
+        (active_visit_fv.customer_snapshot->>'name') AS "customerName",
+        (active_visit_fv.customer_snapshot->>'mobile') AS "customerMobile",
+        (active_visit_fv.customer_snapshot->>'address') AS "customerAddress",
+        active_visit_fv.id IS NOT NULL AS "hasActiveVisit",
+        -- Phase 6/7 marker: NULL = legacy, non-NULL = new service_requests path
+        ot.source_service_request_id AS "sourceServiceRequestId",
+        -- Last completed attempt (read-back only).
+        last_attempt.final_decision AS "latestFinalDecision",
+        last_attempt.scheduled_date AS "lastAttemptDate",
+        last_attempt.scheduled_time AS "lastAttemptTime",
+        last_attempt.closed_at      AS "lastAttemptClosedAt",
+        COALESCE(attempts_agg.count, 0) AS "attemptsCount"
+      FROM open_tasks ot
+      JOIN clients c ON c.id = ot.client_id
+      LEFT JOIN branches b ON b.id = ot.branch_id
+      LEFT JOIN branches cb ON cb.id = c.branch_id
+      LEFT JOIN hr_users creator ON creator.id = ot.created_by
+      ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
+      LEFT JOIN installed_devices idev ON idev.id = ot.device_id
+      LEFT JOIN LATERAL (
+        SELECT fv.id, fv.status, fv.scheduled_date, fv.scheduled_time,
+               fv.customer_snapshot, fv.team_snapshot
+        FROM visit_tasks vt
+        JOIN field_visits fv ON fv.id = vt.field_visit_id
+        LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+        WHERE vt.source_open_task_id = ot.id
+          AND fv.status IN ('scheduled', 'in_progress', 'ended')
+          AND vtr.final_decision IS NULL
+        ORDER BY fv.scheduled_date ASC, fv.scheduled_time ASC, vt.id ASC
+        LIMIT 1
+      ) active_visit_fv ON true
+      LEFT JOIN LATERAL (
+        SELECT vtr.final_decision, fv.scheduled_date, fv.scheduled_time, vtr.closed_at
+        FROM visit_tasks vt
+        JOIN field_visits fv ON fv.id = vt.field_visit_id
+        JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+        WHERE vt.source_open_task_id = ot.id
+        ORDER BY vtr.closed_at DESC NULLS LAST, vt.id DESC
+        LIMIT 1
+      ) last_attempt ON true
+      LEFT JOIN LATERAL (
+        SELECT tal.created_at AS completed_at
+        FROM task_activity_log tal
+        WHERE tal.task_id = ot.id
+          AND tal.event_type = 'status_change'
+          AND tal.new_value = 'completed'
+        ORDER BY tal.created_at ASC, tal.id ASC
+        LIMIT 1
+      ) completed_activity ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS count
+        FROM visit_tasks vt
+        WHERE vt.source_open_task_id = ot.id
+      ) attempts_agg ON true`;
+}
+
 async function listTaskGroupRows(req: any, res: any, taskTypes: string[], emptyLabel: string, permission: string) {
   try {
     const authContext = getAuthContext(req);
@@ -1574,100 +1739,7 @@ async function listTaskGroupRows(req: any, res: any, taskTypes: string[], emptyL
     const taskTypesParamIdx = paramIdx;
 
     const query = `
-      SELECT
-        ot.id,
-        ot.status AS "taskStatus",
-        ot.task_type AS "taskType",
-        ${hasDeliveryAddressColumn
-          ? 'ot.delivery_address'
-          : 'idev.installation_address_text'} AS "deliveryAddress",
-        ot.device_id AS "deviceId",
-        idev.installation_address_text AS "currentDeviceAddress",
-        idev.installation_geo_unit_id AS "currentDeviceGeoUnitId",
-        ot.reason,
-        ot.task_family AS "taskFamily",
-        ot.created_at AS "createdAt",
-        ot.updated_at AS "updatedAt",
-        ot.client_id AS "clientId",
-        ot.due_date AS "dueDate",
-        ot.expected_date AS "expectedDate",
-        ot.priority AS "priority",
-        ot.waiting_reason_id AS "waitingReasonId",
-        ot.waiting_reason_text AS "waitingReasonText",
-        ot.attempt_count AS "attemptCount",
-        ot.last_attempt_at AS "lastAttemptAt",
-        ot.last_waiting_status AS "lastWaitingStatus",
-        ot.team_snapshot AS "teamSnapshot",
-        ot.client_snapshot AS "clientSnapshot",
-        c.name AS "clientName",
-        c.first_name AS "clientFirstName",
-        c.father_name AS "clientFatherName",
-        c.last_name AS "clientLastName",
-        c.mobile AS "clientMobile",
-        c.neighborhood AS "clientNeighborhood",
-        -- Lifecycle classification: LEAD (candidate or no activity) / FOP (has visits, no contract) / OP (has a contract).
-        ${buildClientLifecycleStatusSql('c')} AS "clientClassification",
-        c.governorate AS "clientGovernorate",
-        c.district AS "clientDistrict",
-        c.detailed_address AS "clientDetailedAddress",
-        b.name AS "taskBranchName",
-        cb.name AS "clientBranchName",
-        b.name AS "branchName",
-        COALESCE(creator.name, creator.username, '') AS "createdByName",
-        ${buildCustomerOwnershipSelectColumns()},
-        -- Active visit fields (legacy aliases — sourced from the live booking only).
-        active_visit_fv.id AS "marketingVisitId",
-        active_visit_fv.status AS "visitStatus",
-        active_visit_fv.scheduled_date AS "scheduledDate",
-        active_visit_fv.scheduled_time AS "scheduledTime",
-        (active_visit_fv.customer_snapshot->>'requestedDeviceName') AS "requestedDeviceName",
-        (active_visit_fv.customer_snapshot->>'requestedDeviceModelId')::integer AS "requestedDeviceModelId",
-        active_visit_fv.team_snapshot AS "visitTeamSnapshot",
-        (active_visit_fv.customer_snapshot->>'name') AS "customerName",
-        (active_visit_fv.customer_snapshot->>'mobile') AS "customerMobile",
-        (active_visit_fv.customer_snapshot->>'address') AS "customerAddress",
-        active_visit_fv.id IS NOT NULL AS "hasActiveVisit",
-        -- Phase 6/7 marker: NULL = legacy, non-NULL = new service_requests path
-        ot.source_service_request_id AS "sourceServiceRequestId",
-        -- Last completed attempt (read-back only).
-        last_attempt.final_decision AS "latestFinalDecision",
-        last_attempt.scheduled_date AS "lastAttemptDate",
-        last_attempt.scheduled_time AS "lastAttemptTime",
-        last_attempt.closed_at      AS "lastAttemptClosedAt",
-        COALESCE(attempts_agg.count, 0) AS "attemptsCount"
-      FROM open_tasks ot
-      JOIN clients c ON c.id = ot.client_id
-      LEFT JOIN branches b ON b.id = ot.branch_id
-      LEFT JOIN branches cb ON cb.id = c.branch_id
-      LEFT JOIN hr_users creator ON creator.id = ot.created_by
-      ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
-      LEFT JOIN installed_devices idev ON idev.id = ot.device_id
-      LEFT JOIN LATERAL (
-        SELECT fv.id, fv.status, fv.scheduled_date, fv.scheduled_time,
-               fv.customer_snapshot, fv.team_snapshot
-        FROM visit_tasks vt
-        JOIN field_visits fv ON fv.id = vt.field_visit_id
-        LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
-        WHERE vt.source_open_task_id = ot.id
-          AND fv.status IN ('scheduled', 'in_progress', 'ended')
-          AND vtr.final_decision IS NULL
-        ORDER BY fv.scheduled_date ASC, fv.scheduled_time ASC, vt.id ASC
-        LIMIT 1
-      ) active_visit_fv ON true
-      LEFT JOIN LATERAL (
-        SELECT vtr.final_decision, fv.scheduled_date, fv.scheduled_time, vtr.closed_at
-        FROM visit_tasks vt
-        JOIN field_visits fv ON fv.id = vt.field_visit_id
-        JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
-        WHERE vt.source_open_task_id = ot.id
-        ORDER BY vtr.closed_at DESC NULLS LAST, vt.id DESC
-        LIMIT 1
-      ) last_attempt ON true
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS count
-        FROM visit_tasks vt
-        WHERE vt.source_open_task_id = ot.id
-      ) attempts_agg ON true
+      ${buildTaskRowsSelectFrom(hasDeliveryAddressColumn)}
       WHERE TRUE
         ${branchClause}
         AND ot.task_type = ANY($${taskTypesParamIdx}::text[])
@@ -1676,11 +1748,17 @@ async function listTaskGroupRows(req: any, res: any, taskTypes: string[], emptyL
     `;
 
     const { rows } = await pool.query(query, params);
-    res.json(rows.map((row: any) => ({
-      ...row,
-      phase: getTaskPhase(row.taskStatus as OpenTaskStatus),
-      ownership: mapCustomerOwnership(row),
-    })));
+    // ASSIGNED-scope holders must not see other assignees' identities (§4 / §7 وسيط);
+    // GLOBAL/BRANCH operators keep the full ownership label, mirroring the clients list.
+    const redact = plan.scope === 'ASSIGNED';
+    res.json(rows.map((row: any) => {
+      const ownership = mapCustomerOwnership(row);
+      return {
+        ...row,
+        phase: getTaskPhase(row.taskStatus as OpenTaskStatus),
+        ownership: redact ? redactPersonalAssignments(ownership) : ownership,
+      };
+    }));
   } catch (err: any) {
     console.error('[open-tasks] GET /task-group error:', err);
     res.status(500).json({
@@ -1705,6 +1783,121 @@ router.get('/group/:groupKey', async (req, res) => {
     return res.status(404).json({ error: 'مجموعة المهام غير معروفة' });
   }
   await listTaskGroupRows(req, res, config.taskTypes, config.emptyLabel, config.permission);
+});
+
+/**
+ * ASSIGNED-scope "my customers' tasks" — every task (any type) whose customer is
+ * PERSONALLY OWNED by the requester (branch-scope-and-visibility-standard.md §7,
+ * مُسنَد path 1). Gated by the dedicated `tasks.my_customers.view` permission
+ * (ASSIGNED-only, migration 301); on top of that the ownership predicate
+ * (`hr_user_id = me`) restricts rows to the holder's own customers — no branch
+ * scope, no task-type restriction. Path 2 (temporary team task-assignment on
+ * branch-owned customers) is intentionally NOT included here.
+ *
+ * @swagger
+ * /api/open-tasks/my-customers:
+ *   get:
+ *     tags: [Open Tasks]
+ *     summary: Tasks of the requester's personally-owned customers (ASSIGNED scope)
+ *     security: [ { bearerAuth: [] } ]
+ *     responses:
+ *       200: { description: Success }
+ *       401: { description: Unauthorized }
+ *       500: { description: Internal Server Error }
+ */
+router.get('/my-customers', requirePermission('tasks.my_customers.view'), async (req, res) => {
+  try {
+    const authContext = await getOrBuildAuthContext(req as any);
+    const hasDeliveryAddressColumn = await hasOpenTaskColumn('delivery_address');
+
+    const params: any[] = [authContext.userId];
+    const ownershipClause = personalOwnershipPredicate('ot.client_id', '$1');
+
+    // Path 2 (المهام تتبع الزيارات): a task also belongs to «مهامي» when one of its
+    // visits is assigned to the holder's team — even if the holder doesn't own the
+    // customer. Membership follows the VISIT, not the raw status, so it never
+    // mis-attributes a task that was re-scheduled onto a different team:
+    //   • active  ⟺ a LIVE visit (scheduled/in_progress/ended, not yet resulted) is mine.
+    //   • closed  ⟺ task is completed/closed AND any visit in its history was mine.
+    // open/needs_follow_up (back to the planner) and cancelled never appear.
+    // Path 1 (personally-owned customers) is unconditional — handled by ownershipClause.
+    // Team-match mirrors GET /field-visits/my-visits (reassignment override → team_snapshot).
+    const { rows: userRows } = await pool.query(
+      `SELECT employee_id FROM hr_users WHERE id = $1 AND is_active = TRUE`,
+      [authContext.userId],
+    );
+    const rawEmployeeId = userRows[0]?.employee_id;
+    const employeeId = Number.isInteger(rawEmployeeId) && rawEmployeeId > 0 ? rawEmployeeId : null;
+
+    let membershipClause = ownershipClause;
+    if (employeeId != null) {
+      params.push(employeeId);
+      const emp = `$${params.length}`;
+      const teamMatch = (fv: string) => `(
+        COALESCE(${fv}.reassigned_supervisor_id, NULLIF((${fv}.team_snapshot->>'supervisorEmployeeId')::text, '')::int) = ${emp}
+        OR COALESCE(${fv}.reassigned_technician_id, NULLIF((${fv}.team_snapshot->>'technicianEmployeeId')::text, '')::int) = ${emp}
+        OR COALESCE(${fv}.reassigned_trainee_id, NULLIF((${fv}.team_snapshot->>'traineeEmployeeId')::text, '')::int) = ${emp}
+      )`;
+      const path2ActiveClause = `EXISTS (
+        SELECT 1 FROM visit_tasks vt2
+        JOIN field_visits fv2 ON fv2.id = vt2.field_visit_id
+        LEFT JOIN visit_task_results vtr2 ON vtr2.visit_task_id = vt2.id
+        WHERE vt2.source_open_task_id = ot.id
+          AND fv2.status IN ('scheduled', 'in_progress', 'ended')
+          AND vtr2.final_decision IS NULL
+          AND ${teamMatch('fv2')}
+      )`;
+      const path2ClosedClause = `(ot.status IN ('completed', 'closed') AND EXISTS (
+        SELECT 1 FROM visit_tasks vt3
+        JOIN field_visits fv3 ON fv3.id = vt3.field_visit_id
+        WHERE vt3.source_open_task_id = ot.id
+          AND ${teamMatch('fv3')}
+      ))`;
+      membershipClause = `(${ownershipClause} OR ${path2ActiveClause} OR ${path2ClosedClause})`;
+    }
+
+    // Optional read filters — mirror the group tables so the same UI controls work.
+    const conditions: string[] = [];
+    let paramIdx = params.length + 1;
+    const statusFilter = req.query.status as string | undefined;
+    if (statusFilter) {
+      conditions.push(`ot.status = $${paramIdx}`);
+      params.push(statusFilter);
+      paramIdx++;
+    }
+    const taskTypeFilter = req.query.taskType as string | undefined;
+    if (taskTypeFilter) {
+      conditions.push(`ot.task_type = $${paramIdx}`);
+      params.push(taskTypeFilter);
+      paramIdx++;
+    }
+    const whereExtra = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
+
+    const query = `
+      ${buildTaskRowsSelectFrom(hasDeliveryAddressColumn)}
+      WHERE TRUE
+        AND ${membershipClause}
+        ${whereExtra}
+      ORDER BY ot.created_at DESC
+    `;
+
+    const { rows } = await pool.query(query, params);
+    // «مهامي» is an ASSIGNED-scope surface: the holder must not see other assignees'
+    // identities (§4 identity labels / §7 وسيط). Strip ownership.personalAssignments,
+    // mirroring the clients list (clients.ts). createdByName stays — operational, not
+    // a sensitive identity, consistent with the clients reference impl.
+    res.json(rows.map((row: any) => ({
+      ...row,
+      phase: getTaskPhase(row.taskStatus as OpenTaskStatus),
+      ownership: redactPersonalAssignments(mapCustomerOwnership(row)),
+    })));
+  } catch (err: any) {
+    console.error('[open-tasks] GET /my-customers error:', err);
+    res.status(500).json({
+      error: 'فشل في تحميل مهام زبائني',
+      ...(process.env.NODE_ENV !== 'production' ? { detail: err?.message } : {}),
+    });
+  }
 });
 
 /**

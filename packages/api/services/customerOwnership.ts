@@ -157,6 +157,33 @@ export function redactPersonalAssignments(ownership: CustomerOwnership): Custome
   return { ...ownership, personalAssignments: [] };
 }
 
+/**
+ * SQL predicate: "this client is PERSONALLY OWNED by the given user" — i.e. the
+ * user holds an eligible personal assignment on the client. The eligibility rule
+ * here MUST mirror the personal-ownership computation above (active user with an
+ * active employee, in a SUPERVISOR/TECHNICIAN team slot) so "my customers" matches
+ * exactly what renders as `personal_*` ownership. Used by the ASSIGNED-scope
+ * "my customers' tasks" view (branch-scope-and-visibility-standard.md §7 — مُسنَد).
+ *
+ * `clientIdExpr` is the client-id SQL expression (e.g. `ot.client_id`);
+ * `userIdPlaceholder` is the bound parameter placeholder (e.g. `$1`).
+ */
+export function personalOwnershipPredicate(clientIdExpr: string, userIdPlaceholder: string): string {
+  return `EXISTS (
+    SELECT 1
+    FROM client_assignments ca
+    JOIN hr_users u ON u.id = ca.hr_user_id
+    LEFT JOIN roles r ON r.id = u.role_id
+    LEFT JOIN employees e ON e.id = u.employee_id
+    WHERE ca.client_id = ${clientIdExpr}
+      AND ca.hr_user_id = ${userIdPlaceholder}
+      AND u.is_active = TRUE
+      AND u.employee_id IS NOT NULL
+      AND r.team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')
+      AND e.status = 'active'
+  )`;
+}
+
 export function mapCustomerOwnership(row: any): CustomerOwnership {
   return {
     ownerType: row.ownershipOwnerType,

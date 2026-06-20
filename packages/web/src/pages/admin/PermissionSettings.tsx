@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 
 type ScopeKey = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
+const ALL_SCOPE_KEYS: ScopeKey[] = ['GLOBAL', 'BRANCH', 'ASSIGNED'];
 
 const SCOPE_LABELS: Record<ScopeKey, string> = {
   GLOBAL: 'كل الفروع',
@@ -23,6 +24,16 @@ const SCOPE_DESCRIPTIONS: Record<ScopeKey, string> = {
   BRANCH: 'فرع المستخدم',
   ASSIGNED: 'السجلات المسندة للمستخدم',
 };
+
+function normalizeAllowedScopeSet(scopes?: Iterable<unknown>): Set<ScopeKey> {
+  const normalized = new Set<ScopeKey>(['GLOBAL']);
+  for (const scope of scopes ?? []) {
+    if (ALL_SCOPE_KEYS.includes(scope as ScopeKey)) {
+      normalized.add(scope as ScopeKey);
+    }
+  }
+  return normalized;
+}
 
 const ACTION_LABELS: Record<string, string> = {
   view_list: 'عرض القائمة',
@@ -283,7 +294,7 @@ export default function PermissionSettings() {
         setPermissions(perms);
         const map = new Map<number, Set<ScopeKey>>();
         for (const p of perms) {
-          map.set(p.id, new Set(p.allowedScopes as ScopeKey[]));
+          map.set(p.id, normalizeAllowedScopeSet(p.allowedScopes));
         }
         setScopeMap(map);
       })
@@ -306,7 +317,7 @@ export default function PermissionSettings() {
     if (scope === 'GLOBAL') return;
     setScopeMap(prev => {
       const next = new Map(prev);
-      const set = new Set(next.get(permId) ?? (['GLOBAL'] as ScopeKey[]));
+      const set = normalizeAllowedScopeSet(next.get(permId));
       if (set.has(scope)) set.delete(scope);
       else set.add(scope);
       next.set(permId, set);
@@ -321,7 +332,7 @@ export default function PermissionSettings() {
     try {
       const updates = Array.from(scopeMap.entries()).map(([id, scopes]) => ({
         id,
-        allowedScopes: Array.from(scopes),
+        allowedScopes: Array.from(normalizeAllowedScopeSet(scopes)),
       }));
       const res = await authFetch('/api/admin/permissions/scopes', {
         method: 'PUT',
@@ -429,7 +440,7 @@ export default function PermissionSettings() {
                 {perms
                   .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
                   .map(perm => {
-                    const scopes = scopeMap.get(perm.id) ?? new Set<ScopeKey>(['GLOBAL']);
+                    const scopes = normalizeAllowedScopeSet(scopeMap.get(perm.id));
 
                     return (
                       <div key={perm.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50/60 transition-colors">

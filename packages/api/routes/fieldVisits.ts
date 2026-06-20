@@ -7,7 +7,7 @@ import type { AuthContext } from '@golden-crm/shared';
 import { canViewFieldVisit, canEditFieldVisit, getFieldVisitListAccessPlan } from '../policies/fieldVisitPolicy.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
-import { applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { applyDeviceActivationResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
 import {
   buildClientLifecycleStatusSql,
   buildCustomerOwnershipSql,
@@ -982,6 +982,114 @@ router.get('/', requirePermission('clients.visits.view', 'field_visits.view'), a
   } catch (err: any) {
     console.error('[field-visits] GET / error:', err);
     res.status(500).json({ error: 'فشل في تحميل الزيارات' });
+  }
+});
+
+/**
+ * Standalone "زياراتي" — the field member's OWN visits, i.e. visits whose assigned
+ * team includes them (reassignment override OR team_snapshot). Gated by the dedicated
+ * `field_visits.my_visits.view` permission (ASSIGNED-only, migration 302); on top of
+ * that the team-membership predicate (employee = the holder) is the row boundary, so
+ * there is no management branch plan here. See branch-scope-and-visibility-standard.md §6.
+ *
+ * @swagger
+ * /api/field-visits/my-visits:
+ *   get:
+ *     tags: [Field Visits]
+ *     summary: The requester's own (team-assigned) visits for a date
+ *     security: [ { bearerAuth: [] } ]
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Success }
+ *       401: { description: Unauthorized }
+ *       500: { description: Internal Server Error }
+ */
+router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const date = typeof req.query.date === 'string' ? req.query.date : null;
+    const status = typeof req.query.status === 'string' ? req.query.status : null;
+    if (!date) {
+      return res.status(400).json({ error: 'يجب تحديد التاريخ (date)' });
+    }
+
+    // Resolve the holder's employee id — the team-membership key. No employee
+    // record ⇒ no team visits.
+    const { rows: userRows } = await pool.query(
+      `SELECT employee_id FROM hr_users WHERE id = $1 AND is_active = TRUE`,
+      [authContext.userId],
+    );
+    const rawId = userRows[0]?.employee_id;
+    const employeeId = Number.isInteger(rawId) && rawId > 0 ? rawId : null;
+    if (employeeId == null) {
+      return res.json([]);
+    }
+
+    const params: any[] = [date, employeeId, employeeId, employeeId];
+    let statusClause = '';
+    if (status !== null) {
+      params.push(status);
+      statusClause = `AND fv.status = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT
+         fv.id,
+         fv.visit_type   AS "visitType",
+         fv.visit_family AS "visitFamily",
+         fv.status,
+         fv.scheduled_date AS "scheduledDate",
+         fv.scheduled_time AS "scheduledTime",
+         fv.client_id    AS "clientId",
+         c.name          AS "clientName",
+         c.mobile        AS "clientMobile",
+         CASE
+           WHEN neigh.id IS NOT NULL AND neigh.level = 4 AND neigh_parent.id IS NOT NULL
+             THEN neigh_parent.name || ' — ' || neigh.name
+           WHEN neigh.id IS NOT NULL THEN neigh.name
+           WHEN district.id IS NOT NULL THEN district.name
+           ELSE NULL
+         END AS "addressShort",
+         sup.name   AS "supervisorName",
+         tech.name  AS "technicianName",
+         train.name AS "traineeName",
+         COUNT(DISTINCT vt.id)::int AS "taskCount",
+         COALESCE(
+           json_agg(DISTINCT jsonb_build_object('taskType', vt.task_type, 'taskFamily', vt.task_family, 'status', vt.status))
+             FILTER (WHERE vt.id IS NOT NULL),
+           '[]'::json
+         ) AS "tasksSummary"
+       FROM field_visits fv
+       JOIN clients c ON c.id = fv.client_id
+       LEFT JOIN geo_units neigh ON neigh.id = CASE
+         WHEN NULLIF(c.neighborhood::text, '') ~ '^[0-9]+$' THEN c.neighborhood::int ELSE NULL END
+       LEFT JOIN geo_units neigh_parent ON neigh_parent.id = neigh.parent_id
+       LEFT JOIN geo_units district ON district.id = CASE
+         WHEN NULLIF(c.district::text, '') ~ '^[0-9]+$' THEN c.district::int ELSE NULL END
+       LEFT JOIN employees sup   ON sup.id   = COALESCE(fv.reassigned_supervisor_id, NULLIF((fv.team_snapshot->>'supervisorEmployeeId')::text, '')::int)
+       LEFT JOIN employees tech  ON tech.id  = COALESCE(fv.reassigned_technician_id, NULLIF((fv.team_snapshot->>'technicianEmployeeId')::text, '')::int)
+       LEFT JOIN employees train ON train.id = COALESCE(fv.reassigned_trainee_id, NULLIF((fv.team_snapshot->>'traineeEmployeeId')::text, '')::int)
+       LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
+       WHERE fv.scheduled_date = $1
+         AND (
+           COALESCE(fv.reassigned_supervisor_id, NULLIF((fv.team_snapshot->>'supervisorEmployeeId')::text, '')::int) = $2
+           OR COALESCE(fv.reassigned_technician_id, NULLIF((fv.team_snapshot->>'technicianEmployeeId')::text, '')::int) = $3
+           OR COALESCE(fv.reassigned_trainee_id, NULLIF((fv.team_snapshot->>'traineeEmployeeId')::text, '')::int) = $4
+         )
+         ${statusClause}
+       GROUP BY fv.id, c.id, neigh.id, neigh.name, neigh.level, neigh_parent.id, neigh_parent.name,
+                district.id, district.name, sup.name, tech.name, train.name
+       ORDER BY fv.scheduled_date DESC, fv.scheduled_time ASC, fv.created_at DESC`,
+      params,
+    );
+    return res.json(rows);
+  } catch (err: any) {
+    console.error('[field-visits] GET /my-visits error:', err);
+    return res.status(500).json({ error: 'فشل في تحميل زياراتي' });
   }
 });
 
@@ -2572,6 +2680,11 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
 
     if (taskType === 'device_installation') {
       const result = await applyDeviceInstallationResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'device_activation') {
+      const result = await applyDeviceActivationResult(taskId, body, authContext.userId);
       return res.json({ success: true, ...result });
     }
 

@@ -16,7 +16,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers,
 } from 'lucide-react';
 
 const navItems = [
@@ -123,6 +123,13 @@ export default function MainLayout() {
 
     // Each operations table is shown only if its own view permission is granted.
     const visibleOperationsChildren = operationsChildren.filter(child => can(child.permission));
+
+    // Standalone "مهامي" / "زياراتي" surfaces — OUTSIDE Operations & Tasks. Each gated
+    // by its dedicated ASSIGNED-only permission (migrations 301/302): only a
+    // supervisor/technician granted it sees it. Both self-scope to the holder
+    // (owned customers / team-assigned visits).
+    const canSeeMyCustomers = can('tasks.my_customers.view');
+    const canSeeMyVisits = can('field_visits.my_visits.view');
 
     const jobsViewPermMap: Record<string, string> = {
       '/jobs/applications': 'jobs.applications.view_list',
@@ -521,6 +528,44 @@ export default function MainLayout() {
                     </div>
                     )}
 
+                    {/* 5b. مهامي — standalone ASSIGNED-only page, OUTSIDE Operations & Tasks */}
+                    {canSeeMyCustomers && (
+                    <div className={isCollapsed ? 'lg:hidden' : 'block'}>
+                        <NavLink
+                            to="/tasks/group/my-customers"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                }`
+                            }
+                        >
+                            <UserCheck className="w-5 h-5" />
+                            <span className="flex-1">مهامي</span>
+                        </NavLink>
+                    </div>
+                    )}
+
+                    {/* 5c. زياراتي — standalone ASSIGNED-only page, OUTSIDE Operations & Tasks */}
+                    {canSeeMyVisits && (
+                    <div className={isCollapsed ? 'lg:hidden' : 'block'}>
+                        <NavLink
+                            to="/my-visits"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                }`
+                            }
+                        >
+                            <CalendarCheck className="w-5 h-5" />
+                            <span className="flex-1">زياراتي</span>
+                        </NavLink>
+                    </div>
+                    )}
+
                     {/* 6. Tasks & Operations — shown if any task table is permitted */}
                     {canSeeBranchModules && visibleOperationsChildren.length > 0 && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
@@ -632,6 +677,23 @@ export default function MainLayout() {
                     </NavLink>
                     )}
 
+                    {/* 8b. Departments (Group-1 operational — branch-scoped, like clients) */}
+                    {canAccessAdminSurface('departments.view_list') && (
+                    <NavLink
+                        to="/departments"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={({ isActive }: { isActive: boolean }) =>
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                            } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                        }
+                    >
+                        <Layers className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                        <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>الأقسام</span>
+                    </NavLink>
+                    )}
+
                     {/* 9. System Lists (admin-only) */}
                     {canAccessAdminSurface('admin.system_lists.view') && (
                         <NavLink
@@ -649,8 +711,8 @@ export default function MainLayout() {
                         </NavLink>
                     )}
 
-                    {/* 10. Roles & Permissions */}
-                    {canAccessAdminSurface('admin.roles.view', 'admin.roles.users.manage') && (
+                    {/* 10. Roles & Permissions (GLOBAL admin) */}
+                    {canAccessAdminSurface('admin.roles.view') && (
                         <NavLink
                             to="/admin/roles"
                             onClick={() => setIsMobileMenuOpen(false)}
@@ -663,6 +725,23 @@ export default function MainLayout() {
                         >
                             <ShieldCheck className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
                             <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>الأدوار والصلاحيات</span>
+                        </NavLink>
+                    )}
+
+                    {/* 10a. Users (branch-filtered records page) */}
+                    {can('admin.users.view_list') && (
+                        <NavLink
+                            to="/admin/users"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <Users className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>المستخدمون</span>
                         </NavLink>
                     )}
 

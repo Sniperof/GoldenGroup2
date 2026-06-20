@@ -45,6 +45,11 @@ export type DeviceInstallationFinalDecision =
   | 'installation_incomplete'
   | 'refused_installation';
 
+export type DeviceActivationFinalDecision =
+  | 'activated_successfully'
+  | 'activation_failed'
+  | 'device_issue';
+
 export type CustomerResponse = 'accepted' | 'rejected' | 'extension_requested';
 
 export interface OfferInput {
@@ -205,6 +210,33 @@ export interface DeviceInstallationReflectionResult {
   visitCompleted: boolean;
 }
 
+export interface DeviceActivationResultBody {
+  final_decision: DeviceActivationFinalDecision;
+  closing_notes?: string | null;
+  notes?: string | null;
+  reason_code?: string | null;
+  expected_date?: string | null;
+  expected_time?: string | null;
+  tds_before?: number | null;
+  tds_after?: number | null;
+  pump_pressure?: number | null;
+  membrane_output?: string | null;
+  tank_pressure?: number | null;
+  uv_status?: string | null;
+  customer_trained?: boolean | null;
+  training_notes?: string | null;
+  activation_photos?: unknown[] | null;
+  activated_by_employee_id?: number | null;
+}
+
+export interface DeviceActivationReflectionResult {
+  visitTaskResultId: number;
+  deviceActivationResultId: number;
+  openTaskNewStatus: 'completed' | 'needs_follow_up';
+  deviceNewStatus: 'active' | 'installed';
+  visitCompleted: boolean;
+}
+
 class ResultValidationError extends Error {
   status = 400;
   constructor(msg: string) {
@@ -240,6 +272,18 @@ function optionalNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function resolveEmployeeIdForUser(
+  db: Pick<PoolClient, 'query'>,
+  userId: number,
+): Promise<number | null> {
+  const { rows } = await db.query(
+    'SELECT employee_id AS "employeeId" FROM hr_users WHERE id = $1',
+    [userId],
+  );
+  const employeeId = Number(rows[0]?.employeeId);
+  return Number.isInteger(employeeId) && employeeId > 0 ? employeeId : null;
 }
 
 function mapDeliveryReasonToPossessionReason(
@@ -374,6 +418,29 @@ function assertInstallationShape(body: DeviceInstallationResultBody): {
     throw new ResultValidationError('سبب رفض التركيب مطلوب');
   }
   return { decision, openTaskNewStatus: 'cancelled', deviceNewStatus: 'delivered' };
+}
+
+function assertActivationShape(body: DeviceActivationResultBody): {
+  decision: DeviceActivationFinalDecision;
+  openTaskNewStatus: 'completed' | 'needs_follow_up';
+  deviceNewStatus: 'active' | 'installed';
+} {
+  const decision = body.final_decision;
+  if (!['activated_successfully', 'activation_failed', 'device_issue'].includes(decision)) {
+    throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+  }
+
+  if (decision === 'activated_successfully') {
+    if (body.customer_trained !== true) {
+      throw new ResultValidationError('تأكيد تدريب الزبون مطلوب عند نجاح التشغيل');
+    }
+    return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'active' };
+  }
+
+  if (!optionalDate(body.expected_date)) {
+    throw new ResultValidationError('تاريخ المتابعة مطلوب عند فشل التشغيل أو وجود مشكلة بالجهاز');
+  }
+  return { decision, openTaskNewStatus: 'needs_follow_up', deviceNewStatus: 'installed' };
 }
 
 function normalizeInstallationParts(parts: unknown): DeviceInstallationPartInput[] {
@@ -1341,6 +1408,7 @@ export async function applyDeviceInstallationResult(
     const installationPayment = shape.decision === 'installed_successfully'
       ? normalizeInstallationPayment(body.installation_payment)
       : {};
+    const installedByEmployeeId = await resolveEmployeeIdForUser(db, performedByUserId);
 
     if (shape.decision === 'installed_successfully') {
       await db.query(
@@ -1379,18 +1447,18 @@ export async function applyDeviceInstallationResult(
         const { rows: activationRows } = await db.query(
           `INSERT INTO open_tasks (
              client_id, branch_id, task_type, task_family, reason, status,
-             due_date, priority, source, notes, created_by, origin,
+             due_date, expected_date, priority, source, notes, created_by, origin,
              contract_id, device_id, creation_origin, delivery_address,
              source_context_type, source_context_id
            ) VALUES ($1, $2, 'device_activation', 'delivery', 'service_request', 'open',
-             $3::date, $4, 'system', $5, $6, 'device_installation_result',
+             $3::date, $3::date, $4, 'system', $5, $6, 'device_installation_result',
              $7, $8, 'cascading_during_visit', $9, 'device_installation', $10)
            RETURNING id`,
           [
             Number(vt.client_id),
             Number(vt.branch_id),
             optionalDate(body.activation_due_date),
-            vt.priority ?? null,
+            vt.priority ?? 'medium',
             'Created from device_installation result',
             performedByUserId,
             vt.contract_id ?? null,
@@ -1472,7 +1540,7 @@ export async function applyDeviceInstallationResult(
         JSON.stringify(parts),
         JSON.stringify(installationPayment),
         notes,
-        performedByUserId,
+        installedByEmployeeId,
       ],
     );
     const deviceInstallationResultId = Number(installationRows[0].id);
@@ -1532,6 +1600,195 @@ export async function applyDeviceInstallationResult(
       openTaskNewStatus: shape.openTaskNewStatus,
       deviceNewStatus: shape.deviceNewStatus,
       createdActivationTaskId,
+      visitCompleted: completion.completed,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// applyDeviceActivationResult
+// ════════════════════════════════════════════════════════════════
+// Records the field outcome that turns an installed device into an
+// active device, or keeps the same activation task alive for follow-up.
+// ════════════════════════════════════════════════════════════════
+export async function applyDeviceActivationResult(
+  visitTaskId: number,
+  body: DeviceActivationResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<DeviceActivationReflectionResult> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status,
+              ot.id AS open_task_id, ot.contract_id, ot.device_id,
+              idev.status AS device_status
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         JOIN installed_devices idev ON idev.id = ot.device_id
+        WHERE vt.id = $1
+        LIMIT 1`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة مفتوحة');
+
+    const vt = vtRows[0];
+    if (vt.task_type !== 'device_activation') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بتشغيل الجهاز فقط`);
+    }
+    if (!isPositiveInteger(vt.device_id)) {
+      throw new ResultValidationError('device_activation يجب أن يرتبط بجهاز مثبت');
+    }
+    if (!['installed', 'active'].includes(String(vt.device_status))) {
+      throw new ResultValidationError('لا يمكن تسجيل تشغيل لجهاز لم يصل إلى حالة مركّب');
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+
+    const shape = assertActivationShape(body);
+    const notes = body.closing_notes ?? body.notes ?? null;
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = EXCLUDED.closing_notes,
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [
+        visitTaskId,
+        shape.decision,
+        optionalText(body.reason_code),
+        notes,
+        performedByUserId,
+      ],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    if (shape.decision === 'activated_successfully') {
+      await db.query(
+        `UPDATE installed_devices
+            SET status = 'active',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.device_id)],
+      );
+
+      if (vt.contract_id) {
+        await db.query(
+          `UPDATE contracts
+              SET status = 'active',
+                  updated_at = NOW()
+            WHERE id = $1
+              AND status NOT IN ('cancelled', 'discarded')`,
+          [Number(vt.contract_id)],
+        );
+      }
+    }
+
+    const photos = Array.isArray(body.activation_photos) ? body.activation_photos : [];
+    const { rows: activationRows } = await db.query(
+      `INSERT INTO visit_task_device_activation_results
+         (visit_task_result_id, outcome, tds_before, tds_after, pump_pressure,
+          membrane_output, tank_pressure, uv_status, customer_trained,
+          training_notes, activation_photos, activated_by_employee_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,NOW(),NOW())
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+          outcome = EXCLUDED.outcome,
+          tds_before = EXCLUDED.tds_before,
+          tds_after = EXCLUDED.tds_after,
+          pump_pressure = EXCLUDED.pump_pressure,
+          membrane_output = EXCLUDED.membrane_output,
+          tank_pressure = EXCLUDED.tank_pressure,
+          uv_status = EXCLUDED.uv_status,
+          customer_trained = EXCLUDED.customer_trained,
+          training_notes = EXCLUDED.training_notes,
+          activation_photos = EXCLUDED.activation_photos,
+          activated_by_employee_id = EXCLUDED.activated_by_employee_id,
+          updated_at = NOW()
+       RETURNING id`,
+      [
+        visitTaskResultId,
+        shape.decision,
+        optionalNumber(body.tds_before),
+        optionalNumber(body.tds_after),
+        optionalNumber(body.pump_pressure),
+        optionalText(body.membrane_output),
+        optionalNumber(body.tank_pressure),
+        optionalText(body.uv_status),
+        body.customer_trained === true,
+        optionalText(body.training_notes),
+        JSON.stringify(photos),
+        isPositiveInteger(body.activated_by_employee_id) ? Number(body.activated_by_employee_id) : null,
+      ],
+    );
+    const deviceActivationResultId = Number(activationRows[0].id);
+
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = 'completed',
+              updated_at = NOW()
+        WHERE id = $1`,
+      [visitTaskId],
+    );
+
+    if (shape.openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                expected_time = $3,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), optionalDate(body.expected_date), optionalText(body.expected_time)],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id)],
+      );
+    }
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+
+    if (!useExternal) await db.query('COMMIT');
+
+    return {
+      visitTaskResultId,
+      deviceActivationResultId,
+      openTaskNewStatus: shape.openTaskNewStatus,
+      deviceNewStatus: shape.deviceNewStatus,
       visitCompleted: completion.completed,
     };
   } catch (err) {

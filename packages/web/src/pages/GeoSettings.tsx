@@ -8,6 +8,8 @@ import type { GeoUnit } from '../lib/types';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
 import { usePermissions } from '../hooks/usePermissions';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import BranchScopeIndicator from '../components/BranchScopeIndicator';
 
 const tabs = [
     { level: 1, label: 'المحافظات', icon: MapPin },
@@ -19,6 +21,9 @@ const tabs = [
 export default function GeoSettings() {
     const { hasPermission } = usePermissions();
     const canManageGeo = hasPermission('geo.manage');
+    // React to the external branch filter (§2.6): X-Branch-Id is attached for /geo,
+    // so a GLOBAL operator picking a branch must re-fetch its coverage live.
+    const branchContextId = useBranchContextStore(s => s.branchId);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState(1);
@@ -49,7 +54,7 @@ export default function GeoSettings() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [branchContextId]);
 
     useEffect(() => {
         fetchGeoUnits();
@@ -276,6 +281,7 @@ export default function GeoSettings() {
                 <SmartTable<GeoUnit>
                     title={currentTab.label}
                     icon={currentTab.icon}
+                    scopeIndicator={<BranchScopeIndicator />}
                     data={currentData}
                     columns={columnsByLevel[activeTab]}
                     searchKeys={['name']}

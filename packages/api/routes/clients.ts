@@ -1149,6 +1149,7 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         c.referrer_name as name,
         c.referrer_type as type,
         c.referral_date as referral_date,
+        c.referral_sheet_id as referral_sheet_id,
         c.referral_address_text as address,
         c.referrers as referrers_json
       FROM clients c
@@ -1159,6 +1160,8 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
     const incoming: Array<{
       id: number | null;
       name: string;
+      sourceCandidateId: number | null;
+      candidateName: string | null;
       type: string;
       referralDate: string | null;
       address: string | null;
@@ -1167,9 +1170,94 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
 
     const incomingRow = incomingRows[0];
     if (incomingRow) {
-      const referrerList = Array.isArray(incomingRow.referrers_json) && incomingRow.referrers_json.length > 0
-        ? incomingRow.referrers_json
-        : (incomingRow.name ? [{ id: incomingRow.id, name: incomingRow.name, type: incomingRow.type }] : []);
+      const referrerList = Array.isArray(incomingRow.referrers_json)
+        ? [...incomingRow.referrers_json]
+        : [];
+      if (incomingRow.name) {
+        const legacyReferrer = {
+          id: incomingRow.id,
+          name: incomingRow.name,
+          type: incomingRow.type,
+          referralDate: incomingRow.referral_date,
+          referralSheetId: incomingRow.referral_sheet_id,
+          referralAddressText: incomingRow.address,
+          __legacy: true,
+        };
+        const legacyKey = [
+          legacyReferrer.id ?? '',
+          legacyReferrer.name ?? '',
+          legacyReferrer.type ?? '',
+        ].join('|');
+        const hasLegacyReferrer = referrerList.some((ref: any) => ([
+          ref.referralEntityId ?? ref.id ?? '',
+          ref.referrerName ?? ref.name ?? ref.referralName ?? '',
+          ref.referrerType ?? ref.type ?? '',
+        ].join('|')) === legacyKey);
+        if (!hasLegacyReferrer) {
+          referrerList.unshift(legacyReferrer);
+        }
+      }
+      const sourceCandidateIds = Array.from(new Set(
+        referrerList
+          .map((ref: any) => Number(ref.sourceCandidateId))
+          .filter((id: number) => Number.isInteger(id) && id > 0),
+      ));
+      const candidateNameById = new Map<number, string>();
+      const { rows: candidateRows } = await pool.query(
+        `SELECT
+           id,
+           converted_to_lead_id AS "convertedToLeadId",
+           referral_entity_id AS "referralEntityId",
+           referral_type AS "referralType",
+           referral_name_snapshot AS "referralNameSnapshot",
+           referral_date AS "referralDate",
+           referral_sheet_id AS "referralSheetId",
+           address_text AS "addressText",
+           COALESCE(
+             NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''),
+             NULLIF(nickname, ''),
+             CONCAT('#', id)
+           ) AS name
+         FROM candidates
+         WHERE id = ANY($1::int[])
+            OR converted_to_lead_id = $2`,
+        [sourceCandidateIds, clientId],
+      );
+      for (const row of candidateRows) {
+        candidateNameById.set(Number(row.id), row.name);
+      }
+      const linkedCandidateRows = candidateRows.filter((row: any) => Number(row.convertedToLeadId) === Number(clientId));
+      const normalizeMatchText = (value: unknown) => String(value ?? '').trim().toLowerCase();
+      const toDateKey = (value: unknown) => {
+        if (!value) return null;
+        const date = new Date(value as string);
+        return Number.isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
+      };
+      const resolveCandidateForReferrer = (ref: any, sourceCandidateId: number | null) => {
+        if (sourceCandidateId != null) {
+          const direct = candidateRows.find((row: any) => Number(row.id) === sourceCandidateId);
+          if (direct) return direct;
+        }
+
+        const referrerEntityId = Number(ref.referralEntityId ?? ref.id ?? incomingRow.id);
+        const normalizedEntityId = Number.isInteger(referrerEntityId) && referrerEntityId > 0 ? referrerEntityId : null;
+        const referrerType = normalizeMatchText(ref.referrerType ?? ref.type ?? incomingRow.type);
+        const referrerName = normalizeMatchText(ref.referrerName ?? ref.name ?? ref.referralName ?? incomingRow.name);
+        const referralSheetId = Number(ref.referralSheetId ?? incomingRow.referral_sheet_id);
+        const normalizedSheetId = Number.isInteger(referralSheetId) && referralSheetId > 0 ? referralSheetId : null;
+
+        return linkedCandidateRows.find((row: any) => {
+          const rowEntityId = Number(row.referralEntityId);
+          const normalizedRowEntityId = Number.isInteger(rowEntityId) && rowEntityId > 0 ? rowEntityId : null;
+          const entityMatches = normalizedEntityId == null || normalizedRowEntityId === normalizedEntityId;
+          const typeMatches = !referrerType || normalizeMatchText(row.referralType) === referrerType;
+          const nameMatches = !referrerName || normalizeMatchText(row.referralNameSnapshot) === referrerName;
+          const rowSheetId = Number(row.referralSheetId);
+          const normalizedRowSheetId = Number.isInteger(rowSheetId) && rowSheetId > 0 ? rowSheetId : null;
+          const sheetMatches = normalizedSheetId == null || normalizedRowSheetId === normalizedSheetId;
+          return entityMatches && typeMatches && nameMatches && sheetMatches;
+        }) ?? null;
+      };
 
       for (const ref of referrerList) {
         const rawReferrerClientId = ref.referralEntityId ?? ref.id ?? null;
@@ -1177,7 +1265,21 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         const linkedClientId = Number.isInteger(referrerClientId) && referrerClientId > 0
           ? referrerClientId
           : null;
-        const referralDate = ref.referralDate ?? incomingRow.referral_date ?? null;
+        const sourceCandidateIdValue = Number(ref.sourceCandidateId);
+        const sourceCandidateId = Number.isInteger(sourceCandidateIdValue) && sourceCandidateIdValue > 0
+          ? sourceCandidateIdValue
+          : null;
+        const linkedCandidate = resolveCandidateForReferrer(ref, sourceCandidateId);
+        const resolvedSourceCandidateId = linkedCandidate?.id != null
+          ? Number(linkedCandidate.id)
+          : sourceCandidateId;
+        const referralDate = linkedCandidate?.referralDate
+          ?? ref.referralDate
+          ?? (ref.__legacy ? incomingRow.referral_date : null);
+        const address = linkedCandidate?.addressText
+          ?? ref.address
+          ?? ref.referralAddressText
+          ?? (ref.__legacy ? incomingRow.address : null);
         let mobile = null;
         if (linkedClientId != null) {
           const { rows: mobileRows } = await pool.query(
@@ -1189,11 +1291,15 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         incoming.push({
           id: linkedClientId,
           name: ref.name ?? ref.referrerName ?? ref.referralName ?? '',
-          type: ref.type ?? ref.referrerType ?? 'unknown',
-          referralDate: referralDate
-            ? new Date(referralDate).toISOString().split('T')[0]
+          sourceCandidateId: Number.isInteger(resolvedSourceCandidateId) && resolvedSourceCandidateId > 0
+            ? resolvedSourceCandidateId
             : null,
-          address: ref.address ?? ref.referralAddressText ?? incomingRow.address ?? null,
+          candidateName: Number.isInteger(resolvedSourceCandidateId) && resolvedSourceCandidateId > 0
+            ? (candidateNameById.get(resolvedSourceCandidateId) ?? null)
+            : null,
+          type: ref.type ?? ref.referrerType ?? 'unknown',
+          referralDate: toDateKey(referralDate),
+          address,
           mobile,
         });
       }
@@ -1202,20 +1308,80 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
     // Outgoing (who this client referred)
     const { rows: outgoingRows } = await pool.query(
       `SELECT
-        rs.id as sheet_id,
-        rs.referral_date,
-        rs.referral_address_text,
-        COALESCE(cli.id, can.id) as id,
-        COALESCE(cli.name, NULLIF(TRIM(CONCAT_WS(' ', can.first_name, can.last_name)), '')) as name,
-        COALESCE(cli.mobile, can.mobile) as mobile,
-        COALESCE(cli.detailed_address, can.address_text) as address,
-        CASE WHEN cli.id IS NOT NULL THEN true ELSE false END as is_client,
-        COALESCE(cli.candidate_status, can.status) as status
-      FROM referral_sheets rs
-      LEFT JOIN candidates can ON can.referral_sheet_id = rs.id
-      LEFT JOIN clients cli ON cli.referral_sheet_id = rs.id
-      WHERE rs.referral_entity_id = $1 AND rs.referral_type = 'Client'
-      ORDER BY rs.referral_date DESC`,
+        sheet_id,
+        referral_date,
+        referral_address_text,
+        id,
+        name,
+        mobile,
+        address,
+        is_client,
+        status
+      FROM (
+        SELECT
+          rs.id as sheet_id,
+          rs.referral_date,
+          rs.referral_address_text,
+          COALESCE(cli.id, can.id) as id,
+          COALESCE(cli.name, NULLIF(TRIM(CONCAT_WS(' ', can.first_name, can.last_name)), '')) as name,
+          COALESCE(cli.mobile, can.mobile) as mobile,
+          COALESCE(cli.detailed_address, can.address_text) as address,
+          CASE WHEN cli.id IS NOT NULL THEN true ELSE false END as is_client,
+          COALESCE(cli.candidate_status, can.status) as status
+        FROM referral_sheets rs
+        LEFT JOIN candidates can ON can.referral_sheet_id = rs.id
+        LEFT JOIN clients cli ON cli.referral_sheet_id = rs.id
+        WHERE rs.referral_entity_id = $1 AND rs.referral_type = 'Client'
+
+        UNION ALL
+
+        SELECT
+          can.referral_sheet_id as sheet_id,
+          can.referral_date,
+          can.address_text as referral_address_text,
+          COALESCE(cli.id, can.id) as id,
+          COALESCE(
+            cli.name,
+            NULLIF(TRIM(CONCAT_WS(' ', can.first_name, can.last_name)), ''),
+            NULLIF(can.nickname, ''),
+            CONCAT('#', can.id)
+          ) as name,
+          COALESCE(cli.mobile, can.mobile) as mobile,
+          COALESCE(cli.detailed_address, can.address_text) as address,
+          CASE WHEN cli.id IS NOT NULL THEN true ELSE false END as is_client,
+          COALESCE(cli.candidate_status, can.status) as status
+        FROM candidates can
+        LEFT JOIN clients cli ON cli.id = can.converted_to_lead_id
+        WHERE can.referral_entity_id = $1
+          AND can.referral_type = 'Client'
+          AND can.referral_sheet_id IS NULL
+
+        UNION ALL
+
+        SELECT
+          cli.referral_sheet_id as sheet_id,
+          cli.referral_date,
+          cli.referral_address_text,
+          cli.id,
+          cli.name,
+          cli.mobile,
+          cli.detailed_address as address,
+          true as is_client,
+          cli.candidate_status as status
+        FROM clients cli
+        WHERE cli.referral_entity_id = $1
+          AND cli.referrer_type = 'Client'
+          AND cli.referral_sheet_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM candidates can
+            WHERE can.converted_to_lead_id = cli.id
+              AND can.referral_entity_id = $1
+              AND can.referral_type = 'Client'
+          )
+      ) outgoing_network
+      WHERE id IS NOT NULL
+      ORDER BY referral_date DESC NULLS LAST, id DESC`,
       [clientId],
     );
 

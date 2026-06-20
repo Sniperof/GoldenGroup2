@@ -1,14 +1,19 @@
-// Module-level cache for the full geo_units list.
+// Module-level cache for the full geo_units NAME map (display only).
 //
-// Rationale: many consumers (client profile, device profile, candidate forms,
-// branches…) need the *complete* tree to resolve a leaf id into a path of
+// Rationale: many consumers (task tables, client profile, device profile, geo
+// path display…) need the *complete* tree to resolve a leaf id into a path of
 // ancestor names. The list is small (a few hundred rows for Syria), changes
 // rarely, and is identical for every component on a page. Fetching it once
 // per session and de-duplicating concurrent requests avoids the N+1 we'd
 // otherwise see when many small geo-aware widgets mount together.
 //
-// The cache is intentionally process-local and trusts the API's auth +
-// branch-scope filtering — we never persist it to localStorage.
+// SCOPE (branch-scope-and-visibility-standard.md §3): reference labels (a
+// neighbourhood / district NAME) are global — anyone who may see a record may
+// read its address. So this cache is fed by the GLOBAL names endpoint
+// (`/geo-units/names`, every unit, no branch scope) and keyed by TOKEN ONLY.
+// It previously called the scoped `list()` keyed by branch+path, which made a
+// row's address render "--" whenever it fell outside the current branch filter
+// (ثغرة 1). Pickers stay scoped via `api.geoUnits.list(branchId)` — NOT here.
 
 import { api } from './api';
 
@@ -26,9 +31,9 @@ let inflight: Promise<GeoUnit[]> | null = null;
 let inflightKey: string | null = null;
 
 function getCacheKey(): string {
-  const token = localStorage.getItem('hr_token') ?? '';
-  const branchContext = localStorage.getItem('hr_branch_context') ?? '';
-  return `${token}:${branchContext}:${window.location.pathname}`;
+  // Token only — the names map is global (§3), so it must NOT vary by branch
+  // context or page path (that was the source of the stale-address bug).
+  return localStorage.getItem('hr_token') ?? '';
 }
 
 export async function getGeoUnits(): Promise<GeoUnit[]> {
@@ -37,7 +42,7 @@ export async function getGeoUnits(): Promise<GeoUnit[]> {
   if (inflight && inflightKey === key) return inflight;
   inflightKey = key;
   inflight = api.geoUnits
-    .list()
+    .names()
     .then((rows: any[]) => {
       // Normalize shape: API returns `parentId` already (see geo-units constitution §7.1).
       cached = rows.map(r => ({

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
 import EmployeeFormModal from '../components/employees/EmployeeFormModal';
+import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
@@ -40,7 +41,6 @@ export default function Employees() {
   const { user } = useAuthStore();
   const getPermissionScope = useAuthStore((s) => s.getPermissionScope);
   const contextBranchId = useBranchContextStore((s) => s.branchId);
-  const setBranchContextId = useBranchContextStore((s) => s.setBranchId);
   const { branches, fetchBranches } = useBranchStore();
 
   const canViewEmployees = hasPermission('employees.view_list');
@@ -51,6 +51,9 @@ export default function Employees() {
   const viewScope = getPermissionScope('employees.view_list');
   const isGlobalView = viewScope === 'GLOBAL';
   const isBranchView = viewScope === 'BRANCH';
+  // Add rule (§5): a GLOBAL operator on "all branches" must pick a branch first —
+  // no silent fallback into the base branch (SH-3). Branch/assigned users are pinned.
+  const mustPickBranch = isGlobalView && contextBranchId == null;
 
   useEffect(() => {
     fetchBranches();
@@ -211,6 +214,7 @@ export default function Employees() {
       <SmartTable<Employee>
         title="سجلات الموظفين"
         icon={Users}
+        scopeIndicator={<BranchScopeIndicator />}
         data={employees}
         columns={columns}
         filters={filters}
@@ -219,22 +223,7 @@ export default function Employees() {
         onRowClick={(employee) => navigate(`/employees/${employee.id}`)}
         headerActions={(
           <div className="flex items-center gap-3">
-            {/* Management branch filter — mode follows employees.view_list scope */}
-            {isGlobalView && (
-              <div className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sky-700">
-                <Building2 className="h-4 w-4 shrink-0" />
-                <select
-                  value={contextBranchId ?? ''}
-                  onChange={(e) => setBranchContextId(e.target.value === '' ? null : Number(e.target.value))}
-                  className="cursor-pointer bg-transparent text-sm font-bold focus:outline-none"
-                >
-                  <option value="">كل الفروع</option>
-                  {branches.map((branch) => (
-                    <option key={branch.id} value={branch.id}>{branch.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {/* GLOBAL branch filter moved to the unified external switcher (sidebar). */}
             {isBranchView && (
               <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600">
                 <Building2 className="h-4 w-4 shrink-0" />
@@ -245,14 +234,16 @@ export default function Employees() {
             )}
             {canCreateEmployees && (
               <button
+                disabled={mustPickBranch}
+                title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة موظف' : undefined}
                 onClick={() => {
                   setCreateError('');
                   setShowCreateModal(true);
                 }}
-                className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-600"
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
               >
                 <Plus className="h-4 w-4" />
-                إضافة موظف
+                {mustPickBranch ? 'اختر فرعاً لإضافة موظف' : 'إضافة موظف'}
               </button>
             )}
           </div>

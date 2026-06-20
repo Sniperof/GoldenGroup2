@@ -31,7 +31,7 @@ import { useBranchListScope } from '../../hooks/useBranchListScope';
 import { usePermissions } from '../../hooks/usePermissions';
 import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
 
-type VisitView = 'daily' | 'executive' | 'branch' | 'team' | 'documentation' | 'tasks';
+type VisitView = 'daily' | 'branch' | 'team' | 'documentation' | 'tasks';
 
 interface VisitRow {
   id: number;
@@ -115,11 +115,6 @@ const VIEW_META: Record<VisitView, { label: string; description: string; icon: a
     label: 'اليومي العام',
     description: 'كل زيارات اليوم كوعاء تشغيلي محايد لكل أنواع المهام.',
     icon: CalendarDays,
-  },
-  executive: {
-    label: 'الإدارة العليا',
-    description: 'نظرة متعددة الفروع مع مؤشرات صحة التنفيذ والتوثيق.',
-    icon: ShieldCheck,
   },
   branch: {
     label: 'مدير الفرع',
@@ -469,21 +464,19 @@ export default function VisitsListPage() {
   const { hasPermission } = usePermissions();
   const { selectedBranchId, hasBranchScope } = useBranchListScope();
   const [rows, setRows] = useState<VisitRow[]>([]);
-  const [branches, setBranches] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState(todayIso());
   const [statusFilter, setStatusFilter] = useState('');
   const [visitTypeFilter, setVisitTypeFilter] = useState('');
   const [taskTypeFilter, setTaskTypeFilter] = useState('');
-  const [branchFilter, setBranchFilter] = useState('');
   // documentation view: tier filter (0 = any).
   const [tierFilter, setTierFilter] = useState<0 | 1 | 2 | 3>(0);
   // branch manager view: quick "stuck only" toggle to focus attention.
   const [branchStuckOnly, setBranchStuckOnly] = useState(false);
   // team view: "my visits only" vs "whole team day" (defaults to mine).
   const [teamMineOnly, setTeamMineOnly] = useState(true);
-  // executive view: per-branch aggregation over a date range (defaults to last 7 days).
+  // tasks analytics view: aggregation over a date range (defaults to last 7 days).
   const [execFrom, setExecFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 6);
@@ -491,20 +484,7 @@ export default function VisitsListPage() {
     return d.toISOString().slice(0, 10);
   });
   const [execTo, setExecTo] = useState(todayIso);
-  const [branchSummary, setBranchSummary] = useState<Array<{
-    branchId: number; branchName: string | null;
-    total: number; scheduled: number; inProgress: number; ended: number;
-    completed: number; notCompleted: number; cancelled: number;
-    stuckEscalated: number; locationMissing: number;
-    avgDurationMinutes: number;
-    demoOffersPresented: number; demoOffersAccepted: number;
-    demoOffersRejected: number; demoOffersExtension: number;
-    demoOffersPending: number;
-  }>>([]);
-  const [execLoading, setExecLoading] = useState(false);
-  const [execError, setExecError] = useState<string | null>(null);
-  // tasks view: per-task-type aggregation - reuses the same date range as
-  // executive view since both share the "comparison over a period" lens.
+  // tasks view: per-task-type aggregation over the date range above.
   const [taskSummary, setTaskSummary] = useState<Array<{
     taskType: string; taskFamily: string; arabicLabel: string; displayOrder: number;
     totalAttempts: number; completed: number; notCompleted: number; cancelled: number;
@@ -516,23 +496,25 @@ export default function VisitsListPage() {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
 
-  // Grant-driven only (engineering standard §3-1/§3-2): the cross-branch
-  // executive view is gated by a GLOBAL grant or super-admin — never by a
-  // textual role name.
+  // Grant-driven only (engineering standard §3-1/§3-2): a GLOBAL grant (or super
+  // admin) may load the day without a selected branch — never a textual role name.
   const canGlobal = user?.isSuperAdmin === true
     || grants.some((g) => g.permission === 'field_visits.view' && g.scope === 'GLOBAL');
   const canExecute = hasPermission('field_visits.edit');
   const canTasksView = hasPermission('open_tasks.view');
 
+  // §6: visits page is now single-branch (Group 3). The cross-branch executive
+  // comparison lens no longer fits here — it is deferred to the dashboard section
+  // (its branch-summary API stays). The 'team' lens likewise moves to the
+  // standalone "زياراتي" page.
   const availableViews = useMemo(() => {
     const items: VisitView[] = ['daily'];
-    if (canGlobal) items.push('executive');
     items.push('branch');
     if (canExecute) items.push('team');
     items.push('documentation');
     if (canTasksView) items.push('tasks');
     return items;
-  }, [canExecute, canGlobal, canTasksView]);
+  }, [canExecute, canTasksView]);
 
   const [activeView, setActiveView] = useState<VisitView>('daily');
 
@@ -540,14 +522,10 @@ export default function VisitsListPage() {
     if (!availableViews.includes(activeView)) setActiveView(availableViews[0] ?? 'daily');
   }, [activeView, availableViews]);
 
-  useEffect(() => {
-    if (!canGlobal) return;
-    api.branches.list().then(setBranches).catch(() => setBranches([]));
-  }, [canGlobal]);
-
-  const effectiveBranchId = canGlobal
-    ? (branchFilter ? Number(branchFilter) : selectedBranchId ?? undefined)
-    : selectedBranchId ?? undefined;
+  // §4: the unified external switcher is the single source for the branch — the
+  // in-page branch dropdown was removed. RequireBranchContext guarantees a branch
+  // is selected for cross-branch operators; branch-scoped users are server-scoped.
+  const effectiveBranchId = selectedBranchId ?? undefined;
 
   const load = useCallback(async () => {
     if (!date) return;
@@ -578,18 +556,7 @@ export default function VisitsListPage() {
     void load();
   }, [load]);
 
-  // Executive view loads a separate aggregated dataset (per-branch KPIs).
-  useEffect(() => {
-    if (activeView !== 'executive') return;
-    setExecLoading(true);
-    setExecError(null);
-    api.fieldVisits.branchSummary({ from: execFrom, to: execTo })
-      .then((res) => setBranchSummary(res.branches ?? []))
-      .catch((e: any) => setExecError(e?.message ?? 'تعذر تحميل ملخص الفروع'))
-      .finally(() => setExecLoading(false));
-  }, [activeView, execFrom, execTo]);
-
-  // Tasks analytics view: per-task-type aggregation (shares the date range).
+  // Tasks analytics view: per-task-type aggregation over the date range.
   useEffect(() => {
     if (activeView !== 'tasks') return;
     setTasksLoading(true);
@@ -684,23 +651,6 @@ export default function VisitsListPage() {
         { label: 'لم تكتمل',            value: sumT('notCompleted') + sumT('cancelled'), icon: AlertTriangle, color: 'text-rose-700 bg-rose-50' },
       ];
     }
-    if (activeView === 'executive') {
-      // Executive KPIs sum across all branches over the selected date range.
-      const sum = (k: keyof typeof branchSummary[number]) => branchSummary.reduce((s, b) => s + Number(b[k] || 0), 0);
-      const total = sum('total');
-      const completed = sum('completed');
-      const completionPct = total > 0 ? Math.round((completed / total) * 100) : 0;
-      const offersPresented = sum('demoOffersPresented');
-      const offersAccepted = sum('demoOffersAccepted');
-      const acceptancePct = offersPresented > 0 ? Math.round((offersAccepted / offersPresented) * 100) : 0;
-      return [
-        { label: 'إجمالي الزيارات',   value: total,                  icon: CalendarDays,  color: 'text-sky-700 bg-sky-50' },
-        { label: 'معدل الإنجاز',       value: `${completionPct}%`,    icon: Activity,      color: 'text-indigo-700 bg-indigo-50' },
-        { label: 'عروض مُقدَّمة',       value: offersPresented,        icon: ShoppingCart,  color: 'text-sky-700 bg-sky-50' },
-        { label: 'عروض مقبولة',        value: `${offersAccepted}${offersPresented > 0 ? ` (${acceptancePct}%)` : ''}`, icon: CheckCircle2, color: 'text-emerald-700 bg-emerald-50' },
-        { label: 'مُصعَّدة',            value: sum('stuckEscalated'),  icon: AlertTriangle, color: 'text-rose-700 bg-rose-50' },
-      ];
-    }
     if (activeView === 'branch') {
       // Branch manager focuses on: what's the day's load, what's in flight,
       // what's already done, what needs documentation, what's escalated now.
@@ -737,191 +687,7 @@ export default function VisitsListPage() {
       { label: 'ناقصة توثيق',    value: stats.missingDocs, icon: ClipboardList,  color: 'text-amber-700 bg-amber-50' },
       { label: 'تصعيد',           value: stats.escalated,   icon: AlertTriangle,  color: 'text-orange-700 bg-orange-50' },
     ];
-  }, [activeView, stats, docStats, rows, branchSummary, taskSummary]);
-
-  // ── Executive view: per-branch comparison columns ──────────────────────────
-  // Each numeric KPI is rendered as a value + a tiny horizontal bar, scaled
-  // against the max value across all branches, so the visual signal is "who is
-  // ahead of whom" without forcing the eye to read every number.
-  const execMaxes = useMemo(() => {
-    const max = (k: keyof typeof branchSummary[number]) =>
-      branchSummary.reduce((m, b) => Math.max(m, Number(b[k] || 0)), 0);
-    return {
-      total: max('total'),
-      completed: max('completed'),
-      demoOffersPresented: max('demoOffersPresented'),
-      demoOffersAccepted: max('demoOffersAccepted'),
-      stuckEscalated: max('stuckEscalated'),
-      avgDurationMinutes: max('avgDurationMinutes'),
-    };
-  }, [branchSummary]);
-
-  const execColumns = useMemo<ColumnDef<any>[]>(() => {
-    const Bar = ({ value, max, color }: { value: number; max: number; color: string }) => {
-      const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
-      return (
-        <div className="h-1.5 w-full rounded-full bg-slate-100 mt-1 overflow-hidden">
-          <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
-        </div>
-      );
-    };
-    const NumericCell = ({ value, max, color, accent }: { value: number; max: number; color: string; accent: string }) => (
-      <div className="min-w-[110px]">
-        <span className={`font-black text-sm ${accent}`}>{value}</span>
-        <Bar value={value} max={max} color={color} />
-      </div>
-    );
-    return [
-      {
-        key: 'branchName',
-        label: 'الفرع',
-        sortable: true,
-        minWidth: '170px',
-        getValue: (row) => row.branchName || '',
-        render: (row) => (
-          <div className="flex items-center gap-2 min-w-[150px]">
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-              <Building2 className="h-4 w-4" />
-            </div>
-            <span className="font-black text-slate-800">{row.branchName || `#${row.branchId}`}</span>
-          </div>
-        ),
-      },
-      {
-        key: 'total',
-        label: 'الزيارات',
-        sortable: true,
-        width: '130px',
-        getValue: (row) => row.total,
-        render: (row) => <NumericCell value={row.total} max={execMaxes.total} color="bg-sky-400" accent="text-sky-700" />,
-      },
-      {
-        key: 'completed',
-        label: 'مكتملة',
-        sortable: true,
-        width: '140px',
-        getValue: (row) => row.completed,
-        render: (row) => {
-          const pct = row.total > 0 ? Math.round((row.completed / row.total) * 100) : 0;
-          return (
-            <div className="min-w-[120px]">
-              <div className="flex items-baseline gap-1.5">
-                <span className="font-black text-sm text-emerald-700">{row.completed}</span>
-                <span className="text-[10px] font-bold text-emerald-600">({pct}%)</span>
-              </div>
-              <Bar value={row.completed} max={execMaxes.completed} color="bg-emerald-400" />
-            </div>
-          );
-        },
-      },
-      {
-        key: 'inProgress',
-        label: 'بالميدان',
-        sortable: true,
-        width: '100px',
-        getValue: (row) => row.inProgress,
-        render: (row) => (
-          <span className={`inline-flex items-center gap-1 font-black text-sm ${row.inProgress > 0 ? 'text-indigo-700' : 'text-slate-400'}`}>
-            <Activity className="h-3.5 w-3.5" />
-            {row.inProgress}
-          </span>
-        ),
-      },
-      {
-        key: 'demoOffersPresented',
-        label: 'عروض مُقدَّمة',
-        sortable: true,
-        width: '120px',
-        getValue: (row) => row.demoOffersPresented,
-        render: (row) => (
-          <div className="min-w-[100px]">
-            <span className="inline-flex items-center gap-1 font-black text-sm text-sky-700">
-              <ShoppingCart className="h-3.5 w-3.5" />
-              {row.demoOffersPresented}
-            </span>
-            <Bar value={row.demoOffersPresented} max={execMaxes.demoOffersPresented} color="bg-sky-400" />
-          </div>
-        ),
-      },
-      {
-        key: 'demoOffersAccepted',
-        label: 'عروض مقبولة',
-        sortable: true,
-        width: '160px',
-        getValue: (row) => row.demoOffersAccepted,
-        render: (row) => {
-          const pct = row.demoOffersPresented > 0
-            ? Math.round((row.demoOffersAccepted / row.demoOffersPresented) * 100)
-            : 0;
-          // Compact breakdown: accepted count + rate, with rejected/extension/pending as small chips below
-          return (
-            <div className="min-w-[140px]">
-              <div className="flex items-baseline gap-1.5">
-                <span className="font-black text-sm text-emerald-700">{row.demoOffersAccepted}</span>
-                {row.demoOffersPresented > 0 && (
-                  <span className="text-[10px] font-bold text-emerald-600">من {row.demoOffersPresented} ({pct}%)</span>
-                )}
-              </div>
-              <Bar value={row.demoOffersAccepted} max={execMaxes.demoOffersAccepted} color="bg-emerald-400" />
-              {(row.demoOffersRejected > 0 || row.demoOffersExtension > 0 || row.demoOffersPending > 0) && (
-                <div className="flex items-center gap-1 mt-1 text-[10px]">
-                  {row.demoOffersRejected > 0  && <span className="text-rose-600 font-bold" title="مرفوضة">✗{row.demoOffersRejected}</span>}
-                  {row.demoOffersExtension > 0 && <span className="text-amber-600 font-bold" title="بمهلة">⏳{row.demoOffersExtension}</span>}
-                  {row.demoOffersPending > 0   && <span className="text-slate-500 font-bold" title="بانتظار الرد">●{row.demoOffersPending}</span>}
-                </div>
-              )}
-            </div>
-          );
-        },
-      },
-      {
-        key: 'stuckEscalated',
-        label: 'مُصعَّدة',
-        sortable: true,
-        width: '120px',
-        getValue: (row) => row.stuckEscalated,
-        render: (row) => (
-          <span className={`inline-flex items-center gap-1 font-black text-sm ${row.stuckEscalated > 0 ? 'text-rose-700' : 'text-slate-400'}`}>
-            <AlertTriangle className="h-3.5 w-3.5" />
-            {row.stuckEscalated}
-          </span>
-        ),
-      },
-      {
-        key: 'avgDurationMinutes',
-        label: 'متوسط المدة',
-        sortable: true,
-        width: '130px',
-        getValue: (row) => row.avgDurationMinutes,
-        render: (row) => (
-          <div className="min-w-[110px]">
-            <span className="font-black text-sm text-slate-700">{row.avgDurationMinutes} د</span>
-            <Bar value={row.avgDurationMinutes} max={execMaxes.avgDurationMinutes} color="bg-slate-400" />
-          </div>
-        ),
-      },
-      {
-        key: 'cancelled',
-        label: 'ملغاة',
-        sortable: true,
-        width: '90px',
-        getValue: (row) => row.cancelled,
-        render: (row) => (
-          <span className={`font-bold text-sm ${row.cancelled > 0 ? 'text-slate-600' : 'text-slate-300'}`}>{row.cancelled}</span>
-        ),
-      },
-      {
-        key: 'locationMissing',
-        label: 'GPS مفقود',
-        sortable: true,
-        width: '100px',
-        getValue: (row) => row.locationMissing,
-        render: (row) => (
-          <span className={`font-bold text-sm ${row.locationMissing > 0 ? 'text-amber-700' : 'text-slate-300'}`}>{row.locationMissing}</span>
-        ),
-      },
-    ];
-  }, [execMaxes]);
+  }, [activeView, stats, docStats, rows, taskSummary]);
 
   // ── Tasks analytics: per-task-type column set ──────────────────────────────
   const tasksMaxes = useMemo(() => {
@@ -1069,7 +835,7 @@ export default function VisitsListPage() {
     return Array.from(found).sort();
   }, [rows]);
 
-  const showOwnership = activeView === 'executive' || activeView === 'branch';
+  const showOwnership = activeView === 'branch';
 
   const columns = useMemo<ColumnDef<VisitRow>[]>(() => {
     // ── Documentation & Escalation: dedicated column set ─────────────────────
@@ -1321,7 +1087,7 @@ export default function VisitsListPage() {
       ];
     }
 
-    // ── Default column set used by daily / executive / tasks ─
+    // ── Default column set used by daily / tasks ─
     const base: ColumnDef<VisitRow>[] = [
       {
         key: 'scheduledTime',
@@ -1383,16 +1149,6 @@ export default function VisitsListPage() {
       },
     ];
 
-    if (activeView === 'executive') {
-      base.splice(1, 0, {
-        key: 'branchName',
-        label: 'الفرع',
-        sortable: true,
-        width: '130px',
-        getValue: (row) => row.branchName || '',
-        render: (row) => <span className="font-bold text-slate-700">{row.branchName || `#${row.branchId}`}</span>,
-      });
-    }
 
     if (activeView === 'tasks') {
       base.push({
@@ -1439,9 +1195,9 @@ export default function VisitsListPage() {
 
         <div className="flex flex-wrap items-center gap-2">
           <Filter className="h-4 w-4 text-slate-400" />
-          {/* Visit-level filters - hidden for the aggregated executive/tasks
-              views, which have their own date-range picker rendered below. */}
-          {activeView !== 'executive' && activeView !== 'tasks' && (
+          {/* Visit-level filters - hidden for the aggregated tasks analytics
+              view, which has its own date-range picker rendered below. */}
+          {activeView !== 'tasks' && (
             <>
               <input
                 type="date"
@@ -1449,18 +1205,6 @@ export default function VisitsListPage() {
                 onChange={(e) => setDate(e.target.value)}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
               />
-              {canGlobal && (
-                <select
-                  value={branchFilter}
-                  onChange={(e) => setBranchFilter(e.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
-                >
-                  <option value="">كل الفروع / الفرع المحدد</option>
-                  {branches.map((branch) => (
-                    <option key={branch.id} value={branch.id}>{branch.name}</option>
-                  ))}
-                </select>
-              )}
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
@@ -1625,9 +1369,9 @@ export default function VisitsListPage() {
         </section>
       )}
 
-      {(activeView === 'executive' || activeView === 'tasks') && (() => {
+      {activeView === 'tasks' && (() => {
         // ── Date-range presets ────────────────────────────────────────────
-        // Quick shortcuts cover the three most common executive lenses. The
+        // Quick shortcuts cover the three most common analysis windows. The
         // custom from/to inputs stay live so the manager can refine after.
         const today = todayIso();
         const daysAgo = (n: number) => {
@@ -1694,45 +1438,19 @@ export default function VisitsListPage() {
               }`}
             />
             <span className="text-[11px] text-slate-400 mr-auto">
-              {activePreset === 'custom'
-                ? 'فترة مخصّصة'
-                : activeView === 'tasks'
-                  ? 'تحليل أداء أنواع المهام'
-                  : 'مقارنة الأداء عبر الفروع'}
+              {activePreset === 'custom' ? 'فترة مخصّصة' : 'تحليل أداء أنواع المهام'}
             </span>
           </section>
         );
       })()}
 
-      {(activeView === 'executive' ? execError : activeView === 'tasks' ? tasksError : error) && (
+      {(activeView === 'tasks' ? tasksError : error) && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
-          {activeView === 'executive' ? execError : activeView === 'tasks' ? tasksError : error}
+          {activeView === 'tasks' ? tasksError : error}
         </div>
       )}
 
-      {activeView === 'executive' ? (
-        execLoading ? (
-          <div className="flex items-center justify-center py-16 text-slate-500">
-            <Loader2 className="ml-2 h-8 w-8 animate-spin text-indigo-500" />
-            جار تحميل ملخص الفروع...
-          </div>
-        ) : (
-          <SmartTable
-            title="مقارنة أداء الفروع"
-            icon={ShieldCheck}
-            data={branchSummary as any}
-            columns={execColumns as any}
-            searchKeys={['branchName']}
-            searchPlaceholder="بحث باسم الفرع..."
-            emptyIcon={ShieldCheck}
-            emptyMessage="لا توجد بيانات للفترة المختارة"
-            getId={(row: any) => row.branchId}
-            tableMinWidth={1100}
-            defaultSortKey="total"
-            defaultSortDir="desc"
-          />
-        )
-      ) : activeView === 'tasks' ? (
+      {activeView === 'tasks' ? (
         tasksLoading ? (
           <div className="flex items-center justify-center py-16 text-slate-500">
             <Loader2 className="ml-2 h-8 w-8 animate-spin text-indigo-500" />

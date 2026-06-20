@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 import {
   filterGeoUnitsByScope,
   listAllGeoUnits,
@@ -27,6 +28,17 @@ async function resolveRequestedGeoScope(req: any, permission: 'geo.view' | 'geo_
   if (Number.isInteger(requestedBranchId) && requestedBranchId > 0) {
     if (req.authContext?.isSuperAdmin === true) {
       return resolveGeoScopeForBranch(requestedBranchId, geoUnits);
+    }
+
+    // A GLOBAL-scope holder (e.g. مدير الشركة) reaches across branches: the external
+    // branch filter targets a specific branch, so resolve that branch's coverage —
+    // not only their own acting branch. The full national tree is returned only when
+    // no branch is requested (resolveGeoScope → null below). See §2.6.
+    if (req.authContext) {
+      const check = authorize(req.authContext, { permission });
+      if (check.allowed && check.grant?.scope === 'GLOBAL') {
+        return resolveGeoScopeForBranch(requestedBranchId, geoUnits);
+      }
     }
 
     if (req.authContext?.actingBranchId === requestedBranchId) {
@@ -107,6 +119,17 @@ router.get('/reference', requirePermission('geo.view', 'geo_units.lookup'), asyn
     : 'geo_units.lookup';
   const scope = await resolveRequestedGeoScope(req, permission, geoUnits);
   res.json(filterGeoUnitsByScope(geoUnits, scope));
+});
+
+// Global geo-unit NAMES for display/labels — every unit, NO branch scope. Reference
+// labels (a neighbourhood / branch name) are not sensitive: anyone who may read the
+// geo tree resolves the full name map so a record's address always renders, no matter
+// what the admin branch filter is set to. Scoping stays on the picker endpoints
+// (`/`, `/reference`) and on save (`assertGeoUnitInScope`). See
+// branch-scope-and-visibility-standard.md §3.
+router.get('/names', requirePermission('geo.view', 'geo_units.lookup'), async (_req, res) => {
+  const geoUnits = await listAllGeoUnits();
+  res.json(geoUnits.map(u => ({ id: u.id, name: u.name, parentId: u.parentId, level: u.level })));
 });
 
 /**

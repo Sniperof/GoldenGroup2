@@ -7,6 +7,7 @@ import {
     Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useClientStore } from '../hooks/useClientStore';
 import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS } from '@golden-crm/shared';
@@ -260,6 +261,8 @@ export default function TelemarketerWorkspace() {
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [currentSchedule, setCurrentSchedule] = useState<DaySchedule>({ teams: [], solos: [] });
+    // React to the external branch switcher (no full reload — §4).
+    const branchId = useBranchContextStore(s => s.branchId);
     const [date, setDate] = useState(getToday());
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -286,24 +289,28 @@ export default function TelemarketerWorkspace() {
             setContracts([]); setMaintenanceRequests([]); setEmployees([]); setGeoUnits([]);
         });
         setVisits([]); // reset while a new date/customer set is loading
-    }, [loadClients, loadData, date]);
+    }, [loadClients, loadData, date, branchId]);
 
     useEffect(() => {
         setCurrentSchedule({ teams: [], solos: [] });
         api.schedules.get(date)
             .then(data => setCurrentSchedule(data || { teams: [], solos: [] }))
             .catch(() => setCurrentSchedule({ teams: [], solos: [] }));
-    }, [date]);
+    }, [date, branchId]);
 
     const getEmp = (id: number | null) => employees.find(e => e.id === id) || null;
 
     const availableTeams = useMemo(() => {
         const teams: { key: string; label: string; type: 'team' | 'solo'; count: number }[] = [];
         currentSchedule.teams.forEach((t, idx) => {
+            // Foreign-branch slots arrive redacted to `{ locked: true }` (GAP-DS-005) —
+            // skip them, keep idx so team_key stays aligned with route_assignments.
+            if ((t as any)?.locked === true) return;
             const sup = getEmp(t.supervisor);
             teams.push({ key: `team_${idx}`, label: sup ? `فريق ${sup.name}` : `فريق #${idx + 1}`, type: 'team', count: (t.telemarketers || []).length });
         });
         currentSchedule.solos.forEach((s, idx) => {
+            if ((s as any)?.locked === true) return;   // foreign-branch solo slot — skip, keep idx
             const tech = getEmp(s.technician);
             teams.push({ key: `solo_${idx}`, label: tech ? `طوارئ: ${tech.name}` : `فريق طوارئ #${idx + 1}`, type: 'solo', count: 1 });
         });

@@ -14,12 +14,11 @@ import { shouldAttachBranchContextHeader } from './branchContext';
 function getBranchContextHeader(): string | null {
   try {
     if (!shouldAttachBranchContextHeader(window.location.pathname)) return null;
-    const rawUser = localStorage.getItem('hr_user');
-    if (!rawUser) return null;
-
-    const user = JSON.parse(rawUser);
-    if (user?.isSuperAdmin !== true) return null;
-
+    // Attach for ANY cross-branch operator (super admin OR GLOBAL-grant manager),
+    // mirroring the REST api.ts helper — the SERVER still gates the requested branch
+    // against the user's allowedBranchIds, so this is safe. Previously gated to
+    // super-admin only, which silently broke the switcher for GLOBAL managers
+    // (e.g. the Users page filter did nothing for مدير الشركة).
     const raw = localStorage.getItem('hr_branch_context');
     if (!raw) return null;
 

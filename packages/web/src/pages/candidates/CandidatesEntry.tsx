@@ -8,6 +8,7 @@ import ImportCSVModal from '../../components/candidates/ImportCSVModal';
 import ReferralSheetDetailsModal from '../../components/candidates/SessionDetailsModal';
 import QualificationModal from '../../components/candidates/QualificationModal';
 import ClientModal from '../../components/ClientModal';
+import BranchScopeIndicator from '../../components/BranchScopeIndicator';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -44,7 +45,9 @@ export default function CandidatesEntry() {
     const isGlobalNames = candidatesViewScope === 'GLOBAL';
     const isBranchNames = candidatesViewScope === 'BRANCH';
     const branchContextId = useBranchContextStore(s => s.branchId);
-    const setBranchContextId = useBranchContextStore(s => s.setBranchId);
+    // Add rule (§5): a GLOBAL operator on "all branches" must pick a branch first —
+    // no silent fallback into the base branch (SH-3). Branch/assigned users are pinned.
+    const mustPickBranch = isGlobalNames && branchContextId == null;
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     // UI State
@@ -260,24 +263,10 @@ export default function CandidatesEntry() {
                     <div>
                         <h1 className="text-2xl font-bold text-slate-800">سجلات الأسماء المقترحة</h1>
                         <p className="text-sm text-slate-500 mt-1">فلترة، تدقيق، وتوجيه الأسماء الجديدة</p>
+                        <div className="mt-2"><BranchScopeIndicator /></div>
                     </div>
                     <div className="flex gap-2 items-center">
-                        {/* Management branch filter — visibility & mode follow candidates.view_list scope */}
-                        {isGlobalNames && (
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-sky-50 border border-sky-200 text-sky-700">
-                                <Building2 className="w-4 h-4 shrink-0" />
-                                <select
-                                    value={branchContextId ?? ''}
-                                    onChange={e => setBranchContextId(e.target.value === '' ? null : Number(e.target.value))}
-                                    className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer"
-                                >
-                                    <option value="">كل الفروع</option>
-                                    {branchOptions.map(b => (
-                                        <option key={b.id} value={b.id}>{b.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
+                        {/* GLOBAL branch filter moved to the unified external switcher (sidebar). */}
                         {isBranchNames && (
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-sm font-bold">
                                 <Building2 className="w-4 h-4 shrink-0" />
@@ -287,13 +276,13 @@ export default function CandidatesEntry() {
                             </div>
                         )}
                         {canCreateNameLists && (
-                        <button onClick={() => setIsCreateSheetOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-bold shadow-sm transition-all text-sm">
+                        <button disabled={mustPickBranch} title={mustPickBranch ? 'اختر فرعاً أولاً' : undefined} onClick={() => setIsCreateSheetOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-bold shadow-sm transition-all text-sm disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed">
                             <FilePlus2 className="w-4 h-4" /> لائحة جديدة
                         </button>
                         )}
                         {canCreateCandidates && (
-                        <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all">
-                            <UserPlus className="w-4 h-4" /> إضافة اسم
+                        <button disabled={mustPickBranch} title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة اسم' : undefined} onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed">
+                            <UserPlus className="w-4 h-4" /> {mustPickBranch ? 'اختر فرعاً' : 'إضافة اسم'}
                         </button>
                         )}
                     </div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Building2, ChevronDown, Check } from 'lucide-react';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import { canCrossBranch } from '../lib/branchScope';
 import { api } from '../lib/api';
 
 interface Branch {
@@ -10,12 +11,11 @@ interface Branch {
 }
 
 /**
- * Shown only to super admins on branch-aware pages. Picks which branch's data
- * the UI should scope reads/writes to. Selection is persisted in localStorage
- * and attached as `X-Branch-Id` to branch-aware API calls by api.ts /
- * authFetch.ts.
- *
- * Non-super users don't see this — the server pins them to their own branch.
+ * The single external branch filter (sidebar). Visible to any cross-branch operator
+ * (super admin OR a GLOBAL-scope grant holder); single-branch users get a read-only
+ * badge of their pinned branch. Selection is persisted in localStorage and attached
+ * as `X-Branch-Id` to branch-aware API calls by api.ts / authFetch.ts; pages react
+ * to it WITHOUT a full reload. See branch-scope-and-visibility-standard.md §4.
  */
 export default function BranchSwitcher() {
   const user = useAuthStore(s => s.user);
@@ -31,12 +31,10 @@ export default function BranchSwitcher() {
     api.branches.list().then(rows => setBranches(rows as Branch[])).catch(() => setBranches([]));
   }, [user?.id]);
 
-  // Non-super users: read-only badge showing their pinned branch name.
-  if (user?.isSuperAdmin !== true) {
-    // Company-wide operators (any GLOBAL grant) filter per-page, not from the
-    // sidebar — showing a single pinned-branch badge here would be misleading.
-    const hasGlobalGrant = (grants ?? []).some(g => g.scope === 'GLOBAL');
-    if (hasGlobalGrant) return null;
+  // Cross-branch reach rule lives in canCrossBranch (shared with the scope indicator)
+  // so the two surfaces never drift. Single-branch users get a read-only badge instead.
+  const canSwitch = canCrossBranch(user, grants);
+  if (!canSwitch) {
     if (!user?.branchId) return null;
     const branchName = branches.find(b => b.id === user.branchId)?.name;
     return (
@@ -54,8 +52,8 @@ export default function BranchSwitcher() {
   function handleSelect(id: number | null) {
     setBranchId(id);
     setOpen(false);
-    // Force a soft reload so every open list refetches with the new header.
-    window.location.reload();
+    // Reactive: branch-aware pages re-fetch via their `branchContextId` dependency —
+    // no full-page reload. See branch-scope-and-visibility-standard.md §4.
   }
 
   return (

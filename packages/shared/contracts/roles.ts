@@ -71,6 +71,9 @@ export const HrUserSchema = z.object({
   roleId: z.number().nullable(),
   roleDisplayName: z.string().nullable(),
   createdAt: z.string(),
+  // Owning branch (for the standalone Users records page — branch column / scope).
+  branchId: z.number().nullable().optional(),
+  branchName: z.string().nullable().optional(),
 });
 
 export const UserBranchAssignmentStatusSchema = z.enum(['active', 'inactive']);

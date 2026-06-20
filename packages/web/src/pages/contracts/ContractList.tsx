@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { FileText, Plus, Eye, Loader2, Building2 } from 'lucide-react';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../../components/SmartTable';
+import BranchScopeIndicator from '../../components/BranchScopeIndicator';
 import type { Contract } from '../../lib/types';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
@@ -36,7 +37,6 @@ export default function ContractList() {
     const { hasPermission } = usePermissions();
     const getPermissionScope = useAuthStore((s) => s.getPermissionScope);
     const contextBranchId = useBranchContextStore((s) => s.branchId);
-    const setBranchContextId = useBranchContextStore((s) => s.setBranchId);
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     const canViewContracts = hasPermission('contracts.view_list');
@@ -159,6 +159,7 @@ export default function ContractList() {
             <SmartTable<Contract>
                 title="إدارة العقود"
                 icon={FileText}
+                scopeIndicator={<BranchScopeIndicator />}
                 data={contracts}
                 columns={columns}
                 filters={filters}
@@ -167,21 +168,7 @@ export default function ContractList() {
                 getId={(c) => c.id}
                 headerActions={
                     <div className="flex items-center gap-3">
-                        {isGlobalView && (
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-700">
-                                <Building2 className="w-4 h-4 shrink-0" />
-                                <select
-                                    value={contextBranchId ?? ''}
-                                    onChange={(e) => setBranchContextId(e.target.value === '' ? null : Number(e.target.value))}
-                                    className="bg-transparent text-xs font-bold focus:outline-none cursor-pointer"
-                                >
-                                    <option value="">كل الفروع</option>
-                                    {branchOptions.map((b) => (
-                                        <option key={b.id} value={b.id}>{b.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
+                        {/* GLOBAL branch filter moved to the unified external switcher (sidebar). */}
                         {canCreateContracts && (() => {
                             // A GLOBAL operator must pick a branch before creating —
                             // otherwise the server silently lands the contract in their
