@@ -19,7 +19,7 @@ import {
     Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers,
 } from 'lucide-react';
 
-const APP_VERSION_LABEL = '3.0v';
+const APP_VERSION_LABEL = '3.1v';
 
 const navItems = [
     { path: '/', label: 'نظرة عامة', icon: LayoutDashboard },
