@@ -25,6 +25,7 @@ import Dues from './pages/tasks/Dues';
 import DeviceManagement from './pages/DeviceManagement';
 import DeviceDetail from './pages/DeviceDetail';
 import DeviceProfilePage from './pages/devices/DeviceProfilePage'; // DEC-CT plan §2
+import InstalledDevicesList from './pages/devices/InstalledDevicesList';
 import ContractList from './pages/contracts/ContractList';
 import ContractForm from './pages/contracts/ContractForm';
 import ContractDetail from './pages/contracts/ContractDetail';
@@ -88,6 +89,8 @@ export default function App() {
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/devices" element={<DeviceManagement />} />
                         <Route path="/devices/:id" element={<DeviceDetail />} />
+                        {/* Branch-scoped operational list of installed devices (Group 1) */}
+                        <Route path="/installed-devices" element={<InstalledDevicesList />} />
                         {/* DEC-CT plan §2 — standalone profile for a customer's installed device */}
                         <Route path="/installed-devices/:id" element={<DeviceProfilePage />} />
                         <Route path="/geo" element={<GeoSettings />} />

@@ -335,6 +335,7 @@ export const api = {
     createExternal: (data: any) => request<any>('/installed-devices/external', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/installed-devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     problems: (id: number) => request<any[]>(`/installed-devices/${id}/problems`),
+    technicalStates: (id: number) => request<any[]>(`/installed-devices/${id}/technical-states`),
   },
   // DEC-CT-09: device possession ledger.
   // Backend route is mounted at /api/devices/:deviceId/possession.

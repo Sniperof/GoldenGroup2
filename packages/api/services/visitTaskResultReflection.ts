@@ -217,12 +217,9 @@ export interface DeviceActivationResultBody {
   reason_code?: string | null;
   expected_date?: string | null;
   expected_time?: string | null;
-  tds_before?: number | null;
-  tds_after?: number | null;
-  pump_pressure?: number | null;
-  membrane_output?: string | null;
-  tank_pressure?: number | null;
-  uv_status?: string | null;
+  // Integrated technical health reading (constitution 01i) — replaces the old
+  // ad-hoc tds/pump/membrane/uv fields. Written to device_technical_states.
+  technical_state?: Record<string, unknown> | null;
   customer_trained?: boolean | null;
   training_notes?: string | null;
   activation_photos?: unknown[] | null;
@@ -272,6 +269,53 @@ function optionalNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+// camelCase reading key → device_technical_states column (constitution 01i).
+const TECH_STATE_COLUMN_MAP: Record<string, string> = {
+  waterSourceType: 'water_source_type', waterSourceTds: 'water_source_tds',
+  waterPressure: 'water_pressure', hasPressureRegulator: 'has_pressure_regulator',
+  tapTdsBefore: 'tap_tds_before', pumpPressure: 'pump_pressure',
+  membraneOutputTds: 'membrane_output_tds', membraneInputTds: 'membrane_input_tds',
+  membraneFlow: 'membrane_flow', flowCupSize: 'flow_cup_size',
+  sterilizationTransformer: 'sterilization_transformer', uvLamp: 'uv_lamp',
+  sterilizationSleeve: 'sterilization_sleeve', highPressureTds: 'high_pressure_tds',
+  lowPressureSwitch: 'low_pressure_switch', tankTds: 'tank_tds',
+  valveType: 'valve_type', pumpTransformer: 'pump_transformer',
+  hasFifthTap: 'has_fifth_tap', deviceConnection: 'device_connection',
+  additionalNotes: 'additional_notes',
+};
+
+// Append a device-keyed technical health reading. No-op when no measurement was
+// recorded. Enforces device + task linkage via the table's NOT VALID checks.
+async function insertTechnicalState(
+  db: Pick<PoolClient, 'query'>,
+  args: {
+    installedDeviceId: number;
+    openTaskId: number;
+    contractId: number | null;
+    taskTypeSnapshot: string;
+    phase: 'pre' | 'post' | 'diagnostic' | 'baseline';
+    recordedBy: number | null;
+    reading: Record<string, unknown> | null;
+  },
+): Promise<number | null> {
+  const reading = args.reading;
+  if (!reading || typeof reading !== 'object') return null;
+  const hasAny = Object.values(reading).some((v) => v !== null && v !== undefined && v !== '');
+  if (!hasAny) return null;
+
+  const cols = ['installed_device_id', 'open_task_id', 'contract_id', 'task_type_snapshot', 'phase', 'recorded_by'];
+  const vals: unknown[] = [args.installedDeviceId, args.openTaskId, args.contractId, args.taskTypeSnapshot, args.phase, args.recordedBy];
+  for (const [camel, col] of Object.entries(TECH_STATE_COLUMN_MAP)) {
+    if (camel in reading) { cols.push(col); vals.push((reading as any)[camel] ?? null); }
+  }
+  const params = vals.map((_, i) => `$${i + 1}`);
+  const { rows } = await db.query(
+    `INSERT INTO device_technical_states (${cols.join(', ')}) VALUES (${params.join(', ')}) RETURNING id`,
+    vals,
+  );
+  return Number(rows[0].id);
 }
 
 async function resolveEmployeeIdForUser(
@@ -1695,10 +1739,10 @@ export async function applyDeviceActivationResult(
       );
 
       if (vt.contract_id) {
+        // NOTE: contracts has no updated_at column (only created_at).
         await db.query(
           `UPDATE contracts
-              SET status = 'active',
-                  updated_at = NOW()
+              SET status = 'active'
             WHERE id = $1
               AND status NOT IN ('cancelled', 'discarded')`,
           [Number(vt.contract_id)],
@@ -1707,20 +1751,15 @@ export async function applyDeviceActivationResult(
     }
 
     const photos = Array.isArray(body.activation_photos) ? body.activation_photos : [];
+    // Technical measurements moved to device_technical_states (constitution 01i);
+    // only activation-specific data stays here (outcome, training, photos).
     const { rows: activationRows } = await db.query(
       `INSERT INTO visit_task_device_activation_results
-         (visit_task_result_id, outcome, tds_before, tds_after, pump_pressure,
-          membrane_output, tank_pressure, uv_status, customer_trained,
+         (visit_task_result_id, outcome, customer_trained,
           training_notes, activation_photos, activated_by_employee_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,NOW(),NOW())
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,NOW(),NOW())
        ON CONFLICT (visit_task_result_id) DO UPDATE SET
           outcome = EXCLUDED.outcome,
-          tds_before = EXCLUDED.tds_before,
-          tds_after = EXCLUDED.tds_after,
-          pump_pressure = EXCLUDED.pump_pressure,
-          membrane_output = EXCLUDED.membrane_output,
-          tank_pressure = EXCLUDED.tank_pressure,
-          uv_status = EXCLUDED.uv_status,
           customer_trained = EXCLUDED.customer_trained,
           training_notes = EXCLUDED.training_notes,
           activation_photos = EXCLUDED.activation_photos,
@@ -1730,12 +1769,6 @@ export async function applyDeviceActivationResult(
       [
         visitTaskResultId,
         shape.decision,
-        optionalNumber(body.tds_before),
-        optionalNumber(body.tds_after),
-        optionalNumber(body.pump_pressure),
-        optionalText(body.membrane_output),
-        optionalNumber(body.tank_pressure),
-        optionalText(body.uv_status),
         body.customer_trained === true,
         optionalText(body.training_notes),
         JSON.stringify(photos),
@@ -1743,6 +1776,18 @@ export async function applyDeviceActivationResult(
       ],
     );
     const deviceActivationResultId = Number(activationRows[0].id);
+
+    // Integrated technical health reading — baseline reference at first operation,
+    // keyed on the physical device (constitution 01i §4). Same transaction.
+    await insertTechnicalState(db, {
+      installedDeviceId: Number(vt.device_id),
+      openTaskId: Number(vt.open_task_id),
+      contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
+      taskTypeSnapshot: 'device_activation',
+      phase: 'baseline',
+      recordedBy: performedByUserId,
+      reading: body.technical_state ?? null,
+    });
 
     await db.query(
       `UPDATE visit_tasks
