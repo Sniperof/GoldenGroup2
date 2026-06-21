@@ -5,6 +5,7 @@ import {
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
     AlertCircle, Pencil, Tag,
 } from 'lucide-react';
+import IconButton from '../components/ui/IconButton';
 import { api } from '../lib/api';
 import type { DeviceModel, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -130,9 +131,7 @@ function ImageGrid({ images, primaryImageId, onSetPrimary, onRemove }: {
                             title="الصورة الرئيسية">
                             <Star className="w-3.5 h-3.5" />
                         </button>
-                        <button type="button" onClick={() => onRemove(img.id)} className="p-1 rounded-full bg-white/80 text-red-500 hover:bg-red-500 hover:text-white">
-                            <X className="w-3.5 h-3.5" />
-                        </button>
+                        <IconButton icon={X} label="حذف" variant="danger" size="sm" shape="circle" onClick={() => onRemove(img.id)} />
                     </div>
                     {img.id === primaryImageId && (
                         <div className="absolute top-1 right-1 bg-amber-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">رئيسية</div>
@@ -152,9 +151,7 @@ function VideoList({ videos, onRemove }: { videos: DeviceAttachment[]; onRemove:
                     <video src={vid.url} controls className="w-full max-h-32 object-contain bg-black" />
                     <div className="flex items-center justify-between px-2 py-1">
                         <span className="text-xs text-slate-500 truncate">{vid.name}</span>
-                        <button type="button" onClick={() => onRemove(vid.id)} className="text-red-400 hover:text-red-600 shrink-0">
-                            <X className="w-3.5 h-3.5" />
-                        </button>
+                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => onRemove(vid.id)} />
                     </div>
                 </div>
             ))}
@@ -176,9 +173,7 @@ function DocumentList({ documents, onRemove }: { documents: DeviceAttachment[]; 
                             : <div className={`w-8 h-8 rounded flex items-center justify-center text-white text-xs font-bold ${isPdf ? 'bg-red-500' : 'bg-blue-500'}`}>{isPdf ? 'PDF' : 'DOC'}</div>
                         }
                         <span className="text-xs text-slate-600 flex-1 truncate">{doc.name}</span>
-                        <button type="button" onClick={() => onRemove(doc.id)} className="text-red-400 hover:text-red-600 shrink-0">
-                            <X className="w-3.5 h-3.5" />
-                        </button>
+                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => onRemove(doc.id)} />
                     </div>
                 );
             })}
@@ -503,9 +498,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                                     <span className="text-xs font-bold text-sky-700">{p.label}</span>
                                                     <span className="text-xs text-slate-500">{p.visits} زيارة · كل {intervalDays} يوم</span>
                                                 </div>
-                                                <button type="button" onClick={() => removeWarrantyPeriod(p.months)} className="text-red-400 hover:text-red-600">
-                                                    <X className="w-3.5 h-3.5" />
-                                                </button>
+                                                <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeWarrantyPeriod(p.months)} />
                                             </div>
                                         );
                                     })}
@@ -719,9 +712,7 @@ function SparePartPricesModal({ part, onClose, onSaved }: {
                         <h3 className="text-base font-bold text-slate-800">سجل أسعار قطعة الصيانة</h3>
                         <p className="mt-1 text-xs text-slate-500">{part.name} · {part.code}</p>
                     </div>
-                    <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600">
-                        <X className="h-4 w-4" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
                 </div>
 
                 <div className="space-y-4 bg-slate-50/60 px-5 py-5">
@@ -1181,7 +1172,7 @@ const DeviceManagement = () => {
                         >
                             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
                                 <h2 className="text-xl font-bold text-slate-900">{editingPart ? 'تعديل قطعة غيار' : 'إضافة قطعة غيار'}</h2>
-                                <button onClick={() => { setIsAddingPart(false); setEditingPart(null); }} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                                <IconButton icon={X} label="إغلاق" onClick={() => { setIsAddingPart(false); setEditingPart(null); }} />
                             </div>
                             <form onSubmit={handlePartSubmit} className="p-6 space-y-4">
                                 <div className="grid grid-cols-2 gap-4">

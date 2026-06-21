@@ -10,6 +10,7 @@ import {
   Wrench, ClipboardList, DollarSign, MapPin, Bug, Package,
   RotateCcw, Ban, Truck, Clock, Percent, Star, Snowflake, Receipt,
 } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
 import Select from '../../components/ui/Select';
@@ -853,7 +854,7 @@ export default function SystemLists() {
                 <Tag className="w-5 h-5 text-sky-500" />
                 {editingItem ? 'تعديل خيار' : `إضافة — ${panelTitle()}`}
               </h3>
-              <button onClick={() => setIsItemModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <IconButton icon={X} label="إغلاق" onClick={() => setIsItemModalOpen(false)} />
             </div>
             <form onSubmit={handleSave} className="p-6 space-y-5">
               {isCertificateView && activeCertificate && !editingItem && (
@@ -945,7 +946,7 @@ export default function SystemLists() {
               <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                 <FolderPlus className="w-5 h-5 text-indigo-500" /> إضافة فئة جديدة
               </h3>
-              <button onClick={() => setIsNewCatOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <IconButton icon={X} label="إغلاق" onClick={() => setIsNewCatOpen(false)} />
             </div>
             <form onSubmit={handleAddNewCategory} className="p-6 space-y-5">
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-sm text-indigo-700">

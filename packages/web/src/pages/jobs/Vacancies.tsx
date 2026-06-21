@@ -9,6 +9,7 @@ import {
   ClipboardList, ArrowLeft, ArrowRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import IconButton from '../../components/ui/IconButton';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -754,7 +755,7 @@ export default function Vacancies() {
                     <h2 className="text-xl font-bold text-slate-800">{editingVacancy ? 'تعديل الشاغر الوظيفي' : 'إنشاء شاغر وظيفي جديد'}</h2>
                     <p className="text-xs text-slate-400 mt-0.5">{editingVacancy ? `شاغر: ${editingVacancy.title}` : 'أكمل الخطوات الثلاث لإضافة الشاغر'}</p>
                   </div>
-                  <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors"><X className="w-5 h-5" /></button>
+                  <IconButton icon={X} label="إغلاق" onClick={() => setShowModal(false)} />
                 </div>
 
                 {/* Step Indicator (create only) */}

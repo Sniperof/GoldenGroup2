@@ -5,6 +5,7 @@ import {
     Truck, Gem, Star, Image, Video, FileText, AlertCircle, RefreshCw,
     Zap, Tag, Plus, Pencil, Trash2, X, Save, ShieldCheck,
 } from 'lucide-react';
+import IconButton from '../components/ui/IconButton';
 import { api } from '../lib/api';
 import type { DeviceModel, DeviceDiscount, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
@@ -713,9 +714,7 @@ function PriceModal({ deviceId, currentPrice, onClose, onSaved }: {
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                     <h3 className="text-base font-bold text-slate-800">إضافة سعر جديد</h3>
-                    <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
-                        <X className="w-4 h-4" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
                 </div>
 
                 <div className="px-5 py-5 space-y-4">
@@ -816,9 +815,7 @@ function DiscountModal({ deviceId, editingDiscount, onClose, onSaved }: {
                     <h3 className="text-base font-bold text-slate-800">
                         {editingDiscount ? 'تعديل حملة الخصم' : 'إضافة حملة خصم'}
                     </h3>
-                    <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
-                        <X className="w-4 h-4" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
                 </div>
 
                 <div className="px-5 py-5 space-y-4">

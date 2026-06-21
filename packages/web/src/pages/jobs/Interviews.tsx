@@ -585,9 +585,7 @@ export default function Interviews() {
             >
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-lg font-bold text-slate-800">تسجيل نتيجة المقابلة</h3>
-                <button onClick={() => setResultModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
-                  <X className="w-4 h-4" />
-                </button>
+                <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setResultModal(null)} />
               </div>
               <div className="space-y-4">
                 <div className="flex gap-3">
