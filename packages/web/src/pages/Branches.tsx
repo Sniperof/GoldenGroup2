@@ -8,6 +8,7 @@ import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
+import IconButton from '../components/ui/IconButton';
 import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } from '../components/GeoSmartSearch';
 import {
   MapPin, Building2, Plus, Edit, Trash2, X, Network,
@@ -269,9 +270,7 @@ export default function Branches() {
                 <Building2 className="w-5 h-5 text-sky-500" />
                 {editingBranch ? 'تعديل بيانات الفرع' : 'إضافة فرع جديد'}
               </h3>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 p-1">
-                <X className="w-5 h-5" />
-              </button>
+              <IconButton icon={X} label="إغلاق" onClick={() => setIsModalOpen(false)} />
             </div>
 
             <form onSubmit={handleSave} className="overflow-y-auto flex-1">

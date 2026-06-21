@@ -12,6 +12,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
+import IconButton from '../components/ui/IconButton';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -303,9 +304,7 @@ export default function RouteManager() {
                                         {editRoute ? 'تعديل المسار' : 'مسار جديد'}
                                     </h3>
                                 </div>
-                                <button onClick={() => setShowBuilder(false)} className="text-slate-400 hover:text-slate-700">
-                                    <X className="w-5 h-5" />
-                                </button>
+                                <IconButton icon={X} label="إغلاق" onClick={() => setShowBuilder(false)} />
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll">

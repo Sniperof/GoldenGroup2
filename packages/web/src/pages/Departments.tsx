@@ -9,6 +9,7 @@ import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import Select from '../components/ui/Select';
+import IconButton from '../components/ui/IconButton';
 import {
   Building2, Plus, Edit, Trash2, X,
   Layers, Cpu, Users, StickyNote, CheckSquare, Square,
@@ -324,9 +325,7 @@ export default function Departments() {
                 <Layers className="w-5 h-5 text-sky-500" />
                 {editingDept ? 'تعديل القسم' : 'إضافة قسم جديد'}
               </h3>
-              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-1">
-                <X className="w-5 h-5" />
-              </button>
+              <IconButton icon={X} label="إغلاق" onClick={closeModal} />
             </div>
 
             <form onSubmit={handleSave} className="overflow-y-auto flex-1">

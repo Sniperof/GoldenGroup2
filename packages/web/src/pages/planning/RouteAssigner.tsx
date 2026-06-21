@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import Select from '../../components/ui/Select';
+import IconButton from '../../components/ui/IconButton';
 import { levelNames } from '../../lib/geoConstants';
 import type { Route, GeoUnit, DaySchedule, RouteComposition, RouteAssignmentData } from '../../lib/types';
 import { getWorkCoverageLabel } from '../../lib/types';
@@ -554,7 +555,7 @@ export default function RouteAssigner() {
                                             <button onClick={() => toggleDirection(idx)} className={`px-2.5 py-1 rounded border text-xs font-bold transition-all flex items-center gap-1 ${isForward ? 'border-emerald-200 text-emerald-700 bg-emerald-50' : 'border-orange-200 text-orange-700 bg-orange-50'}`}>
                                                 {isForward ? <><ArrowRight className="w-3 h-3" />ذهاب</> : <><ArrowLeft className="w-3 h-3" />إياب</>}
                                             </button>
-                                            <button onClick={() => removeComposed(idx)} className="text-slate-400 hover:text-red-500 transition-colors"><X className="w-4 h-4" /></button>
+                                            <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeComposed(idx)} />
                                         </div>
                                     </div>
                                     <div className="p-4">
@@ -619,7 +620,7 @@ export default function RouteAssigner() {
                                 return (
                                     <span key={zId} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-xs font-medium">
                                         {unit.name}
-                                        <button onClick={() => removeExtraZone(idx)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeExtraZone(idx)} />
                                     </span>
                                 );
                             })}

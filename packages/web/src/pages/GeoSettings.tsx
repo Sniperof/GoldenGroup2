@@ -8,6 +8,7 @@ import type { GeoUnit } from '../lib/types';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
 import Select from '../components/ui/Select';
+import IconButton from '../components/ui/IconButton';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
@@ -327,9 +328,7 @@ export default function GeoSettings() {
                     >
                         <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         <span className="text-sm font-medium">{deleteError}</span>
-                        <button onClick={() => setDeleteError(null)} className="mr-2 text-white/70 hover:text-white">
-                            <X className="w-4 h-4" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" size="sm" className="mr-2 text-white/70 hover:text-white" onClick={() => setDeleteError(null)} />
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -346,9 +345,7 @@ export default function GeoSettings() {
                         >
                             <div className="p-5 border-b border-gray-100 flex justify-between items-center">
                                 <h2 className="text-lg font-bold text-slate-900">تعديل {levelNames[editUnit.level]}</h2>
-                                <button onClick={() => setEditUnit(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
-                                    <X className="w-5 h-5" />
-                                </button>
+                                <IconButton icon={X} label="إغلاق" onClick={() => setEditUnit(null)} />
                             </div>
                             <div className="p-5 space-y-4">
                                 <div>
@@ -395,9 +392,7 @@ export default function GeoSettings() {
                             {/* Modal Header */}
                             <div className="p-5 border-b border-gray-100 flex justify-between items-center">
                                 <h2 className="text-lg font-bold text-slate-900">إضافة {levelNames[activeTab]}</h2>
-                                <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
-                                    <X className="w-5 h-5" />
-                                </button>
+                                <IconButton icon={X} label="إغلاق" onClick={() => setIsModalOpen(false)} />
                             </div>
 
                             {/* Modal Body */}
