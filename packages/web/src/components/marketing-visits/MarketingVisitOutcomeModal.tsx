@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import IconButton from '../ui/IconButton';
+import Select from '../ui/Select';
 import type {
   DeviceModel,
   Employee,
@@ -1088,18 +1089,14 @@ export default function MarketingVisitOutcomeModal({
                   <label className="text-sm font-bold text-slate-700">
                     سبب إعادة الجدولة <span className="text-red-500">*</span>
                   </label>
-                  <select
+                  <Select
                     value={rescheduleReasonId}
-                    onChange={(event) => setRescheduleReasonId(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  >
-                    <option value="">اختر السبب...</option>
-                    {rescheduleReasons.map((reason) => (
-                      <option key={reason.id} value={reason.id}>
-                        {reason.value}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={v => setRescheduleReasonId(v)}
+                    placeholder="اختر السبب..."
+                    ariaLabel="سبب إعادة الجدولة"
+                    className="w-full"
+                    options={rescheduleReasons.map((reason) => ({ value: String(reason.id), label: reason.value }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">
@@ -1121,18 +1118,14 @@ export default function MarketingVisitOutcomeModal({
                   <label className="text-sm font-bold text-slate-700">
                     سبب الإلغاء <span className="text-red-500">*</span>
                   </label>
-                  <select
+                  <Select
                     value={cancellationReasonId}
-                    onChange={(event) => setCancellationReasonId(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  >
-                    <option value="">اختر السبب...</option>
-                    {cancellationReasons.map((reason) => (
-                      <option key={reason.id} value={reason.id}>
-                        {reason.value}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={v => setCancellationReasonId(v)}
+                    placeholder="اختر السبب..."
+                    ariaLabel="سبب الإلغاء"
+                    className="w-full"
+                    options={cancellationReasons.map((reason) => ({ value: String(reason.id), label: reason.value }))}
+                  />
                 </div>
               </section>
             )}
@@ -1368,26 +1361,22 @@ export default function MarketingVisitOutcomeModal({
                           <label className="text-sm font-bold text-slate-700">
                             سبب الرفض <span className="text-red-500">*</span>
                           </label>
-                          <select
-                            value={offer.rejectionReasonId ?? ''}
-                            onChange={(event) =>
+                          <Select
+                            value={offer.rejectionReasonId != null ? String(offer.rejectionReasonId) : ''}
+                            onChange={(v) =>
                               updateOffer(deviceModelId, offer.id, (current) => ({
                                 ...current,
-                                rejectionReasonId: event.target.value ? Number(event.target.value) : null,
+                                rejectionReasonId: v ? Number(v) : null,
                                 noClosingReason:
-                                  rejectionReasonOptions.find((reason) => String(reason.id) === event.target.value)?.value
+                                  rejectionReasonOptions.find((reason) => String(reason.id) === v)?.value
                                   ?? null,
                               }))
                             }
-                            className="w-full rounded-xl border border-red-100 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                          >
-                            <option value="">اختر سبب الرفض...</option>
-                            {rejectionReasonOptions.map((reason) => (
-                              <option key={reason.id} value={reason.id}>
-                                {reason.value}
-                              </option>
-                            ))}
-                          </select>
+                            placeholder="اختر سبب الرفض..."
+                            ariaLabel="سبب الرفض"
+                            className="w-full"
+                            options={rejectionReasonOptions.map((reason) => ({ value: String(reason.id), label: reason.value }))}
+                          />
                         </div>
                       )}
 
@@ -1397,23 +1386,19 @@ export default function MarketingVisitOutcomeModal({
                             <label className="text-sm font-bold text-slate-700">
                               سبب التأجيل <span className="text-red-500">*</span>
                             </label>
-                            <select
-                              value={offer.extensionReasonId ?? ''}
-                              onChange={(event) =>
+                            <Select
+                              value={offer.extensionReasonId != null ? String(offer.extensionReasonId) : ''}
+                              onChange={(v) =>
                                 updateOffer(deviceModelId, offer.id, (current) => ({
                                   ...current,
-                                  extensionReasonId: event.target.value ? Number(event.target.value) : null,
+                                  extensionReasonId: v ? Number(v) : null,
                                 }))
                               }
-                              className="w-full rounded-xl border border-amber-100 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                            >
-                              <option value="">اختر السبب...</option>
-                              {rescheduleReasons.map((reason) => (
-                                <option key={reason.id} value={reason.id}>
-                                  {reason.value}
-                                </option>
-                              ))}
-                            </select>
+                              placeholder="اختر السبب..."
+                              ariaLabel="سبب التأجيل"
+                              className="w-full"
+                              options={rescheduleReasons.map((reason) => ({ value: String(reason.id), label: reason.value }))}
+                            />
                           </div>
                           <div className="space-y-2">
                             <label className="text-sm font-bold text-slate-700">
@@ -1635,10 +1620,10 @@ export default function MarketingVisitOutcomeModal({
                 <label className="text-sm font-bold text-slate-700">
                   الجهاز <span className="text-red-500">*</span>
                 </label>
-                <select
-                  value={offerEditor.deviceModelId}
-                  onChange={(event) => {
-                    const newDeviceModelId = Number(event.target.value);
+                <Select
+                  value={String(offerEditor.deviceModelId)}
+                  onChange={v => {
+                    const newDeviceModelId = Number(v);
                     const model = deviceModels.find((m) => m.id === newDeviceModelId);
                     const basePrice = model?.basePrice ?? 0;
                     setOfferEditor((current) => {
@@ -1655,14 +1640,10 @@ export default function MarketingVisitOutcomeModal({
                       };
                     });
                   }}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                >
-                  {deviceModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.nameAr || model.name}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="الجهاز"
+                  className="w-full"
+                  options={deviceModels.map(model => ({ value: String(model.id), label: model.nameAr || model.name }))}
+                />
               </div>
 
               <div className="space-y-2">
@@ -1743,11 +1724,10 @@ export default function MarketingVisitOutcomeModal({
                           <label className="text-sm font-bold text-slate-700">
                             نسبة الحسم % <span className="text-xs font-normal text-slate-400">(اختياري)</span>
                           </label>
-                          <select
+                          <Select
                             value={offerEditor.draft.appliedDeviceDiscountId}
-                            onChange={(event) => {
-                              const selectedId = event.target.value;
-                              const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === selectedId);
+                            onChange={v => {
+                              const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === v);
                               setOfferEditor((current) => (
                                 current == null
                                   ? null
@@ -1755,21 +1735,17 @@ export default function MarketingVisitOutcomeModal({
                                       ...current,
                                       draft: {
                                         ...current.draft,
-                                        appliedDeviceDiscountId: selectedId,
+                                        appliedDeviceDiscountId: v,
                                         discountPercentage: selectedDiscount ? String(selectedDiscount.percentage) : '',
                                       },
                                     }
                               ));
                             }}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                          >
-                            <option value="">بدون حسم</option>
-                            {deviceDiscounts.map((d) => (
-                              <option key={d.id} value={String(d.id)}>
-                                {d.label} ({d.percentage}%)
-                              </option>
-                            ))}
-                          </select>
+                            placeholder="بدون حسم"
+                            ariaLabel="نسبة الحسم"
+                            className="w-full"
+                            options={deviceDiscounts.map(d => ({ value: String(d.id), label: `${d.label} (${d.percentage}%)` }))}
+                          />
                         </div>
                       )}
                     </>
@@ -1846,11 +1822,10 @@ export default function MarketingVisitOutcomeModal({
                             <label className="text-sm font-bold text-slate-700">
                               نسبة الحسم % <span className="text-xs font-normal text-slate-400">(اختياري)</span>
                             </label>
-                            <select
+                            <Select
                               value={offerEditor.draft.appliedDeviceDiscountId}
-                              onChange={(event) => {
-                                const selectedId = event.target.value;
-                                const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === selectedId);
+                              onChange={v => {
+                                const selectedDiscount = deviceDiscounts.find((d) => String(d.id) === v);
                                 setOfferEditor((current) => (
                                   current == null
                                     ? null
@@ -1858,21 +1833,17 @@ export default function MarketingVisitOutcomeModal({
                                         ...current,
                                         draft: {
                                           ...current.draft,
-                                          appliedDeviceDiscountId: selectedId,
+                                          appliedDeviceDiscountId: v,
                                           discountPercentage: selectedDiscount ? String(selectedDiscount.percentage) : '',
                                         },
                                       }
                                 ));
                               }}
-                              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                            >
-                              <option value="">بدون حسم</option>
-                              {deviceDiscounts.map((d) => (
-                                <option key={d.id} value={String(d.id)}>
-                                  {d.label} ({d.percentage}%)
-                                </option>
-                              ))}
-                            </select>
+                              placeholder="بدون حسم"
+                              ariaLabel="نسبة الحسم"
+                              className="w-full"
+                              options={deviceDiscounts.map(d => ({ value: String(d.id), label: `${d.label} (${d.percentage}%)` }))}
+                            />
                           </div>
                         )}
                       </div>
@@ -1883,9 +1854,9 @@ export default function MarketingVisitOutcomeModal({
 
               <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-700">تم التسكير مع</label>
-                <select
+                <Select
                   value={offerEditor.draft.closedByEmployeeId}
-                  onChange={(event) =>
+                  onChange={v =>
                     setOfferEditor((current) => (
                       current == null
                         ? null
@@ -1893,28 +1864,24 @@ export default function MarketingVisitOutcomeModal({
                             ...current,
                             draft: {
                               ...current.draft,
-                              closedByEmployeeId: event.target.value,
-                              noClosingReason: event.target.value ? '' : current.draft.noClosingReason,
+                              closedByEmployeeId: v,
+                              noClosingReason: v ? '' : current.draft.noClosingReason,
                             },
                           }
                     ))
                   }
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                >
-                  <option value="">لم يتم التسكير</option>
-                  {closers.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="لم يتم التسكير"
+                  ariaLabel="موظف التسكير"
+                  className="w-full"
+                  options={closers.map(employee => ({ value: String(employee.id), label: employee.name }))}
+                />
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-700">سبب عدم التسكير</label>
-                <select
+                <Select
                   value={offerEditor.draft.noClosingReason}
-                  onChange={(event) =>
+                  onChange={v =>
                     setOfferEditor((current) => (
                       current == null
                         ? null
@@ -1922,22 +1889,18 @@ export default function MarketingVisitOutcomeModal({
                             ...current,
                             draft: {
                               ...current.draft,
-                              noClosingReason: event.target.value,
-                              closedByEmployeeId: event.target.value ? '' : current.draft.closedByEmployeeId,
+                              noClosingReason: v,
+                              closedByEmployeeId: v ? '' : current.draft.closedByEmployeeId,
                             },
                           }
                     ))
                   }
                   disabled={!!offerEditor.draft.closedByEmployeeId}
-                  className={`w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100 ${
-                    offerEditor.draft.closedByEmployeeId ? 'cursor-not-allowed opacity-50' : ''
-                  }`}
-                >
-                  <option value="">بدون سبب</option>
-                  {noClosingReasons.map((reason) => (
-                    <option key={reason.id} value={reason.value}>{reason.value}</option>
-                  ))}
-                </select>
+                  placeholder="بدون سبب"
+                  ariaLabel="سبب عدم التسكير"
+                  className="w-full"
+                  options={noClosingReasons.map(reason => ({ value: reason.value, label: reason.value }))}
+                />
               </div>
 
               {offerEditorError && (
