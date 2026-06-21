@@ -269,9 +269,7 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
                     {a.uploading && <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500 shrink-0" />}
                     {a.url && !a.error && <span className="text-emerald-500 shrink-0">✓</span>}
                     {a.error && <span className="text-red-600 shrink-0 max-w-[120px] truncate" title={a.error}>!</span>}
-                    <button onClick={() => removeAttachment(a.file)} className="text-slate-400 hover:text-red-500 shrink-0">
-                      <X className="h-3 w-3" />
-                    </button>
+                    <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeAttachment(a.file)} />
                   </div>
                 ))}
               </div>

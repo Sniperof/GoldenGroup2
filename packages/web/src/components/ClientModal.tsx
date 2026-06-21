@@ -8,6 +8,7 @@ import MapPicker from './MapPicker';
 import GeoSmartSearch from './GeoSmartSearch';
 import type { GeoSelection } from './GeoSmartSearch';
 import Select from './ui/Select';
+import IconButton from './ui/IconButton';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -718,9 +719,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             <h2 className="text-lg sm:text-xl font-bold text-slate-800">
                                 {isEditMode ? 'تعديل بيانات الزبون' : 'إضافة زبون جديد'}
                             </h2>
-                            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
-                                <X className="w-5 h-5" />
-                            </button>
+                            <IconButton icon={X} label="إغلاق" onClick={onClose} />
                         </div>
 
                         {/* From-candidate banner */}

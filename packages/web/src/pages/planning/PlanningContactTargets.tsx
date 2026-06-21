@@ -9,6 +9,7 @@ import { api } from '../../lib/api';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { getOutcomeMeta } from '@golden-crm/shared';
 import Select from '../../components/ui/Select';
+import IconButton from '../../components/ui/IconButton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -233,9 +234,7 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                             </div>
                         </div>
                     </div>
-                    <button onClick={onClose} className="mt-0.5 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
-                        <X className="h-4 w-4" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" size="sm" className="mt-0.5" onClick={onClose} />
                 </div>
 
                 {/* Appointment banner */}
@@ -671,9 +670,7 @@ export default function PlanningContactTargets() {
                         : message.type === 'warning'  ? 'border-amber-200 bg-amber-50 text-amber-700'
                         :                               'border-red-200 bg-red-50 text-red-700'}`}>
                         <span>{message.text}</span>
-                        <button onClick={() => setMessage(null)} className="opacity-60 hover:opacity-100">
-                            <X className="h-4 w-4" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" size="sm" className="opacity-60 hover:opacity-100" onClick={() => setMessage(null)} />
                     </div>
                 )}
 

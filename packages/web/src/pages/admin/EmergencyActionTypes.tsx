@@ -116,7 +116,7 @@ export default function EmergencyActionTypes() {
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
           <AlertTriangle className="w-4 h-4 shrink-0" /> {error}
-          <button onClick={() => setError(null)} className="mr-auto"><X className="w-4 h-4" /></button>
+          <IconButton icon={X} label="إغلاق" size="sm" className="mr-auto" onClick={() => setError(null)} />
         </div>
       )}
       {success && (

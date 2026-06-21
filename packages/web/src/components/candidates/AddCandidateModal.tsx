@@ -6,6 +6,7 @@ import { CandidateStatus, ReferralType, ReferralOriginChannel, Client, ContactEn
 import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import Select from '../ui/Select';
+import IconButton from '../ui/IconButton';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -531,9 +532,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                 <h2 className="text-lg font-bold text-slate-800">{title || 'إضافة اسم مرشح جديد'}</h2>
                             </div>
                         </div>
-                        <button onClick={resetAndClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
-                            <X className="w-5 h-5" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" onClick={resetAndClose} />
                     </div>
 
                     {/* Body */}

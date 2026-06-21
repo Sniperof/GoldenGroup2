@@ -13,6 +13,7 @@ import {
   ExternalLink, ListChecks,
 } from 'lucide-react';
 import Select from '../../components/ui/Select';
+import IconButton from '../../components/ui/IconButton';
 
 // ══════════════════════════════════════════════════════════════════
 // Role Modal
@@ -46,7 +47,7 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h2 className="text-base font-bold text-slate-800">{isEdit ? 'تعديل الدور' : 'إنشاء دور جديد'}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-lg p-3"><AlertTriangle className="w-4 h-4 shrink-0" />{error}</div>}
@@ -184,9 +185,7 @@ function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void 
             <h3 className="text-lg font-bold text-slate-800">المهام الوظيفية</h3>
             <p className="text-xs text-slate-400 mt-0.5">{role.displayName}</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
-            <X className="w-5 h-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </div>
 
         <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
@@ -305,7 +304,7 @@ export function UserModal({ user, roles, onClose }: { user?: HrUser | null; role
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h2 className="text-base font-bold text-slate-800">{isEdit ? 'تعديل بيانات المستخدم' : 'إضافة مستخدم جديد'}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
         <div className="p-5 space-y-4">
           {error && <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-lg p-3"><AlertTriangle className="w-4 h-4 shrink-0" />{error}</div>}
@@ -423,9 +422,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
               {loading ? '...' : `${filteredUsers.length} مستخدم`}
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 mt-0.5">
-            <X className="w-4 h-4" />
-          </button>
+          <IconButton icon={X} label="إغلاق" size="sm" className="mt-0.5" onClick={onClose} />
         </div>
 
         {/* Branch filter */}
@@ -673,9 +670,7 @@ export function UserBranchAssignmentsModal({
               {user.name} ({user.username}) - الدور يحدد ماذا يستطيع المستخدم فعله، والفروع تحدد أين يستطيع فعله.
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
-            <X className="w-4 h-4" />
-          </button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto">
