@@ -9,6 +9,7 @@ import {
   AlertTriangle, X, Search
 } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
+import Select from '../../components/ui/Select';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
@@ -437,53 +438,63 @@ export default function Interviews() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">الشاغر الوظيفي *</label>
-                  <select value={form.jobVacancyId} onChange={e => handleVacancyChange(e.target.value)}
-                    className={`w-full border rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 ${fieldErrors.jobVacancyId ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`}>
-                    <option value="">اختر الشاغر...</option>
-                    {vacancies.filter(v => v.status === 'Open').map(v => (
-                      <option key={v.id} value={v.id}>{v.title} — {v.branch}</option>
-                    ))}
-                  </select>
+                  <Select
+                    value={form.jobVacancyId}
+                    onChange={handleVacancyChange}
+                    placeholder="اختر الشاغر..."
+                    ariaLabel="الشاغر الوظيفي"
+                    className="w-full"
+                    options={vacancies.filter(v => v.status === 'Open').map(v => ({ value: String(v.id), label: `${v.title} — ${v.branch}` }))}
+                  />
                   {fieldErrors.jobVacancyId && <p className="mt-1 text-xs text-red-600">{fieldErrors.jobVacancyId}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">المتقدم (الطلبات المؤهلة) *</label>
-                  <select value={form.applicationId} onChange={e => handleApplicationChange(e.target.value)}
+                  <Select
+                    value={form.applicationId}
+                    onChange={handleApplicationChange}
                     disabled={!form.jobVacancyId || loadingEligible}
-                    className={`w-full border rounded-lg px-3 py-2.5 text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400 focus:ring-2 ${fieldErrors.applicationId ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`}>
-                    <option value="">{loadingEligible ? 'جاري التحميل...' : 'اختر المتقدم...'}</option>
-                    {eligibleApps.map(a => (
-                      <option key={a.id} value={a.id}>{a.applicantFirstName} {a.applicantLastName} (رقم {a.id})</option>
-                    ))}
-                  </select>
+                    placeholder={loadingEligible ? 'جاري التحميل...' : 'اختر المتقدم...'}
+                    ariaLabel="المتقدم"
+                    className="w-full"
+                    options={eligibleApps.map(a => ({ value: String(a.id), label: `${a.applicantFirstName} ${a.applicantLastName} (رقم ${a.id})` }))}
+                  />
                   {fieldErrors.applicationId && <p className="mt-1 text-xs text-red-600">{fieldErrors.applicationId}</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">نوع المقابلة</label>
-                    <select value={form.interviewType}
-                      onChange={e => setForm(p => ({ ...p, interviewType: e.target.value as any }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500">
-                      <option value="HR Interview">مقابلة HR</option>
-                      <option value="Technical Interview">مقابلة تقنية</option>
-                    </select>
+                    <Select<'HR Interview' | 'Technical Interview'>
+                      value={form.interviewType}
+                      onChange={v => setForm(p => ({ ...p, interviewType: v }))}
+                      ariaLabel="نوع المقابلة"
+                      className="w-full"
+                      options={[
+                        { value: 'HR Interview', label: 'مقابلة HR' },
+                        { value: 'Technical Interview', label: 'مقابلة تقنية' },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">رقم المقابلة</label>
-                    <select value={form.interviewNumber}
-                      onChange={e => setForm(p => ({ ...p, interviewNumber: e.target.value as any }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500">
-                      <option value="First Interview">الأولى</option>
-                      <option value="Second Interview">الثانية</option>
-                    </select>
+                    <Select<'First Interview' | 'Second Interview'>
+                      value={form.interviewNumber}
+                      onChange={v => setForm(p => ({ ...p, interviewNumber: v }))}
+                      ariaLabel="رقم المقابلة"
+                      className="w-full"
+                      options={[
+                        { value: 'First Interview', label: 'الأولى' },
+                        { value: 'Second Interview', label: 'الثانية' },
+                      ]}
+                    />
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">المقابِل *</label>
-                  <select
+                  <Select
                     value={form.interviewerUserId}
-                    onChange={e => {
-                      setForm(p => ({ ...p, interviewerUserId: e.target.value }));
+                    onChange={v => {
+                      setForm(p => ({ ...p, interviewerUserId: v }));
                       setFieldErrors(prev => {
                         const next = { ...prev };
                         delete next.interviewerUserId;
@@ -491,25 +502,20 @@ export default function Interviews() {
                       });
                     }}
                     disabled={!form.applicationId || loadingInterviewers}
-                    className={`w-full border rounded-lg px-3 py-2.5 text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400 focus:ring-2 ${fieldErrors.interviewerUserId ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-sky-500'}`}
-                  >
-                    <option value="">
-                      {!form.applicationId
-                        ? 'اختر طلب التوظيف أولاً'
-                        : loadingInterviewers
-                          ? 'جاري تحميل المقابلين...'
-                          : interviewers.length === 0
-                            ? 'لا يوجد مقابِلون مؤهلون'
-                            : 'اختر المقابِل...'}
-                    </option>
-                    {interviewers.map(option => (
-                      <option key={option.id} value={option.id}>
-                        {option.name}
-                        {option.username ? ` (@${option.username})` : ''}
-                        {option.roleDisplayName ? ` — ${option.roleDisplayName}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder={!form.applicationId
+                      ? 'اختر المتقدم أولاً'
+                      : loadingInterviewers
+                        ? 'جاري تحميل المقابلين...'
+                        : interviewers.length === 0
+                          ? 'لا يوجد مقابِلون مؤهلون'
+                          : 'اختر المقابِل...'}
+                    ariaLabel="المقابِل"
+                    className="w-full"
+                    options={interviewers.map(option => ({
+                      value: String(option.id),
+                      label: `${option.name}${option.username ? ` (@${option.username})` : ''}${option.roleDisplayName ? ` — ${option.roleDisplayName}` : ''}`,
+                    }))}
+                  />
                   {fieldErrors.interviewerUserId && <p className="mt-1 text-xs text-red-600">{fieldErrors.interviewerUserId}</p>}
                   {form.applicationId && !loadingInterviewers && interviewers.length === 0 ? (
                     <p className="mt-1 text-xs text-amber-600">
