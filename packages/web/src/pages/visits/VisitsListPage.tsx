@@ -24,6 +24,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';
+import Select from '../../components/ui/Select';
 import ClientAvatar from '../../components/ClientAvatar';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -1205,50 +1206,45 @@ export default function VisitsListPage() {
                 onChange={(e) => setDate(e.target.value)}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
               />
-              <select
+              <Select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
-              >
-                <option value="">كل الحالات</option>
-                {Object.entries(VISIT_STATUS_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-              <select
+                onChange={setStatusFilter}
+                placeholder="كل الحالات"
+                ariaLabel="الحالة"
+                className="min-w-[150px]"
+                options={[{ value: '', label: 'كل الحالات' }, ...Object.entries(VISIT_STATUS_LABELS).map(([key, label]) => ({ value: key, label: String(label) }))]}
+              />
+              <Select
                 value={visitTypeFilter}
-                onChange={(e) => setVisitTypeFilter(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
-              >
-                <option value="">كل أنواع الزيارة</option>
-                {Object.entries(VISIT_TYPE_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-              <select
+                onChange={setVisitTypeFilter}
+                placeholder="كل أنواع الزيارة"
+                ariaLabel="نوع الزيارة"
+                className="min-w-[150px]"
+                options={[{ value: '', label: 'كل أنواع الزيارة' }, ...Object.entries(VISIT_TYPE_LABELS).map(([key, label]) => ({ value: key, label: String(label) }))]}
+              />
+              <Select
                 value={taskTypeFilter}
-                onChange={(e) => setTaskTypeFilter(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
-              >
-                <option value="">كل أنواع المهام</option>
-                {taskOptions.map((taskType) => (
-                  <option key={taskType} value={taskType}>{taskTypeLabel(taskType)}</option>
-                ))}
-              </select>
+                onChange={setTaskTypeFilter}
+                placeholder="كل أنواع المهام"
+                ariaLabel="نوع المهمة"
+                className="min-w-[150px]"
+                options={[{ value: '', label: 'كل أنواع المهام' }, ...taskOptions.map((taskType) => ({ value: taskType, label: taskTypeLabel(taskType) }))]}
+              />
             </>
           )}
           {activeView === 'documentation' && (
-            <select
+            <Select<number>
               value={tierFilter}
-              onChange={(e) => setTierFilter(Number(e.target.value) as 0 | 1 | 2 | 3)}
-              className="rounded-lg border border-rose-200 bg-rose-50/40 px-3 py-2 text-sm font-bold text-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-300"
-              title="مستوى التصعيد"
-            >
-              <option value={0}>كل مستويات التصعيد</option>
-              <option value={3}>L3 فقط (≥72 ساعة)</option>
-              <option value={2}>L2 فقط (≥48 ساعة)</option>
-              <option value={1}>L1 فقط (≥24 ساعة)</option>
-            </select>
+              onChange={(v) => setTierFilter(v as 0 | 1 | 2 | 3)}
+              ariaLabel="مستوى التصعيد"
+              className="min-w-[180px]"
+              options={[
+                { value: 0, label: 'كل مستويات التصعيد' },
+                { value: 3, label: 'L3 فقط (≥72 ساعة)' },
+                { value: 2, label: 'L2 فقط (≥48 ساعة)' },
+                { value: 1, label: 'L1 فقط (≥24 ساعة)' },
+              ]}
+            />
           )}
           {activeView === 'branch' && (
             <button
