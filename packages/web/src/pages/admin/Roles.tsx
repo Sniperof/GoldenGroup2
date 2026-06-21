@@ -12,6 +12,7 @@ import {
   UserPlus, User, Eye, EyeOff, ChevronDown, Building2, Star,
   ExternalLink, ListChecks,
 } from 'lucide-react';
+import Select from '../../components/ui/Select';
 
 // ══════════════════════════════════════════════════════════════════
 // Role Modal
@@ -72,16 +73,19 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">خانة الفريق</label>
             <div className="relative">
-              <select value={teamSlotType ?? ''}
-                onChange={e => setTeamSlotType(e.target.value ? e.target.value as 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' : null)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 appearance-none bg-white">
-                <option value="">— لا يوجد —</option>
-                <option value="SUPERVISOR">مشرف</option>
-                <option value="TECHNICIAN">فني</option>
-                <option value="TRAINEE">متدرب</option>
-                <option value="TELEMARKETER">مسوق هاتفي</option>
-              </select>
-              <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <Select<'' | 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER'>
+                value={teamSlotType ?? ''}
+                onChange={(v) => setTeamSlotType(v ? v as 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' : null)}
+                ariaLabel="خانة الفريق"
+                className="w-full"
+                options={[
+                  { value: '', label: '— لا يوجد —' },
+                  { value: 'SUPERVISOR', label: 'مشرف' },
+                  { value: 'TECHNICIAN', label: 'فني' },
+                  { value: 'TRAINEE', label: 'متدرب' },
+                  { value: 'TELEMARKETER', label: 'مسوق هاتفي' },
+                ]}
+              />
             </div>
             <p className="mt-1.5 text-[11px] text-slate-500 leading-5">
               تحدد هذه الخانة موقع الدور داخل الفريق. ولظهور الموظف في جدولة الفرق يجب أن يملك هذا الدور أيضاً صلاحية
@@ -348,12 +352,14 @@ export function UserModal({ user, roles, onClose }: { user?: HrUser | null; role
               </div>
             ) : (
               <div className="relative">
-                <select value={roleId} onChange={e => setRoleId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 appearance-none bg-white">
-                  <option value="">— اختر دوراً —</option>
-                  {activeRoles.map(r => <option key={r.id} value={r.id}>{r.displayName}</option>)}
-                </select>
-                <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <Select
+                  value={roleId === '' ? '' : String(roleId)}
+                  onChange={(v) => setRoleId(v ? Number(v) : '')}
+                  placeholder="— اختر دوراً —"
+                  ariaLabel="الدور"
+                  className="w-full"
+                  options={[{ value: '', label: '— اختر دوراً —' }, ...activeRoles.map(r => ({ value: String(r.id), label: r.displayName }))]}
+                />
               </div>
             )}
           </div>
@@ -427,17 +433,13 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
           <div className="px-5 py-3 border-b border-slate-50 bg-slate-50/60 flex items-center gap-3">
             <span className="text-xs font-semibold text-slate-500 shrink-0">تصفية حسب الفرع:</span>
             <div className="relative flex-1 max-w-xs">
-              <select
+              <Select
                 value={branchFilter === 'all' ? 'all' : String(branchFilter)}
-                onChange={e => setBranchFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 appearance-none bg-white"
-              >
-                <option value="all">كل الفروع</option>
-                {allBranches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                onChange={(v) => setBranchFilter(v === 'all' ? 'all' : Number(v))}
+                ariaLabel="تصفية حسب الفرع"
+                className="w-full"
+                options={[{ value: 'all', label: 'كل الفروع' }, ...allBranches.map(b => ({ value: String(b.id), label: b.name }))]}
+              />
             </div>
             <p className="text-[10px] text-slate-400">الفروع من إسنادات الفروع فقط — ليس من الدور</p>
           </div>
@@ -689,18 +691,15 @@ export function UserBranchAssignmentsModal({
               <div className="flex-1">
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">إضافة فرع للمستخدم</label>
                 <div className="relative">
-                  <select
-                    value={selectedBranchId}
-                    onChange={e => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
+                  <Select
+                    value={selectedBranchId === '' ? '' : String(selectedBranchId)}
+                    onChange={(v) => setSelectedBranchId(v ? Number(v) : '')}
                     disabled={readOnly || loading}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 appearance-none bg-white disabled:bg-slate-100 disabled:text-slate-400"
-                  >
-                    <option value="">— اختر فرعاً فعالاً —</option>
-                    {availableBranches.map(branch => (
-                      <option key={branch.id} value={branch.id}>{branch.name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    placeholder="— اختر فرعاً فعالاً —"
+                    ariaLabel="فرع فعال"
+                    className="w-full"
+                    options={[{ value: '', label: '— اختر فرعاً فعالاً —' }, ...availableBranches.map(branch => ({ value: String(branch.id), label: branch.name }))]}
+                  />
                 </div>
               </div>
               <button
