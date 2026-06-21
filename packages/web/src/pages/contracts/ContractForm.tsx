@@ -17,6 +17,7 @@ import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathTo
 import type { GeoSelection } from '../../components/GeoSmartSearch';
 import type { GeoUnit } from '../../lib/types';
 import type { ClientReferrer } from '@golden-crm/shared';
+import Select from '../../components/ui/Select';
 
 /* ------------------------------------------------------------------ */
 /*  Customer type                                                       */
@@ -1845,18 +1846,14 @@ export default function ContractForm() {
                                 <div className="grid grid-cols-1 gap-4 border-t border-slate-100 pt-4">
                                     <Field label="موظف نسبة البيعة" hint={saleOwnerFrozen ? 'مُجمَّد — البيعة منسوبة عند الاعتماد' : (canEdit ? 'يمكنك تغييره' : 'يُحدَّد تلقائياً من فريق العرض')}>
                                         {canEdit ? (
-                                            <select
-                                                value={saleOwnerId}
-                                                onChange={e => setSaleOwnerId(e.target.value ? Number(e.target.value) : '')}
-                                                className={selectClass}
-                                            >
-                                                <option value="">{fallbackLabel}</option>
-                                                {branchEmployees
-                                                    .filter((emp: any) => emp.status == null || emp.status === 'active')
-                                                    .map((emp: any) => (
-                                                        <option key={emp.id} value={emp.id}>{emp.name}</option>
-                                                    ))}
-                                            </select>
+                                            <Select
+                                                value={saleOwnerId === '' ? '' : String(saleOwnerId)}
+                                                onChange={(v) => setSaleOwnerId(v ? Number(v) : '')}
+                                                placeholder={fallbackLabel}
+                                                ariaLabel="موظف نسبة البيعة"
+                                                className="w-full"
+                                                options={[{ value: '', label: fallbackLabel }, ...branchEmployees.filter((emp: any) => emp.status == null || emp.status === 'active').map((emp: any) => ({ value: String(emp.id), label: emp.name }))]}
+                                            />
                                         ) : (
                                             <div className={`w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm flex items-center gap-2 ${saleOwnerFrozen ? 'text-slate-500' : 'text-slate-700'}`}>
                                                 <User className="w-4 h-4 text-slate-400" />
@@ -1997,12 +1994,15 @@ export default function ContractForm() {
                     {/* Device Row */}
                     <div className="grid grid-cols-3 gap-4">
                         <Field label="موديل الجهاز" required>
-                            <select value={deviceModelId} onChange={e => { setDeviceModelId(Number(e.target.value) || ''); setSelectedDiscountId(''); }} className={selectClass} disabled={isOfferLocked}>
-                                <option value="">اختر الموديل...</option>
-                                {deviceModels.map(d => (
-                                    <option key={d.id} value={d.id}>{d.nameAr || d.name}</option>
-                                ))}
-                            </select>
+                            <Select
+                                value={deviceModelId === '' ? '' : String(deviceModelId)}
+                                onChange={(v) => { setDeviceModelId(Number(v) || ''); setSelectedDiscountId(''); }}
+                                disabled={isOfferLocked}
+                                placeholder="اختر الموديل..."
+                                ariaLabel="الموديل"
+                                className="w-full"
+                                options={[{ value: '', label: 'اختر الموديل...' }, ...deviceModels.map(d => ({ value: String(d.id), label: d.nameAr || d.name }))]}
+                            />
                         </Field>
                         <Field label="الرقم التسلسلي" required>
                             <div className="relative">
@@ -2017,12 +2017,15 @@ export default function ContractForm() {
                         {selectedDevice && saleSubtype !== 'free' && (
                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
                                 <Field label="حسم الجهاز">
-                                    <select value={selectedDiscountId} onChange={e => setSelectedDiscountId(Number(e.target.value) || '')} className={selectClass} disabled={isOfferLocked}>
-                                        <option value="">بدون حسم</option>
-                                        {deviceDiscounts.map((d: any) => (
-                                            <option key={d.id} value={d.id}>{d.label} — {d.percentage}%</option>
-                                        ))}
-                                    </select>
+                                    <Select
+                                        value={selectedDiscountId === '' ? '' : String(selectedDiscountId)}
+                                        onChange={(v) => setSelectedDiscountId(Number(v) || '')}
+                                        disabled={isOfferLocked}
+                                        placeholder="بدون حسم"
+                                        ariaLabel="الحسم"
+                                        className="w-full"
+                                        options={[{ value: '', label: 'بدون حسم' }, ...deviceDiscounts.map((d: any) => ({ value: String(d.id), label: `${d.label} — ${d.percentage}%` }))]}
+                                    />
                                     {selectedDiscountId && (() => {
                                         const disc = deviceDiscounts.find(d => d.id === Number(selectedDiscountId));
                                         if (!disc) return null;
@@ -2411,12 +2414,13 @@ export default function ContractForm() {
                                                             className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
                                                     )}
                                                     {!isBarter(entry.method) && (
-                                                        <select value={entry.currency}
-                                                            onChange={e => updateEntry(idx, { currency: e.target.value as 'SYP' | 'USD', exchangeRate: e.target.value === 'SYP' ? '' : entry.exchangeRate })}
-                                                            className="w-20 text-xs border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:border-sky-400 bg-white">
-                                                            <option value="SYP">ل.س</option>
-                                                            <option value="USD">USD</option>
-                                                        </select>
+                                                        <Select<'SYP' | 'USD'>
+                                                            value={entry.currency}
+                                                            onChange={(v) => updateEntry(idx, { currency: v, exchangeRate: v === 'SYP' ? '' : entry.exchangeRate })}
+                                                            ariaLabel="العملة"
+                                                            className="w-20"
+                                                            options={[{ value: 'SYP', label: 'ل.س' }, { value: 'USD', label: 'USD' }]}
+                                                        />
                                                     )}
                                                     <button type="button" onClick={() => deleteEntry(idx)}
                                                         className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
@@ -2444,15 +2448,19 @@ export default function ContractForm() {
                                                 {/* Row 2: conditional sub-fields */}
                                                 {entry.paymentCategory === 'transfer' && (
                                                     <div className="flex gap-2">
-                                                        <select value={entry.method}
-                                                            onChange={e => updateEntry(idx, { method: e.target.value as PaymentMethod })}
-                                                            className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-2 focus:outline-none focus:border-sky-400 bg-white">
-                                                            <option value="sham_cash">شام كاش</option>
-                                                            <option value="syriatel_cash">سيرياتيل كاش</option>
-                                                            <option value="mtn_cash">MTN كاش</option>
-                                                            <option value="alharam">الهرم</option>
-                                                            <option value="bank_transfer">حوالة بنكية</option>
-                                                        </select>
+                                                        <Select<PaymentMethod>
+                                                            value={entry.method}
+                                                            onChange={(v) => updateEntry(idx, { method: v })}
+                                                            ariaLabel="طريقة الدفع"
+                                                            className="flex-1"
+                                                            options={[
+                                                                { value: 'sham_cash', label: 'شام كاش' },
+                                                                { value: 'syriatel_cash', label: 'سيرياتيل كاش' },
+                                                                { value: 'mtn_cash', label: 'MTN كاش' },
+                                                                { value: 'alharam', label: 'الهرم' },
+                                                                { value: 'bank_transfer', label: 'حوالة بنكية' },
+                                                            ]}
+                                                        />
                                                         <input type="text" value={entry.referenceNumber}
                                                             onChange={e => updateEntry(idx, { referenceNumber: e.target.value })}
                                                             placeholder="رقم الحوالة *"
@@ -2532,9 +2540,14 @@ export default function ContractForm() {
                             <div className="space-y-3">
                                 <div className="grid grid-cols-2 gap-3">
                                     <Field label="عدد الأقساط">
-                                        <select value={installmentCount} onChange={e => setInstallmentCount(e.target.value)} className={selectClass} disabled={installmentsConfirmed || isOfferLocked}>
-                                            {[3, 6, 9, 12, 18, 24].map(n => <option key={n} value={n}>{n} أقساط</option>)}
-                                        </select>
+                                        <Select
+                                            value={String(installmentCount)}
+                                            onChange={setInstallmentCount}
+                                            disabled={installmentsConfirmed || isOfferLocked}
+                                            ariaLabel="عدد الأقساط"
+                                            className="w-full"
+                                            options={[3, 6, 9, 12, 18, 24].map(n => ({ value: String(n), label: `${n} أقساط` }))}
+                                        />
                                     </Field>
                                     <div className="flex items-end">
                                         <button type="button" onClick={generateInstallments} disabled={grandTotal <= 0 || installmentsConfirmed || (hasDownPayment && totalPaidSyp <= 0)}
