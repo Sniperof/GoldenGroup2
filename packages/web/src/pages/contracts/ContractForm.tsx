@@ -1811,21 +1811,18 @@ export default function ContractForm() {
                             </Field>
 
                             <Field label="مصادر أخرى">
-                                <select
+                                <Select<string>
                                     value={saleSource !== 'device_demo_task' ? saleSource : ''}
-                                    onChange={e => {
-                                        const val = e.target.value;
-                                        setSaleSource(val as SaleSource);
+                                    onChange={(v) => {
+                                        setSaleSource(v as SaleSource);
                                         // Reset offer wizard if choosing another source
                                         handleResetOffer();
                                     }}
-                                    className={selectClass}
-                                >
-                                    <option value="">اختر مصدراً آخر...</option>
-                                    {customSaleSources.map(item => (
-                                        <option key={item.id} value={item.value}>{item.valueAr || item.value}</option>
-                                    ))}
-                                </select>
+                                    placeholder="اختر مصدراً آخر..."
+                                    ariaLabel="مصادر أخرى"
+                                    className="w-full"
+                                    options={[{ value: '', label: 'اختر مصدراً آخر...' }, ...customSaleSources.map(item => ({ value: item.value, label: item.valueAr || item.value }))]}
+                                />
                             </Field>
                         </div>
 
@@ -1896,23 +1893,19 @@ export default function ContractForm() {
                                                     <span>لا يوجد مهام عرض جهاز تحتوي على عروض مقبولة غير مرتبطة لهذا العميل.</span>
                                                 </div>
                                             ) : (
-                                                <select
-                                                    value={selectedTask ? selectedTask.id : ''}
-                                                    onChange={e => {
-                                                        const task = clientTasks.find(t => String(t.id) === e.target.value);
+                                                <Select
+                                                    value={selectedTask ? String(selectedTask.id) : ''}
+                                                    onChange={(v) => {
+                                                        const task = clientTasks.find(t => String(t.id) === v);
                                                         setSelectedTask(task || null);
                                                         setSelectedOffer(null);
                                                         setSourceTaskId(task ? String(task.id) : '');
                                                     }}
-                                                    className={selectClass}
-                                                >
-                                                    <option value="">اختر المهمة...</option>
-                                                    {clientTasks.map(t => (
-                                                        <option key={t.id} value={t.id}>
-                                                            مهمة رقم #{t.id} - بتاريخ {t.completedAt ? t.completedAt.slice(0,10) : t.createdAt.slice(0,10)}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    placeholder="اختر المهمة..."
+                                                    ariaLabel="المهمة"
+                                                    className="w-full"
+                                                    options={[{ value: '', label: 'اختر المهمة...' }, ...clientTasks.map(t => ({ value: String(t.id), label: `مهمة رقم #${t.id} - بتاريخ ${t.completedAt ? t.completedAt.slice(0,10) : t.createdAt.slice(0,10)}` }))]}
+                                                />
                                             )}
                                         </div>
 
@@ -2118,38 +2111,34 @@ export default function ContractForm() {
                                 {compatibleSpareParts.length > 0 && (
                                     <div className="flex gap-2 items-center">
                                         {/* Step 1: category */}
-                                        <select
+                                        <Select
                                             value={addingAccessoryCategory}
-                                            onChange={e => setAddingAccessoryCategory(e.target.value)}
-                                            className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-sky-400 cursor-pointer"
-                                        >
-                                            <option value="">+ إضافة ملحق — اختر الفئة...</option>
-                                            {[['Periodic','قطع الصيانة الدورية'],['Emergency','قطع الصيانة الطارئة'],['Accessory','اكسسوارات']].map(([v,l]) =>
-                                                compatibleSpareParts.some((p: any) => p.maintenanceType === v) && (
-                                                    <option key={v} value={v}>{l}</option>
-                                                )
-                                            )}
-                                        </select>
+                                            onChange={setAddingAccessoryCategory}
+                                            placeholder="+ إضافة ملحق — اختر الفئة..."
+                                            ariaLabel="فئة الملحق"
+                                            className="flex-1"
+                                            options={[
+                                                { value: '', label: '+ إضافة ملحق — اختر الفئة...' },
+                                                ...([['Periodic', 'قطع الصيانة الدورية'], ['Emergency', 'قطع الصيانة الطارئة'], ['Accessory', 'اكسسوارات']] as [string, string][])
+                                                    .filter(([v]) => compatibleSpareParts.some((p: any) => p.maintenanceType === v))
+                                                    .map(([v, l]) => ({ value: v, label: l })),
+                                            ]}
+                                        />
                                         {/* Step 2: pick specific part */}
                                         {addingAccessoryCategory && (
-                                            <select
+                                            <Select
                                                 value=""
-                                                onChange={e => {
-                                                    const part = spareParts.find((p: any) => p.id === Number(e.target.value));
+                                                onChange={(v) => {
+                                                    const part = spareParts.find((p: any) => p.id === Number(v));
                                                     if (!part) return;
                                                     setLineItems(prev => [...prev, { itemType: 'accessory', sparePartId: part.id, description: part.name, quantity: 1, unitPrice: part.basePrice || 0 }]);
                                                     setAddingAccessoryCategory('');
                                                 }}
-                                                className="flex-1 text-xs border border-sky-300 rounded-lg px-3 py-2 bg-sky-50 focus:outline-none focus:border-sky-500 cursor-pointer"
-                                            >
-                                                <option value="">اختر القطعة...</option>
-                                                {compatibleSpareParts
-                                                    .filter((p: any) => p.maintenanceType === addingAccessoryCategory)
-                                                    .map((p: any) => (
-                                                        <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
-                                                    ))
-                                                }
-                                            </select>
+                                                placeholder="اختر القطعة..."
+                                                ariaLabel="القطعة"
+                                                className="flex-1"
+                                                options={[{ value: '', label: 'اختر القطعة...' }, ...compatibleSpareParts.filter((p: any) => p.maintenanceType === addingAccessoryCategory).map((p: any) => ({ value: String(p.id), label: `${p.name} (${p.code})` }))]}
+                                            />
                                         )}
                                     </div>
                                 )}
@@ -2181,29 +2170,27 @@ export default function ContractForm() {
                         <Field label="فترة كفالة العقد">
                             <div className="relative">
                                 <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
-                                <select
+                                <Select<number>
                                     value={warrantyMonths}
-                                    onChange={e => {
-                                        const months = Number(e.target.value);
+                                    onChange={(months) => {
                                         setWarrantyMonths(months);
                                         const period = (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).find((p: { months: number }) => p.months === months);
                                         setWarrantyVisits((period as any)?.visits ?? 0);
                                     }}
-                                    className={`${inputClass} pr-10`}
-                                >
-                                    <option value={0}>بدون كفالة</option>
-                                    {(selectedDevice.warrantyPeriods || []).length > 0
-                                        ? (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).map((p: { months: number; label: string; visits: number }) => (
-                                            <option key={p.months} value={p.months}>{p.label}</option>
-                                        ))
-                                        : <>
-                                            <option value={6}>6 أشهر</option>
-                                            <option value={12}>12 شهرًا</option>
-                                            <option value={24}>24 شهرًا</option>
-                                            <option value={36}>36 شهرًا</option>
-                                        </>
-                                    }
-                                </select>
+                                    ariaLabel="مدة الكفالة"
+                                    className="w-full"
+                                    options={[
+                                        { value: 0, label: 'بدون كفالة' },
+                                        ...((selectedDevice.warrantyPeriods || []).length > 0
+                                            ? (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).map((p) => ({ value: p.months, label: p.label }))
+                                            : [
+                                                { value: 6, label: '6 أشهر' },
+                                                { value: 12, label: '12 شهرًا' },
+                                                { value: 24, label: '24 شهرًا' },
+                                                { value: 36, label: '36 شهرًا' },
+                                            ]),
+                                    ]}
+                                />
                             </div>
                             {warrantyMonths > 0 && (
                                 <p className="text-xs text-slate-400 mt-1 pr-1">
@@ -2394,19 +2381,22 @@ export default function ContractForm() {
                                             <>
                                                 {/* Row 1: نوع الدفع + amount + delete */}
                                                 <div className="flex items-center gap-2">
-                                                    <select value={entry.paymentCategory}
-                                                        onChange={e => {
-                                                            const cat = e.target.value as PaymentCategory;
+                                                    <Select<PaymentCategory>
+                                                        value={entry.paymentCategory}
+                                                        onChange={(cat) => {
                                                             let method: PaymentMethod = 'cash';
                                                             if (cat === 'transfer') method = 'sham_cash';
                                                             if (cat === 'barter') method = 'barter';
                                                             updateEntry(idx, { paymentCategory: cat, method, referenceNumber: '', barterName: '', barterValueSyp: '' });
                                                         }}
-                                                        className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-2 focus:outline-none focus:border-sky-400 bg-white">
-                                                        <option value="hand">تسليم باليد</option>
-                                                        <option value="transfer">حوالة</option>
-                                                        <option value="barter">مقايضة</option>
-                                                    </select>
+                                                        ariaLabel="فئة الدفع"
+                                                        className="flex-1"
+                                                        options={[
+                                                            { value: 'hand', label: 'تسليم باليد' },
+                                                            { value: 'transfer', label: 'حوالة' },
+                                                            { value: 'barter', label: 'مقايضة' },
+                                                        ]}
+                                                    />
                                                     {entry.paymentCategory !== 'barter' && (
                                                         <input type="number" min={0} value={entry.amountValue}
                                                             onChange={e => updateEntry(idx, { amountValue: e.target.value })}
