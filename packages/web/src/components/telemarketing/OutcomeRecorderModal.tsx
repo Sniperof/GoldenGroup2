@@ -8,6 +8,7 @@ import {
     MapPin, AlertTriangle, Calendar, Edit3, Clock, Droplets, FileText,
 } from 'lucide-react';
 import IconButton from '../ui/IconButton';
+import Select from '../ui/Select';
 import {
     TelemarketingOutcomeCode, OUTCOME_MAP, OUTCOMES_BY_GROUP,
     PHONE_STATUS_LABELS, PHONE_STATUS_TO_CONTACT_ENTRY,
@@ -579,26 +580,18 @@ export default function OutcomeRecorderModal({
                                 <Phone className="w-4 h-4 text-violet-500" />
                                 الرقم المستخدم للتواصل <span className="text-red-500">*</span>
                             </label>
-                            <select
+                            <Select
                                 value={selectedContactId}
-                                onChange={(e) => setSelectedContactId(e.target.value)}
-                                className={`w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none transition-all ${method === 'whatsapp' && selectedContactId && !hasWhatsAppTarget
-                                    ? 'border-red-300 ring-2 ring-red-200 bg-red-50'
-                                    : ''}`}
-                            >
-                                <option value="" disabled>-- اختر الرقم --</option>
-                                {contacts.map(contact => (
-                                    <option
-                                        key={contact.id}
-                                        value={contact.id}
-                                        disabled={method === 'whatsapp' && !contact.hasWhatsApp}
-                                    >
-                                        {contact.label} - {contact.number}
-                                        {contact.hasWhatsApp ? ' (واتساب)' : ''}
-                                        {method === 'whatsapp' && !contact.hasWhatsApp ? ' - لا يدعم واتساب' : ''}
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={setSelectedContactId}
+                                placeholder="-- اختر الرقم --"
+                                ariaLabel="الرقم المستخدم"
+                                className="w-full"
+                                options={contacts.map(contact => ({
+                                    value: contact.id,
+                                    label: `${contact.label} - ${contact.number}${contact.hasWhatsApp ? ' (واتساب)' : ''}${method === 'whatsapp' && !contact.hasWhatsApp ? ' - لا يدعم واتساب' : ''}`,
+                                    disabled: method === 'whatsapp' && !contact.hasWhatsApp,
+                                }))}
+                            />
                             {method === 'whatsapp' && selectedContactId && !hasWhatsAppTarget && (
                                 <p className="text-xs text-red-600 font-bold mt-1">
                                     هذا الرقم لا يدعم واتساب. يرجى اختيار رقم آخر أو تغيير طريقة التواصل.
@@ -730,16 +723,14 @@ export default function OutcomeRecorderModal({
                                 <span>نوع الخدمة المطلوبة</span>
                                 <span className="text-xs text-slate-400 font-normal">اختياري</span>
                             </label>
-                            <select
+                            <Select
                                 value={serviceTaskType}
-                                onChange={e => setServiceTaskType(e.target.value)}
-                                className="w-full bg-slate-50 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"
-                            >
-                                <option value="">— اختر نوع الخدمة —</option>
-                                {taskTypeOptions.map(t => (
-                                    <option key={t.taskType} value={t.taskType}>{t.arabicLabel}</option>
-                                ))}
-                            </select>
+                                onChange={setServiceTaskType}
+                                placeholder="— اختر نوع الخدمة —"
+                                ariaLabel="نوع الخدمة المطلوبة"
+                                className="w-full"
+                                options={taskTypeOptions.map(t => ({ value: t.taskType, label: t.arabicLabel }))}
+                            />
                         </div>
                     )}
 
@@ -791,16 +782,14 @@ export default function OutcomeRecorderModal({
                                             <Droplets className="w-3.5 h-3.5" />
                                             مصدر المياه <span className="text-red-500">*</span>
                                         </label>
-                                        <select
+                                        <Select
                                             value={apptWaterSource}
-                                            onChange={e => setApptWaterSource(e.target.value)}
-                                            className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none"
-                                        >
-                                            <option value="">— اختر مصدر المياه —</option>
-                                            {['الاسالة الحكومية','شراء قناني معبأة (RO)','ماء بئر / جوفي','تناكر / حوضيات','غير معروف'].map(o => (
-                                                <option key={o} value={o}>{o}</option>
-                                            ))}
-                                        </select>
+                                            onChange={setApptWaterSource}
+                                            placeholder="— اختر مصدر المياه —"
+                                            ariaLabel="مصدر المياه"
+                                            className="w-full"
+                                            options={['الاسالة الحكومية','شراء قناني معبأة (RO)','ماء بئر / جوفي','تناكر / حوضيات','غير معروف'].map(o => ({ value: o, label: o }))}
+                                        />
                                     </div>
                                 )}
 

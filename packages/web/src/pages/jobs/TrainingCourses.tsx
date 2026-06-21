@@ -9,6 +9,7 @@ import {
   Calendar, User, Monitor, Building2, Users, CheckCircle, X, Loader2,
 } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
+import Select from '../../components/ui/Select';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -346,11 +347,14 @@ export default function TrainingCourses() {
 
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-slate-600 mb-1">الشاغر الوظيفي *</label>
-                  <select value={form.job_vacancy_id || ''} onChange={e => onVacancyChange(Number(e.target.value))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500">
-                    <option value="">اختر الشاغر...</option>
-                    {vacancies.map(v => <option key={v.id} value={v.id}>{v.title} — {v.branch}</option>)}
-                  </select>
+                  <Select
+                    value={form.job_vacancy_id ? String(form.job_vacancy_id) : ''}
+                    onChange={v => onVacancyChange(Number(v))}
+                    placeholder="اختر الشاغر..."
+                    ariaLabel="الشاغر الوظيفي"
+                    className="w-full"
+                    options={vacancies.map(v => ({ value: String(v.id), label: `${v.title} — ${v.branch}` }))}
+                  />
                 </div>
 
                 <div>
@@ -368,18 +372,14 @@ export default function TrainingCourses() {
                   <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
                     <Monitor className="w-3 h-3" /> الجهاز
                   </label>
-                  <select
+                  <Select
                     value={form.device_name}
-                    onChange={e => setForm(f => ({ ...f, device_name: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 bg-white"
-                  >
-                    <option value="">لا يوجد / اختياري</option>
-                    {deviceModels.map(d => (
-                      <option key={d.id} value={d.name}>
-                        {d.name} {d.brand ? `— ${d.brand}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={v => setForm(f => ({ ...f, device_name: v }))}
+                    placeholder="لا يوجد / اختياري"
+                    ariaLabel="الجهاز"
+                    className="w-full"
+                    options={deviceModels.map(d => ({ value: d.name, label: `${d.name} ${d.brand ? `— ${d.brand}` : ''}` }))}
+                  />
                 </div>
 
                 <div className="col-span-2">
@@ -397,18 +397,14 @@ export default function TrainingCourses() {
                       لا يوجد مدربون مؤهلون في هذا الفرع. تأكد من منح صلاحية "التدريب كمدرب" للأدوار المناسبة.
                     </p>
                   ) : (
-                    <select
+                    <Select
                       value={form.trainer}
-                      onChange={e => setForm(f => ({ ...f, trainer: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 bg-white"
-                    >
-                      <option value="">اختر المدرب...</option>
-                      {eligibleTrainers.map(t => (
-                        <option key={t.id} value={t.name}>
-                          {t.name} — {t.roleDisplayName}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={v => setForm(f => ({ ...f, trainer: v }))}
+                      placeholder="اختر المدرب..."
+                      ariaLabel="المدرب"
+                      className="w-full"
+                      options={eligibleTrainers.map(t => ({ value: t.name, label: `${t.name} — ${t.roleDisplayName}` }))}
+                    />
                   )}
                 </div>
 
