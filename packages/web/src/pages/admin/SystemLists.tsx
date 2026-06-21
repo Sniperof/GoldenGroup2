@@ -4,7 +4,7 @@ import { useRoleStore } from '../../hooks/useRoleStore';
 import type { SystemList } from '../../lib/types';
 import {
   Settings2, Plus, Edit, Trash2, Save, X, ListPlus,
-  ToggleLeft, ToggleRight, Search, ChevronLeft, GraduationCap,
+  Search, ChevronLeft, GraduationCap,
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
   Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu, Phone,
   Wrench, ClipboardList, DollarSign, MapPin, Bug, Package,
@@ -13,6 +13,7 @@ import {
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
 import Select from '../../components/ui/Select';
+import Toggle from '../../components/ui/Toggle';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -767,9 +768,7 @@ export default function SystemLists() {
                               >
                                 الاختصاصات
                               </Button>
-                              <button onClick={() => toggleActive(cert)} disabled={!canManageSystemLists} className={`p-1.5 rounded-lg ${cert.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'} disabled:opacity-50`}>
-                                {cert.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                              </button>
+                              <Toggle checked={cert.isActive} onCheckedChange={() => toggleActive(cert)} disabled={!canManageSystemLists} size="sm" label={cert.isActive ? 'تعطيل' : 'تفعيل'} />
                               <button onClick={() => openForm(cert)} disabled={!canManageSystemLists} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg disabled:opacity-50"><Edit className="w-4 h-4" /></button>
                               <button onClick={() => handleDelete(cert.id)} disabled={!canManageSystemLists} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>
                             </div>
@@ -832,9 +831,7 @@ export default function SystemLists() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => toggleActive(item)} disabled={!canManageSystemLists} className={`p-2 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'} disabled:opacity-50`} title={item.isActive ? 'تعطيل' : 'تفعيل'}>
-                          {item.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                        </button>
+                        <Toggle checked={item.isActive} onCheckedChange={() => toggleActive(item)} disabled={!canManageSystemLists} size="sm" label={item.isActive ? 'تعطيل' : 'تفعيل'} />
                         <button onClick={() => openForm(item)} disabled={!canManageSystemLists} className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg disabled:opacity-50"><Edit className="w-4 h-4" /></button>
                         <button onClick={() => handleDelete(item.id)} disabled={!canManageSystemLists} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>
                       </div>
@@ -917,22 +914,14 @@ export default function SystemLists() {
                     <Cpu className="w-4 h-4 text-indigo-500" />
                     سماحية تخصيص جهاز
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setFormCanSelectDevice(v => !v)}
-                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
-                      formCanSelectDevice
-                        ? 'bg-indigo-600 border-indigo-600 text-white'
-                        : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'
-                    }`}
-                  >
-                    {formCanSelectDevice
-                      ? <ToggleRight className="w-5 h-5 flex-shrink-0" />
-                      : <ToggleLeft className="w-5 h-5 flex-shrink-0" />}
-                    {formCanSelectDevice
-                      ? 'مفعّل — سيظهر حقل الأجهزة عند إنشاء قسم من هذا النوع'
-                      : 'معطّل — لا يمكن تخصيص أجهزة لهذا النوع'}
-                  </button>
+                  <div className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-slate-200 bg-white">
+                    <Toggle checked={formCanSelectDevice} onCheckedChange={setFormCanSelectDevice} label="سماحية تخصيص جهاز" />
+                    <span className="text-sm font-medium text-slate-600">
+                      {formCanSelectDevice
+                        ? 'مفعّل — سيظهر حقل الأجهزة عند إنشاء قسم من هذا النوع'
+                        : 'معطّل — لا يمكن تخصيص أجهزة لهذا النوع'}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-400">
                     عند التفعيل، يظهر لمنشئ القسم حقل لاختيار أجهزة من كتالوج الأجهزة.
                   </p>
