@@ -146,15 +146,16 @@
 }
 
 /* ============================================================
-   Compact density — shrink every rem-based size by ~7%.
+   Compact density — shrink every rem-based size by ~16%.
    Tailwind's text/spacing/icon utilities are all rem-based, so
    one line on <html> rescales the whole app proportionally
    (font sizes AND line heights AND icon sizes stay in rhythm).
    px-based values (icons sized in px, hardcoded padding) are
    intentionally preserved.
+   84% = the prior 93% with a further 10% reduction (0.93 × 0.9).
    ============================================================ */
 html {
-    font-size: 93%;
+    font-size: 84%;
 }
 
 body {
