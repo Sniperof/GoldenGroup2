@@ -351,16 +351,13 @@ export default function Interviews() {
             className="bg-slate-50 border border-slate-200 rounded-lg pr-9 pl-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500 w-36"
           />
         </div>
-        <select
+        <Select
           value={filters.jobVacancyId}
-          onChange={e => setFilter('jobVacancyId', e.target.value)}
-          className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500 w-48"
-        >
-          <option value="">كل الوظائف</option>
-          {vacancies.map(v => (
-            <option key={v.id} value={String(v.id)}>{v.title}</option>
-          ))}
-        </select>
+          onChange={v => setFilter('jobVacancyId', v)}
+          variant="filled"
+          className="w-48"
+          options={[{ value: '', label: 'كل الوظائف' }, ...vacancies.map(v => ({ value: String(v.id), label: v.title }))]}
+        />
         <input
           type="date"
           value={filters.date}

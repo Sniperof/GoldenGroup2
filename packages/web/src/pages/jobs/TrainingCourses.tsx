@@ -262,19 +262,18 @@ export default function TrainingCourses() {
           <Filter className="w-4 h-4" />
           <span className="text-sm font-medium">تصفية:</span>
         </div>
-        <div className="relative">
-          <select
-            value={filters.training_status}
-            onChange={e => setFilter('training_status', e.target.value)}
-            className="appearance-none bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
-          >
-            <option value="">كل الحالات</option>
-            <option value="Training Scheduled">مجدولة</option>
-            <option value="Training Started">جارية</option>
-            <option value="Training Completed">مكتملة</option>
-          </select>
-          <ChevronDown className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        </div>
+        <Select
+          value={filters.training_status}
+          onChange={v => setFilter('training_status', v)}
+          variant="filled"
+          className="min-w-[150px]"
+          options={[
+            { value: '', label: 'كل الحالات' },
+            { value: 'Training Scheduled', label: 'مجدولة' },
+            { value: 'Training Started', label: 'جارية' },
+            { value: 'Training Completed', label: 'مكتملة' },
+          ]}
+        />
         <input type="text" value={filters.branch} onChange={e => setFilter('branch', e.target.value)}
           placeholder="الفرع..." className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500 w-32" />
         <input type="text" value={filters.trainer} onChange={e => setFilter('trainer', e.target.value)}
