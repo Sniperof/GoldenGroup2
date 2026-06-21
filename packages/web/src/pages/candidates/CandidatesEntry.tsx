@@ -9,6 +9,7 @@ import ReferralSheetDetailsModal from '../../components/candidates/SessionDetail
 import QualificationModal from '../../components/candidates/QualificationModal';
 import ClientModal from '../../components/ClientModal';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
+import Select from '../../components/ui/Select';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -322,36 +323,36 @@ export default function CandidatesEntry() {
                                 className="w-full pl-4 pr-10 py-2 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
                             />
                         </div>
-                        <select
+                        <Select
                             value={candidateStatusFilter}
-                            onChange={(e) => { setCandidateStatusFilter(e.target.value); setCandidatePage(1); }}
-                            className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
-                        >
-                            <option value="">كل الحالات</option>
-                            <option value="Suggested">مقترح</option>
-                            <option value="FollowUp">متابعة</option>
-                            <option value="Qualified">محوَّل</option>
-                            <option value="Junk">مرفوض</option>
-                        </select>
+                            onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }}
+                            ariaLabel="حالة المرشح"
+                            variant="filled"
+                            options={[
+                                { value: '', label: 'كل الحالات' },
+                                { value: 'Suggested', label: 'مقترح' },
+                                { value: 'FollowUp', label: 'متابعة' },
+                                { value: 'Qualified', label: 'محوَّل' },
+                                { value: 'Junk', label: 'مرفوض' },
+                            ]}
+                        />
                         {candidateSupervisors.length > 0 && (
-                            <select
+                            <Select
                                 value={candidateSupervisorFilter}
-                                onChange={(e) => { setCandidateSupervisorFilter(e.target.value); setCandidatePage(1); }}
-                                className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
-                            >
-                                <option value="">كل المسؤولين</option>
-                                {candidateSupervisors.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
+                                onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }}
+                                ariaLabel="المسؤول"
+                                variant="filled"
+                                options={[{ value: '', label: 'كل المسؤولين' }, ...candidateSupervisors.map(s => ({ value: s, label: s }))]}
+                            />
                         )}
                         {candidateBranches.length > 0 && (
-                            <select
+                            <Select
                                 value={candidateBranchFilter}
-                                onChange={(e) => { setCandidateBranchFilter(e.target.value); setCandidatePage(1); }}
-                                className="py-2 px-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm bg-white text-slate-700"
-                            >
-                                <option value="">كل الفروع</option>
-                                {candidateBranches.map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
+                                onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }}
+                                ariaLabel="الفرع"
+                                variant="filled"
+                                options={[{ value: '', label: 'كل الفروع' }, ...candidateBranches.map(b => ({ value: b, label: b }))]}
+                            />
                         )}
                         {(searchQuery || candidateStatusFilter || candidateSupervisorFilter || candidateBranchFilter) && (
                             <button
@@ -541,35 +542,35 @@ export default function CandidatesEntry() {
                                 className="w-full pl-4 pr-10 py-2 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white"
                             />
                         </div>
-                        <select
+                        <Select
                             value={sheetStatusFilter}
-                            onChange={(e) => { setSheetStatusFilter(e.target.value); setSheetsPage(1); }}
-                            className="py-2 px-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white text-slate-700"
-                        >
-                            <option value="">كل الحالات</option>
-                            <option value="New">نشط</option>
-                            <option value="Completed">مكتمل</option>
-                            <option value="Archived">مؤرشف</option>
-                        </select>
+                            onChange={(v) => { setSheetStatusFilter(v); setSheetsPage(1); }}
+                            ariaLabel="حالة اللائحة"
+                            variant="filled"
+                            options={[
+                                { value: '', label: 'كل الحالات' },
+                                { value: 'New', label: 'نشط' },
+                                { value: 'Completed', label: 'مكتمل' },
+                                { value: 'Archived', label: 'مؤرشف' },
+                            ]}
+                        />
                         {sheetSupervisors.length > 0 && (
-                            <select
+                            <Select
                                 value={sheetSupervisorFilter}
-                                onChange={(e) => { setSheetSupervisorFilter(e.target.value); setSheetsPage(1); }}
-                                className="py-2 px-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white text-slate-700"
-                            >
-                                <option value="">كل المشرفات</option>
-                                {sheetSupervisors.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
+                                onChange={(v) => { setSheetSupervisorFilter(v); setSheetsPage(1); }}
+                                ariaLabel="المشرفة"
+                                variant="filled"
+                                options={[{ value: '', label: 'كل المشرفات' }, ...sheetSupervisors.map(s => ({ value: s, label: s }))]}
+                            />
                         )}
                         {sheetBranches.length > 0 && (
-                            <select
+                            <Select
                                 value={sheetBranchFilter}
-                                onChange={(e) => { setSheetBranchFilter(e.target.value); setSheetsPage(1); }}
-                                className="py-2 px-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white text-slate-700"
-                            >
-                                <option value="">كل الفروع</option>
-                                {sheetBranches.map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
+                                onChange={(v) => { setSheetBranchFilter(v); setSheetsPage(1); }}
+                                ariaLabel="الفرع"
+                                variant="filled"
+                                options={[{ value: '', label: 'كل الفروع' }, ...sheetBranches.map(b => ({ value: b, label: b }))]}
+                            />
                         )}
                         {(sheetSearchQuery || sheetStatusFilter || sheetSupervisorFilter || sheetBranchFilter) && (
                             <button
