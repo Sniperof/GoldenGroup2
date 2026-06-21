@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ClipboardList, Filter, Hash, Loader2, Plus, RefreshCw, User } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../../components/ui/Select';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { usePermissions } from '../../hooks/usePermissions';
 
@@ -123,36 +124,32 @@ export default function ServiceRequestsListPage() {
       {/* Filters */}
       <div className="bg-white border border-gray-200 rounded p-3 mb-4 flex items-center gap-3 flex-wrap">
         <Filter className="h-4 w-4 text-gray-500" />
-        <select
+        <Select
           value={filters.status ?? ''}
-          onChange={(e) => {
+          onChange={(v) => {
             setOffset(0);
-            setFilters((f) => ({ ...f, status: e.target.value || undefined }));
+            setFilters((f) => ({ ...f, status: v || undefined }));
           }}
-          className="text-sm border border-gray-300 rounded p-1.5"
-        >
-          <option value="">كل الحالات</option>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
-        <select
+          size="sm"
+          ariaLabel="الحالة"
+          options={[
+            { value: '', label: 'كل الحالات' },
+            ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ value: k, label: v })),
+          ]}
+        />
+        <Select
           value={filters.channel ?? ''}
-          onChange={(e) => {
+          onChange={(v) => {
             setOffset(0);
-            setFilters((f) => ({ ...f, channel: e.target.value || undefined }));
+            setFilters((f) => ({ ...f, channel: v || undefined }));
           }}
-          className="text-sm border border-gray-300 rounded p-1.5"
-        >
-          <option value="">كل القنوات</option>
-          {Object.entries(CHANNEL_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
+          size="sm"
+          ariaLabel="القناة"
+          options={[
+            { value: '', label: 'كل القنوات' },
+            ...Object.entries(CHANNEL_LABELS).map(([k, v]) => ({ value: k, label: v })),
+          ]}
+        />
         <label className="text-sm flex items-center gap-1">
           <input
             type="checkbox"
@@ -186,18 +183,20 @@ export default function ServiceRequestsListPage() {
           />
           مكرَّر فقط
         </label>
-        <select
-          value={filters.archived}
-          onChange={(e) => {
+        <Select<'true' | 'false' | 'all'>
+          value={filters.archived ?? 'false'}
+          onChange={(v) => {
             setOffset(0);
-            setFilters((f) => ({ ...f, archived: e.target.value as any }));
+            setFilters((f) => ({ ...f, archived: v }));
           }}
-          className="text-sm border border-gray-300 rounded p-1.5"
-        >
-          <option value="false">غير المُؤرشَفة</option>
-          <option value="true">المُؤرشَفة فقط</option>
-          <option value="all">الكلّ</option>
-        </select>
+          size="sm"
+          ariaLabel="الأرشفة"
+          options={[
+            { value: 'false', label: 'غير المُؤرشَفة' },
+            { value: 'true', label: 'المُؤرشَفة فقط' },
+            { value: 'all', label: 'الكلّ' },
+          ]}
+        />
       </div>
 
       {/* Table */}

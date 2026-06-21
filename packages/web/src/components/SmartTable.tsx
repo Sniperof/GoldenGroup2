@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback, useEffect, type ReactNode } from 'react
 import { motion } from 'framer-motion';
 import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import Select from './ui/Select';
+import Input from './ui/Input';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -274,28 +276,28 @@ export default function SmartTable<T>({
             {/* ── FILTER BAR ── */}
             {!hideFilterBar && (
                 <div className="bg-slate-50/70 border-b border-slate-100 px-5 py-3 flex items-center gap-3 flex-wrap">
-                    <div className="relative flex-1 min-w-[180px]">
-                        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                        <input
-                            type="text"
+                    <div className="flex-1 min-w-[180px]">
+                        <Input
                             placeholder={searchPlaceholder}
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            className="w-full bg-white border border-gray-200 rounded-lg pr-9 pl-3 py-1.5 text-sm text-slate-900 placeholder:text-gray-400 focus:border-sky-500 focus:outline-none transition-colors"
+                            leading={<Search className="w-3.5 h-3.5" />}
+                            inputSize="sm"
                         />
                     </div>
                     {filters.map(f => (
-                        <select
+                        <Select
                             key={f.key}
-                            value={filterValues[f.key]}
-                            onChange={e => setFilterValues(prev => ({ ...prev, [f.key]: e.target.value }))}
-                            className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 focus:border-sky-500 focus:outline-none transition-colors min-w-[130px]"
-                        >
-                            <option value="all">{f.label}</option>
-                            {f.options.map(o => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                        </select>
+                            value={filterValues[f.key] ?? 'all'}
+                            onChange={v => setFilterValues(prev => ({ ...prev, [f.key]: v }))}
+                            ariaLabel={f.label}
+                            size="sm"
+                            className="min-w-[130px]"
+                            options={[
+                                { value: 'all', label: f.label },
+                                ...f.options.map(o => ({ value: o.value, label: o.label })),
+                            ]}
+                        />
                     ))}
                 </div>
             )}
@@ -482,15 +484,13 @@ export default function SmartTable<T>({
                     <span className="h-4 w-px bg-slate-200" />
                     <label className="flex items-center gap-1.5">
                         <span>صفوف الصفحة</span>
-                        <select
+                        <Select
                             value={itemsPerPage}
-                            onChange={e => setItemsPerPage(Number(e.target.value))}
-                            className="bg-white border border-gray-200 rounded-md px-2 py-0.5 text-xs font-semibold text-slate-700 focus:border-sky-500 focus:outline-none cursor-pointer"
-                        >
-                            {PAGE_SIZE_OPTIONS.map(n => (
-                                <option key={n} value={n}>{n}</option>
-                            ))}
-                        </select>
+                            onChange={n => setItemsPerPage(Number(n))}
+                            ariaLabel="عدد صفوف الصفحة"
+                            size="sm"
+                            options={PAGE_SIZE_OPTIONS.map(n => ({ value: n, label: String(n) }))}
+                        />
                     </label>
                 </div>
 

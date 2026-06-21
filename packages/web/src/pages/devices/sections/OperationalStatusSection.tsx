@@ -7,6 +7,7 @@ import { SectionShell } from './SectionShell';
 import { api } from '../../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../../components/GeoSmartSearch';
 import MapPicker from '../../../components/MapPicker';
+import Button from '../../../components/ui/Button';
 
 interface Props {
   device: any;
@@ -232,14 +233,14 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
                 يوجد مهمة {next.label.replace('جدولة مهمة ', '')} نشطة بالفعل #{existingActiveTask.id}
               </span>
             ) : (
-              <button
+              <Button
+                size="sm"
+                icon={next.Icon}
                 onClick={handleSchedule}
-                disabled={busy}
-                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-sky-700 disabled:opacity-50"
+                loading={busy}
               >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <next.Icon className="h-4 w-4" />}
                 {next.label}
-              </button>
+              </Button>
             )
           )
         }
@@ -302,14 +303,14 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
                   <textarea value={detailedAddress} onChange={(e) => setDetailedAddress(e.target.value)} rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                 </label>
                 <div className="space-y-2">
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={MapPin}
                     onClick={() => setShowMap(!showMap)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-100"
                   >
-                    <MapPin className="h-3.5 w-3.5" />
                     {showMap ? 'إخفاء الخريطة' : 'اختيار من الخريطة'}
-                  </button>
+                  </Button>
                   {mapPosition && (
                     <span className="mr-2 font-mono text-xs text-slate-500" dir="ltr">
                       {mapPosition[0].toFixed(5)}, {mapPosition[1].toFixed(5)}
@@ -325,13 +326,12 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
               </div>
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-              <button onClick={() => setShowInstallationModal(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
+              <Button variant="secondary" onClick={() => setShowInstallationModal(false)}>
                 إلغاء
-              </button>
-              <button onClick={createInstallationTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              </Button>
+              <Button onClick={createInstallationTask} loading={busy}>
                 إنشاء المهمة
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -16,7 +16,9 @@
 //   - Use Arabic labels backed by the constitutional enum values.
 // ============================================================
 import { useState } from 'react';
+import IconButton from '../ui/IconButton';
 import { AlertTriangle, X } from 'lucide-react';
+import Button, { type ButtonVariant } from '../ui/Button';
 
 export type ModalMode = 'requestInfo' | 'resolveAtIntake' | 'escalate' | 'cancel';
 
@@ -53,6 +55,7 @@ const MODE_CONFIG: Record<ModalMode, {
   showExpectedCallback?: boolean;
   confirmText: string;
   confirmClass: string;
+  confirmVariant: ButtonVariant;
 }> = {
   requestInfo: {
     title: 'طَلب معلومة من الزبون',
@@ -67,6 +70,7 @@ const MODE_CONFIG: Record<ModalMode, {
     showExpectedCallback: true,
     confirmText: 'إرسال الطلب',
     confirmClass: 'bg-amber-600 hover:bg-amber-700',
+    confirmVariant: 'gold',
   },
   resolveAtIntake: {
     title: 'حُلَّ في الاستلام',
@@ -81,6 +85,7 @@ const MODE_CONFIG: Record<ModalMode, {
     notePlaceholder: 'وَصف موجز لكيفية الحلّ + أي إرشاد للزبون',
     confirmText: 'تَأكيد الحلّ',
     confirmClass: 'bg-emerald-600 hover:bg-emerald-700',
+    confirmVariant: 'primary',
   },
   escalate: {
     title: 'تَصعيد للمدقّق',
@@ -94,6 +99,7 @@ const MODE_CONFIG: Record<ModalMode, {
     notePlaceholder: 'لِمَ يَستحقّ المراجعة؟ مَثلاً: مشكوك في الإبلاغ، أو خارج النطاق',
     confirmText: 'تَأكيد التَصعيد',
     confirmClass: 'bg-red-600 hover:bg-red-700',
+    confirmVariant: 'danger',
   },
   cancel: {
     title: 'إلغاء إداري',
@@ -108,6 +114,7 @@ const MODE_CONFIG: Record<ModalMode, {
     notePlaceholder: 'تَفاصيل إضافية تَتعلَّق بالسبب المُختار',
     confirmText: 'تَأكيد الإلغاء',
     confirmClass: 'bg-slate-700 hover:bg-slate-800',
+    confirmVariant: 'primary',
   },
 };
 
@@ -176,9 +183,7 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
               {cfg.badge}
             </span>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600" disabled={busy}>
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={busy} />
         </header>
 
         <div className="p-4 space-y-4">
@@ -266,20 +271,18 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
           )}
 
           <div className="flex gap-2 pt-2">
-            <button
+            <Button
+              variant={cfg.confirmVariant}
               onClick={handleConfirm}
               disabled={!canSubmit}
-              className={`flex-1 text-white text-sm font-medium px-4 py-2 rounded disabled:opacity-50 ${cfg.confirmClass}`}
+              loading={busy}
+              className="flex-1"
             >
               {busy ? 'جاري...' : confirmStep ? `${cfg.confirmText} — تَأكيد` : cfg.confirmText}
-            </button>
-            <button
-              onClick={onClose}
-              disabled={busy}
-              className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded disabled:opacity-50"
-            >
+            </Button>
+            <Button variant="secondary" onClick={onClose} disabled={busy}>
               إلغاء
-            </button>
+            </Button>
           </div>
         </div>
       </div>

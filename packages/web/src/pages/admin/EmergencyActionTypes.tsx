@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, ToggleLeft, ToggleRight, Trash2, X, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, Trash2, X, Zap } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
+import Toggle from '../../components/ui/Toggle';
+import Button from '../../components/ui/Button';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
@@ -103,10 +106,9 @@ export default function EmergencyActionTypes() {
           </div>
         </div>
         {canManage && (
-          <button onClick={openNew}
-            className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-500 transition-colors shadow-sm">
-            <Plus className="w-4 h-4" /> إضافة نوع
-          </button>
+          <Button variant="danger" icon={Plus} onClick={openNew}>
+            إضافة نوع
+          </Button>
         )}
       </div>
 
@@ -149,12 +151,7 @@ export default function EmergencyActionTypes() {
                   <td className="p-3 text-slate-500 text-xs">{item.description || '—'}</td>
                   <td className="p-3 text-center">
                     {canManage ? (
-                      <button onClick={() => toggleActive(item)} disabled={savingId === item.id}
-                        className={`p-1 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-100'} disabled:opacity-50`}>
-                        {savingId === item.id
-                          ? <Loader2 className="w-5 h-5 animate-spin" />
-                          : item.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                      </button>
+                      <Toggle checked={item.isActive} onCheckedChange={() => toggleActive(item)} disabled={savingId === item.id} size="sm" label={item.isActive ? 'تعطيل' : 'تفعيل'} />
                     ) : (
                       <span className={`text-xs font-bold ${item.isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
                         {item.isActive ? 'مفعّل' : 'معطّل'}
@@ -187,7 +184,7 @@ export default function EmergencyActionTypes() {
           <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 bg-rose-50">
               <h3 className="font-bold text-slate-800">{isNew ? 'إضافة نوع إجراء' : 'تعديل نوع الإجراء'}</h3>
-              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+              <IconButton icon={X} label="إغلاق" size="sm" onClick={closeModal} />
             </div>
             <div className="px-5 py-4 space-y-3">
               <div>
@@ -209,13 +206,17 @@ export default function EmergencyActionTypes() {
               </div>
             </div>
             <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-              <button onClick={closeModal} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-              <button onClick={handleSave} disabled={!editItem.arabicLabel?.trim() || savingId !== null}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-rose-600 py-2.5 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60">
-                {savingId !== null && <Loader2 className="w-4 h-4 animate-spin" />}
-                <Save className="w-4 h-4" />
+              <Button variant="secondary" onClick={closeModal} className="flex-1">إلغاء</Button>
+              <Button
+                variant="danger"
+                icon={Save}
+                onClick={handleSave}
+                disabled={!editItem.arabicLabel?.trim()}
+                loading={savingId !== null}
+                className="flex-1"
+              >
                 حفظ
-              </button>
+              </Button>
             </div>
           </div>
         </div>

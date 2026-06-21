@@ -12,6 +12,7 @@ import { Loader2 } from 'lucide-react';
 import { PartCard } from '../../../components/devices/PartCard';
 import { SectionShell } from './SectionShell';
 import { api } from '../../../lib/api';
+import Button from '../../../components/ui/Button';
 
 interface Props {
   contract: any | null;
@@ -57,13 +58,13 @@ export function InstalledPartsSection({ contract, deviceParts, onChanged }: Prop
               {pending.map((it: any) => (
                 <div key={it.id} className="flex items-center gap-2">
                   <PartCard item={it} contract={contract} installed={false} />
-                  <button
+                  <Button
+                    size="sm"
                     onClick={() => handleToggle(it.id, false)}
-                    disabled={updatingId === it.id}
-                    className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold rounded-xl px-3 py-2 transition-colors inline-flex items-center gap-1"
+                    loading={updatingId === it.id}
                   >
-                    {updatingId === it.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '✓'} تم التركيب
-                  </button>
+                    ✓ تم التركيب
+                  </Button>
                 </div>
               ))}
             </div>
@@ -79,13 +80,14 @@ export function InstalledPartsSection({ contract, deviceParts, onChanged }: Prop
               {installed.map((it: any) => (
                 <div key={it.id} className="flex items-center gap-2">
                   <PartCard item={it} contract={contract} installed={true} />
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => handleToggle(it.id, true)}
                     disabled={updatingId === it.id}
-                    className="bg-white border border-slate-200 hover:border-rose-300 text-rose-600 text-xs font-bold rounded-xl px-3 py-2 transition-colors"
                   >
                     تراجع
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>

@@ -9,6 +9,8 @@ import {
   Key, Briefcase, Users, UserCheck, FileText, BarChart2,
   ClipboardList, Calendar, AlertCircle, BookOpen, Settings, ListChecks
 } from 'lucide-react';
+import Button from '../../components/ui/Button';
+import Card from '../../components/ui/Card';
 
 type ScopeKey = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
 const ALL_SCOPE_KEYS: ScopeKey[] = ['GLOBAL', 'BRANCH', 'ASSIGNED'];
@@ -378,25 +380,25 @@ export default function PermissionSettings() {
               تحديد النطاقات المسموحة لكل صلاحية — يؤثر على الخيارات المتاحة عند تعيين الصلاحيات للأدوار
             </p>
           </div>
-          <button
+          <Button
+            icon={Save}
             onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm disabled:opacity-50 shrink-0"
+            loading={saving}
+            className="shrink-0"
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             حفظ التغييرات
-          </button>
+          </Button>
         </div>
 
         {/* Scope legend */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+        <Card padding="sm">
           <p className="text-xs font-semibold text-slate-600 mb-3">شرح النطاقات</p>
           <div className="flex flex-wrap gap-4 text-xs text-slate-600">
             <span><strong className="text-sky-600">كل الفروع</strong> — الصلاحية تسري على كل الفروع. مطلوب دائماً ولا يمكن إزالته.</span>
             <span><strong className="text-violet-600">فرع المستخدم</strong> — الصلاحية تقتصر على الفرع المُعيَّن للمستخدم.</span>
             <span><strong className="text-amber-600">السجلات المسندة</strong> — الصلاحية تقتصر على السجلات المُسنَدة للمستخدم مباشرة.</span>
           </div>
-        </div>
+        </Card>
 
         {/* Feedback */}
         {error && (
@@ -425,7 +427,7 @@ export default function PermissionSettings() {
           const modCfg = getModuleConfig(module);
 
           return (
-            <div key={module} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <Card key={module} padding="none" className="overflow-hidden">
               {/* Module header */}
               <div className="flex items-center gap-3 px-5 py-3 bg-gradient-to-l from-sky-50 via-white to-white border-b border-slate-100">
                 <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${modCfg.color}`}>
@@ -486,7 +488,7 @@ export default function PermissionSettings() {
                     );
                   })}
               </div>
-            </div>
+            </Card>
           );
         })}
 
@@ -499,14 +501,14 @@ export default function PermissionSettings() {
 
         {/* Sticky Save */}
         <div className="sticky bottom-4 flex justify-center pb-2">
-          <button
+          <Button
+            size="lg"
+            icon={Save}
             onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-8 py-3 rounded-2xl transition-colors shadow-lg disabled:opacity-50"
+            loading={saving}
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             حفظ التغييرات
-          </button>
+          </Button>
         </div>
 
       </div>

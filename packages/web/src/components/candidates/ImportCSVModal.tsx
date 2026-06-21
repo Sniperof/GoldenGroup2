@@ -3,6 +3,7 @@ import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { Upload, X, AlertCircle, FileText } from 'lucide-react';
 // import Papa from 'papaparse'; // Temporarily disabled due to build issues
 import { api } from '../../lib/api';
+import Button from '../ui/Button';
 
 interface ImportCSVModalProps {
     isOpen: boolean;
@@ -19,7 +20,7 @@ export default function ImportCSVModal({ isOpen, onClose }: ImportCSVModalProps)
                 <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
                 <h3 className="text-lg font-bold text-slate-800 mb-2">ميزة قيد الصيانة</h3>
                 <p className="text-slate-500 mb-6">نعمل على تحسين استيراد الملفات، ستعود قريباً!</p>
-                <button onClick={onClose} className="px-6 py-2 bg-slate-100 rounded-xl font-bold">إغلاق</button>
+                <Button variant="secondary" onClick={onClose}>إغلاق</Button>
             </div>
         </div>
     );

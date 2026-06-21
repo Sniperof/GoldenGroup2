@@ -4,7 +4,7 @@ import { useRoleStore } from '../../hooks/useRoleStore';
 import type { SystemList } from '../../lib/types';
 import {
   Settings2, Plus, Edit, Trash2, Save, X, ListPlus,
-  ToggleLeft, ToggleRight, Search, ChevronLeft, GraduationCap,
+  Search, ChevronLeft, GraduationCap,
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
   Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu, Phone,
   Wrench, ClipboardList, DollarSign, MapPin, Bug, Package,
@@ -12,6 +12,12 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
+import Select from '../../components/ui/Select';
+import Toggle from '../../components/ui/Toggle';
+import Card from '../../components/ui/Card';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
+import Badge from '../../components/ui/Badge';
 
 // ─── Usage location badge type ───────────────────────────────────────────────
 interface UsageLocation {
@@ -591,7 +597,7 @@ export default function SystemLists() {
 
       <div className="flex gap-5 flex-1 min-h-0">
         {/* ── Sidebar ── */}
-        <div className="w-60 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-y-auto flex-shrink-0">
+        <Card padding="none" className="w-60 overflow-y-auto flex-shrink-0">
           <div className="p-3.5 border-b border-slate-100 bg-slate-50 sticky top-0">
             <h3 className="font-bold text-slate-600 text-xs uppercase tracking-wider">الفئات</h3>
           </div>
@@ -622,7 +628,7 @@ export default function SystemLists() {
               );
             })}
           </div>
-        </div>
+        </Card>
 
         {/* ── Main Panel ── */}
         <div className="flex-1 flex flex-col gap-4 min-h-0">
@@ -683,9 +689,9 @@ export default function SystemLists() {
           {isCertificateView && activeCertificate && (
             <div className="bg-violet-50 border border-violet-200 rounded-2xl px-5 py-3 flex items-center gap-3 flex-shrink-0">
               <GraduationCap className="w-4 h-4 text-violet-600 flex-shrink-0" />
-              <button onClick={() => setActiveCertificate(null)} className="text-sm font-bold text-violet-500 hover:text-violet-700">
+              <Button variant="ghost" size="sm" onClick={() => setActiveCertificate(null)} className="text-violet-500 hover:text-violet-700 hover:bg-violet-100">
                 الشهادات العلمية
-              </button>
+              </Button>
               <ChevronLeft className="w-4 h-4 text-violet-300" />
               <span className="text-sm font-bold text-violet-800">{activeCertificate}</span>
               <span className="text-xs text-violet-500 bg-violet-100 px-2.5 py-1 rounded-full mr-auto">
@@ -695,29 +701,27 @@ export default function SystemLists() {
           )}
 
           {/* ── List card ── */}
-          <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
+          <Card padding="none" className="flex-1 flex flex-col overflow-hidden">
             {/* Toolbar */}
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between flex-shrink-0">
               <h3 className="font-bold text-slate-800">{panelTitle()}</h3>
               <div className="flex items-center gap-3">
-                <div className="relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-                  <input type="text" placeholder="بحث..." value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className="pl-4 pr-9 py-2 rounded-xl border border-slate-200 text-sm w-48 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none" />
-                </div>
+                <Input
+                  type="text"
+                  placeholder="بحث..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  leading={<Search className="w-4 h-4" />}
+                  fullWidth={false}
+                  className="w-48"
+                />
                 {canManageSystemLists && (!isCertificateView || activeCertificate) && (
-                  <button onClick={() => openForm()}
-                    className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm">
-                    <Plus className="w-4 h-4" />
+                  <Button onClick={() => openForm()} icon={Plus}>
                     {isCertificateView && activeCertificate ? 'إضافة اختصاص' : 'إضافة خيار'}
-                  </button>
+                  </Button>
                 )}
                 {canManageSystemLists && isCertificateView && !activeCertificate && (
-                  <button onClick={() => openForm()}
-                    className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm">
-                    <Plus className="w-4 h-4" /> إضافة شهادة
-                  </button>
+                  <Button onClick={() => openForm()} icon={Plus}>إضافة شهادة</Button>
                 )}
               </div>
             </div>
@@ -754,13 +758,17 @@ export default function SystemLists() {
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5">
-                              <button onClick={() => setActiveCertificate(cert.value)} disabled={!cert.isActive}
-                                className="flex items-center gap-1.5 text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed border border-violet-100">
-                                <BookOpen className="w-3.5 h-3.5" /> الاختصاصات
-                              </button>
-                              <button onClick={() => toggleActive(cert)} disabled={!canManageSystemLists} className={`p-1.5 rounded-lg ${cert.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'} disabled:opacity-50`}>
-                                {cert.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                              </button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setActiveCertificate(cert.value)}
+                                disabled={!cert.isActive}
+                                icon={BookOpen}
+                                className="text-violet-600 bg-violet-50 hover:bg-violet-100 border border-violet-100"
+                              >
+                                الاختصاصات
+                              </Button>
+                              <Toggle checked={cert.isActive} onCheckedChange={() => toggleActive(cert)} disabled={!canManageSystemLists} size="sm" label={cert.isActive ? 'تعطيل' : 'تفعيل'} />
                               <button onClick={() => openForm(cert)} disabled={!canManageSystemLists} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg disabled:opacity-50"><Edit className="w-4 h-4" /></button>
                               <button onClick={() => handleDelete(cert.id)} disabled={!canManageSystemLists} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>
                             </div>
@@ -823,9 +831,7 @@ export default function SystemLists() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => toggleActive(item)} disabled={!canManageSystemLists} className={`p-2 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-200'} disabled:opacity-50`} title={item.isActive ? 'تعطيل' : 'تفعيل'}>
-                          {item.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                        </button>
+                        <Toggle checked={item.isActive} onCheckedChange={() => toggleActive(item)} disabled={!canManageSystemLists} size="sm" label={item.isActive ? 'تعطيل' : 'تفعيل'} />
                         <button onClick={() => openForm(item)} disabled={!canManageSystemLists} className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg disabled:opacity-50"><Edit className="w-4 h-4" /></button>
                         <button onClick={() => handleDelete(item.id)} disabled={!canManageSystemLists} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"><Trash2 className="w-4 h-4" /></button>
                       </div>
@@ -834,7 +840,7 @@ export default function SystemLists() {
                 </div>
               )}
             </div>
-          </div>
+          </Card>
         </div>
       </div>
 
@@ -862,20 +868,23 @@ export default function SystemLists() {
                   {activeMeta.description}
                 </div>
               )}
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700">
-                  {isCertificateView && activeCertificate ? 'اسم الاختصاص' : 'القيمة / الاسم'}
-                </label>
-                <input required autoFocus value={formValue} onChange={e => setFormValue(e.target.value)}
-                  placeholder={isCertificateView && activeCertificate ? 'مثال: هندسة حاسبات' : 'أدخل القيمة...'}
-                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700">ترتيب الظهور</label>
-                <input type="number" required min="0" value={formOrder} onChange={e => setFormOrder(parseInt(e.target.value))}
-                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none" />
-                <p className="text-xs text-slate-400">الأرقام الأصغر تظهر أولاً في القائمة</p>
-              </div>
+              <Input
+                label={isCertificateView && activeCertificate ? 'اسم الاختصاص' : 'القيمة / الاسم'}
+                required
+                autoFocus
+                value={formValue}
+                onChange={e => setFormValue(e.target.value)}
+                placeholder={isCertificateView && activeCertificate ? 'مثال: هندسة حاسبات' : 'أدخل القيمة...'}
+              />
+              <Input
+                label="ترتيب الظهور"
+                type="number"
+                required
+                min="0"
+                value={formOrder}
+                onChange={e => setFormOrder(parseInt(e.target.value))}
+                helper="الأرقام الأصغر تظهر أولاً في القائمة"
+              />
 
               {/* Role selector — only for job_title category */}
               {activeCategory === 'job_title' && (
@@ -884,16 +893,14 @@ export default function SystemLists() {
                     <ShieldCheck className="w-4 h-4 text-violet-500" />
                     الدور المرتبط
                   </label>
-                  <select
-                    value={formLinkedRoleId ?? ''}
-                    onChange={e => setFormLinkedRoleId(e.target.value ? parseInt(e.target.value) : null)}
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-200 outline-none"
-                  >
-                    <option value="">— بدون ربط بدور —</option>
-                    {roles.filter(r => r.isActive).map(r => (
-                      <option key={r.id} value={r.id}>{r.displayName}</option>
-                    ))}
-                  </select>
+                  <Select
+                    value={formLinkedRoleId == null ? '' : String(formLinkedRoleId)}
+                    onChange={v => setFormLinkedRoleId(v ? parseInt(v) : null)}
+                    placeholder="— بدون ربط بدور —"
+                    ariaLabel="الدور المرتبط"
+                    className="w-full"
+                    options={roles.filter(r => r.isActive).map(r => ({ value: String(r.id), label: r.displayName }))}
+                  />
                   <p className="text-xs text-slate-400">
                     اختر الدور الذي يُسند تلقائياً للموظف عند اختيار هذا المسمى الوظيفي
                   </p>
@@ -907,22 +914,14 @@ export default function SystemLists() {
                     <Cpu className="w-4 h-4 text-indigo-500" />
                     سماحية تخصيص جهاز
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setFormCanSelectDevice(v => !v)}
-                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
-                      formCanSelectDevice
-                        ? 'bg-indigo-600 border-indigo-600 text-white'
-                        : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'
-                    }`}
-                  >
-                    {formCanSelectDevice
-                      ? <ToggleRight className="w-5 h-5 flex-shrink-0" />
-                      : <ToggleLeft className="w-5 h-5 flex-shrink-0" />}
-                    {formCanSelectDevice
-                      ? 'مفعّل — سيظهر حقل الأجهزة عند إنشاء قسم من هذا النوع'
-                      : 'معطّل — لا يمكن تخصيص أجهزة لهذا النوع'}
-                  </button>
+                  <div className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-slate-200 bg-white">
+                    <Toggle checked={formCanSelectDevice} onCheckedChange={setFormCanSelectDevice} label="سماحية تخصيص جهاز" />
+                    <span className="text-sm font-medium text-slate-600">
+                      {formCanSelectDevice
+                        ? 'مفعّل — سيظهر حقل الأجهزة عند إنشاء قسم من هذا النوع'
+                        : 'معطّل — لا يمكن تخصيص أجهزة لهذا النوع'}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-400">
                     عند التفعيل، يظهر لمنشئ القسم حقل لاختيار أجهزة من كتالوج الأجهزة.
                   </p>
@@ -930,10 +929,8 @@ export default function SystemLists() {
               )}
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button type="button" onClick={() => setIsItemModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl">إلغاء</button>
-                <button type="submit" className="bg-sky-500 hover:bg-sky-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm">
-                  <Save className="w-4 h-4" /> حفظ
-                </button>
+                <Button type="button" variant="ghost" onClick={() => setIsItemModalOpen(false)}>إلغاء</Button>
+                <Button type="submit" icon={Save}>حفظ</Button>
               </div>
             </form>
           </div>
@@ -954,24 +951,26 @@ export default function SystemLists() {
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-sm text-indigo-700">
                 بعد الإنشاء، انتقل للفئة الجديدة وأضف خياراتها من الصفحة الرئيسية.
               </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700">الاسم العربي (للعرض)</label>
-                <input required autoFocus value={newCatLabel} onChange={e => setNewCatLabel(e.target.value)}
-                  placeholder="مثال: المناطق الجغرافية"
-                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700">المعرف الإنجليزي</label>
-                <input required value={newCatId} onChange={e => setNewCatId(e.target.value.replace(/\s+/g, '_').toLowerCase())}
-                  placeholder="مثال: regions"
-                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none font-mono" />
-                <p className="text-xs text-slate-400">يُستخدم داخلياً — بالأحرف الإنجليزية فقط بدون مسافات</p>
-              </div>
+              <Input
+                label="الاسم العربي (للعرض)"
+                required
+                autoFocus
+                value={newCatLabel}
+                onChange={e => setNewCatLabel(e.target.value)}
+                placeholder="مثال: المناطق الجغرافية"
+              />
+              <Input
+                label="المعرف الإنجليزي"
+                required
+                value={newCatId}
+                onChange={e => setNewCatId(e.target.value.replace(/\s+/g, '_').toLowerCase())}
+                placeholder="مثال: regions"
+                className="font-mono"
+                helper="يُستخدم داخلياً — بالأحرف الإنجليزية فقط بدون مسافات"
+              />
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button type="button" onClick={() => setIsNewCatOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl">إلغاء</button>
-                <button type="submit" className="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm">
-                  <FolderPlus className="w-4 h-4" /> إنشاء
-                </button>
+                <Button type="button" variant="ghost" onClick={() => setIsNewCatOpen(false)}>إلغاء</Button>
+                <Button type="submit" icon={FolderPlus}>إنشاء</Button>
               </div>
             </form>
           </div>

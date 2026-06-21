@@ -28,6 +28,8 @@ import { useRoleStore } from '../hooks/useRoleStore';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import EmployeeFormModal, { type EmployeeFormInitialValues } from '../components/employees/EmployeeFormModal';
+import Button from '../components/ui/Button';
+import Select from '../components/ui/Select';
 import { useSystemListsStore } from '../hooks/useSystemLists';
 import { getUnifiedApplicationState, getUnifiedApplicationStateClasses } from '../lib/applicationState';
 
@@ -397,13 +399,9 @@ export default function EmployeeDetail() {
           <p className="text-sm text-slate-500 leading-relaxed mb-5">
             {error || 'الموظف المطلوب غير موجود أو لا يمكن الوصول إليه.'}
           </p>
-          <button
-            onClick={() => navigate('/employees')}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-sm font-semibold transition-colors"
-          >
-            <ArrowRight className="w-4 h-4" />
+          <Button icon={ArrowRight} onClick={() => navigate('/employees')}>
             العودة إلى السجلات
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -679,16 +677,15 @@ export default function EmployeeDetail() {
 
               <label className="block">
                 <span className="block text-xs font-semibold text-slate-500 mb-2">الدور الإداري</span>
-                <select
+                <Select<string>
                   value={accountForm.roleId}
-                  onChange={(e) => setAccountForm((c) => ({ ...c, roleId: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
-                >
-                  <option value="">اختر دورًا</option>
-                  {activeRoles.map((role) => (
-                    <option key={role.id} value={role.id}>{role.displayName}</option>
-                  ))}
-                </select>
+                  onChange={(v) => setAccountForm((c) => ({ ...c, roleId: v }))}
+                  options={[
+                    { value: '', label: 'اختر دورًا' },
+                    ...activeRoles.map((role) => ({ value: String(role.id), label: role.displayName })),
+                  ]}
+                  className="w-full"
+                />
               </label>
 
               <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors">
@@ -709,14 +706,14 @@ export default function EmployeeDetail() {
               {accountMessage ? (
                 <span className="text-sm text-emerald-600 font-medium">{accountMessage}</span>
               ) : <span />}
-              <button
-                onClick={handleSaveSystemAccount}
+              <Button
+                icon={Save}
+                loading={savingAccount}
                 disabled={savingAccount}
-                className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-600 disabled:opacity-50"
+                onClick={handleSaveSystemAccount}
               >
-                {savingAccount ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 {detail!.systemAccount ? 'حفظ الدور والحساب' : 'إنشاء حساب وربط الدور'}
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -941,22 +938,21 @@ export default function EmployeeDetail() {
               {/* Action + linked hiring badge */}
               <div className="flex items-center gap-3 md:flex-col md:items-end md:gap-2">
                 {canEditEmployee && (
-                  <button
+                  <Button
+                    icon={Save}
                     onClick={() => { setProfileMessage(''); setError(''); setShowEditModal(true); }}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-sky-500 hover:bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors shadow-sm"
                   >
-                    <Save className="w-4 h-4" />
                     تعديل البيانات
-                  </button>
+                  </Button>
                 )}
                 {detail.hiringApplication && (
-                  <button
+                  <Button
+                    variant="secondary"
+                    icon={FileText}
                     onClick={() => navigate(`/jobs/applications/${detail.hiringApplication!.id}`)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors"
                   >
-                    <FileText className="w-4 h-4 text-slate-500" />
                     طلب التوظيف
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -985,7 +981,7 @@ export default function EmployeeDetail() {
         {/* ── Tab bar ──────────────────────────────────────────────────────── */}
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <div className="flex border-b border-slate-200 min-w-max">
+            <div className="flex gap-1 border-b border-[#E3E7EC] min-w-max">
               {TABS.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.key;
@@ -996,10 +992,10 @@ export default function EmployeeDetail() {
                     key={tab.key}
                     type="button"
                     onClick={() => setActiveTab(tab.key)}
-                    className={`relative flex items-center gap-2 px-5 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap border-b-2 ${
+                    className={`relative flex items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors whitespace-nowrap ${
                       isActive
-                        ? 'border-sky-500 text-sky-600 bg-sky-50/50'
-                        : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                        ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
+                        : 'text-slate-500 hover:text-slate-800'
                     }`}
                   >
                     <Icon className={`h-4 w-4 ${isActive ? 'text-sky-500' : 'text-slate-400'}`} />

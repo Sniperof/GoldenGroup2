@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { SYRIAN_MOBILE_HINT, isValidSyrianMobile } from '../../lib/contactRules';
+import Select from '../../components/ui/Select';
 
 // --- Types & Constants ---
 
@@ -527,35 +528,43 @@ export default function ManualApplicationEntry() {
           <div className="h-px mx-6 bg-gradient-to-r from-transparent via-violet-200 to-transparent" />
           <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
             <Field label="الشاغر الوظيفي المرتبط" required error={fieldErrors.vacancy}>
-              <SelectWrapper>
-                <select value={selectedVacancyId} onChange={e => setSelectedVacancyId(e.target.value ? Number(e.target.value) : '')} className={selectCls(!!fieldErrors.vacancy)}>
-                  <option value="">غير مرتبط بشاغر (يُربط لاحقاً)</option>
-                  {vacancies.map(v => <option key={v.id} value={v.id}>{(v.branch ? `[${v.branch}] ` : '') + v.title}</option>)}
-                </select>
-              </SelectWrapper>
+              <Select
+                value={selectedVacancyId === '' ? '' : String(selectedVacancyId)}
+                onChange={v => setSelectedVacancyId(v === '' ? '' : Number(v))}
+                placeholder="غير مرتبط بشاغر (يُربط لاحقاً)"
+                ariaLabel="الشاغر الوظيفي"
+                className="w-full"
+                options={vacancies.map(v => ({ value: String(v.id), label: (v.branch ? `[${v.branch}] ` : '') + v.title }))}
+              />
             </Field>
             <Field label="نوع التقديم" required>
-              <SelectWrapper>
-                <select value={submissionType} onChange={e => setSubmissionType(e.target.value as any)} className={selectCls()}>
-                  <option value="Apply">تقديم طبيعي للمرشح</option>
-                  <option value="Refer a Candidate">تقديم نيابة عن مرشح (كوسيط)</option>
-                </select>
-              </SelectWrapper>
+              <Select
+                value={submissionType}
+                onChange={v => setSubmissionType(v as any)}
+                ariaLabel="نوع التقديم"
+                className="w-full"
+                options={[
+                  { value: 'Apply', label: 'تقديم طبيعي للمرشح' },
+                  { value: 'Refer a Candidate', label: 'تقديم نيابة عن مرشح (كوسيط)' },
+                ]}
+              />
             </Field>
             <Field label="مصدر الطلب" required error={fieldErrors.applicationSource}>
-              <SelectWrapper>
-                <select value={applicationSource} onChange={e => { setApplicationSource(e.target.value); delete fieldErrors.applicationSource; }} className={selectCls(!!fieldErrors.applicationSource)}>
-                  <option value="">-- اختر المصدر --</option>
-                  {appSourceOpts.length ? appSourceOpts.map(v => <option key={v} value={v}>{v}</option>) : (
-                    <>
-                      <option value="Internal">تسجيل داخلي (HR)</option>
-                      <option value="External Platforms">منصات خارجية</option>
-                      <option value="Paper">نماذج ورقية</option>
-                      <option value="Facebook Page">صفحة فيسبوك</option>
-                    </>
-                  )}
-                </select>
-              </SelectWrapper>
+              <Select
+                value={applicationSource}
+                onChange={v => { setApplicationSource(v); delete fieldErrors.applicationSource; }}
+                placeholder="-- اختر المصدر --"
+                ariaLabel="مصدر الطلب"
+                className="w-full"
+                options={appSourceOpts.length
+                  ? appSourceOpts.map(v => ({ value: v, label: v }))
+                  : [
+                      { value: 'Internal', label: 'تسجيل داخلي (HR)' },
+                      { value: 'External Platforms', label: 'منصات خارجية' },
+                      { value: 'Paper', label: 'نماذج ورقية' },
+                      { value: 'Facebook Page', label: 'صفحة فيسبوك' },
+                    ]}
+              />
             </Field>
           </div>
 
@@ -589,20 +598,29 @@ export default function ManualApplicationEntry() {
             <input type="date" value={applicant.dob} onChange={e => setA('dob', e.target.value)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} />
           </Field>
           <Field label="الجنس" required error={fieldErrors.gender}>
-            <SelectWrapper>
-              <select value={applicant.gender} onChange={e => setA('gender', e.target.value)} className={selectCls(!!fieldErrors.gender)}>
-                <option value="">اختر الجنس</option>
-                {genderOpts.length ? genderOpts.map(v => <option key={v} value={v}>{v}</option>) : <><option value="ذكر">ذكر</option><option value="أنثى">أنثى</option></>}
-              </select>
-            </SelectWrapper>
+            <Select
+              value={applicant.gender}
+              onChange={v => setA('gender', v)}
+              placeholder="اختر الجنس"
+              ariaLabel="الجنس"
+              className="w-full"
+              options={genderOpts.length ? genderOpts.map(v => ({ value: v, label: v })) : [{ value: 'ذكر', label: 'ذكر' }, { value: 'أنثى', label: 'أنثى' }]}
+            />
           </Field>
           <Field label="الحالة الاجتماعية" required error={fieldErrors.maritalStatus} className="md:col-span-2 lg:col-span-2">
-            <SelectWrapper>
-              <select value={applicant.maritalStatus} onChange={e => setA('maritalStatus', e.target.value)} className={selectCls(!!fieldErrors.maritalStatus)}>
-                <option value="">اختر الحالة</option>
-                {maritalOpts.length ? maritalOpts.map(v => <option key={v} value={v}>{v}</option>) : <><option value="أعزب">أعزب</option><option value="متزوج">متزوج</option><option value="مطلق">مطلق</option><option value="أرمل">أرمل</option></>}
-              </select>
-            </SelectWrapper>
+            <Select
+              value={applicant.maritalStatus}
+              onChange={v => setA('maritalStatus', v)}
+              placeholder="اختر الحالة"
+              ariaLabel="الحالة الاجتماعية"
+              className="w-full"
+              options={maritalOpts.length ? maritalOpts.map(v => ({ value: v, label: v })) : [
+                { value: 'أعزب', label: 'أعزب' },
+                { value: 'متزوج', label: 'متزوج' },
+                { value: 'مطلق', label: 'مطلق' },
+                { value: 'أرمل', label: 'أرمل' },
+              ]}
+            />
           </Field>
         </SectionCard>
 
@@ -654,21 +672,30 @@ export default function ManualApplicationEntry() {
         {/* ─── SECTION 4: Qualifications ─── */}
         <SectionCard num={4} title="المؤهلات والخبرات" subtitle="الشهادة والمهارات والخبرة المهنية" icon={GraduationCap} colorKey={4} delay={0.12}>
           <Field label="الشهادة العلمية" required error={fieldErrors.academicQualification}>
-            <SelectWrapper>
-              <select value={applicant.academicQualification} onChange={e => { setA('academicQualification', e.target.value); setA('specialization', ''); }} className={selectCls(!!fieldErrors.academicQualification)}>
-                <option value="">اختر الشهادة</option>
-                {qualOpts.length ? qualOpts.map(v => <option key={v} value={v}>{v}</option>) : <><option value="إعدادية">إعدادية</option><option value="بكالوريوس">بكالوريوس</option><option value="ماجستير">ماجستير</option><option value="دكتوراه">دكتوراه</option></>}
-              </select>
-            </SelectWrapper>
+            <Select
+              value={applicant.academicQualification}
+              onChange={v => { setA('academicQualification', v); setA('specialization', ''); }}
+              placeholder="اختر الشهادة"
+              ariaLabel="الشهادة العلمية"
+              className="w-full"
+              options={qualOpts.length ? qualOpts.map(v => ({ value: v, label: v })) : [
+                { value: 'إعدادية', label: 'إعدادية' },
+                { value: 'بكالوريوس', label: 'بكالوريوس' },
+                { value: 'ماجستير', label: 'ماجستير' },
+                { value: 'دكتوراه', label: 'دكتوراه' },
+              ]}
+            />
           </Field>
           <Field label="الاختصاص / التخصص" error={fieldErrors.specialization}>
             {majorOpts.length > 0 ? (
-              <SelectWrapper>
-                <select value={applicant.specialization} onChange={e => setA('specialization', e.target.value)} className={selectCls()}>
-                  <option value="">-- اختر الاختصاص --</option>
-                  {majorOpts.map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </SelectWrapper>
+              <Select
+                value={applicant.specialization}
+                onChange={v => setA('specialization', v)}
+                placeholder="-- اختر الاختصاص --"
+                ariaLabel="الاختصاص"
+                className="w-full"
+                options={majorOpts.map(v => ({ value: v, label: v }))}
+              />
             ) : (
               <input value={applicant.specialization} onChange={e => setA('specialization', e.target.value)} className={inputCls()} placeholder="مثال: هندسة برمجيات" />
             )}
@@ -758,23 +785,27 @@ export default function ManualApplicationEntry() {
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
               <SectionCard num={6} title="بيانات الوسيط" subtitle="نفس منطق الوسيط المعتمد في الزبون" icon={UserPlus} colorKey={6}>
                 <Field label="نوع الوسيط" required error={fieldErrors.referrer_type}>
-                  <SelectWrapper>
-                    <select value={referrer.type} onChange={e => handleReferrerTypeChange(e.target.value as ReferralType)} className={selectCls(!!fieldErrors.referrer_type)}>
-                      <option value="Personal">شخصي</option>
-                      <option value="Unknown">مجهول</option>
-                      <option value="Employee">موظف</option>
-                      <option value="Client">زبون</option>
-                    </select>
-                  </SelectWrapper>
+                  <Select<ReferralType>
+                    value={referrer.type}
+                    onChange={handleReferrerTypeChange}
+                    ariaLabel="نوع الوسيط"
+                    className="w-full"
+                    options={[
+                      { value: 'Personal', label: 'شخصي' },
+                      { value: 'Unknown', label: 'مجهول' },
+                      { value: 'Employee', label: 'موظف' },
+                      { value: 'Client', label: 'زبون' },
+                    ]}
+                  />
                 </Field>
                 <Field label="طريقة التواصل" required>
-                  <SelectWrapper>
-                    <select value={referrer.sourceChannel} onChange={e => setR('sourceChannel', e.target.value as ReferralOriginChannel)} className={selectCls()}>
-                      {referralOriginChannels.map(channel => (
-                        <option key={channel.value} value={channel.value}>{channel.label}</option>
-                      ))}
-                    </select>
-                  </SelectWrapper>
+                  <Select<ReferralOriginChannel>
+                    value={referrer.sourceChannel}
+                    onChange={v => setR('sourceChannel', v)}
+                    ariaLabel="طريقة التواصل"
+                    className="w-full"
+                    options={referralOriginChannels.map(channel => ({ value: channel.value, label: channel.label }))}
+                  />
                 </Field>
                 {referrer.type === 'Employee' ? (
                   <>

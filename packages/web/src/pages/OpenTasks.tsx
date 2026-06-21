@@ -11,6 +11,7 @@ import {
 } from '@golden-crm/shared';
 import type { OpenTaskStatus, OpenTaskType } from '@golden-crm/shared';
 import type { CustomerOwnership } from '../lib/types';
+import Select from '../components/ui/Select';
 
 const STATUS_COLORS: Record<string, string> = {
   open: 'bg-sky-50 text-sky-700 border border-sky-200',
@@ -119,25 +120,25 @@ export default function OpenTasks() {
         {/* Filters */}
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-slate-400" />
-          <select
+          <Select
             value={taskTypeFilter}
-            onChange={(e) => setTaskTypeFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-300"
-          >
-            <option value="">كل الأنواع</option>
-            <option value="device_demo">{OPEN_TASK_TYPE_LABELS.device_demo}</option>
-            <option value="emergency_maintenance">{OPEN_TASK_TYPE_LABELS.emergency_maintenance}</option>
-          </select>
-          <select
+            onChange={setTaskTypeFilter}
+            placeholder="كل الأنواع"
+            ariaLabel="نوع المهمة"
+            size="sm"
+            options={[
+              { value: 'device_demo', label: OPEN_TASK_TYPE_LABELS.device_demo },
+              { value: 'emergency_maintenance', label: OPEN_TASK_TYPE_LABELS.emergency_maintenance },
+            ]}
+          />
+          <Select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-300"
-          >
-            <option value="">كل الحالات</option>
-            {Object.entries(OPEN_TASK_STATUS_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
+            onChange={setStatusFilter}
+            placeholder="كل الحالات"
+            ariaLabel="الحالة"
+            size="sm"
+            options={Object.entries(OPEN_TASK_STATUS_LABELS).map(([key, label]) => ({ value: key, label }))}
+          />
         </div>
       </div>
 

@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Search, AlertCircle, ArrowLeft, User, Lock, Pencil, Link2, Loader2 } from 'lucide-react';
 import { Candidate, Client, ClientSmartMatchResponse, SmartMatchNameCheck } from '../../lib/types';
 import { api } from '../../lib/api';
+import Button from '../ui/Button';
+import Input from '../ui/Input';
+import IconButton from '../ui/IconButton';
 
 interface ManualSearchModalProps {
     isOpen: boolean;
@@ -174,9 +177,7 @@ export default function ManualSearchModal({
                             <p className="text-sm text-slate-500">فحص التكرار على مستوى النظام مع احترام صلاحيات العرض</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
-                        <X className="w-5 h-5" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
                 </div>
 
                 <div className="p-6 overflow-y-auto flex-1 space-y-4 custom-scrollbar bg-slate-50/30">
@@ -188,12 +189,10 @@ export default function ManualSearchModal({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-[11px] font-bold text-slate-500 mb-1.5">الاسم / الكنية</label>
-                                <input
-                                    type="text"
+                                <Input
                                     value={inputs.name}
                                     onChange={e => setInputs(prev => ({ ...prev, name: e.target.value }))}
                                     placeholder="الاسم يساعدك فقط في المراجعة"
-                                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all"
                                 />
                             </div>
                             <div>
@@ -306,17 +305,17 @@ export default function ManualSearchModal({
                                         </div>
                                     </div>
                                 </div>
-                                <button
+                                <Button
+                                    variant="secondary"
+                                    icon={Link2}
                                     onClick={() => onLink({
                                         id: matchResult.client.id,
                                         name: matchResult.client.name,
                                         mobile: matchResult.client.phone,
                                     } as Client, 'Client')}
-                                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all border bg-sky-50 text-sky-600 hover:bg-sky-600 hover:text-white border-sky-100"
                                 >
-                                    <Link2 className="w-4 h-4" />
                                     عرض هذا الزبون
-                                </button>
+                                </Button>
                             </div>
                         ) : matchResult?.status === 'MATCH_RESTRICTED' ? (
                             <div className="py-8 px-5 bg-amber-50 rounded-2xl border border-amber-200">
@@ -356,12 +355,7 @@ export default function ManualSearchModal({
 
                 <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={onClose}
-                            className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-xl transition-colors"
-                        >
-                            إغلاق
-                        </button>
+                        <Button variant="ghost" onClick={onClose}>إغلاق</Button>
 
                         {!phoneVerified && inputs.mobile.length === 0 && (
                             <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
@@ -390,13 +384,13 @@ export default function ManualSearchModal({
                     </div>
 
                     {phoneVerified && (
-                        <button
+                        <Button
+                            icon={ArrowLeft}
+                            iconPosition="trailing"
                             onClick={() => onNoMatch(inputs.mobile.trim())}
-                            className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-all duration-200 bg-slate-600 hover:bg-slate-700 hover:shadow-lg hover:gap-3"
                         >
                             لا توجد نتائج مطابقة - متابعة
-                            <ArrowLeft className="w-5 h-5 shrink-0" />
-                        </button>
+                        </Button>
                     )}
                 </div>
             </div>

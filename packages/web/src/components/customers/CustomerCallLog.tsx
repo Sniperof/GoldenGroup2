@@ -4,6 +4,8 @@ import { api } from '../../lib/api';
 import { getOutcomeMeta, TelemarketingOutcomeCode } from '@golden-crm/shared';
 import type { CustomerCallLog as CallLogEntry } from '@golden-crm/shared';
 import MessageReplyOutcomeModal from './MessageReplyOutcomeModal';
+import Select from '../ui/Select';
+import Card from '../ui/Card';
 
 interface Props {
     customerId: number;
@@ -127,15 +129,13 @@ function FilterSelect<T extends string>({
     onChange: (v: T) => void;
 }) {
     return (
-        <select
+        <Select<T>
             value={value}
-            onChange={e => onChange(e.target.value as T)}
-            className="text-xs font-bold bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-slate-600 focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300"
-        >
-            {options.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-        </select>
+            onChange={onChange}
+            ariaLabel={label}
+            size="sm"
+            options={options}
+        />
     );
 }
 
@@ -207,7 +207,7 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
     return (
         <div className="space-y-5">
             {/* Filter bar */}
-            <div className="flex flex-wrap items-center gap-2 p-3 bg-white border border-gray-100 rounded-2xl shadow-sm">
+            <Card padding="sm" className="flex flex-wrap items-center gap-2">
                 <Filter className="w-4 h-4 text-slate-400 shrink-0" />
 
                 <FilterSelect<ChannelFilter>
@@ -261,15 +261,13 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
                     ]}
                 />
 
-                <select
+                <Select
                     value={caller}
-                    onChange={e => setCaller(e.target.value)}
-                    className="text-xs font-bold bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-slate-600 focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300"
-                >
-                    {callerOptions.map(o => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                </select>
+                    onChange={setCaller}
+                    ariaLabel="المتصل"
+                    size="sm"
+                    options={callerOptions}
+                />
 
                 {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400 mr-auto" />}
                 {!loading && (
@@ -277,7 +275,7 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
                         {filtered.length} سجل
                     </span>
                 )}
-            </div>
+            </Card>
 
             {/* Timeline */}
             {!loading && grouped.length === 0 && (
@@ -288,7 +286,7 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
             )}
 
             {grouped.map((group, gi) => (
-                <div key={gi} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <Card key={gi} padding="none" className="overflow-hidden">
                     <div className="px-5 py-2.5 bg-slate-50 border-b border-gray-100">
                         <span className="text-xs font-black text-slate-500 uppercase tracking-wide">{group.label}</span>
                     </div>
@@ -370,7 +368,7 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
                             );
                         })}
                     </div>
-                </div>
+                </Card>
             ))}
             {editLog && (
                 <MessageReplyOutcomeModal

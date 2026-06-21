@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight, Loader2, Save } from 'lucide-react';
 import { api } from '../../../lib/api';
+import DSSelect from '../../ui/Select';
+import Card from '../../ui/Card';
+import Badge from '../../ui/Badge';
 
 // ── Field helpers ─────────────────────────────────────────────────────────────
 
@@ -23,10 +26,13 @@ function NumInput({ value, onChange, placeholder }: { value: string; onChange: (
 
 function Select({ value, onChange, options, placeholder }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; placeholder?: string }) {
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} className={sel}>
-      <option value="">{placeholder ?? '— اختر —'}</option>
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
+    <DSSelect
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder ?? '— اختر —'}
+      className="w-full"
+      options={options}
+    />
   );
 }
 
@@ -175,11 +181,11 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
   const title = phase === 'pre' ? 'الحالة الفنية قبل الصيانة' : 'الحالة الفنية بعد الصيانة';
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm" dir="rtl">
+    <Card padding="none" className="overflow-hidden" dir="rtl">
       {/* Header */}
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between">
         <h3 className="font-bold text-slate-800 text-sm">{title}</h3>
-        {initialData && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">محفوظة ✓</span>}
+        {initialData && <Badge variant="success" size="sm">محفوظة ✓</Badge>}
       </div>
 
       {/* Comparison strip (post phase only) */}
@@ -355,6 +361,6 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
           </div>
         )}
       </div>
-    </div>
+    </Card>
   );
 }

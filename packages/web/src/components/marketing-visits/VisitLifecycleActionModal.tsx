@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import IconButton from '../ui/IconButton';
 import { AlertCircle, Loader2, RotateCcw, X, XCircle } from 'lucide-react';
 import type {
   MarketingVisit,
@@ -8,6 +9,7 @@ import type {
   SystemList,
 } from '@golden-crm/shared';
 import { api } from '../../lib/api';
+import Select from '../ui/Select';
 
 type LifecycleMode = 'reschedule' | 'cancel';
 type WizardStep = 0 | 1 | 2;
@@ -234,15 +236,7 @@ export default function VisitLifecycleActionModal({
               <p className="mt-1 text-sm text-slate-500">{meta.description}</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
-            aria-label="إغلاق"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
         </div>
 
         <div className="border-b border-slate-100 px-6 py-4">
@@ -283,19 +277,15 @@ export default function VisitLifecycleActionModal({
 
               <label className="block">
                 <span className="mb-2 block text-sm font-bold text-slate-700">السبب</span>
-                <select
+                <Select
                   value={reasonId}
-                  onChange={(event) => setReasonId(event.target.value)}
+                  onChange={setReasonId}
                   disabled={loadingReasons || saving}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100 disabled:bg-slate-50"
-                >
-                  <option value="">{loadingReasons ? 'جاري تحميل الأسباب...' : 'اختر السبب'}</option>
-                  {reasonOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.value}
-                    </option>
-                  ))}
-                </select>
+                  placeholder={loadingReasons ? 'جاري تحميل الأسباب...' : 'اختر السبب'}
+                  ariaLabel="السبب"
+                  className="w-full"
+                  options={reasonOptions.map(option => ({ value: String(option.id), label: option.value }))}
+                />
               </label>
             </div>
           ) : null}

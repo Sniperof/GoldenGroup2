@@ -21,6 +21,8 @@ import {
   X,
 } from 'lucide-react';
 import GeoSmartSearch, { type GeoSelection } from '../GeoSmartSearch';
+import Button from '../ui/Button';
+import IconButton from '../ui/IconButton';
 import { api } from '../../lib/api';
 import type {
   Branch,
@@ -44,6 +46,7 @@ import {
   isInvalidContactNumber,
   normalizeContactNumberInput,
 } from '../../lib/contactRules';
+import Select from '../ui/Select';
 
 type YesNoValue = '' | 'yes' | 'no';
 
@@ -885,42 +888,36 @@ export default function EmployeeFormModal({
         </label>
         <label className="block">
           <FieldLabel required>الجنس</FieldLabel>
-          <select
+          <Select
             value={form.gender}
-            onChange={(e) => setForm((c) => ({ ...c, gender: e.target.value }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">اختر الجنس</option>
-            {genderOptions.map((item) => (
-              <option key={item.id} value={item.value}>{item.value}</option>
-            ))}
-          </select>
+            onChange={v => setForm((c) => ({ ...c, gender: v }))}
+            placeholder="اختر الجنس"
+            ariaLabel="الجنس"
+            className="w-full"
+            options={genderOptions.map(item => ({ value: item.value, label: item.value }))}
+          />
         </label>
         <label className="block">
           <FieldLabel required>الحالة الاجتماعية</FieldLabel>
-          <select
+          <Select
             value={form.maritalStatus}
-            onChange={(e) => setForm((c) => ({ ...c, maritalStatus: e.target.value }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">اختر الحالة الاجتماعية</option>
-            {maritalStatusOptions.map((item) => (
-              <option key={item.id} value={item.value}>{item.value}</option>
-            ))}
-          </select>
+            onChange={v => setForm((c) => ({ ...c, maritalStatus: v }))}
+            placeholder="اختر الحالة الاجتماعية"
+            ariaLabel="الحالة الاجتماعية"
+            className="w-full"
+            options={maritalStatusOptions.map(item => ({ value: item.value, label: item.value }))}
+          />
         </label>
         <label className="block md:col-span-2 xl:col-span-3">
           <FieldLabel>الخدمة العسكرية</FieldLabel>
-          <select
+          <Select
             value={form.militaryService}
-            onChange={(e) => setForm((c) => ({ ...c, militaryService: e.target.value }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">اختر حالة الخدمة العسكرية</option>
-            {militaryServiceOptions.map((item) => (
-              <option key={item.id} value={item.value}>{item.value}</option>
-            ))}
-          </select>
+            onChange={v => setForm((c) => ({ ...c, militaryService: v }))}
+            placeholder="اختر حالة الخدمة العسكرية"
+            ariaLabel="الخدمة العسكرية"
+            className="w-full"
+            options={militaryServiceOptions.map(item => ({ value: item.value, label: item.value }))}
+          />
         </label>
       </div>
     );
@@ -986,19 +983,21 @@ export default function EmployeeFormModal({
                   {/* Row 1: type + prefix/areaCode + number + delete */}
                   <div className="flex items-center gap-2">
                     {/* Type select */}
-                    <select
+                    <Select<ContactType>
                       value={contact.type}
-                      onChange={(e) => updateContact(contact.id, {
-                        type: e.target.value as ContactType,
-                        areaCode: e.target.value === 'mobile' ? '' : (contact.areaCode ?? ''),
+                      onChange={v => updateContact(contact.id, {
+                        type: v,
+                        areaCode: v === 'mobile' ? '' : (contact.areaCode ?? ''),
                         number: '',
                       })}
-                      className="border border-gray-200 rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[110px] bg-white"
-                    >
-                      {Object.entries(CONTACT_TYPES).map(([key, cfg]) => (
-                        <option key={key} value={key}>{cfg.emoji} {cfg.label}</option>
-                      ))}
-                    </select>
+                      ariaLabel="نوع التواصل"
+                      size="sm"
+                      className="min-w-[120px]"
+                      options={Object.entries(CONTACT_TYPES).map(([key, cfg]) => ({
+                        value: key as ContactType,
+                        label: `${cfg.emoji} ${cfg.label}`,
+                      }))}
+                    />
 
                     {/* Mobile: +963 badge */}
                     {contact.type === 'mobile' && (
@@ -1058,15 +1057,17 @@ export default function EmployeeFormModal({
                       className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none"
                     />
 
-                    <select
-                      value={contact.status}
-                      onChange={(e) => updateContact(contact.id, { status: e.target.value as ContactStatus })}
-                      className={`border rounded-lg px-2 py-1.5 text-[11px] font-medium focus:outline-none min-w-[115px] ${statusCfg.style}`}
-                    >
-                      {Object.entries(CONTACT_STATUSES).map(([key, cfg]) => (
-                        <option key={key} value={key}>{cfg.label}</option>
-                      ))}
-                    </select>
+                    <Select<ContactStatus>
+                      value={contact.status as ContactStatus}
+                      onChange={v => updateContact(contact.id, { status: v })}
+                      ariaLabel="حالة التواصل"
+                      size="sm"
+                      className="min-w-[115px]"
+                      options={Object.entries(CONTACT_STATUSES).map(([key, cfg]) => ({
+                        value: key as ContactStatus,
+                        label: cfg.label,
+                      }))}
+                    />
 
                     {/* WhatsApp icon toggle */}
                     <button
@@ -1112,34 +1113,32 @@ export default function EmployeeFormModal({
       <div className="grid gap-4 md:grid-cols-2">
         <label className="block">
           <FieldLabel>الشهادة العلمية</FieldLabel>
-          <select
+          <Select
             value={form.academicQualification}
-            onChange={(e) => handleQualificationChange(e.target.value)}
-            className={INPUT_CLASS}
-          >
-            <option value="">بدون تحديد</option>
-            {certificateOptions.map((item) => (
-              <option key={item.id} value={item.value}>{item.value}</option>
-            ))}
-          </select>
+            onChange={handleQualificationChange}
+            placeholder="بدون تحديد"
+            ariaLabel="الشهادة العلمية"
+            className="w-full"
+            options={certificateOptions.map(item => ({ value: item.value, label: item.value }))}
+          />
         </label>
 
         <label className="block">
           <FieldLabel>الاختصاص</FieldLabel>
-          <select
+          <Select
             value={form.specialization}
-            onChange={(e) => setForm((c) => ({ ...c, specialization: e.target.value }))}
+            onChange={v => setForm((c) => ({ ...c, specialization: v }))}
             disabled={!form.academicQualification}
-            className={`${INPUT_CLASS} disabled:bg-slate-50 disabled:text-slate-400`}
-          >
-            <option value="">بدون تحديد</option>
-            {form.specialization && !specializationOptions.find((item) => item.value === form.specialization) && (
-              <option value={form.specialization}>{form.specialization}</option>
-            )}
-            {specializationOptions.map((item) => (
-              <option key={item.id} value={item.value}>{item.value}</option>
-            ))}
-          </select>
+            placeholder="بدون تحديد"
+            ariaLabel="الاختصاص"
+            className="w-full"
+            options={[
+              ...(form.specialization && !specializationOptions.find((item) => item.value === form.specialization)
+                ? [{ value: form.specialization, label: form.specialization }]
+                : []),
+              ...specializationOptions.map(item => ({ value: item.value, label: item.value })),
+            ]}
+          />
         </label>
 
         <label className="block">
@@ -1156,28 +1155,32 @@ export default function EmployeeFormModal({
 
         <label className="block">
           <FieldLabel>رخصة القيادة</FieldLabel>
-          <select
+          <Select<YesNoValue>
             value={form.drivingLicense}
-            onChange={(e) => setForm((c) => ({ ...c, drivingLicense: e.target.value as YesNoValue }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">بدون تحديد</option>
-            <option value="yes">نعم</option>
-            <option value="no">لا</option>
-          </select>
+            onChange={v => setForm((c) => ({ ...c, drivingLicense: v }))}
+            placeholder="بدون تحديد"
+            ariaLabel="رخصة القيادة"
+            className="w-full"
+            options={[
+              { value: 'yes', label: 'نعم' },
+              { value: 'no', label: 'لا' },
+            ]}
+          />
         </label>
 
         <label className="block">
           <FieldLabel>امتلاك سيارة</FieldLabel>
-          <select
+          <Select<YesNoValue>
             value={form.hasCar}
-            onChange={(e) => setForm((c) => ({ ...c, hasCar: e.target.value as YesNoValue }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">بدون تحديد</option>
-            <option value="yes">نعم</option>
-            <option value="no">لا</option>
-          </select>
+            onChange={v => setForm((c) => ({ ...c, hasCar: v }))}
+            placeholder="بدون تحديد"
+            ariaLabel="امتلاك سيارة"
+            className="w-full"
+            options={[
+              { value: 'yes', label: 'نعم' },
+              { value: 'no', label: 'لا' },
+            ]}
+          />
         </label>
 
         <label className="block md:col-span-2">
@@ -1263,93 +1266,80 @@ export default function EmployeeFormModal({
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500"
             />
           ) : (
-            <select
-              value={form.branchId ?? ''}
-              onChange={(e) => handleBranchChange(e.target.value)}
-              className={INPUT_CLASS}
-            >
-              <option value="">اختر الفرع</option>
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>{branch.name}</option>
-              ))}
-            </select>
+            <Select
+              value={form.branchId == null ? '' : String(form.branchId)}
+              onChange={handleBranchChange}
+              placeholder="اختر الفرع"
+              ariaLabel="الفرع"
+              className="w-full"
+              options={branches.map(branch => ({ value: String(branch.id), label: branch.name }))}
+            />
           )}
         </label>
 
         <label className="block">
           <FieldLabel required>القسم</FieldLabel>
-          <select
-            value={form.departmentId ?? ''}
-            onChange={(e) => setForm((c) => ({ ...c, departmentId: Number(e.target.value) || null, directManagerId: null }))}
+          <Select
+            value={form.departmentId == null ? '' : String(form.departmentId)}
+            onChange={v => setForm((c) => ({ ...c, departmentId: v === '' ? null : Number(v), directManagerId: null }))}
             disabled={!form.branchId}
-            className={`${INPUT_CLASS} disabled:bg-slate-50 disabled:text-slate-400`}
-          >
-            <option value="">{form.branchId ? 'اختر القسم' : 'اختر الفرع أولًا'}</option>
-            {departments.map((department) => (
-              <option key={department.id} value={department.id}>{department.name}</option>
-            ))}
-          </select>
+            placeholder={form.branchId ? 'اختر القسم' : 'اختر الفرع أولًا'}
+            ariaLabel="القسم"
+            className="w-full"
+            options={departments.map(department => ({ value: String(department.id), label: department.name }))}
+          />
         </label>
 
         <label className="block">
           <FieldLabel required>نوع العقد</FieldLabel>
-          <select
+          <Select
             value={form.contractType}
-            onChange={(e) => setForm((c) => ({ ...c, contractType: e.target.value }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">اختر نوع العقد</option>
-            {contractTypeOptions.map((item) => (
-              <option key={item.id} value={item.value}>{item.value}</option>
-            ))}
-          </select>
+            onChange={v => setForm((c) => ({ ...c, contractType: v }))}
+            placeholder="اختر نوع العقد"
+            ariaLabel="نوع العقد"
+            className="w-full"
+            options={contractTypeOptions.map(item => ({ value: item.value, label: item.value }))}
+          />
         </label>
 
         <label className="block">
           <FieldLabel required>نوع العمل</FieldLabel>
-          <select
+          <Select
             value={form.workType}
-            onChange={(e) => setForm((c) => ({ ...c, workType: e.target.value }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">اختر نوع العمل</option>
-            {workTypeOptions.map((item) => (
-              <option key={item.id} value={item.value}>{item.value}</option>
-            ))}
-          </select>
+            onChange={v => setForm((c) => ({ ...c, workType: v }))}
+            placeholder="اختر نوع العمل"
+            ariaLabel="نوع العمل"
+            className="w-full"
+            options={workTypeOptions.map(item => ({ value: item.value, label: item.value }))}
+          />
         </label>
 
         <label className="block">
           <FieldLabel>المدير المباشر</FieldLabel>
-          <select
-            value={form.directManagerId ?? ''}
-            onChange={(e) => setForm((c) => ({ ...c, directManagerId: Number(e.target.value) || null }))}
+          <Select
+            value={form.directManagerId == null ? '' : String(form.directManagerId)}
+            onChange={v => setForm((c) => ({ ...c, directManagerId: v === '' ? null : Number(v) }))}
             disabled={!form.departmentId}
-            className={`${INPUT_CLASS} disabled:bg-slate-50 disabled:text-slate-400`}
-          >
-            <option value="">بدون تحديد</option>
-            {managers.map((manager) => (
-              <option key={manager.id} value={manager.id}>
-                {manager.name}
-                {manager.departmentName ? ` - ${manager.departmentName}` : ''}
-                {manager.isRecommendedManager ? ' - موصى به' : ''}
-              </option>
-            ))}
-          </select>
+            placeholder="بدون تحديد"
+            ariaLabel="المدير المباشر"
+            className="w-full"
+            options={managers.map(manager => ({
+              value: String(manager.id),
+              label: `${manager.name}${manager.departmentName ? ` - ${manager.departmentName}` : ''}${manager.isRecommendedManager ? ' - موصى به' : ''}`,
+            }))}
+          />
         </label>
 
         <label className="block xl:col-span-2">
           <FieldLabel required>المسمى الوظيفي</FieldLabel>
-          <select
+          <Select
             value={form.jobTitle}
-            onChange={(e) => setForm((c) => ({ ...c, jobTitle: e.target.value }))}
-            className={INPUT_CLASS}
-          >
-            <option value="">اختر المسمى الوظيفي</option>
-            {jobTitleOptions.map((item) => (
-              <option key={item.id} value={item.value}>{item.value}</option>
-            ))}
-          </select>
+            onChange={v => setForm((c) => ({ ...c, jobTitle: v }))}
+            placeholder="اختر المسمى الوظيفي"
+            ariaLabel="المسمى الوظيفي"
+            className="w-full"
+            options={jobTitleOptions.map(item => ({ value: item.value, label: item.value }))}
+          />
           {selectedJobTitle?.linkedRoleName && (
             <div className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
               <ShieldCheck className="h-3.5 w-3.5" />
@@ -1371,15 +1361,13 @@ export default function EmployeeFormModal({
 
         <label className="block">
           <FieldLabel>حالة السجل</FieldLabel>
-          <select
+          <Select<Employee['status']>
             value={form.status}
-            onChange={(e) => setForm((c) => ({ ...c, status: e.target.value as Employee['status'] }))}
-            className={INPUT_CLASS}
-          >
-            {STATUS_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
-            ))}
-          </select>
+            onChange={v => setForm((c) => ({ ...c, status: v }))}
+            ariaLabel="حالة السجل"
+            className="w-full"
+            options={STATUS_OPTIONS}
+          />
         </label>
       </div>
     );
@@ -1399,31 +1387,28 @@ export default function EmployeeFormModal({
           {/* Referral type */}
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">نوع الوسيط</label>
-            <select
+            <Select
               value={form.referrerType}
-              onChange={(e) => handleReferralTypeChange(e.target.value)}
-              className="w-full p-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:border-sky-500"
-            >
-              <option value="">بدون تحديد</option>
-              {REFERRER_TYPE_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
-              ))}
-            </select>
+              onChange={handleReferralTypeChange}
+              placeholder="بدون تحديد"
+              ariaLabel="نوع الوسيط"
+              variant="filled"
+              className="w-full"
+              options={REFERRER_TYPE_OPTIONS.map(item => ({ value: item.value, label: item.label }))}
+            />
           </div>
 
           {/* Origin channel */}
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">طريقة التواصل</label>
-            <select
+            <Select
               value={form.sourceChannel}
-              onChange={(e) => setForm((c) => ({ ...c, sourceChannel: e.target.value }))}
-              className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:border-sky-500"
-            >
-              <option value="">بدون تحديد</option>
-              {SOURCE_CHANNEL_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
-              ))}
-            </select>
+              onChange={v => setForm((c) => ({ ...c, sourceChannel: v }))}
+              placeholder="بدون تحديد"
+              ariaLabel="طريقة التواصل"
+              className="w-full"
+              options={SOURCE_CHANNEL_OPTIONS.map(item => ({ value: item.value, label: item.label }))}
+            />
           </div>
         </div>
 
@@ -1442,13 +1427,9 @@ export default function EmployeeFormModal({
                 placeholder="أدخل الرقم الوظيفي..."
                 className="w-1/2 p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
               />
-              <button
-                type="button"
-                onClick={handleEmployeeBlur}
-                className="px-3 py-2.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold hover:bg-sky-100"
-              >
+              <Button type="button" variant="secondary" size="sm" onClick={handleEmployeeBlur} className="bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100">
                 اعتماد
-              </button>
+              </Button>
               {employeeFound && (
                 <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 flex-1 text-sm">
                   <CheckCircle className="w-4 h-4 shrink-0" />
@@ -1575,13 +1556,7 @@ export default function EmployeeFormModal({
                   <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">{description}</p>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-400 transition-colors hover:border-slate-300 hover:text-slate-700"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <IconButton icon={X} label="إغلاق" variant="outline" size="lg" onClick={onClose} />
             </div>
 
             {/* Progress bar — advances only when user clicks Next */}
@@ -1716,44 +1691,34 @@ export default function EmployeeFormModal({
 
           {/* Footer with navigation */}
           <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
-            >
-              إلغاء
-            </button>
+            <Button variant="secondary" onClick={onClose}>إلغاء</Button>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                icon={ChevronRight}
                 onClick={handlePrev}
                 disabled={isFirstStep}
-                className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <ChevronRight className="h-4 w-4" />
                 السابق
-              </button>
+              </Button>
 
               {isLastStep ? (
-                <button
-                  type="button"
+                <Button
                   onClick={handleSubmit}
-                  disabled={submitting}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-600 disabled:opacity-50"
+                  loading={submitting}
+                  icon={Save}
                 >
-                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {submitLabel}
-                </button>
+                </Button>
               ) : (
-                <button
-                  type="button"
+                <Button
+                  icon={ChevronLeft}
+                  iconPosition="trailing"
                   onClick={handleNext}
-                  className="inline-flex items-center gap-1.5 rounded-2xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-600"
                 >
                   التالي
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
+                </Button>
               )}
             </div>
           </div>

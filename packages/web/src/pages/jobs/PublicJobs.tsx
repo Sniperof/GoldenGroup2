@@ -16,6 +16,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { SYRIAN_MOBILE_HINT, isValidSyrianMobile } from '../../lib/contactRules';
+import Select from '../../components/ui/Select';
+import Button from '../../components/ui/Button';
 
 // --- Types & Constants ---
 
@@ -539,9 +541,9 @@ export default function PublicJobs() {
         </>
       ) : (
         <div className="max-w-4xl mx-auto pb-32">
-          <button onClick={() => setSelectedVacancy(null)} className="mb-4 text-sm text-sky-600 hover:text-sky-700 font-medium flex items-center gap-1">
-            <ChevronRight className="w-4 h-4" /> العودة إلى قائمة الوظائف
-          </button>
+          <Button variant="ghost" size="sm" icon={ChevronRight} onClick={() => setSelectedVacancy(null)} className="mb-4 text-sky-600 hover:text-sky-700 hover:bg-sky-50">
+            العودة إلى قائمة الوظائف
+          </Button>
 
           <AnimatePresence>
             {submitResult?.type === 'success' && (
@@ -552,9 +554,9 @@ export default function PublicJobs() {
                 <h2 className="text-2xl font-bold text-emerald-800 mb-2">تم تقديم طلبك بنجاح!</h2>
                 <p className="text-emerald-700 text-sm mb-1">{submitResult.message}</p>
                 {submitResult.id && <p className="text-xs text-emerald-600 mt-2">رقم الطلب: <span className="font-bold">#{submitResult.id}</span></p>}
-                <button onClick={() => { setSelectedVacancy(null); setSubmitResult(null); }} className="mt-6 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-all">
+                <Button variant="primary" onClick={() => { setSelectedVacancy(null); setSubmitResult(null); }} className="mt-6">
                   العودة إلى قائمة الوظائف
-                </button>
+                </Button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -584,10 +586,16 @@ export default function PublicJobs() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Field label="نوع التقديم" required>
-                    <select value={submissionType} onChange={e => setSubmissionType(e.target.value as any)} className={inputCls()}>
-                      <option value="Apply">تقديم شخصي</option>
-                      <option value="Refer a Candidate">تقديم نيابة عن مرشح (كوسيط)</option>
-                    </select>
+                    <Select
+                      value={submissionType}
+                      onChange={v => setSubmissionType(v as any)}
+                      ariaLabel="نوع التقديم"
+                      className="w-full"
+                      options={[
+                        { value: 'Apply', label: 'تقديم شخصي' },
+                        { value: 'Refer a Candidate', label: 'تقديم نيابة عن مرشح (كوسيط)' },
+                      ]}
+                    />
                   </Field>
                 </div>
                 <AnimatePresence>
@@ -608,16 +616,29 @@ export default function PublicJobs() {
                 <Field label="الكنية" required error={fieldErrors.lastName}><input value={applicant.lastName} onChange={e => handleNameInput(e.target.value, 'lastName')} className={inputCls(!!fieldErrors.lastName)} /></Field>
                 <Field label="تاريخ الميلاد" required error={fieldErrors.dob}><input type="date" value={applicant.dob} onChange={e => setA('dob', e.target.value)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} /></Field>
                 <Field label="الجنس" required error={fieldErrors.gender}>
-                  <select value={applicant.gender} onChange={e => setA('gender', e.target.value)} className={inputCls(!!fieldErrors.gender)}>
-                    <option value="">اختر</option>
-                    {genderOpts.length ? genderOpts.map(v => <option key={v} value={v}>{v}</option>) : <><option value="ذكر">ذكر</option><option value="أنثى">أنثى</option></>}
-                  </select>
+                  <Select
+                    value={applicant.gender}
+                    onChange={v => setA('gender', v)}
+                    placeholder="اختر"
+                    ariaLabel="الجنس"
+                    className="w-full"
+                    options={genderOpts.length ? genderOpts.map(v => ({ value: v, label: v })) : [{ value: 'ذكر', label: 'ذكر' }, { value: 'أنثى', label: 'أنثى' }]}
+                  />
                 </Field>
                 <Field label="الحالة الاجتماعية" required error={fieldErrors.maritalStatus} className="md:col-span-2 lg:col-span-2">
-                  <select value={applicant.maritalStatus} onChange={e => setA('maritalStatus', e.target.value)} className={inputCls(!!fieldErrors.maritalStatus)}>
-                    <option value="">اختر</option>
-                    {maritalOpts.length ? maritalOpts.map(v => <option key={v} value={v}>{v}</option>) : <><option value="أعزب">أعزب</option><option value="متزوج">متزوج</option><option value="مطلق">مطلق</option><option value="أرمل">أرمل</option></>}
-                  </select>
+                  <Select
+                    value={applicant.maritalStatus}
+                    onChange={v => setA('maritalStatus', v)}
+                    placeholder="اختر"
+                    ariaLabel="الحالة الاجتماعية"
+                    className="w-full"
+                    options={maritalOpts.length ? maritalOpts.map(v => ({ value: v, label: v })) : [
+                      { value: 'أعزب', label: 'أعزب' },
+                      { value: 'متزوج', label: 'متزوج' },
+                      { value: 'مطلق', label: 'مطلق' },
+                      { value: 'أرمل', label: 'أرمل' },
+                    ]}
+                  />
                 </Field>
               </FormSection>
 
@@ -657,17 +678,30 @@ export default function PublicJobs() {
 
               <FormSection num={4} title="المؤهلات" subtitle="المؤهلات العلمية والمهارات والخبرة" icon={GraduationCap} delay={0.4}>
                 <Field label="الشهادة العلمية" required error={fieldErrors.academicQualification}>
-                  <select value={applicant.academicQualification} onChange={e => { setA('academicQualification', e.target.value); setA('specialization', ''); }} className={inputCls(!!fieldErrors.academicQualification)}>
-                    <option value="">اختر</option>
-                    {qualOpts.length ? qualOpts.map(v => <option key={v} value={v}>{v}</option>) : <><option value="إعدادية">إعدادية</option><option value="بكالوريوس">بكالوريوس</option><option value="ماجستير">ماجستير</option><option value="دكتوراه">دكتوراه</option></>}
-                  </select>
+                  <Select
+                    value={applicant.academicQualification}
+                    onChange={v => { setA('academicQualification', v); setA('specialization', ''); }}
+                    placeholder="اختر"
+                    ariaLabel="الشهادة العلمية"
+                    className="w-full"
+                    options={qualOpts.length ? qualOpts.map(v => ({ value: v, label: v })) : [
+                      { value: 'إعدادية', label: 'إعدادية' },
+                      { value: 'بكالوريوس', label: 'بكالوريوس' },
+                      { value: 'ماجستير', label: 'ماجستير' },
+                      { value: 'دكتوراه', label: 'دكتوراه' },
+                    ]}
+                  />
                 </Field>
                 <Field label="الاختصاص" error={fieldErrors.specialization}>
                   {(majorOpts.length > 0) ? (
-                    <select value={applicant.specialization} onChange={e => setA('specialization', e.target.value)} className={inputCls()}>
-                      <option value="">-- اختر الاختصاص --</option>
-                      {majorOpts.map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
+                    <Select
+                      value={applicant.specialization}
+                      onChange={v => setA('specialization', v)}
+                      placeholder="-- اختر الاختصاص --"
+                      ariaLabel="الاختصاص"
+                      className="w-full"
+                      options={majorOpts.map(v => ({ value: v, label: v }))}
+                    />
                   ) : (
                     <input value={applicant.specialization} onChange={e => setA('specialization', e.target.value)} className={inputCls()} placeholder="أدخل نوع الاختصاص" />
                   )}
@@ -748,24 +782,28 @@ export default function PublicJobs() {
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-6">
                     <FormSection num={6} title="بيانات الوسيط" subtitle="نفس منطق الوسيط المعتمد في الزبون" className="border-amber-200">
                       <Field label="نوع الوسيط" required error={fieldErrors.referrer_type}>
-                        <select value={referrer.type} onChange={e => handleReferrerTypeChange(e.target.value as ReferralType)} className={inputCls(!!fieldErrors.referrer_type)}>
-                          <option value="Personal">شخصي (Personal)</option>
-                          <option value="Unknown">مجهول (Unknown)</option>
-                          <option value="Employee">موظف (Employee)</option>
-                          <option value="Client">زبون (Client)</option>
-                        </select>
+                        <Select<ReferralType>
+                          value={referrer.type}
+                          onChange={handleReferrerTypeChange}
+                          ariaLabel="نوع الوسيط"
+                          className="w-full"
+                          options={[
+                            { value: 'Personal', label: 'شخصي (Personal)' },
+                            { value: 'Unknown', label: 'مجهول (Unknown)' },
+                            { value: 'Employee', label: 'موظف (Employee)' },
+                            { value: 'Client', label: 'زبون (Client)' },
+                          ]}
+                        />
                       </Field>
 
                       <Field label="طريقة التواصل" required>
-                        <select
+                        <Select<ReferralOriginChannel>
                           value={referrer.sourceChannel}
-                          onChange={e => setR('sourceChannel', e.target.value as ReferralOriginChannel)}
-                          className={inputCls()}
-                        >
-                          {referralOriginChannels.map(channel => (
-                            <option key={channel.value} value={channel.value}>{channel.label}</option>
-                          ))}
-                        </select>
+                          onChange={v => setR('sourceChannel', v)}
+                          ariaLabel="طريقة التواصل"
+                          className="w-full"
+                          options={referralOriginChannels.map(channel => ({ value: channel.value, label: channel.label }))}
+                        />
                       </Field>
 
                       {referrer.type === 'Employee' ? (
@@ -773,7 +811,7 @@ export default function PublicJobs() {
                           <Field label="رقم الموظف" required error={fieldErrors.referrer_employeeId}>
                             <div className="flex gap-2">
                               <input value={referrer.employeeId} onChange={e => setR('employeeId', e.target.value)} className={inputCls(!!fieldErrors.referrer_employeeId)} placeholder="Emp-ID" />
-                              <button type="button" onClick={handleEmployeeLookup} className="bg-sky-500 text-white px-4 rounded-xl font-bold">جلب</button>
+                              <Button type="button" onClick={handleEmployeeLookup}>جلب</Button>
                             </div>
                           </Field>
                           <Field label="اسم الموظف">
@@ -846,11 +884,10 @@ export default function PublicJobs() {
                   )}
                 </div>
                 <div className="flex gap-4 w-full md:w-auto">
-                  <button onClick={() => setSelectedVacancy(null)} className="flex-1 md:flex-none px-8 py-3.5 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all">إلغاء</button>
-                  <button onClick={handleSubmit} disabled={submitting} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-10 py-3.5 text-sm font-black bg-gradient-to-r from-emerald-500 to-sky-500 text-white rounded-2xl shadow-xl shadow-sky-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-50">
-                    {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-4 h-4" />}
+                  <Button variant="secondary" size="lg" onClick={() => setSelectedVacancy(null)} className="flex-1 md:flex-none">إلغاء</Button>
+                  <Button variant="primary" size="lg" icon={Send} loading={submitting} onClick={handleSubmit} className="flex-1 md:flex-none">
                     {submitting ? 'جاري المعالجة...' : 'حفظ وتسجيل الطلب'}
-                  </button>
+                  </Button>
                 </div>
               </motion.div>
             </div>

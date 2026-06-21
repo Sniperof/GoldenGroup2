@@ -6,6 +6,7 @@ import ClientCardPopup from '../../components/ClientCardPopup';
 import { useOpenTaskStore } from '../../hooks/useOpenTaskStore';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import type { OpenTask } from '@golden-crm/shared';
+import Button from '../../components/ui/Button';
 
 const EMERGENCY_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   open: { label: 'جديد', color: 'bg-blue-50 text-blue-700 border border-blue-200' },
@@ -246,16 +247,17 @@ export default function EmergencyTasks() {
           emptyMessage="لا توجد طلبات طوارئ حالياً"
           tableMinWidth={1600}
           actions={(t) => (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Eye}
               onClick={(e) => {
                 e.stopPropagation();
                 navigate(`/tasks/emergency/${t.id}`);
               }}
-              className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 transition-all hover:bg-sky-100"
             >
-              <Eye className="ml-1 inline-block h-3.5 w-3.5" />
               عرض التفاصيل
-            </button>
+            </Button>
           )}
         />
       )}

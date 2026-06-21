@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, MapPin, Phone, Smartphone, UserRound } from 'lucide-react';
+import IconButton from './ui/IconButton';
 import { api } from '../lib/api';
 import type { Client, ClientRating, ContactEntry, GeoUnit } from '../lib/types';
 
@@ -154,9 +155,7 @@ export default function ClientCardPopup({ clientId, onClose }: Props) {
                             <h3 className="text-base font-bold text-slate-800">بطاقة الزبون</h3>
                             {client && <p className="mt-1 text-sm text-slate-500">#{client.id}</p>}
                         </div>
-                        <button onClick={onClose} className="rounded-lg p-2 transition-colors hover:bg-white">
-                            <X className="h-5 w-5 text-slate-400" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" onClick={onClose} />
                     </div>
 
                     <div className="space-y-4 px-5 py-4">

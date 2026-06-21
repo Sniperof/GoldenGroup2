@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Eye, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import type { Task } from '../lib/types';
+import Button from './ui/Button';
 
 const typeConfig = {
     emergency: { color: 'border-red-500', bg: 'bg-red-500/5', label: 'طوارئ', icon: '🔴' },
@@ -74,13 +75,13 @@ export default function TaskCard({ task, onView }: TaskCardProps) {
                             <span className="text-xs font-medium">{statusInfo.label}</span>
                         </div>
                     ) : (
-                        <button
+                        <Button
+                            size="sm"
+                            icon={Eye}
                             onClick={() => onView?.(task)}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium transition-colors"
                         >
-                            <Eye className="w-4 h-4" />
-                            <span>عرض</span>
-                        </button>
+                            عرض
+                        </Button>
                     )}
                 </div>
             </div>

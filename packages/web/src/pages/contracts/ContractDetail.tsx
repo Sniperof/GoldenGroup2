@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { DeviceStatusBadge as SharedDeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
+import Select from '../../components/ui/Select';
+import Button from '../../components/ui/Button';
 import { usePermissions } from '../../hooks/usePermissions';
 
 // ── Lookup maps ───────────────────────────────────────────────────────────────
@@ -430,20 +432,23 @@ export default function ContractDetail() {
             </div>
             {canApproveDraft ? (
               <div className="flex items-center gap-3 shrink-0">
-                <button
+                <Button
+                  size="sm"
                   disabled={approvalLoading !== null}
+                  loading={approvalLoading === 'approve'}
                   onClick={() => setShowApprovalModal(true)}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-4 py-2 text-xs font-bold transition-colors disabled:opacity-60"
                 >
                   {approvalLoading === 'approve' ? 'جاري الاعتماد...' : '✓ موافقة واعتماد'}
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
                   disabled={approvalLoading !== null}
+                  loading={approvalLoading === 'reject'}
                   onClick={handleReject}
-                  className="bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl px-4 py-2 text-xs font-bold transition-colors disabled:opacity-60"
                 >
                   {approvalLoading === 'reject' ? 'جاري الرفض...' : '✕ رفض'}
-                </button>
+                </Button>
               </div>
             ) : null}
           </div>
@@ -462,14 +467,12 @@ export default function ContractDetail() {
               </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <button onClick={() => setShowActivateModal(true)}
-                className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl px-4 py-2 text-xs font-bold transition-colors">
+              <Button variant="gold" size="sm" onClick={() => setShowActivateModal(true)}>
                 ⚡ تنشيط عملية الدفع
-              </button>
-              <button disabled={actionLoading} onClick={handleCancelContract}
-                className="bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl px-4 py-2 text-xs font-bold transition-colors">
+              </Button>
+              <Button variant="secondary" size="sm" disabled={actionLoading} onClick={handleCancelContract}>
                 {actionLoading ? 'جاري...' : 'إلغاء العقد'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1030,18 +1033,18 @@ export default function ContractDetail() {
             <div className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">موظف التسكير</label>
-                <select
-                  value={approvalCloserId}
-                  onChange={e => setApprovalCloserId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  <option value="">اختر موظف التسكير...</option>
-                  {closers.map((closer: any) => (
-                    <option key={closer.id} value={closer.id}>
-                      {closer.name}{closer.roleDisplayName ? ` - ${closer.roleDisplayName}` : ''}
-                    </option>
-                  ))}
-                </select>
+                <Select<string>
+                  value={approvalCloserId === '' ? '' : String(approvalCloserId)}
+                  onChange={(v) => setApprovalCloserId(v ? Number(v) : '')}
+                  options={[
+                    { value: '', label: 'اختر موظف التسكير...' },
+                    ...closers.map((closer: any) => ({
+                      value: String(closer.id),
+                      label: `${closer.name}${closer.roleDisplayName ? ` - ${closer.roleDisplayName}` : ''}`,
+                    })),
+                  ]}
+                  className="w-full"
+                />
                 {closers.length === 0 && (
                   <p className="text-xs text-amber-600 mt-2">لا يوجد موظفو تسكير متاحون ضمن صلاحيات هذا الفرع.</p>
                 )}
@@ -1050,21 +1053,21 @@ export default function ContractDetail() {
                 عند الاعتماد سيتم تحويل العقد إلى نشط وإنشاء سجل الجهاز ومهمة التوصيل.
               </div>
               <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
+                <Button
+                  fullWidth
                   disabled={approvalLoading !== null || !approvalCloserId}
+                  loading={approvalLoading === 'approve'}
                   onClick={handleApprove}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2.5 text-sm font-bold transition-colors disabled:opacity-60"
                 >
                   {approvalLoading === 'approve' ? 'جاري الاعتماد...' : 'موافقة واعتماد'}
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="secondary"
+                  fullWidth
                   onClick={() => setShowApprovalModal(false)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-2.5 text-sm font-bold transition-colors"
                 >
                   إلغاء
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -1108,25 +1111,24 @@ export default function ContractDetail() {
 
             <div className="flex gap-2">
               {approvalError.issues.length > 0 && (
-                <button
-                  type="button"
+                <Button
+                  fullWidth
                   onClick={() => {
                     setApprovalError(null);
                     setShowApprovalModal(false);
                     navigate(`/contracts/${id}/edit`);
                   }}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2.5 text-sm font-bold transition-colors"
                 >
                   فتح العقد لإكمال البيانات
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                fullWidth
                 onClick={() => setApprovalError(null)}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-2.5 text-sm font-bold transition-colors"
               >
                 حسناً
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1172,14 +1174,12 @@ export default function ContractDetail() {
                 </>
               )}
               <div className="flex gap-3 pt-2">
-                <button type="submit" disabled={activationLoading}
-                  className="flex-1 bg-sky-600 hover:bg-sky-700 text-white rounded-xl py-2.5 text-sm font-bold transition-colors disabled:opacity-60">
+                <Button type="submit" fullWidth loading={activationLoading}>
                   {activationLoading ? 'جاري التنشيط...' : 'تأكيد التنشيط'}
-                </button>
-                <button type="button" onClick={() => setShowActivateModal(false)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-2.5 text-sm font-bold transition-colors">
+                </Button>
+                <Button variant="secondary" fullWidth onClick={() => setShowActivateModal(false)}>
                   إلغاء
-                </button>
+                </Button>
               </div>
             </form>
           </div>

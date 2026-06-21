@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, Activity, RefreshCw } from 'lucide-react';
 import AttemptAlertsCard from '../../components/supervisor/AttemptAlertsCard';
 import { api } from '../../lib/api';
+import Button from '../../components/ui/Button';
 
 interface EscalationItem {
   visitId: number;
@@ -63,14 +64,15 @@ export default function SupervisorAlertsPage() {
             <p className="text-xs text-slate-500">تتبع المهام عالية المحاولات والزيارات بانتظار التوثيق.</p>
           </div>
         </div>
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={RefreshCw}
           onClick={() => void loadEscalations()}
-          disabled={loading}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-300 hover:bg-slate-50"
+          loading={loading}
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           تحديث
-        </button>
+        </Button>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

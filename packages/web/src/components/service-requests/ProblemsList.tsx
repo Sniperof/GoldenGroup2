@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Wrench, Trash2, CheckCircle2, AlertCircle, Edit2, RotateCcw } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../ui/Select';
 
 interface Problem {
   id: number;
@@ -154,18 +155,14 @@ export default function ProblemsList({
       {showAdd && (
         <div className="bg-blue-50 border border-blue-200 rounded p-3 space-y-2">
           {error && <div className="text-xs text-red-700 bg-red-50 p-1.5 rounded">{error}</div>}
-          <select
+          <Select
             value={newType}
-            onChange={(e) => setNewType(e.target.value)}
-            className="w-full text-sm border border-gray-300 rounded p-2"
-          >
-            <option value="">— نوع العطل —</option>
-            {problemTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.value}
-              </option>
-            ))}
-          </select>
+            onChange={setNewType}
+            placeholder="— نوع العطل —"
+            ariaLabel="نوع العطل"
+            className="w-full"
+            options={problemTypes.map(t => ({ value: String(t.id), label: t.value }))}
+          />
           <textarea
             value={newDetails}
             onChange={(e) => setNewDetails(e.target.value)}
@@ -173,16 +170,18 @@ export default function ProblemsList({
             rows={2}
             className="w-full text-sm border border-gray-300 rounded p-2"
           />
-          <select
+          <Select<'intake' | 'in_review' | 'technical_consultation' | 'field_discovery'>
             value={newPhase}
-            onChange={(e) => setNewPhase(e.target.value as any)}
-            className="w-full text-sm border border-gray-300 rounded p-2"
-          >
-            <option value="intake">{PHASE_LABELS.intake}</option>
-            <option value="in_review">{PHASE_LABELS.in_review}</option>
-            <option value="technical_consultation">{PHASE_LABELS.technical_consultation}</option>
-            <option value="field_discovery">{PHASE_LABELS.field_discovery}</option>
-          </select>
+            onChange={setNewPhase}
+            ariaLabel="مرحلة الإضافة"
+            className="w-full"
+            options={[
+              { value: 'intake', label: PHASE_LABELS.intake },
+              { value: 'in_review', label: PHASE_LABELS.in_review },
+              { value: 'technical_consultation', label: PHASE_LABELS.technical_consultation },
+              { value: 'field_discovery', label: PHASE_LABELS.field_discovery },
+            ]}
+          />
           <div className="flex gap-2">
             <button
               disabled={busy}

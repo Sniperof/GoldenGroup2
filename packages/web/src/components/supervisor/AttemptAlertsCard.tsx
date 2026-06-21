@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Phone, RefreshCw } from 'lucide-react';
 import { api } from '../../lib/api';
+import Button from '../ui/Button';
 
 interface AlertItem {
   openTaskId: number;
@@ -61,15 +62,15 @@ export default function AttemptAlertsCard() {
             تنبيه المحاولات (≥ {threshold})
           </h3>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => void load()}
-          disabled={loading}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold bg-white border border-amber-300 text-amber-800 hover:bg-amber-100"
+          loading={loading}
+          icon={RefreshCw}
         >
-          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
           تحديث
-        </button>
+        </Button>
       </div>
 
       <p className="text-[11px] text-amber-800/80">

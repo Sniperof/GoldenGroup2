@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Plus, Phone, User, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api';
+import Button from './ui/Button';
+import Input from './ui/Input';
 
 interface Suggestion {
     id: number;
@@ -76,41 +78,37 @@ export default function DirectSuggestionForm({ taskId, suggestions, onAdded }: P
                     إضافة اقتراح مباشر
                 </p>
                 <div className="flex gap-2">
-                    <div className="flex-1 relative">
-                        <User className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                        <input
-                            type="text"
+                    <div className="flex-1">
+                        <Input
                             value={name}
                             onChange={e => setName(e.target.value)}
                             placeholder="الاسم *"
-                            className="w-full pr-8 pl-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            leading={<User className="w-3.5 h-3.5" />}
+                            inputSize="sm"
                         />
                     </div>
-                    <div className="w-36 relative">
-                        <Phone className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                        <input
+                    <div className="w-36">
+                        <Input
                             type="tel"
                             value={phone}
                             onChange={e => setPhone(e.target.value)}
                             placeholder="الهاتف"
-                            className="w-full pr-8 pl-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            leading={<Phone className="w-3.5 h-3.5" />}
                             dir="ltr"
+                            inputSize="sm"
                         />
                     </div>
                 </div>
-                <input
-                    type="text"
+                <Input
                     value={notes}
                     onChange={e => setNotes(e.target.value)}
                     placeholder="ملاحظة (اختياري)"
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    inputSize="sm"
                 />
                 {error && <p className="text-xs text-red-600">{error}</p>}
-                <button type="submit" disabled={saving}
-                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 disabled:opacity-60 transition-colors">
-                    <Plus className="w-3.5 h-3.5" />
+                <Button type="submit" size="sm" loading={saving} icon={Plus}>
                     {saving ? 'جاري الإضافة...' : 'إضافة اقتراح'}
-                </button>
+                </Button>
             </form>
         </div>
     );

@@ -5,6 +5,7 @@ import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared
 import { Card, InfoLine, TabAlert, formatDate, formatDateTime } from '../shared';
 import type { TaskResultModalProps, TaskResultRendererProps } from '../types';
 import DeviceDemoResultModal from '../../../taskTypes/device_demo/DeviceDemoResultModal';
+import Button from '../../ui/Button';
 
 const TERMINAL_STATUSES = new Set(['completed', 'closed', 'cancelled']);
 
@@ -152,14 +153,9 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
 
       {canRecordResult && (
         <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setShowResultModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
+          <Button icon={Plus} onClick={() => setShowResultModal(true)}>
             تسجيل نتيجة الزيارة
-          </button>
+          </Button>
         </div>
       )}
 

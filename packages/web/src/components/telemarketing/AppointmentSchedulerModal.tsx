@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import IconButton from '../ui/IconButton';
 import { motion } from 'framer-motion';
 import { Calendar, Clock, Droplets, FileText, CheckCircle2, X, Loader2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
 import type { OpenTaskType } from '@golden-crm/shared';
+import Select from '../ui/Select';
+import Button from '../ui/Button';
 
 export interface CustomerOpenTask {
     taskListItemId: string;
@@ -157,9 +160,7 @@ export default function AppointmentSchedulerModal({
                             <p className="text-xs text-slate-500">{customerName} &middot; {visitDate || defaultDate}</p>
                         </div>
                     </div>
-                    <button onClick={onClose} disabled={saving} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-colors">
-                        <X className="w-5 h-5" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
                 </div>
 
                 {/* Body */}
@@ -226,16 +227,14 @@ export default function AppointmentSchedulerModal({
                             <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                                 <Droplets className="w-4 h-4 text-blue-500" />مصدر المياه الحالي <span className="text-red-500">*</span>
                             </label>
-                            <select
+                            <Select
                                 value={waterSource}
-                                onChange={e => setWaterSource(e.target.value)}
-                                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                            >
-                                <option value="">-- اختر مصدر المياه --</option>
-                                {waterSourceOptions.map(option => (
-                                    <option key={option} value={option}>{option}</option>
-                                ))}
-                            </select>
+                                onChange={setWaterSource}
+                                placeholder="-- اختر مصدر المياه --"
+                                ariaLabel="مصدر المياه"
+                                className="w-full"
+                                options={waterSourceOptions.map(option => ({ value: option, label: option }))}
+                            />
                         </div>
                     )}
 
@@ -255,15 +254,15 @@ export default function AppointmentSchedulerModal({
 
                 {/* Footer */}
                 <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
-                    <button onClick={onClose} disabled={saving} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50">إلغاء</button>
-                    <button
-                        onClick={handleSave}
+                    <Button variant="ghost" disabled={saving} onClick={onClose}>إلغاء</Button>
+                    <Button
+                        icon={CheckCircle2}
+                        loading={saving}
                         disabled={!isValid || saving}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl text-sm font-bold shadow-md shadow-emerald-500/20 disabled:shadow-none transition-all"
+                        onClick={handleSave}
                     >
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                         {saving ? 'جاري الحفظ...' : 'تأكيد موعد الزيارة'}
-                    </button>
+                    </Button>
                 </div>
             </motion.div>
         </div>

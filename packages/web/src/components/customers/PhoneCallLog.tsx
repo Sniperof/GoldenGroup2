@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import { getOutcomeMeta } from '@golden-crm/shared';
 import type { CustomerCallLog } from '@golden-crm/shared';
 import MessageReplyOutcomeModal from './MessageReplyOutcomeModal';
+import Button from '../ui/Button';
 
 interface Props {
     customerId: number;
@@ -199,12 +200,14 @@ export default function PhoneCallLog({ customerId, contactId, contactLabel, cont
                 );
             })}
             {hasMore && (
-                <button
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    fullWidth
                     onClick={() => window.dispatchEvent(new CustomEvent('switchToCallLogTab'))}
-                    className="w-full text-xs text-sky-600 font-bold py-2 hover:text-sky-700 transition-colors"
                 >
                     عرض الكل ({logs.length}) →
-                </button>
+                </Button>
             )}
             {editLog && (
                 <MessageReplyOutcomeModal

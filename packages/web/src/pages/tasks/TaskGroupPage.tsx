@@ -4,6 +4,7 @@ import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCh
 import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
+import Select from '../../components/ui/Select';
 import {
   OPEN_TASK_STATUS_LABELS,
   OPEN_TASK_PHASE_LABELS,
@@ -475,37 +476,39 @@ export default function TaskGroupPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <Filter className="w-4 h-4 text-slate-400 flex-shrink-0" />
 
-          <select
+          <Select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          >
-            <option value="">كل حالات المهمة</option>
-            {Object.entries(OPEN_TASK_STATUS_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
+            onChange={(v) => setStatusFilter(v)}
+            size="sm"
+            ariaLabel="حالة المهمة"
+            options={[
+              { value: '', label: 'كل حالات المهمة' },
+              ...Object.entries(OPEN_TASK_STATUS_LABELS).map(([key, label]) => ({ value: key, label })),
+            ]}
+          />
 
-          <select
+          <Select
             value={visitStatusFilter}
-            onChange={(e) => setVisitStatusFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          >
-            <option value="">كل حالات الزيارة</option>
-            {Object.entries(VISIT_STATUS_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
+            onChange={(v) => setVisitStatusFilter(v)}
+            size="sm"
+            ariaLabel="حالة الزيارة"
+            options={[
+              { value: '', label: 'كل حالات الزيارة' },
+              ...Object.entries(VISIT_STATUS_LABELS).map(([key, label]) => ({ value: key, label })),
+            ]}
+          />
 
-          <select
+          <Select
             value={scheduledFilter}
-            onChange={(e) => setScheduledFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          >
-            <option value="">مجدول / غير مجدول</option>
-            <option value="yes">مجدول فقط</option>
-            <option value="no">غير مجدول</option>
-          </select>
+            onChange={(v) => setScheduledFilter(v)}
+            size="sm"
+            ariaLabel="مجدول / غير مجدول"
+            options={[
+              { value: '', label: 'مجدول / غير مجدول' },
+              { value: 'yes', label: 'مجدول فقط' },
+              { value: 'no', label: 'غير مجدول' },
+            ]}
+          />
 
           <input
             type="date"
@@ -643,17 +646,19 @@ export default function TaskGroupPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <select
+                        <Select
                           value={row.priority || ''}
-                          onChange={(e) => handlePriorityChange(row.id, e.target.value)}
+                          onChange={(v) => handlePriorityChange(row.id, v)}
                           disabled={savingPriorityId === row.id}
-                          className={`rounded-lg border px-2 py-1 text-xs font-bold outline-none transition-colors disabled:opacity-50 ${row.priority ? (PRIORITY_COLORS[row.priority] ?? 'bg-white text-slate-500 border-slate-200') : 'bg-white text-slate-400 border-slate-200'}`}
-                        >
-                          <option value="">—</option>
-                          <option value="high">{PRIORITY_LABELS.high}</option>
-                          <option value="medium">{PRIORITY_LABELS.medium}</option>
-                          <option value="low">{PRIORITY_LABELS.low}</option>
-                        </select>
+                          size="sm"
+                          ariaLabel="الأولوية"
+                          options={[
+                            { value: '', label: '—' },
+                            { value: 'high', label: PRIORITY_LABELS.high },
+                            { value: 'medium', label: PRIORITY_LABELS.medium },
+                            { value: 'low', label: PRIORITY_LABELS.low },
+                          ]}
+                        />
                       </td>
                       <td className="px-4 py-3 text-xs">
                         {(() => {

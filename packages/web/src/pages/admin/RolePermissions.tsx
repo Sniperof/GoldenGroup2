@@ -4,6 +4,8 @@ import { useRoleStore } from '../../hooks/useRoleStore';
 import type { Permission, RolePermissionGrant } from '../../hooks/useRoleStore';
 import { trpc } from '../../lib/trpc';
 import { usePermissions } from '../../hooks/usePermissions';
+import Select from '../../components/ui/Select';
+import Card from '../../components/ui/Card';
 import {
   ShieldCheck, ChevronRight, Save, Loader2, AlertTriangle,
   CheckSquare, Square, Key, Eye, Plus, Pencil, Trash2,
@@ -551,7 +553,7 @@ export default function RolePermissions() {
         </div>
 
         {/* Progress bar */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+        <Card padding="sm">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
             <span>نسبة الصلاحيات الممنوحة</span>
             <span className="font-bold text-slate-700">
@@ -564,9 +566,9 @@ export default function RolePermissions() {
               style={{ width: `${grantedPercent}%` }}
             />
           </div>
-        </div>
+        </Card>
 
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+        <Card padding="sm" className="space-y-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <p className="text-sm font-bold text-slate-800">{'\u0627\u0644\u0623\u0642\u0633\u0627\u0645'}</p>
@@ -616,7 +618,7 @@ export default function RolePermissions() {
               );
             })}
           </div>
-        </div>
+        </Card>
 
         {/* Feedback */}
         {error && (
@@ -764,17 +766,16 @@ export default function RolePermissions() {
                                     )}
                                   </div>
                                   {isOn && scopeOptions.length > 1 && (
-                                    <select
-                                      value={scopeType}
-                                      onClick={event => event.stopPropagation()}
-                                      onChange={event => setScope(perm.id, event.target.value as ScopeType)}
-                                      disabled={!canManageRolePermissions || !!isProtectedRole}
-                                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
-                                    >
-                                      {scopeOptions.map(option => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                      ))}
-                                    </select>
+                                    <div onClick={event => event.stopPropagation()} className="shrink-0">
+                                      <Select<ScopeType>
+                                        value={scopeType}
+                                        onChange={v => setScope(perm.id, v)}
+                                        disabled={!canManageRolePermissions || !!isProtectedRole}
+                                        ariaLabel="نطاق الصلاحية"
+                                        size="sm"
+                                        options={scopeOptions}
+                                      />
+                                    </div>
                                   )}
                                   {isOn && scopeOptions.length === 1 && (
                                     <span className="shrink-0 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-400">

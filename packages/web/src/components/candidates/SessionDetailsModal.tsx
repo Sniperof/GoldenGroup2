@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import IconButton from '../ui/IconButton';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { X, Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck } from 'lucide-react';
 import QualificationModal from './QualificationModal';
@@ -7,6 +8,7 @@ import { Candidate, Client, GeoUnit } from '../../lib/types';
 import { api } from '../../lib/api';
 import { formatGeoUnitLastLevels } from '../GeoSmartSearch';
 import { usePermissions } from '../../hooks/usePermissions';
+import Button from '../ui/Button';
 
 interface Props {
     isOpen: boolean;
@@ -109,7 +111,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                         </h2>
                         <p className="text-sm text-slate-500 mt-1">الوسيط: {sheet.referralNameSnapshot}</p>
                     </div>
-                    <button onClick={onClose}><X className="w-5 h-5 text-slate-400" /></button>
+                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 mb-6">
@@ -257,12 +259,11 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
 
                 <div className="mt-6 flex justify-end shrink-0">
                     {canEditNameLists && sheet.status !== 'Completed' && (
-                        <button
+                        <Button
                             onClick={() => { closeReferralSheet(sheet.id); onClose(); }}
-                            className="px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-900 transition-colors"
                         >
                             إغلاق الورقة (أرشفة)
-                        </button>
+                        </Button>
                     )}
                 </div>
             </div>

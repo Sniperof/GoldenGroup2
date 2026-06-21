@@ -1,6 +1,7 @@
 import { Activity } from 'lucide-react';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
 import { Card, InfoLine, formatDateTime } from '../shared';
+import Select from '../../ui/Select';
 
 const PRIORITY_LABELS: Record<string, string> = { high: 'عالية', medium: 'متوسطة', low: 'منخفضة' };
 
@@ -37,17 +38,20 @@ export default function TaskSummaryCard({ task, priorityDraft, prioritySaving, p
         <div className="flex items-start justify-between py-1.5 gap-4">
           <span className="text-xs text-slate-400 font-bold shrink-0">الأولوية</span>
           <div className="flex flex-col items-end gap-1">
-            <select
+            <Select<'' | 'high' | 'medium' | 'low'>
               value={priorityDraft}
-              onChange={(e) => onPriorityChange(e.target.value as '' | 'high' | 'medium' | 'low')}
+              onChange={onPriorityChange}
               disabled={prioritySaving}
-              className={`min-w-36 rounded-lg border px-2.5 py-1.5 text-xs font-bold outline-none transition-colors ${priorityDraft ? (PRIORITY_COLORS[priorityDraft] ?? 'bg-slate-100 text-slate-600 border-slate-200') : 'bg-white text-slate-500 border-slate-200'}`}
-            >
-              <option value="">غير محددة</option>
-              <option value="high">{PRIORITY_LABELS.high}</option>
-              <option value="medium">{PRIORITY_LABELS.medium}</option>
-              <option value="low">{PRIORITY_LABELS.low}</option>
-            </select>
+              placeholder="غير محددة"
+              ariaLabel="الأولوية"
+              size="sm"
+              className="min-w-36"
+              options={[
+                { value: 'high', label: PRIORITY_LABELS.high },
+                { value: 'medium', label: PRIORITY_LABELS.medium },
+                { value: 'low', label: PRIORITY_LABELS.low },
+              ]}
+            />
             {prioritySaving && <span className="text-[11px] text-slate-400">جارٍ الحفظ...</span>}
             {priorityError && <span className="text-[11px] text-rose-600">{priorityError}</span>}
           </div>

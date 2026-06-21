@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import IconButton from '../ui/IconButton';
 import { X, Loader2, Plus, Trash2 } from 'lucide-react';
 import type { EmergencyFinalDecision } from '@golden-crm/shared';
 import {
   EMERGENCY_FINAL_DECISION_LABELS,
   EMERGENCY_FINAL_DECISION_DESCRIPTIONS,
 } from '@golden-crm/shared';
+import Select from '../ui/Select';
 
 export type { EmergencyFinalDecision };
 
@@ -160,10 +162,7 @@ export default function EmergencyResultModal({ isOpen, saving, error, onClose, o
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-6 py-4 shrink-0">
           <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة زيارة الصيانة</h2>
-          <button type="button" onClick={onClose} disabled={saving}
-            className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-slate-600 transition-colors">
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -237,13 +236,18 @@ export default function EmergencyResultModal({ isOpen, saving, error, onClose, o
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-500 block mb-1">حالة الغشاء</label>
-                <select value={membraneOutput} onChange={(e) => setMembraneOutput(e.target.value as any)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-sky-400">
-                  <option value="">غير محدد</option>
-                  <option value="Good">جيد</option>
-                  <option value="Weak">ضعيف</option>
-                  <option value="Dead">تالف</option>
-                </select>
+                <Select<'Good' | 'Weak' | 'Dead' | ''>
+                  value={membraneOutput}
+                  onChange={setMembraneOutput}
+                  placeholder="غير محدد"
+                  ariaLabel="حالة الغشاء"
+                  className="w-full"
+                  options={[
+                    { value: 'Good', label: 'جيد' },
+                    { value: 'Weak', label: 'ضعيف' },
+                    { value: 'Dead', label: 'تالف' },
+                  ]}
+                />
               </div>
             </div>
           </details>

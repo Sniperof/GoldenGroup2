@@ -3,8 +3,10 @@
 // Constitution: maintenance.md §EM-UNIQ-01..06
 // ============================================================
 import { useEffect, useState } from 'react';
+import IconButton from '../ui/IconButton';
 import { X, GitMerge, Split, AlertTriangle } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../ui/Select';
 
 interface Props {
   serviceRequestId: number;
@@ -89,9 +91,7 @@ export default function MergeOrSplitModal({
             <AlertTriangle className="h-5 w-5 text-yellow-600" />
             الجهاز عليه مُهمة طارئة نشطة
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </header>
 
         <div className="p-4 space-y-4">
@@ -145,18 +145,14 @@ export default function MergeOrSplitModal({
             <p className="text-xs text-gray-600 mb-2">
               عطل مختلف يَحتاج تخصُّصاً آخر أو فترة زمنية مختلفة (EM-UNIQ-04).
             </p>
-            <select
+            <Select
               value={splitReason}
-              onChange={(e) => setSplitReason(e.target.value)}
-              className="w-full text-sm border border-gray-300 rounded p-2 mb-2"
-            >
-              <option value="">— اختر السبب —</option>
-              {reasons.map((r) => (
-                <option key={r.id} value={r.value}>
-                  {r.value}
-                </option>
-              ))}
-            </select>
+              onChange={setSplitReason}
+              placeholder="— اختر السبب —"
+              ariaLabel="السبب"
+              className="w-full mb-2"
+              options={reasons.map(r => ({ value: r.value, label: r.value }))}
+            />
             <textarea
               value={splitNote}
               onChange={(e) => setSplitNote(e.target.value)}

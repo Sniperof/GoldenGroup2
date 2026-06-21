@@ -8,6 +8,8 @@ import {
   GraduationCap, Plus, Search, Filter, ChevronDown,
   Calendar, User, Monitor, Building2, Users, CheckCircle, X, Loader2,
 } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
+import Select from '../../components/ui/Select';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -260,19 +262,18 @@ export default function TrainingCourses() {
           <Filter className="w-4 h-4" />
           <span className="text-sm font-medium">تصفية:</span>
         </div>
-        <div className="relative">
-          <select
-            value={filters.training_status}
-            onChange={e => setFilter('training_status', e.target.value)}
-            className="appearance-none bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
-          >
-            <option value="">كل الحالات</option>
-            <option value="Training Scheduled">مجدولة</option>
-            <option value="Training Started">جارية</option>
-            <option value="Training Completed">مكتملة</option>
-          </select>
-          <ChevronDown className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        </div>
+        <Select
+          value={filters.training_status}
+          onChange={v => setFilter('training_status', v)}
+          variant="filled"
+          className="min-w-[150px]"
+          options={[
+            { value: '', label: 'كل الحالات' },
+            { value: 'Training Scheduled', label: 'مجدولة' },
+            { value: 'Training Started', label: 'جارية' },
+            { value: 'Training Completed', label: 'مكتملة' },
+          ]}
+        />
         <input type="text" value={filters.branch} onChange={e => setFilter('branch', e.target.value)}
           placeholder="الفرع..." className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500 w-32" />
         <input type="text" value={filters.trainer} onChange={e => setFilter('trainer', e.target.value)}
@@ -326,9 +327,7 @@ export default function TrainingCourses() {
                 <GraduationCap className="w-5 h-5 text-sky-500" />
                 إنشاء دورة تدريبية جديدة
               </h2>
-              <button onClick={closeModal} className="p-1 text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
+              <IconButton icon={X} label="إغلاق" onClick={closeModal} />
             </div>
 
             <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
@@ -347,11 +346,14 @@ export default function TrainingCourses() {
 
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-slate-600 mb-1">الشاغر الوظيفي *</label>
-                  <select value={form.job_vacancy_id || ''} onChange={e => onVacancyChange(Number(e.target.value))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500">
-                    <option value="">اختر الشاغر...</option>
-                    {vacancies.map(v => <option key={v.id} value={v.id}>{v.title} — {v.branch}</option>)}
-                  </select>
+                  <Select
+                    value={form.job_vacancy_id ? String(form.job_vacancy_id) : ''}
+                    onChange={v => onVacancyChange(Number(v))}
+                    placeholder="اختر الشاغر..."
+                    ariaLabel="الشاغر الوظيفي"
+                    className="w-full"
+                    options={vacancies.map(v => ({ value: String(v.id), label: `${v.title} — ${v.branch}` }))}
+                  />
                 </div>
 
                 <div>
@@ -369,18 +371,14 @@ export default function TrainingCourses() {
                   <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
                     <Monitor className="w-3 h-3" /> الجهاز
                   </label>
-                  <select
+                  <Select
                     value={form.device_name}
-                    onChange={e => setForm(f => ({ ...f, device_name: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 bg-white"
-                  >
-                    <option value="">لا يوجد / اختياري</option>
-                    {deviceModels.map(d => (
-                      <option key={d.id} value={d.name}>
-                        {d.name} {d.brand ? `— ${d.brand}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={v => setForm(f => ({ ...f, device_name: v }))}
+                    placeholder="لا يوجد / اختياري"
+                    ariaLabel="الجهاز"
+                    className="w-full"
+                    options={deviceModels.map(d => ({ value: d.name, label: `${d.name} ${d.brand ? `— ${d.brand}` : ''}` }))}
+                  />
                 </div>
 
                 <div className="col-span-2">
@@ -398,18 +396,14 @@ export default function TrainingCourses() {
                       لا يوجد مدربون مؤهلون في هذا الفرع. تأكد من منح صلاحية "التدريب كمدرب" للأدوار المناسبة.
                     </p>
                   ) : (
-                    <select
+                    <Select
                       value={form.trainer}
-                      onChange={e => setForm(f => ({ ...f, trainer: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 bg-white"
-                    >
-                      <option value="">اختر المدرب...</option>
-                      {eligibleTrainers.map(t => (
-                        <option key={t.id} value={t.name}>
-                          {t.name} — {t.roleDisplayName}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={v => setForm(f => ({ ...f, trainer: v }))}
+                      placeholder="اختر المدرب..."
+                      ariaLabel="المدرب"
+                      className="w-full"
+                      options={eligibleTrainers.map(t => ({ value: t.name, label: `${t.name} — ${t.roleDisplayName}` }))}
+                    />
                   )}
                 </div>
 

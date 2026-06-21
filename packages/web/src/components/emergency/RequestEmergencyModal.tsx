@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Clock, Image, Loader2, Paperclip, Send, Video, X, Zap } from 'lucide-react';
+import IconButton from '../ui/IconButton';
+import Select from '../ui/Select';
 import { api } from '../../lib/api';
 import { uploadFile } from '../../lib/uploadFile';
 
@@ -142,7 +144,7 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
             <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
               <Clock className="h-3 w-3" /> 48 ساعة
             </span>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1"><X className="h-4 w-4" /></button>
+            <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
           </div>
         </div>
 
@@ -153,15 +155,14 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
           {contracts.length > 0 && (
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-1.5">العقد / الجهاز</label>
-              <select value={contractId} onChange={e => setContractId(Number(e.target.value) || '')}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20">
-                <option value="">— اختر العقد —</option>
-                {contracts.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.contractNumber} — {c.deviceModelName || 'جهاز'}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={contractId === '' ? '' : String(contractId)}
+                onChange={v => setContractId(v === '' ? '' : Number(v))}
+                placeholder="— اختر العقد —"
+                ariaLabel="العقد / الجهاز"
+                className="w-full"
+                options={contracts.map(c => ({ value: String(c.id), label: `${c.contractNumber} — ${c.deviceModelName || 'جهاز'}` }))}
+              />
               {contractId && contracts.find(c => c.id === contractId)?.installationAddressText && (
                 <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
                   <span className="font-bold text-slate-500">موقع الجهاز:</span>
@@ -177,11 +178,14 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
               نوع الإجراء المطلوب
               <span className="font-normal text-slate-400 mr-1">(اختياري)</span>
             </label>
-            <select value={actionTypeId} onChange={e => setActionTypeId(Number(e.target.value) || '')}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20">
-              <option value="">— لم يُحدَّد —</option>
-              {actionTypes.map(t => <option key={t.id} value={t.id}>{t.arabicLabel}</option>)}
-            </select>
+            <Select
+              value={actionTypeId === '' ? '' : String(actionTypeId)}
+              onChange={v => setActionTypeId(v === '' ? '' : Number(v))}
+              placeholder="— لم يُحدَّد —"
+              ariaLabel="نوع الإجراء"
+              className="w-full"
+              options={actionTypes.map(t => ({ value: String(t.id), label: t.arabicLabel }))}
+            />
           </div>
 
           {/* Problem description */}

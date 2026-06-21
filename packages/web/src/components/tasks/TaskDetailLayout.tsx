@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Loader2, AlertCircle, ChevronRight } from 'lucide-react';
 import { api } from '../../lib/api';
 import ClientCardPopup from '../ClientCardPopup';
+import Button from '../ui/Button';
 import TaskHeader from './TaskHeader';
 import TaskOverviewTab from './tabs/TaskOverviewTab';
 import TaskClientTab from './tabs/TaskClientTab';
@@ -26,9 +27,9 @@ function TabButton({ active, label, onClick }: { active: boolean; label: string;
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border transition-colors ${active
-        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+      className={`relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors ${active
+        ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
+        : 'text-slate-500 hover:text-slate-800'
       }`}
     >
       <span>{label}</span>
@@ -181,13 +182,15 @@ export default function TaskDetailLayout({
       <div className="h-full flex flex-col items-center justify-center text-slate-500" dir="rtl">
         <AlertCircle className="w-10 h-10 text-rose-400 mb-3" />
         <p className="text-sm font-medium">{error || 'المهمة غير موجودة'}</p>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={ChevronRight}
           onClick={() => navigate(backHref)}
-          className="mt-4 text-sky-600 font-bold text-sm flex items-center gap-2 hover:underline"
+          className="mt-4"
         >
-          <ChevronRight className="w-4 h-4" />
           العودة
-        </button>
+        </Button>
       </div>
     );
   }
@@ -210,9 +213,9 @@ export default function TaskDetailLayout({
         onBack={() => navigate(backHref)}
       />
 
-      {/* Tabs */}
-      <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 shrink-0">
-        <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-2">
+      {/* Tabs — underline pattern */}
+      <div className="bg-white px-6 pt-3 border-b border-[#E3E7EC] shrink-0">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-1">
           {allTabIds.map(tabId => {
             const label = BASE_TAB_LABELS[tabId] ?? extraTabs.find(t => t.id === tabId)?.label ?? tabId;
             return (

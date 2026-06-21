@@ -432,7 +432,7 @@ export default function ClientProfile() {
                 <main className="min-w-0 bg-slate-50">
                     <div className="sticky top-0 z-20 border-b border-gray-100 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-6 lg:px-8">
                         <div className="mx-auto max-w-7xl overflow-x-auto no-scrollbar">
-                            <div className="flex w-max min-w-full items-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 p-1.5 shadow-sm">
+                            <div className="flex w-max min-w-full items-center gap-1 border-b border-[#E3E7EC]">
                             {[
                                 { id: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
                                 { id: 'contacts', label: 'التواصل', icon: Contact2 },
@@ -448,12 +448,12 @@ export default function ClientProfile() {
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id as any)}
-                                    className={`flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all whitespace-nowrap sm:px-5 ${safeActiveTab === tab.id
-                                        ? 'text-sky-700 bg-white shadow-sm border border-gray-100'
-                                        : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
+                                    className={`relative inline-flex shrink-0 items-center justify-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold whitespace-nowrap transition-colors ${safeActiveTab === tab.id
+                                        ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
+                                        : 'text-slate-500 hover:text-slate-800'
                                         }`}
                                 >
-                                    <tab.icon className={`w-4 h-4 ${safeActiveTab === tab.id ? 'text-sky-500' : 'text-slate-400'}`} />
+                                    <tab.icon className={`w-4 h-4 ${safeActiveTab === tab.id ? 'text-sky-600' : 'text-slate-400'}`} />
                                     <span>{tab.label}</span>
                                 </button>
                             ))}

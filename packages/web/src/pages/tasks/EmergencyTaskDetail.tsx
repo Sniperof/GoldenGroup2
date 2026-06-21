@@ -6,6 +6,7 @@ import type { TaskTypeExtension, TaskDetailData } from '../../components/tasks/t
 import EmergencyDetailsTab from '../../taskTypes/emergency_maintenance/EmergencyDetailsTab';
 import EmergencyResultRenderer from '../../taskTypes/emergency_maintenance/EmergencyResultRenderer';
 import MaintenanceReceiptModal from '../../components/emergency/MaintenanceReceiptModal';
+import Button from '../../components/ui/Button';
 
 function overviewIssuesFor(data: TaskDetailData): string[] {
   const { task } = data;
@@ -35,14 +36,15 @@ export default function EmergencyTaskDetail() {
     ],
     ResultRenderer: EmergencyResultRenderer,
     tabBarActions: () => (
-      <button
-        type="button"
+      <Button
+        variant="secondary"
+        size="sm"
+        icon={FileText}
         onClick={() => setShowReceipt(true)}
-        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-100 transition-colors"
+        className="border-rose-200 text-rose-700 hover:bg-rose-100"
       >
-        <FileText className="h-4 w-4" />
         وصل الصيانة
-      </button>
+      </Button>
     ),
   };
 

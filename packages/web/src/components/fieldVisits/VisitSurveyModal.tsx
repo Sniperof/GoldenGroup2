@@ -8,7 +8,10 @@
 
 import { useEffect, useState } from 'react';
 import { X, ClipboardCheck, Save, SkipForward } from 'lucide-react';
+import IconButton from '../ui/IconButton';
 import { api } from '../../lib/api';
+import Select from '../ui/Select';
+import Input from '../ui/Input';
 
 interface Props {
   visitId: number;
@@ -165,9 +168,7 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
             <ClipboardCheck className="w-4 h-4 text-emerald-700" />
             <h2 className="text-sm font-bold text-slate-800">استبيان الزيارة</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-200">
-            <X className="w-4 h-4 text-slate-600" />
-          </button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
@@ -189,16 +190,14 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
           {skipMode ? (
             <div>
               <label className="block text-[11px] font-bold text-slate-600 mb-1">سبب التخطي</label>
-              <select
+              <Select
                 value={skipReason}
-                onChange={(e) => setSkipReason(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-              >
-                <option value="">اختر سبباً</option>
-                {skipReasons.map((r) => (
-                  <option key={r.id ?? r.value} value={r.value}>{r.value}</option>
-                ))}
-              </select>
+                onChange={setSkipReason}
+                placeholder="اختر سبباً"
+                ariaLabel="سبب التخطي"
+                className="w-full"
+                options={skipReasons.map(r => ({ value: r.value, label: r.value }))}
+              />
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
@@ -212,28 +211,28 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
               <TextField label="تقييم فكرة أجهزة التنقية" value={form.customerOpinionPurificationIdea} onChange={(v) => setField('customerOpinionPurificationIdea', v)} />
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">رغبة الشراء</label>
-                <select
+                <Select<'yes' | 'no'>
                   value={form.customerPurchaseIntent}
-                  onChange={(e) => setField('customerPurchaseIntent', e.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                >
-                  <option value="yes">نعم</option>
-                  <option value="no">لا</option>
-                </select>
+                  onChange={v => setField('customerPurchaseIntent', v)}
+                  ariaLabel="رغبة الشراء"
+                  className="w-full"
+                  options={[
+                    { value: 'yes', label: 'نعم' },
+                    { value: 'no', label: 'لا' },
+                  ]}
+                />
               </div>
               <TextField label="طريقة الدفع المتوقعة" value={form.expectedPaymentMethod} onChange={(v) => setField('expectedPaymentMethod', v)} />
               <div className="col-span-2">
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">تقييم المنطقة</label>
-                <select
+                <Select
                   value={form.areaEvaluation}
-                  onChange={(e) => setField('areaEvaluation', e.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                >
-                  <option value="">اختر تقييماً</option>
-                  {areaEvalOptions.map((r) => (
-                    <option key={r.id ?? r.value} value={r.value}>{r.value}</option>
-                  ))}
-                </select>
+                  onChange={v => setField('areaEvaluation', v)}
+                  placeholder="اختر تقييماً"
+                  ariaLabel="تقييم المنطقة"
+                  className="w-full"
+                  options={areaEvalOptions.map(r => ({ value: r.value, label: r.value }))}
+                />
               </div>
             </div>
           )}
@@ -263,28 +262,23 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
 
 function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <div>
-      <label className="block text-[11px] font-bold text-slate-600 mb-1">{label}</label>
-      <input
-        type="number"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-      />
-    </div>
+    <Input
+      label={label}
+      type="number"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      inputSize="sm"
+    />
   );
 }
 
 function TextField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <div>
-      <label className="block text-[11px] font-bold text-slate-600 mb-1">{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-      />
-    </div>
+    <Input
+      label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      inputSize="sm"
+    />
   );
 }

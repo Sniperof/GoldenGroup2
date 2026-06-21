@@ -15,6 +15,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../ui/Select';
 
 interface PostSaleStepperProps {
   contract: any;
@@ -328,16 +329,18 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
               {/* Outcome Selection */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">نتيجة عملية التوصيل</label>
-                <select
+                <Select
                   value={outcome}
-                  onChange={(e) => setOutcome(e.target.value as any)}
-                  className="w-full bg-white border border-slate-200 text-slate-900 rounded-lg p-2.5 text-sm focus:outline-none focus:border-sky-500"
-                >
-                  <option value="delivered_successfully">تم التسليم بنجاح للعميل</option>
-                  <option value="customer_not_available">العميل غير متوفر في المنزل</option>
-                  <option value="wrong_address">العنوان المسجل خاطئ</option>
-                  <option value="refused_delivery">رفض العميل استلام الجهاز</option>
-                </select>
+                  onChange={v => setOutcome(v as any)}
+                  ariaLabel="نتيجة التوصيل"
+                  className="w-full"
+                  options={[
+                    { value: 'delivered_successfully', label: 'تم التسليم بنجاح للعميل' },
+                    { value: 'customer_not_available', label: 'العميل غير متوفر في المنزل' },
+                    { value: 'wrong_address', label: 'العنوان المسجل خاطئ' },
+                    { value: 'refused_delivery', label: 'رفض العميل استلام الجهاز' },
+                  ]}
+                />
               </div>
 
               {outcome === 'delivered_successfully' && (
@@ -358,15 +361,17 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
                   {/* Operational Condition */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">الحالة التشغيلية عند الاستلام</label>
-                    <select
+                    <Select
                       value={deliveryCondition}
-                      onChange={(e) => setDeliveryCondition(e.target.value as any)}
-                      className="w-full bg-white border border-slate-200 text-slate-900 rounded-lg p-2.5 text-sm focus:outline-none focus:border-sky-500"
-                    >
-                      <option value="perfect">سليم وممتاز (Perfect)</option>
-                      <option value="minor_damage">ضرر خارجي طفيف (Minor Damage)</option>
-                      <option value="missing_accessories">نقص في بعض الملحقات (Missing Accessories)</option>
-                    </select>
+                      onChange={v => setDeliveryCondition(v as any)}
+                      ariaLabel="الحالة التشغيلية"
+                      className="w-full"
+                      options={[
+                        { value: 'perfect', label: 'سليم وممتاز (Perfect)' },
+                        { value: 'minor_damage', label: 'ضرر خارجي طفيف (Minor Damage)' },
+                        { value: 'missing_accessories', label: 'نقص في بعض الملحقات (Missing Accessories)' },
+                      ]}
+                    />
                   </div>
                 </>
               )}

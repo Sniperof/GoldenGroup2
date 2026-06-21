@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import IconButton from '../ui/IconButton';
 import { Loader2, X } from 'lucide-react';
 import type {
   DeviceModel,
@@ -9,6 +10,7 @@ import type {
   MarketingVisitTask,
   MarketingVisitTaskResult,
 } from '@golden-crm/shared';
+import Select from '../ui/Select';
 
 const TASK_TYPE_LABELS: Record<string, string> = {
   device_demo: 'عرض جهاز',
@@ -228,14 +230,7 @@ export default function MarketingVisitResultModal({
                   : 'تسجيل نتيجة مهمة الزيارة'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-white hover:text-slate-600"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto p-6">
@@ -266,18 +261,14 @@ export default function MarketingVisitResultModal({
             <label className="text-sm font-bold text-slate-700">
               حالة الزيارة <span className="text-red-500">*</span>
             </label>
-            <select
+            <Select<MarketingVisitStatus | ''>
               value={status}
-              onChange={(event) => setStatus(event.target.value as MarketingVisitStatus)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-            >
-              <option value="">اختر حالة الزيارة...</option>
-              {STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              onChange={setStatus}
+              placeholder="اختر حالة الزيارة..."
+              ariaLabel="حالة الزيارة"
+              className="w-full"
+              options={STATUS_OPTIONS}
+            />
           </div>
 
           {requiresTaskResult && (
@@ -285,18 +276,14 @@ export default function MarketingVisitResultModal({
               <label className="text-sm font-bold text-slate-700">
                 نتيجة عرض الجهاز <span className="text-red-500">*</span>
               </label>
-              <select
+              <Select<MarketingVisitTaskResult | ''>
                 value={taskResult}
-                onChange={(event) => setTaskResult(event.target.value as MarketingVisitTaskResult)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-              >
-                <option value="">اختر نتيجة عرض الجهاز...</option>
-                {TASK_RESULT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                onChange={setTaskResult}
+                placeholder="اختر نتيجة عرض الجهاز..."
+                ariaLabel="نتيجة عرض الجهاز"
+                className="w-full"
+                options={TASK_RESULT_OPTIONS}
+              />
             </div>
           )}
 
@@ -315,15 +302,13 @@ export default function MarketingVisitResultModal({
                   className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
                   placeholder="أدخل قيمة العرض الكاش"
                 />
-                <select
+                <Select
                   value={currency}
-                  onChange={(event) => setCurrency(event.target.value)}
-                  className="w-24 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                >
-                  {CURRENCY_OPTIONS.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+                  onChange={setCurrency}
+                  ariaLabel="العملة"
+                  className="w-24"
+                  options={CURRENCY_OPTIONS.map(c => ({ value: c, label: c }))}
+                />
               </div>
             </div>
           )}
@@ -344,15 +329,13 @@ export default function MarketingVisitResultModal({
                     className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
                     placeholder="أدخل قيمة القسط"
                   />
-                  <select
+                  <Select
                     value={currency}
-                    onChange={(event) => setCurrency(event.target.value)}
-                    className="w-24 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                  >
-                    {CURRENCY_OPTIONS.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
+                    onChange={setCurrency}
+                    ariaLabel="العملة"
+                    className="w-24"
+                    options={CURRENCY_OPTIONS.map(c => ({ value: c, label: c }))}
+                  />
                 </div>
               </div>
               <div className="space-y-2">
@@ -395,18 +378,14 @@ export default function MarketingVisitResultModal({
               <label className="text-sm font-bold text-slate-700">
                 تم الإغلاق مع <span className="text-red-500">*</span>
               </label>
-              <select
+              <Select
                 value={closedByEmployeeId}
-                onChange={(event) => setClosedByEmployeeId(event.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-              >
-                <option value="">اختر الموظف...</option>
-                {activeEmployees.map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setClosedByEmployeeId}
+                placeholder="اختر الموظف..."
+                ariaLabel="تم الإغلاق مع"
+                className="w-full"
+                options={activeEmployees.map(employee => ({ value: String(employee.id), label: employee.name }))}
+              />
             </div>
           )}
 
@@ -415,18 +394,14 @@ export default function MarketingVisitResultModal({
               <label className="text-sm font-bold text-slate-700">
                 الجهاز المباع <span className="text-slate-400 font-normal text-xs">(اختياري)</span>
               </label>
-              <select
+              <Select
                 value={soldDeviceModelId}
-                onChange={(event) => setSoldDeviceModelId(event.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
-              >
-                <option value="">لا يوجد / غير محدد</option>
-                {deviceModels.map((dm) => (
-                  <option key={dm.id} value={dm.id}>
-                    {dm.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setSoldDeviceModelId}
+                placeholder="لا يوجد / غير محدد"
+                ariaLabel="الجهاز المباع"
+                className="w-full"
+                options={deviceModels.map(dm => ({ value: String(dm.id), label: dm.name }))}
+              />
             </div>
           )}
 

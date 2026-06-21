@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import IconButton from '../ui/IconButton';
 import { motion } from 'framer-motion';
 import {
     CheckCircle2, X, Send, PhoneMissed, PhoneCall,
@@ -6,6 +7,7 @@ import {
 } from 'lucide-react';
 import { TelemarketingOutcomeCode, OUTCOME_MAP } from '@golden-crm/shared';
 import { useSystemList } from '../../hooks/useSystemList';
+import Button from '../ui/Button';
 
 interface Props {
     isOpen: boolean;
@@ -76,9 +78,7 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
                             <p className="text-xs text-slate-500">تم الرد على الرسالة — سجّل النتيجة</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-colors">
-                        <X className="w-5 h-5" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
                 </div>
 
                 {/* Body */}
@@ -268,15 +268,10 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
 
                 {/* Footer */}
                 <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
-                    <button onClick={onClose}
-                        className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
-                        إلغاء
-                    </button>
-                    <button onClick={handleSave} disabled={!canSave}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl text-sm font-bold shadow-md shadow-amber-500/20 disabled:shadow-none transition-all">
-                        <CheckCircle2 className="w-4 h-4" />
+                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                    <Button variant="gold" onClick={handleSave} disabled={!canSave} icon={CheckCircle2}>
                         حفظ النتيجة
-                    </button>
+                    </Button>
                 </div>
             </motion.div>
         </div>

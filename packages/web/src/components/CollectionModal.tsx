@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
+import IconButton from './ui/IconButton';
 import { X, Calendar, DollarSign, CheckCircle, AlertCircle } from 'lucide-react';
 import { useCollectionStore } from '../hooks/useCollectionStore';
 import { Due } from '../lib/types';
 import { motion, AnimatePresence } from 'framer-motion';
+import Button from './ui/Button';
+import Input from './ui/Input';
 
 interface CollectionModalProps {
     isOpen: boolean;
@@ -67,9 +70,7 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
                             <h3 className="text-lg font-bold text-slate-900">تسجيل مكالمة تحصيل</h3>
                             <p className="text-sm text-slate-500 mt-1">{due.customerName} - {due.mobile}</p>
                         </div>
-                        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
-                            <X className="w-5 h-5" />
-                        </button>
+                        <IconButton icon={X} label="إغلاق" shape="circle" onClick={onClose} />
                     </div>
 
                     <form onSubmit={handleSubmit} className="p-6 space-y-6">
@@ -111,15 +112,15 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
 
                         {outcome === 'Partial Pay' && (
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-700">المبلغ المدفوع (ل.س)</label>
-                                <input
+                                <Input
+                                    label="المبلغ المدفوع (ل.س)"
                                     type="number"
                                     required
                                     placeholder="0"
                                     value={partialAmount}
                                     onChange={(e) => setPartialAmount(e.target.value)}
-                                    className="w-full p-3 rounded-xl border border-gray-200 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none text-left ltr"
                                     dir="ltr"
+                                    className="text-left"
                                 />
                                 <p className="text-xs text-slate-500 text-left">المتبقي: {due.remainingBalance.toLocaleString()}</p>
                             </div>
@@ -136,20 +137,22 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
                         </div>
 
                         <div className="flex gap-3 pt-2">
-                            <button
-                                type="button"
+                            <Button
+                                variant="secondary"
+                                size="lg"
+                                fullWidth
                                 onClick={onClose}
-                                className="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-slate-600 font-medium hover:bg-gray-50 transition-colors"
                             >
                                 إلغاء
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                                 type="submit"
+                                size="lg"
+                                fullWidth
                                 disabled={!outcome || (outcome === 'Promise to Pay' && !promiseDate) || (outcome === 'Partial Pay' && !partialAmount)}
-                                className="flex-1 py-3 px-4 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-sky-200"
                             >
                                 حفظ
-                            </button>
+                            </Button>
                         </div>
                     </form>
                 </motion.div>
