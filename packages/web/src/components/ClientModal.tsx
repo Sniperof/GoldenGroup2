@@ -7,6 +7,7 @@ import 'react-quill/dist/quill.snow.css';
 import MapPicker from './MapPicker';
 import GeoSmartSearch from './GeoSmartSearch';
 import type { GeoSelection } from './GeoSmartSearch';
+import Select from './ui/Select';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -760,20 +761,20 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     <label className="text-xs font-semibold text-slate-500">
                                                         الفرع التشغيلي <span className="text-red-500">*</span>
                                                     </label>
-                                                    <select
-                                                        value={selectedBranchId}
-                                                        onChange={e => {
-                                                            setSelectedBranchId(e.target.value ? Number(e.target.value) : '');
+                                                    <Select<string>
+                                                        value={selectedBranchId === '' ? '' : String(selectedBranchId)}
+                                                        onChange={(v) => {
+                                                            setSelectedBranchId(v ? Number(v) : '');
                                                             handleGeoChange({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
                                                             setAssignmentUserIds([]);
                                                         }}
-                                                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                                    >
-                                                        <option value="">اختر الفرع</option>
-                                                        {branches.map(branch => (
-                                                            <option key={branch.id} value={branch.id}>{branch.name}</option>
-                                                        ))}
-                                                    </select>
+                                                        ariaLabel="الفرع التشغيلي"
+                                                        className="w-full"
+                                                        options={[
+                                                            { value: '', label: 'اختر الفرع' },
+                                                            ...branches.map(branch => ({ value: String(branch.id), label: branch.name })),
+                                                        ]}
+                                                    />
                                                     <p className="text-[11px] text-slate-400">
                                                         هذا هو الفرع التشغيلي للعميل، وليس فلتر عرض فقط.
                                                     </p>

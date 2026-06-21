@@ -6,6 +6,8 @@ import type { Branch, BranchContact, BranchContactType, BranchDepartment, GeoUni
 import { usePermissions } from '../hooks/usePermissions';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
+import Button from '../components/ui/Button';
+import Select from '../components/ui/Select';
 import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } from '../components/GeoSmartSearch';
 import {
   MapPin, Building2, Plus, Edit, Trash2, X, Network,
@@ -234,11 +236,9 @@ export default function Branches() {
           </h1>
           <p className="text-sm text-slate-500 mt-1">إضافة الفروع وتحديد معلومات التواصل ونطاق التغطية الجغرافية</p>
         </div>
-        <button onClick={() => openForm()}
-          disabled={!canManageBranchStructure}
-          className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95">
-          <Plus className="w-4 h-4" /> إضافة فرع جديد
-        </button>
+        <Button icon={Plus} disabled={!canManageBranchStructure} onClick={() => openForm()}>
+          إضافة فرع جديد
+        </Button>
       </div>
 
       <SmartTable<Branch>
@@ -288,12 +288,17 @@ export default function Branches() {
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-sm font-semibold text-slate-700">الحالة</label>
-                    <select value={status} onChange={e => setStatus(e.target.value as any)}
+                    <Select
+                      value={status}
+                      onChange={v => setStatus(v as any)}
                       disabled={!canManageBranchStructure}
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none disabled:bg-gray-50">
-                      <option value="active">نشط</option>
-                      <option value="inactive">غير نشط</option>
-                    </select>
+                      ariaLabel="الحالة"
+                      className="w-full"
+                      options={[
+                        { value: 'active', label: 'نشط' },
+                        { value: 'inactive', label: 'غير نشط' },
+                      ]}
+                    />
                   </div>
                 </div>
 
@@ -364,39 +369,30 @@ export default function Branches() {
                               {/* Contact type */}
                               <div className="space-y-1">
                                 <label className="text-xs font-semibold text-slate-500">نوع التواصل</label>
-                                <div className="relative">
-                                  <select
-                                    value={contact.type}
-                                    onChange={e => updateContact(contact.id, {
-                                      type: e.target.value as BranchContactType,
-                                      value: '', // reset value when type changes
-                                    })}
-                                    disabled={!canEditCurrentBranchDetails}
-                                    className="w-full appearance-none bg-white border border-slate-200 rounded-xl pl-8 pr-4 py-2 text-sm focus:border-violet-400 focus:ring-2 focus:ring-violet-100 outline-none"
-                                  >
-                                    {CONTACT_TYPES.map(t => (
-                                      <option key={t.value} value={t.value}>{t.label}</option>
-                                    ))}
-                                  </select>
-                                  <span className={`absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none`}>
-                                    {typeMeta.icon}
-                                  </span>
-                                </div>
+                                <Select<BranchContactType>
+                                  value={contact.type}
+                                  onChange={v => updateContact(contact.id, {
+                                    type: v,
+                                    value: '', // reset value when type changes
+                                  })}
+                                  disabled={!canEditCurrentBranchDetails}
+                                  ariaLabel="نوع التواصل"
+                                  className="w-full"
+                                  options={CONTACT_TYPES.map(t => ({ value: t.value, label: t.label, leading: t.icon }))}
+                                />
                               </div>
 
                               {/* Department */}
                               <div className="space-y-1">
                                 <label className="text-xs font-semibold text-slate-500">القسم</label>
-                                <select
+                                <Select<BranchDepartment>
                                   value={contact.department}
-                                  onChange={e => updateContact(contact.id, { department: e.target.value as BranchDepartment })}
+                                  onChange={v => updateContact(contact.id, { department: v })}
                                   disabled={!canEditCurrentBranchDetails}
-                                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:border-violet-400 focus:ring-2 focus:ring-violet-100 outline-none"
-                                >
-                                  {DEPARTMENTS.map(d => (
-                                    <option key={d.value} value={d.value}>{d.label}</option>
-                                  ))}
-                                </select>
+                                  ariaLabel="القسم"
+                                  className="w-full"
+                                  options={DEPARTMENTS.map(d => ({ value: d.value, label: d.label }))}
+                                />
                               </div>
                             </div>
 

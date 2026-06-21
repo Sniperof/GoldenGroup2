@@ -4,6 +4,7 @@ import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Ligh
 import { api } from '../lib/api';
 import type { Client, CustomerOwnership, GeoUnit, Contract } from '../lib/types';
 import ClientModal from '../components/ClientModal';
+import Button from '../components/ui/Button';
 import ClientAvatar from '../components/ClientAvatar';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
@@ -410,7 +411,8 @@ export default function Clients() {
                             </span>
                         </div>
                     )}
-                <button
+                <Button
+                    icon={UserPlus}
                     disabled={mustPickBranch}
                     title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة زبون' : undefined}
                     onClick={() => {
@@ -425,11 +427,9 @@ export default function Clients() {
                         });
                         setIsPreAddModalOpen(true);
                     }}
-                    className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-sky-500/20 transition-all active:scale-95 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed disabled:active:scale-100"
                 >
-                    <UserPlus className="w-4 h-4" />
-                    <span>{mustPickBranch ? 'اختر فرعاً لإضافة زبون' : 'إضافة اسم مرشح جديد'}</span>
-                </button>
+                    {mustPickBranch ? 'اختر فرعاً لإضافة زبون' : 'إضافة اسم مرشح جديد'}
+                </Button>
                 </div>
             </div>
 
