@@ -210,7 +210,7 @@ export default function DeviceDemo() {
             ariaLabel="حالة المهمة"
             options={[
               { value: '', label: 'كل حالات المهمة' },
-              ...Object.entries(OPEN_TASK_STATUS_LABELS).map(([key, label]) => ({ value: key, label })),
+              ...Object.entries(OPEN_TASK_STATUS_LABELS).map(([key, label]) => ({ value: key, label: String(label) })),
             ]}
           />
 

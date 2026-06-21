@@ -137,7 +137,7 @@ export default function OpenTasks() {
             placeholder="كل الحالات"
             ariaLabel="الحالة"
             size="sm"
-            options={Object.entries(OPEN_TASK_STATUS_LABELS).map(([key, label]) => ({ value: key, label }))}
+            options={Object.entries(OPEN_TASK_STATUS_LABELS).map(([key, label]) => ({ value: key, label: String(label) }))}
           />
         </div>
       </div>
