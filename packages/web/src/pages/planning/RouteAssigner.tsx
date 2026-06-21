@@ -4,6 +4,7 @@ import { Calendar, Users, Save, Plus, MapPin, Route as RouteIcon, ListOrdered, X
 import { api } from '../../lib/api';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
+import Select from '../../components/ui/Select';
 import { levelNames } from '../../lib/geoConstants';
 import type { Route, GeoUnit, DaySchedule, RouteComposition, RouteAssignmentData } from '../../lib/types';
 import { getWorkCoverageLabel } from '../../lib/types';
@@ -470,10 +471,15 @@ export default function RouteAssigner() {
                 <div className="h-8 w-px bg-gray-200" />
                 <div className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-sky-600" />
-                    <select value={selectedTeam} onChange={e => onTeamChange(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none w-56">
-                        <option value="">اختر الفريق...</option>
-                        {teamOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
+                    <Select
+                        value={selectedTeam}
+                        onChange={onTeamChange}
+                        placeholder="اختر الفريق..."
+                        ariaLabel="الفريق"
+                        variant="filled"
+                        className="w-56"
+                        options={[{ value: '', label: 'اختر الفريق...' }, ...teamOptions.map(o => ({ value: o.value, label: o.label }))]}
+                    />
                 </div>
                 <div className="mr-auto flex items-center gap-2">
                     <button
@@ -509,10 +515,15 @@ export default function RouteAssigner() {
                                 <Plus className="w-3.5 h-3.5" /><span>إضافة مسار</span>
                             </button>
                         </div>
-                        <select value={selectedRouteId} onChange={e => setSelectedRouteId(e.target.value)} disabled={!selectedTeam} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 disabled:opacity-60 disabled:cursor-not-allowed focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none">
-                            <option value="">{selectedTeam ? 'اختر مساراً محدداً مسبقاً...' : 'اختر الفريق أولاً...'}</option>
-                            {availableRoutes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                        </select>
+                        <Select
+                            value={selectedRouteId}
+                            onChange={setSelectedRouteId}
+                            disabled={!selectedTeam}
+                            ariaLabel="المسار"
+                            variant="filled"
+                            className="w-full"
+                            options={[{ value: '', label: selectedTeam ? 'اختر مساراً محدداً مسبقاً...' : 'اختر الفريق أولاً...' }, ...availableRoutes.map(r => ({ value: String(r.id), label: r.name }))]}
+                        />
                     </div>
 
                     {/* Composed Routes */}
