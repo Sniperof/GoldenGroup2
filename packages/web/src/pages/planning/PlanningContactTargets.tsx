@@ -8,6 +8,7 @@ import {
 import { api } from '../../lib/api';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { getOutcomeMeta } from '@golden-crm/shared';
+import Select from '../../components/ui/Select';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -769,27 +770,26 @@ export default function PlanningContactTargets() {
                                 />
                             </div>
 
-                            <select
+                            <Select
                                 value={stationFilter}
-                                onChange={e => setStationFilter(e.target.value)}
-                                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-sky-400"
-                            >
-                                <option value="all">كل المحطات</option>
-                                {stationOptions.map(station => (
-                                    <option key={station} value={station}>{station}</option>
-                                ))}
-                            </select>
+                                onChange={setStationFilter}
+                                ariaLabel="المحطة"
+                                variant="filled"
+                                options={[{ value: 'all', label: 'كل المحطات' }, ...stationOptions.map(station => ({ value: station, label: station }))]}
+                            />
 
-                            <select
+                            <Select<'all' | '1' | '3' | '5'>
                                 value={attemptFilter}
-                                onChange={e => setAttemptFilter(e.target.value as 'all' | '1' | '3' | '5')}
-                                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-sky-400"
-                            >
-                                <option value="all">كل المحاولات</option>
-                                <option value="1">1+ محاولة</option>
-                                <option value="3">3+ محاولات</option>
-                                <option value="5">5+ محاولات</option>
-                            </select>
+                                onChange={setAttemptFilter}
+                                ariaLabel="المحاولات"
+                                variant="filled"
+                                options={[
+                                    { value: 'all', label: 'كل المحاولات' },
+                                    { value: '1', label: '1+ محاولة' },
+                                    { value: '3', label: '3+ محاولات' },
+                                    { value: '5', label: '5+ محاولات' },
+                                ]}
+                            />
                         </div>
 
                         {hasActiveFilters && (
