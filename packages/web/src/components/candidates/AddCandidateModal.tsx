@@ -5,6 +5,7 @@ import { UserPlus, PlusCircle, X, CheckCircle, AlertCircle, Save, MapPin, Trash2
 import { CandidateStatus, ReferralType, ReferralOriginChannel, Client, ContactEntry, Candidate, ContactType, ContactStatus } from '../../lib/types';
 import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
+import Select from '../ui/Select';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -571,16 +572,14 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                 <Building2 className="w-3.5 h-3.5" />
                                                 الفرع <span className="text-red-500">*</span>
                                             </label>
-                                            <select
-                                                value={selectedBranchId}
-                                                onChange={(e) => setSelectedBranchId(e.target.value ? Number(e.target.value) : '')}
-                                                className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
-                                            >
-                                                <option value="">-- اختر الفرع --</option>
-                                                {branches.map(branch => (
-                                                    <option key={branch.id} value={branch.id}>{branch.name}</option>
-                                                ))}
-                                            </select>
+                                            <Select
+                                                value={selectedBranchId === '' ? '' : String(selectedBranchId)}
+                                                onChange={(v) => setSelectedBranchId(v ? Number(v) : '')}
+                                                placeholder="-- اختر الفرع --"
+                                                ariaLabel="الفرع"
+                                                className="w-full"
+                                                options={[{ value: '', label: '-- اختر الفرع --' }, ...branches.map(branch => ({ value: String(branch.id), label: branch.name }))]}
+                                            />
                                         </div>
                                     )}
                                     {canChooseAssignedOwner && (
@@ -595,18 +594,14 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                     <span className="text-[10px] text-slate-400">مثبّت من اللائحة</span>
                                                 </div>
                                             ) : (
-                                                <select
-                                                    value={selectedResponsibleUserId}
-                                                    onChange={(e) => setSelectedResponsibleUserId(e.target.value ? Number(e.target.value) : '')}
-                                                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm"
-                                                >
-                                                    <option value="">-- اختر المسؤول --</option>
-                                                    {assignableHrUsers.map(user => (
-                                                        <option key={user.id} value={user.id}>
-                                                            {user.name}{user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                <Select
+                                                    value={selectedResponsibleUserId === '' ? '' : String(selectedResponsibleUserId)}
+                                                    onChange={(v) => setSelectedResponsibleUserId(v ? Number(v) : '')}
+                                                    placeholder="-- اختر المسؤول --"
+                                                    ariaLabel="المسؤول"
+                                                    className="w-full"
+                                                    options={[{ value: '', label: '-- اختر المسؤول --' }, ...assignableHrUsers.map(user => ({ value: String(user.id), label: `${user.name}${user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}` }))]}
+                                                />
                                             )}
                                         </div>
                                     )}
@@ -618,18 +613,14 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                 <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-100 flex items-end gap-3 transition-all">
                                     <div className="flex-1">
                                         <label className="block text-xs font-semibold text-slate-600 mb-1.5">اختر لائحة أسماء  <span className="text-red-500">*</span></label>
-                                        <select
-                                            value={selectedSheetId}
-                                            onChange={(e) => setSelectedSheetId(e.target.value ? Number(e.target.value) : '')}
-                                            className="w-full p-2.5 rounded-xl border border-amber-200 bg-white focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm"
-                                        >
-                                            <option value="" disabled>-- اختر لائحة أسماء لإضافة أسماء مقترحة مرتبطة بها --</option>
-                                            {activeSheets.map((sheet: any) => (
-                                                <option key={sheet.id} value={sheet.id}>
-                                                    [#{sheet.id}] {sheet.referralNameSnapshot} - {sheet.stats.totalCandidates} أسماء
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <Select
+                                            value={selectedSheetId === '' ? '' : String(selectedSheetId)}
+                                            onChange={(v) => setSelectedSheetId(v ? Number(v) : '')}
+                                            placeholder="-- اختر لائحة أسماء لإضافة أسماء مقترحة مرتبطة بها --"
+                                            ariaLabel="لائحة الأسماء"
+                                            className="w-full"
+                                            options={activeSheets.map((sheet: any) => ({ value: String(sheet.id), label: `[#${sheet.id}] ${sheet.referralNameSnapshot} - ${sheet.stats.totalCandidates} أسماء` }))}
+                                        />
                                     </div>
                                     <button
                                         onClick={() => setIsCreateSheetOpen(true)}
@@ -645,25 +636,33 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-xs font-semibold text-slate-600 mb-1.5">نوع الوسيط *</label>
-                                            <select value={referralType} onChange={e => setReferralType(e.target.value as ReferralType)} className="w-full p-2.5 rounded-xl border border-indigo-200 bg-white text-sm">
-                                                <option value="Personal">شخصي</option>
-                                                <option value="Client">زبون</option>
-                                                <option value="Employee">موظف</option>
-                                                <option value="Unknown">مجهول</option>
-                                            </select>
+                                            <Select<ReferralType>
+                                                value={referralType}
+                                                onChange={setReferralType}
+                                                ariaLabel="نوع الوسيط"
+                                                className="w-full"
+                                                options={[
+                                                    { value: 'Personal', label: 'شخصي' },
+                                                    { value: 'Client', label: 'زبون' },
+                                                    { value: 'Employee', label: 'موظف' },
+                                                    { value: 'Unknown', label: 'مجهول' },
+                                                ]}
+                                            />
                                         </div>
                                         <div>
                                             <label className="block text-xs font-semibold text-slate-600 mb-1.5">طريقة التواصل *</label>
-                                            <select
+                                            <Select<ReferralOriginChannel>
                                                 value={originChannel}
-                                                onChange={e => setOriginChannel(e.target.value as ReferralOriginChannel)}
-                                                className="w-full p-2.5 rounded-xl border border-indigo-200 bg-white text-sm"
-                                            >
-                                                <option value="Acquaintance">معرفة شخصية</option>
-                                                <option value="PhoneCall">مكالمة هاتفية</option>
-                                                <option value="SocialMedia">سوشال ميديا</option>
-                                                <option value="Campaign">حملة إعلانية</option>
-                                            </select>
+                                                onChange={setOriginChannel}
+                                                ariaLabel="طريقة التواصل"
+                                                className="w-full"
+                                                options={[
+                                                    { value: 'Acquaintance', label: 'معرفة شخصية' },
+                                                    { value: 'PhoneCall', label: 'مكالمة هاتفية' },
+                                                    { value: 'SocialMedia', label: 'سوشال ميديا' },
+                                                    { value: 'Campaign', label: 'حملة إعلانية' },
+                                                ]}
+                                            />
                                         </div>
                                     </div>
 
@@ -793,19 +792,17 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                         >
                                             {/* Row 1: Type + Country code / Area code + Number + Delete */}
                                             <div className="flex items-center gap-2">
-                                                <select
+                                                <Select<ContactType>
                                                     value={contact.type}
-                                                    onChange={e => {
+                                                    onChange={(v) => {
                                                         const newContacts = [...candidateData.contacts];
-                                                        newContacts[index] = { ...contact, type: e.target.value as ContactType, number: '', areaCode: '' };
+                                                        newContacts[index] = { ...contact, type: v, number: '', areaCode: '' };
                                                         setCandidateData({ ...candidateData, contacts: newContacts });
                                                     }}
-                                                    className="bg-white border border-gray-200 rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[100px]"
-                                                >
-                                                    {Object.entries(contactTypeConfig).map(([key, cfg]) => (
-                                                        <option key={key} value={key}>{cfg.emoji} {cfg.label}</option>
-                                                    ))}
-                                                </select>
+                                                    ariaLabel="نوع التواصل"
+                                                    className="min-w-[100px]"
+                                                    options={Object.entries(contactTypeConfig).map(([key, cfg]) => ({ value: key as ContactType, label: `${cfg.emoji} ${cfg.label}` }))}
+                                                />
 
                                                 {/* +963 badge for mobile */}
                                                 {contact.type === 'mobile' && (
@@ -966,16 +963,14 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-500 mb-1.5">المهنة</label>
-                                    <select
+                                    <Select
                                         value={candidateData.occupation}
-                                        onChange={e => setCandidateData({ ...candidateData, occupation: e.target.value })}
-                                        className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/10 text-sm bg-white"
-                                    >
-                                        <option value="">اختر المهنة</option>
-                                        {occupationOptions.map((option) => (
-                                            <option key={option} value={option}>{option}</option>
-                                        ))}
-                                    </select>
+                                        onChange={(v) => setCandidateData({ ...candidateData, occupation: v })}
+                                        placeholder="اختر المهنة"
+                                        ariaLabel="المهنة"
+                                        className="w-full"
+                                        options={[{ value: '', label: 'اختر المهنة' }, ...occupationOptions.map((option) => ({ value: option, label: option }))]}
+                                    />
                                 </div>
                             </div>
 
