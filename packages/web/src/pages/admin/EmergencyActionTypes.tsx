@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, ToggleLeft, ToggleRight, Trash2, X, Zap } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
+import Button from '../../components/ui/Button';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
@@ -104,10 +105,9 @@ export default function EmergencyActionTypes() {
           </div>
         </div>
         {canManage && (
-          <button onClick={openNew}
-            className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-500 transition-colors shadow-sm">
-            <Plus className="w-4 h-4" /> إضافة نوع
-          </button>
+          <Button variant="danger" icon={Plus} onClick={openNew}>
+            إضافة نوع
+          </Button>
         )}
       </div>
 
@@ -210,13 +210,17 @@ export default function EmergencyActionTypes() {
               </div>
             </div>
             <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-              <button onClick={closeModal} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-              <button onClick={handleSave} disabled={!editItem.arabicLabel?.trim() || savingId !== null}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-rose-600 py-2.5 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60">
-                {savingId !== null && <Loader2 className="w-4 h-4 animate-spin" />}
-                <Save className="w-4 h-4" />
+              <Button variant="secondary" onClick={closeModal} className="flex-1">إلغاء</Button>
+              <Button
+                variant="danger"
+                icon={Save}
+                onClick={handleSave}
+                disabled={!editItem.arabicLabel?.trim()}
+                loading={savingId !== null}
+                className="flex-1"
+              >
                 حفظ
-              </button>
+              </Button>
             </div>
           </div>
         </div>
