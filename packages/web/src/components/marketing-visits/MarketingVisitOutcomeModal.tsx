@@ -12,6 +12,7 @@ import {
   XCircle,
   type LucideIcon,
 } from 'lucide-react';
+import IconButton from '../ui/IconButton';
 import type {
   DeviceModel,
   Employee,
@@ -993,14 +994,7 @@ export default function MarketingVisitOutcomeModal({
               {visit.customerName || '—'} · {visit.scheduledDate || '—'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-white hover:text-slate-600"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
         </div>
 
         <div className="border-b border-slate-100 bg-white px-6 py-4">

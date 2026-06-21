@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { MapPin, Navigation, X } from 'lucide-react';
+import IconButton from './ui/IconButton';
 
 interface MapPickerProps {
     position: [number, number] | null;
@@ -108,9 +109,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
 
                 {/* Clear */}
                 {position && (
-                    <button type="button" onClick={clearLocation} className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 transition-all shrink-0">
-                        <X className="w-3.5 h-3.5" />
-                    </button>
+                    <IconButton icon={X} label="مسح الموقع" variant="danger" size="sm" onClick={clearLocation} />
                 )}
             </div>
         </div>

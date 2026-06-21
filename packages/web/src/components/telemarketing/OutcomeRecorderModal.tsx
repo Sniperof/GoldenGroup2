@@ -7,6 +7,7 @@ import {
     MessageSquare, PhoneForwarded, UserCheck, PhoneCall,
     MapPin, AlertTriangle, Calendar, Edit3, Clock, Droplets, FileText,
 } from 'lucide-react';
+import IconButton from '../ui/IconButton';
 import {
     TelemarketingOutcomeCode, OUTCOME_MAP, OUTCOMES_BY_GROUP,
     PHONE_STATUS_LABELS, PHONE_STATUS_TO_CONTACT_ENTRY,
@@ -444,12 +445,7 @@ export default function OutcomeRecorderModal({
                             {task?.name && <p className="text-xs text-slate-500">{task.name}</p>}
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-colors"
-                    >
-                        <X className="w-5 h-5" />
-                    </button>
+                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
                 </div>
 
                 {/* Body */}

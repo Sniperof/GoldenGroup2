@@ -8,6 +8,7 @@ import {
   GraduationCap, Plus, Search, Filter, ChevronDown,
   Calendar, User, Monitor, Building2, Users, CheckCircle, X, Loader2,
 } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -326,9 +327,7 @@ export default function TrainingCourses() {
                 <GraduationCap className="w-5 h-5 text-sky-500" />
                 إنشاء دورة تدريبية جديدة
               </h2>
-              <button onClick={closeModal} className="p-1 text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
+              <IconButton icon={X} label="إغلاق" onClick={closeModal} />
             </div>
 
             <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">

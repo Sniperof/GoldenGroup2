@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock, Loader2, MapPin, Plus, Trash2, Wrench, X, XCircle, Zap } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
@@ -366,9 +367,7 @@ export default function DeviceInstallationResultModal({
             <Wrench className="h-5 w-5 text-sky-600" />
             <h2 className="text-base font-black text-slate-900">تسجيل نتيجة تركيب الجهاز</h2>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </div>
 
         <div className="max-h-[75vh] space-y-4 overflow-y-auto px-5 py-4">

@@ -11,6 +11,7 @@
 // ============================================================
 import { useState, useEffect } from 'react';
 import { X, Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
 import { api } from '../../lib/api';
 import EmergencyResultWizard from '../../components/emergency/EmergencyResultWizard';
 
@@ -66,9 +67,7 @@ export default function EmergencyResultModal({
               {mode === 'cancel'     && `إلغاء المهمة #${taskId}`}
             </h2>
           </div>
-          <button onClick={close} className="text-slate-400 hover:text-slate-600" aria-label="إغلاق">
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton icon={X} label="إغلاق" onClick={close} />
         </header>
 
         <div className="overflow-auto p-4">

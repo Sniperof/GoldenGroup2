@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import GeoSmartSearch, { type GeoSelection } from '../GeoSmartSearch';
 import Button from '../ui/Button';
+import IconButton from '../ui/IconButton';
 import { api } from '../../lib/api';
 import type {
   Branch,
@@ -1560,13 +1561,7 @@ export default function EmployeeFormModal({
                   <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">{description}</p>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-400 transition-colors hover:border-slate-300 hover:text-slate-700"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <IconButton icon={X} label="إغلاق" variant="outline" size="lg" onClick={onClose} />
             </div>
 
             {/* Progress bar — advances only when user clicks Next */}

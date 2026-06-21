@@ -8,6 +8,7 @@ import {
   Users, Plus, Filter, Calendar, CheckCircle, XCircle, Clock,
   AlertTriangle, X, Search
 } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
@@ -426,9 +427,7 @@ export default function Interviews() {
             >
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-lg font-bold text-slate-800">جدولة مقابلة جديدة</h3>
-                <button onClick={resetScheduleModal} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
-                  <X className="w-4 h-4" />
-                </button>
+                <IconButton icon={X} label="إغلاق" size="sm" onClick={resetScheduleModal} />
               </div>
               {formError && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-sm text-red-700">

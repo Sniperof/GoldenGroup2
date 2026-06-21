@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Clock, Image, Loader2, Paperclip, Send, Video, X, Zap } from 'lucide-react';
+import IconButton from '../ui/IconButton';
 import { api } from '../../lib/api';
 import { uploadFile } from '../../lib/uploadFile';
 
@@ -142,7 +143,7 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
             <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
               <Clock className="h-3 w-3" /> 48 ساعة
             </span>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1"><X className="h-4 w-4" /></button>
+            <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
           </div>
         </div>
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, ToggleLeft, ToggleRight, Trash2, X, Zap } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
@@ -187,7 +188,7 @@ export default function EmergencyActionTypes() {
           <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 bg-rose-50">
               <h3 className="font-bold text-slate-800">{isNew ? 'إضافة نوع إجراء' : 'تعديل نوع الإجراء'}</h3>
-              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+              <IconButton icon={X} label="إغلاق" size="sm" onClick={closeModal} />
             </div>
             <div className="px-5 py-4 space-y-3">
               <div>
