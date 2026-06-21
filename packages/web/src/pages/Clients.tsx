@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import type { Client, CustomerOwnership, GeoUnit, Contract } from '../lib/types';
 import ClientModal from '../components/ClientModal';
 import Button from '../components/ui/Button';
+import Select from '../components/ui/Select';
 import ClientAvatar from '../components/ClientAvatar';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
@@ -471,35 +472,39 @@ export default function Clients() {
 
                     {/* Filters */}
                     <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                        <select
-                            value={filterClass} onChange={(e) => setFilterClass(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:border-sky-500"
-                        >
-                            <option value="all">كل التصنيفات</option>
-                            <option value="Lead">Lead - مرشح</option>
-                            <option value="FOP">FOP - مستهدف</option>
-                            <option value="OP">OP - فعلي</option>
-                        </select>
+                        <Select
+                            value={filterClass}
+                            onChange={setFilterClass}
+                            ariaLabel="التصنيف"
+                            variant="filled"
+                            options={[
+                                { value: 'all', label: 'كل التصنيفات' },
+                                { value: 'Lead', label: 'Lead - مرشح' },
+                                { value: 'FOP', label: 'FOP - مستهدف' },
+                                { value: 'OP', label: 'OP - فعلي' },
+                            ]}
+                        />
 
-                        <select
-                            value={filterMediator} onChange={(e) => setFilterMediator(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:border-sky-500"
-                        >
-                            <option value="all">كل أنواع الوسيط</option>
-                            <option value="Personal">شخصي</option>
-                            <option value="Employee">موظف</option>
-                            <option value="Client">زبون حالي</option>
-                        </select>
+                        <Select
+                            value={filterMediator}
+                            onChange={setFilterMediator}
+                            ariaLabel="نوع الوسيط"
+                            variant="filled"
+                            options={[
+                                { value: 'all', label: 'كل أنواع الوسيط' },
+                                { value: 'Personal', label: 'شخصي' },
+                                { value: 'Employee', label: 'موظف' },
+                                { value: 'Client', label: 'زبون حالي' },
+                            ]}
+                        />
 
-                        <select
-                            value={filterArea} onChange={(e) => setFilterArea(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:border-sky-500"
-                        >
-                            <option value="all">كل المحافظات</option>
-                            {geoUnits.filter(g => g.level === 1).map(g => (
-                                <option key={g.id} value={g.id}>{g.name}</option>
-                            ))}
-                        </select>
+                        <Select
+                            value={filterArea}
+                            onChange={setFilterArea}
+                            ariaLabel="المحافظة"
+                            variant="filled"
+                            options={[{ value: 'all', label: 'كل المحافظات' }, ...geoUnits.filter(g => g.level === 1).map(g => ({ value: String(g.id), label: g.name }))]}
+                        />
 
                         <button
                             onClick={() => { setSearchTerm(''); setFilterClass('all'); setFilterMediator('all'); setFilterArea('all'); }}

@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 import type { GeoUnit } from '../lib/types';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
+import Select from '../components/ui/Select';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
@@ -405,44 +406,47 @@ export default function GeoSettings() {
                                 {activeTab >= 2 && (
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1.5">المحافظة <span className="text-red-500">*</span></label>
-                                        <select
+                                        <Select
                                             value={modalGov}
-                                            onChange={e => { setModalGov(e.target.value); setModalRegion(''); setModalSubDistrict(''); }}
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:border-sky-500 focus:outline-none transition-colors"
-                                        >
-                                            <option value="">اختر المحافظة...</option>
-                                            {governorates.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                                        </select>
+                                            onChange={(v) => { setModalGov(v); setModalRegion(''); setModalSubDistrict(''); }}
+                                            placeholder="اختر المحافظة..."
+                                            ariaLabel="المحافظة"
+                                            variant="filled"
+                                            className="w-full"
+                                            options={[{ value: '', label: 'اختر المحافظة...' }, ...governorates.map(g => ({ value: String(g.id), label: g.name }))]}
+                                        />
                                     </div>
                                 )}
 
                                 {activeTab >= 3 && (
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1.5">المنطقة <span className="text-red-500">*</span></label>
-                                        <select
+                                        <Select
                                             value={modalRegion}
-                                            onChange={e => { setModalRegion(e.target.value); setModalSubDistrict(''); }}
+                                            onChange={(v) => { setModalRegion(v); setModalSubDistrict(''); }}
                                             disabled={!modalGov}
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:border-sky-500 focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            <option value="">اختر المنطقة...</option>
-                                            {regions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                                        </select>
+                                            placeholder="اختر المنطقة..."
+                                            ariaLabel="المنطقة"
+                                            variant="filled"
+                                            className="w-full"
+                                            options={[{ value: '', label: 'اختر المنطقة...' }, ...regions.map(r => ({ value: String(r.id), label: r.name }))]}
+                                        />
                                     </div>
                                 )}
 
                                 {activeTab >= 4 && (
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1.5">الناحية <span className="text-red-500">*</span></label>
-                                        <select
+                                        <Select
                                             value={modalSubDistrict}
-                                            onChange={e => setModalSubDistrict(e.target.value)}
+                                            onChange={setModalSubDistrict}
                                             disabled={!modalRegion}
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:border-sky-500 focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            <option value="">اختر الناحية...</option>
-                                            {subDistricts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                        </select>
+                                            placeholder="اختر الناحية..."
+                                            ariaLabel="الناحية"
+                                            variant="filled"
+                                            className="w-full"
+                                            options={[{ value: '', label: 'اختر الناحية...' }, ...subDistricts.map(s => ({ value: String(s.id), label: s.name }))]}
+                                        />
                                     </div>
                                 )}
 
