@@ -12,6 +12,7 @@ import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import IconButton from '../../components/ui/IconButton';
+import Toggle from '../../components/ui/Toggle';
 import {
   ShieldCheck, Plus, Edit2, Trash2, Users, Key,
   ToggleLeft, ToggleRight, X, Save, Loader2, AlertTriangle,
@@ -847,9 +848,7 @@ function RolesTab() {
                   {role.description && <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{role.description}</p>}
                 </div>
                 {!role.isSystem && !role.isProtected && (
-                  <button onClick={() => handleToggleActive(role)} className="text-slate-400 hover:text-sky-500 transition-colors mt-0.5" title={role.isActive ? 'تعطيل' : 'تفعيل'}>
-                    {role.isActive ? <ToggleRight className="w-6 h-6 text-emerald-500" /> : <ToggleLeft className="w-6 h-6" />}
-                  </button>
+                  <Toggle checked={role.isActive} onCheckedChange={() => handleToggleActive(role)} label={role.isActive ? 'تعطيل' : 'تفعيل'} className="mt-0.5" />
                 )}
               </div>
 
@@ -1037,12 +1036,7 @@ function UsersTab() {
                               <Building2 className="w-4 h-4" />
                             </button>
                           )}
-                          <button onClick={() => handleToggle(user)} disabled={!canManageRoles || togglingId === user.id}
-                            title={user.isActive ? 'إيقاف الحساب' : 'تفعيل الحساب'}
-                            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 transition-colors disabled:opacity-50">
-                            {togglingId === user.id ? <Loader2 className="w-4 h-4 animate-spin" /> :
-                              user.isActive ? <ToggleRight className="w-4 h-4 text-emerald-500" /> : <ToggleLeft className="w-4 h-4" />}
-                          </button>
+                          <Toggle checked={user.isActive} onCheckedChange={() => handleToggle(user)} disabled={!canManageRoles || togglingId === user.id} size="sm" label={user.isActive ? 'إيقاف الحساب' : 'تفعيل الحساب'} />
                           <button onClick={() => { setEditUser(user); setShowModal(true); }}
                             disabled={!canManageRoles}
                             className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors" title="تعديل">

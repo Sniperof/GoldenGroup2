@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, ToggleLeft, ToggleRight, Trash2, X, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, Trash2, X, Zap } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
+import Toggle from '../../components/ui/Toggle';
 import Button from '../../components/ui/Button';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -150,12 +151,7 @@ export default function EmergencyActionTypes() {
                   <td className="p-3 text-slate-500 text-xs">{item.description || '—'}</td>
                   <td className="p-3 text-center">
                     {canManage ? (
-                      <button onClick={() => toggleActive(item)} disabled={savingId === item.id}
-                        className={`p-1 rounded-lg transition-colors ${item.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-100'} disabled:opacity-50`}>
-                        {savingId === item.id
-                          ? <Loader2 className="w-5 h-5 animate-spin" />
-                          : item.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                      </button>
+                      <Toggle checked={item.isActive} onCheckedChange={() => toggleActive(item)} disabled={savingId === item.id} size="sm" label={item.isActive ? 'تعطيل' : 'تفعيل'} />
                     ) : (
                       <span className={`text-xs font-bold ${item.isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
                         {item.isActive ? 'مفعّل' : 'معطّل'}
