@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import IconButton from '../ui/IconButton';
 import Select from '../ui/Select';
+import Button from '../ui/Button';
 import {
     TelemarketingOutcomeCode, OUTCOME_MAP, OUTCOMES_BY_GROUP,
     PHONE_STATUS_LABELS, PHONE_STATUS_TO_CONTACT_ENTRY,
@@ -655,13 +656,9 @@ export default function OutcomeRecorderModal({
                                 {(['no_answer','busy','auto_disconnected','out_of_coverage','wrong_number','not_in_service'] as TelemarketingOutcomeCode[]).map(code => (
                                     <OutcomeButton key={code} code={code} isActive={outcome===code} onClick={() => setOutcome(code)} />
                                 ))}
-                                <button
-                                    type="button"
-                                    onClick={() => { setTopLevel(null); setOutcome(null); }}
-                                    className="w-full text-xs text-slate-400 font-bold py-2 hover:text-slate-600"
-                                >
+                                <Button type="button" variant="ghost" size="sm" fullWidth onClick={() => { setTopLevel(null); setOutcome(null); }} className="text-slate-400 hover:text-slate-600 hover:bg-slate-50">
                                     ← تغيير
-                                </button>
+                                </Button>
                             </div>
                         )}
 
@@ -704,13 +701,9 @@ export default function OutcomeRecorderModal({
                                     </div>
                                 )}
 
-                                <button
-                                    type="button"
-                                    onClick={() => { setTopLevel(null); setOutcome(null); setExpandedGroup(null); setRejectionReason(''); }}
-                                    className="w-full text-xs text-slate-400 font-bold py-2 hover:text-slate-600"
-                                >
+                                <Button type="button" variant="ghost" size="sm" fullWidth onClick={() => { setTopLevel(null); setOutcome(null); setExpandedGroup(null); setRejectionReason(''); }} className="text-slate-400 hover:text-slate-600 hover:bg-slate-50">
                                     ← تغيير
-                                </button>
+                                </Button>
                             </div>
                         )}
                     </div>
@@ -1044,28 +1037,17 @@ export default function OutcomeRecorderModal({
 
                 {/* Footer */}
                 <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
-                    >
-                        إلغاء
-                    </button>
-                    <button
-                        onClick={handleSave}
+                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                    <Button
+                        icon={CheckCircle2}
+                        loading={saving}
                         disabled={!canSave || saving}
-                        className={`flex items-center gap-2 px-6 py-2.5 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl text-sm font-bold shadow-md disabled:shadow-none transition-all ${
-                            isBookingOutcome
-                                ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
-                                : 'bg-violet-600 hover:bg-violet-700 shadow-violet-500/20'
-                        }`}
+                        onClick={handleSave}
                     >
-                        {saving
-                            ? <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                            : <CheckCircle2 className="w-4 h-4" />}
                         {isTextMessage ? 'إرسال الرسالة'
                             : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
                             : 'حفظ النتيجة'}
-                    </button>
+                    </Button>
                 </div>
             </motion.div>
         </div>

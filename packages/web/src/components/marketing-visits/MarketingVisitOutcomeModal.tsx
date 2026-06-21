@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import IconButton from '../ui/IconButton';
 import Select from '../ui/Select';
+import Button from '../ui/Button';
 import type {
   DeviceModel,
   Employee,
@@ -1600,13 +1601,7 @@ export default function MarketingVisitOutcomeModal({
                   {wizardState.deviceOffers.find((group) => group.deviceModelId === offerEditor.deviceModelId)?.deviceModelName}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setOfferEditor(null)}
-                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setOfferEditor(null)} />
             </div>
 
             <div className="space-y-4 px-5 py-5">
@@ -1913,21 +1908,12 @@ export default function MarketingVisitOutcomeModal({
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setOfferEditor(null)}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50"
-              >
+              <Button type="button" variant="secondary" onClick={() => setOfferEditor(null)}>
                 إلغاء
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveOffer}
-                disabled={deviceModels.length === 0}
-                className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
+              </Button>
+              <Button type="button" onClick={handleSaveOffer} disabled={deviceModels.length === 0}>
                 تثبيت العرض
-              </button>
+              </Button>
             </div>
           </div>
         </div>

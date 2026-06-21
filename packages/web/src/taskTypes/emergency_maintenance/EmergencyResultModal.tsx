@@ -13,6 +13,7 @@ import { useState, useEffect } from 'react';
 import { X, Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
 import Select from '../../components/ui/Select';
+import Button from '../../components/ui/Button';
 import { api } from '../../lib/api';
 import EmergencyResultWizard from '../../components/emergency/EmergencyResultWizard';
 
@@ -285,21 +286,17 @@ function LifecycleForm({
       </div>
 
       <div className="flex gap-2 justify-end pt-2 border-t border-slate-200">
-        <button
-          onClick={onCancel}
-          className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-bold"
-        >
+        <Button variant="secondary" onClick={onCancel}>
           رجوع
-        </button>
-        <button
+        </Button>
+        <Button
+          variant={kind === 'reschedule' ? 'gold' : 'danger'}
+          loading={saving}
           disabled={saving}
           onClick={submit}
-          className={`text-sm text-white px-4 py-2 rounded-lg font-bold disabled:opacity-50 ${
-            kind === 'reschedule' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'
-          }`}
         >
           {saving ? 'جاري الحفظ...' : (kind === 'reschedule' ? 'تأكيد إعادة الجَدولة' : 'تأكيد الإلغاء')}
-        </button>
+        </Button>
       </div>
     </div>
   );
