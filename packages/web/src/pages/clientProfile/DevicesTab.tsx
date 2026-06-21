@@ -14,6 +14,7 @@ import { WarrantyStatusBadge } from '../../components/devices/WarrantyStatusBadg
 import { PossessionHolderChip } from '../../components/devices/PossessionHolderChip';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
+import Select from '../../components/ui/Select';
 
 interface Props {
   client: { id: number; branchId?: number | null };
@@ -96,19 +97,15 @@ function ExternalDeviceModalV2({
           {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
           <label className="block space-y-1.5">
             <span className="text-sm font-bold text-slate-700">الجهاز</span>
-            <select
+            <Select
               value={deviceModelId}
-              onChange={e => onDeviceModelChange(e.target.value)}
+              onChange={onDeviceModelChange}
               disabled={loadingOptions}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
-            >
-              <option value="">{loadingOptions ? 'جاري تحميل اجهزة الفرع...' : 'اختر جهازا من اجهزة الفرع'}</option>
-              {deviceModels.map(device => (
-                <option key={device.id} value={device.id}>
-                  {device.nameAr || device.name || device.nameEn || `#${device.id}`}
-                </option>
-              ))}
-            </select>
+              placeholder={loadingOptions ? 'جاري تحميل اجهزة الفرع...' : 'اختر جهازا من اجهزة الفرع'}
+              ariaLabel="جهاز الفرع"
+              className="w-full"
+              options={[{ value: '', label: loadingOptions ? 'جاري تحميل اجهزة الفرع...' : 'اختر جهازا من اجهزة الفرع' }, ...deviceModels.map(device => ({ value: String(device.id), label: device.nameAr || device.name || device.nameEn || `#${device.id}` }))]}
+            />
           </label>
           <label className="block space-y-1.5">
             <span className="text-sm font-bold text-slate-700">الرقم التسلسلي</span>

@@ -8,6 +8,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
+import Select from '../components/ui/Select';
 import {
   Building2, Plus, Edit, Trash2, X,
   Layers, Cpu, Users, StickyNote, CheckSquare, Square,
@@ -349,21 +350,19 @@ export default function Departments() {
                 {/* Department type */}
                 <div className="space-y-1.5">
                   <label className="text-sm font-semibold text-slate-700">نوع القسم</label>
-                  <select
-                    value={form.departmentTypeId}
-                    onChange={e => setForm(f => ({
+                  <Select
+                    value={form.departmentTypeId === '' ? '' : String(form.departmentTypeId)}
+                    onChange={(v) => setForm(f => ({
                       ...f,
-                      departmentTypeId: e.target.value !== '' ? Number(e.target.value) : '',
+                      departmentTypeId: v !== '' ? Number(v) : '',
                       deviceModelIds: canManageDeviceAvailability ? [] : f.deviceModelIds,
                     }))}
                     disabled={!canManageDepartments}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none"
-                  >
-                    <option value="">— بدون نوع —</option>
-                    {deptTypes.map(t => (
-                      <option key={t.id} value={t.id}>{t.value}</option>
-                    ))}
-                  </select>
+                    placeholder="— بدون نوع —"
+                    ariaLabel="نوع القسم"
+                    className="w-full"
+                    options={[{ value: '', label: '— بدون نوع —' }, ...deptTypes.map(t => ({ value: String(t.id), label: t.value }))]}
+                  />
                   {selectedType && (selectedType.metadata as any)?.canSelectDevice && (
                     <p className="text-xs text-indigo-600 flex items-center gap-1 mt-1">
                       <Cpu className="w-3.5 h-3.5" />

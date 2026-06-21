@@ -8,6 +8,7 @@ import { api } from '../../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../../components/GeoSmartSearch';
 import MapPicker from '../../../components/MapPicker';
 import Button from '../../../components/ui/Button';
+import Select from '../../../components/ui/Select';
 
 interface Props {
   device: any;
@@ -375,11 +376,17 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
               </div>
               <label className="block space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">الأولوية</span>
-                <select value={activationPriority} onChange={(e) => setActivationPriority(e.target.value as 'high' | 'medium' | 'low')} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <option value="high">عالية</option>
-                  <option value="medium">متوسطة</option>
-                  <option value="low">منخفضة</option>
-                </select>
+                <Select<'high' | 'medium' | 'low'>
+                  value={activationPriority}
+                  onChange={setActivationPriority}
+                  ariaLabel="الأولوية"
+                  className="w-full"
+                  options={[
+                    { value: 'high', label: 'عالية' },
+                    { value: 'medium', label: 'متوسطة' },
+                    { value: 'low', label: 'منخفضة' },
+                  ]}
+                />
               </label>
               <label className="block space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">ملاحظات</span>

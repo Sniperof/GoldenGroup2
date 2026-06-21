@@ -8,6 +8,7 @@
 // camelCase payload the API expects (same keys as the emergency wizard).
 // ============================================================
 import type { ReactNode } from 'react';
+import Select from '../ui/Select';
 
 export type TechStateForm = Record<string, string>;
 
@@ -78,10 +79,14 @@ export function TechnicalStateFields({
   const set = (key: string) => (v: string) => onChange({ ...f, [key]: v });
 
   const Sel = (key: string, opts: { value: string; label: string }[], placeholder = '— اختر —') => (
-    <select value={f[key] ?? ''} onChange={(e) => set(key)(e.target.value)} className={sel}>
-      <option value="">{placeholder}</option>
-      {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
+    <Select
+      value={String(f[key] ?? '')}
+      onChange={set(key)}
+      placeholder={placeholder}
+      ariaLabel={placeholder}
+      className="w-full"
+      options={[{ value: '', label: placeholder }, ...opts.map(o => ({ value: o.value, label: o.label }))]}
+    />
   );
   const Num = (key: string) => (
     <input type="number" value={f[key] ?? ''} onChange={(e) => set(key)(e.target.value)} className={inp} placeholder="—" />
