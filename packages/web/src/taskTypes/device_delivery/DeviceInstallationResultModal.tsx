@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock, Loader2, MapPin, Plus, Trash2, Wrench, X, XCircle, Zap } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
+import Select from '../../components/ui/Select';
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
@@ -471,37 +472,45 @@ export default function DeviceInstallationResultModal({
                           <div className="grid gap-3 md:grid-cols-3">
                             <label className="space-y-1.5">
                               <span className="text-xs font-bold text-slate-500">المصدر</span>
-                              <select
+                              <Select<InstallationPartDraft['source']>
                                 value={part.source}
-                                onChange={(e) => updatePart({
-                                  source: e.target.value as InstallationPartDraft['source'],
+                                onChange={(v) => updatePart({
+                                  source: v,
                                   spare_part_id: '',
                                   customer_stock_id: '',
                                   part_name: '',
                                   part_code: '',
-                                  unit_price: e.target.value === 'customer_stock' ? '0' : part.unit_price,
+                                  unit_price: v === 'customer_stock' ? '0' : part.unit_price,
                                   customer_stock_origin: '',
                                 })}
-                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                              >
-                                <option value="company_stock">مخزون الشركة</option>
-                                <option value="customer_stock">مخزون الزبون</option>
-                                <option value="external_or_manual">إدخال يدوي</option>
-                              </select>
+                                className="w-full"
+                                ariaLabel="المصدر"
+                                options={[
+                                  { value: 'company_stock', label: 'مخزون الشركة' },
+                                  { value: 'customer_stock', label: 'مخزون الزبون' },
+                                  { value: 'external_or_manual', label: 'إدخال يدوي' },
+                                ]}
+                              />
                             </label>
                             <label className="space-y-1.5">
                               <span className="text-xs font-bold text-slate-500">الحالة</span>
-                              <select value={part.placement_state} onChange={(e) => updatePart({ placement_state: e.target.value as InstallationPartDraft['placement_state'] })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                                <option value="installed">مركبة</option>
-                                <option value="customer_stock">مسلمة للمخزون</option>
-                              </select>
+                              <Select<InstallationPartDraft['placement_state']>
+                                value={part.placement_state}
+                                onChange={(v) => updatePart({ placement_state: v })}
+                                className="w-full"
+                                ariaLabel="الحالة"
+                                options={[
+                                  { value: 'installed', label: 'مركبة' },
+                                  { value: 'customer_stock', label: 'مسلمة للمخزون' },
+                                ]}
+                              />
                             </label>
                             <label className="space-y-1.5">
                               <span className="text-xs font-bold text-slate-500">نوع القطعة</span>
-                              <select
+                              <Select
                                 value={part.maintenance_type}
-                                onChange={(e) => updatePart({
-                                  maintenance_type: e.target.value,
+                                onChange={(v) => updatePart({
+                                  maintenance_type: v,
                                   spare_part_id: '',
                                   customer_stock_id: '',
                                   part_name: '',
@@ -509,27 +518,30 @@ export default function DeviceInstallationResultModal({
                                   unit_price: part.source === 'customer_stock' ? '0' : part.unit_price,
                                   customer_stock_origin: '',
                                 })}
-                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                              >
-                                <option value="">اختر النوع</option>
-                                <option value="Periodic">{PART_TYPE_LABELS.Periodic}</option>
-                                <option value="Emergency">{PART_TYPE_LABELS.Emergency}</option>
-                                <option value="Accessory">{PART_TYPE_LABELS.Accessory}</option>
-                              </select>
+                                className="w-full"
+                                placeholder="اختر النوع"
+                                ariaLabel="نوع القطعة"
+                                options={[
+                                  { value: '', label: 'اختر النوع' },
+                                  { value: 'Periodic', label: PART_TYPE_LABELS.Periodic },
+                                  { value: 'Emergency', label: PART_TYPE_LABELS.Emergency },
+                                  { value: 'Accessory', label: PART_TYPE_LABELS.Accessory },
+                                ]}
+                              />
                             </label>
                           </div>
                           <div className="mt-3 grid gap-3 md:grid-cols-3">
                             {part.source === 'customer_stock' ? (
                               <label className="space-y-1.5 md:col-span-2">
                                 <span className="text-xs font-bold text-slate-500">قطعة من مخزون الزبون</span>
-                                <select
+                                <Select
                                   value={part.customer_stock_id}
                                   disabled={!part.maintenance_type}
-                                  onChange={(e) => {
-                                    const selected = customerStock.find((stock) => String(stock.stockId) === e.target.value);
+                                  onChange={(v) => {
+                                    const selected = customerStock.find((stock) => String(stock.stockId) === v);
                                     updatePart({
                                       spare_part_id: selected?.itemId ? String(selected.itemId) : '',
-                                      customer_stock_id: e.target.value,
+                                      customer_stock_id: v,
                                       part_name: selected?.itemName ?? '',
                                       part_code: selected?.itemCode ?? '',
                                       maintenance_type:
@@ -542,37 +554,36 @@ export default function DeviceInstallationResultModal({
                                         : '',
                                     });
                                   }}
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                                >
-                                  <option value="">{part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}</option>
-                                  {filteredCustomerStock.map((stock) => (
-                                    <option key={stock.stockId} value={stock.stockId}>
-                                      {stock.itemName} - المتوفر {stock.quantityAvailable}
-                                    </option>
-                                  ))}
-                                </select>
+                                  className="w-full"
+                                  placeholder={part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}
+                                  ariaLabel="قطعة من مخزون الزبون"
+                                  options={filteredCustomerStock.map((stock) => ({
+                                    value: String(stock.stockId),
+                                    label: `${stock.itemName} - المتوفر ${stock.quantityAvailable}`,
+                                  }))}
+                                />
                               </label>
                             ) : part.source === 'company_stock' ? (
                               <label className="space-y-1.5 md:col-span-2">
                                 <span className="text-xs font-bold text-slate-500">القطعة</span>
-                                <select
+                                <Select
                                   value={part.spare_part_id}
                                   disabled={!part.maintenance_type}
-                                  onChange={(e) => {
-                                    const selected = spareParts.find((sp) => String(sp.id) === e.target.value);
+                                  onChange={(v) => {
+                                    const selected = spareParts.find((sp) => String(sp.id) === v);
                                     updatePart({
-                                      spare_part_id: e.target.value,
+                                      spare_part_id: v,
                                       part_name: selected?.name ?? '',
                                       part_code: selected?.code ?? '',
                                       maintenance_type: selected?.maintenanceType ?? part.maintenance_type,
                                       unit_price: selected?.basePrice != null ? String(selected.basePrice) : part.unit_price,
                                     });
                                   }}
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                                >
-                                  <option value="">{part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}</option>
-                                  {filteredSpareParts.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
-                                </select>
+                                  className="w-full"
+                                  placeholder={part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}
+                                  ariaLabel="القطعة"
+                                  options={filteredSpareParts.map((sp) => ({ value: String(sp.id), label: sp.name }))}
+                                />
                               </label>
                             ) : (
                               <label className="space-y-1.5 md:col-span-2">
@@ -622,15 +633,17 @@ export default function DeviceInstallationResultModal({
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="space-y-1.5">
                     <span className="text-xs font-bold text-slate-500">نوع الدفع</span>
-                    <select
+                    <Select<'cash' | 'installment' | ''>
                       value={paymentType}
-                      onChange={(e) => setPaymentType(e.target.value as 'cash' | 'installment' | '')}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">غير محدد</option>
-                      <option value="cash">كاش</option>
-                      <option value="installment">تقسيط</option>
-                    </select>
+                      onChange={(v) => setPaymentType(v)}
+                      className="w-full"
+                      ariaLabel="نوع الدفع"
+                      options={[
+                        { value: '', label: 'غير محدد' },
+                        { value: 'cash', label: 'كاش' },
+                        { value: 'installment', label: 'تقسيط' },
+                      ]}
+                    />
                   </label>
                   <div className="rounded-lg border border-white bg-white px-3 py-2">
                     <div className="flex justify-between text-xs font-bold text-slate-500">
@@ -673,10 +686,14 @@ export default function DeviceInstallationResultModal({
             <div className="grid gap-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4 md:grid-cols-2">
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">سبب عدم الاكتمال</span>
-                <select value={incompleteReasonId} onChange={(e) => setIncompleteReasonId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <option value="">اختر السبب</option>
-                  {incompleteReasons.map((reason) => <option key={reason.id} value={reason.id}>{reason.value}</option>)}
-                </select>
+                <Select
+                  value={incompleteReasonId}
+                  onChange={(v) => setIncompleteReasonId(v)}
+                  className="w-full"
+                  placeholder="اختر السبب"
+                  ariaLabel="سبب عدم الاكتمال"
+                  options={incompleteReasons.map((reason) => ({ value: String(reason.id), label: reason.value }))}
+                />
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ المتابعة</span>
@@ -689,10 +706,14 @@ export default function DeviceInstallationResultModal({
             <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-4">
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">سبب الرفض</span>
-                <select value={refusalReasonId} onChange={(e) => setRefusalReasonId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <option value="">اختر السبب</option>
-                  {refusalReasons.map((reason) => <option key={reason.id} value={reason.id}>{reason.value}</option>)}
-                </select>
+                <Select
+                  value={refusalReasonId}
+                  onChange={(v) => setRefusalReasonId(v)}
+                  className="w-full"
+                  placeholder="اختر السبب"
+                  ariaLabel="سبب الرفض"
+                  options={refusalReasons.map((reason) => ({ value: String(reason.id), label: reason.value }))}
+                />
               </label>
             </div>
           )}

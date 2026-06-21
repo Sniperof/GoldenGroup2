@@ -12,6 +12,7 @@
 import { useState, useEffect } from 'react';
 import { X, Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
+import Select from '../../components/ui/Select';
 import { api } from '../../lib/api';
 import EmergencyResultWizard from '../../components/emergency/EmergencyResultWizard';
 
@@ -243,16 +244,14 @@ function LifecycleForm({
           {kind === 'reschedule' ? 'سَبب إعادة الجَدولة' : 'سَبب الإلغاء'}
           <span className="text-rose-500"> *</span>
         </label>
-        <select
+        <Select
           value={reasonId}
-          onChange={(e) => setReasonId(e.target.value)}
-          className="w-full text-sm border border-slate-300 rounded-lg p-2.5 bg-white"
-        >
-          <option value="">— اختر —</option>
-          {reasons.map((r) => (
-            <option key={r.id} value={r.id}>{r.value}</option>
-          ))}
-        </select>
+          onChange={v => setReasonId(v)}
+          placeholder="— اختر —"
+          ariaLabel={kind === 'reschedule' ? 'سَبب إعادة الجَدولة' : 'سَبب الإلغاء'}
+          className="w-full"
+          options={reasons.map((r) => ({ value: String(r.id), label: r.value }))}
+        />
       </div>
 
       {kind === 'reschedule' && (

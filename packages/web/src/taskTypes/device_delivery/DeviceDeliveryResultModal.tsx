@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CalendarClock, CheckCircle2, Clock, Loader2, MapPin, PackageX, Route, Truck, X } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
+import Select from '../../components/ui/Select';
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
@@ -298,11 +299,16 @@ export default function DeviceDeliveryResultModal({
             <div className="grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">حالة الجهاز عند التسليم</span>
-                <select value={deliveryCondition} onChange={(e) => setDeliveryCondition(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <option value="perfect">سليم</option>
-                  <option value="minor_damage">ضرر بسيط</option>
-                  <option value="missing_accessories">نقص ملحقات</option>
-                </select>
+                <Select
+                  value={deliveryCondition}
+                  onChange={v => setDeliveryCondition(v)}
+                  className="w-full"
+                  options={[
+                    { value: 'perfect', label: 'سليم' },
+                    { value: 'minor_damage', label: 'ضرر بسيط' },
+                    { value: 'missing_accessories', label: 'نقص ملحقات' },
+                  ]}
+                />
               </label>
               <label className="flex items-center gap-2 pt-6 text-sm font-semibold text-slate-700">
                 <input type="checkbox" checked={customerAcknowledged} onChange={(e) => setCustomerAcknowledged(e.target.checked)} />
