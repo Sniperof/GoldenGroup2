@@ -1216,34 +1216,38 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     نوع الوسيط *
                                                     {fromCandidate && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                                 </label>
-                                                <select
+                                                <Select<ReferralType>
                                                     value={referralType}
-                                                    onChange={(e) => !fromCandidate && setReferralType(e.target.value as ReferralType)}
+                                                    onChange={setReferralType}
                                                     disabled={fromCandidate}
-                                                    className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${fromCandidate ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'border-gray-200 bg-gray-50 focus:border-sky-500'}`}
-                                                >
-                                                    <option value="Personal">شخصي</option>
-                                                    <option value="Employee">موظف</option>
-                                                    <option value="Client">زبون</option>
-                                                    <option value="Unknown">مجهول</option>
-                                                </select>
+                                                    ariaLabel="نوع الوسيط"
+                                                    className="w-full"
+                                                    options={[
+                                                        { value: 'Personal', label: 'شخصي' },
+                                                        { value: 'Employee', label: 'موظف' },
+                                                        { value: 'Client', label: 'زبون' },
+                                                        { value: 'Unknown', label: 'مجهول' },
+                                                    ]}
+                                                />
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
                                                     طريقة التواصل *
                                                     {fromCandidate && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                                 </label>
-                                                <select
+                                                <Select<ReferralOriginChannel>
                                                     value={originChannel}
-                                                    onChange={(e) => !fromCandidate && setOriginChannel(e.target.value as ReferralOriginChannel)}
+                                                    onChange={setOriginChannel}
                                                     disabled={fromCandidate}
-                                                    className={`w-full p-2.5 rounded-xl border text-sm focus:outline-none ${fromCandidate ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'border-gray-200 bg-white focus:border-sky-500'}`}
-                                                >
-                                                    <option value="Acquaintance">معرفة شخصية</option>
-                                                    <option value="PhoneCall">مكالمة هاتفية</option>
-                                                    <option value="SocialMedia">سوشال ميديا</option>
-                                                    <option value="Campaign">حملة إعلانية</option>
-                                                </select>
+                                                    ariaLabel="طريقة التواصل"
+                                                    className="w-full"
+                                                    options={[
+                                                        { value: 'Acquaintance', label: 'معرفة شخصية' },
+                                                        { value: 'PhoneCall', label: 'مكالمة هاتفية' },
+                                                        { value: 'SocialMedia', label: 'سوشال ميديا' },
+                                                        { value: 'Campaign', label: 'حملة إعلانية' },
+                                                    ]}
+                                                />
                                             </div>
                                         </div>
 
@@ -1506,29 +1510,34 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         {isEditMode && (
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">تقييم الزبون</label>
-                                            <select
+                                            <Select<ClientRating>
                                                 value={rating}
-                                                onChange={e => setRating(e.target.value as ClientRating)}
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                            >
-                                                <option value="Undefined">غير محدد</option>
-                                                <option value="Committed">ملتزم</option>
-                                                <option value="NotCommitted">غير ملتزم</option>
-                                            </select>
+                                                onChange={setRating}
+                                                ariaLabel="التقييم"
+                                                className="w-full"
+                                                options={[
+                                                    { value: 'Undefined', label: 'غير محدد' },
+                                                    { value: 'Committed', label: 'ملتزم' },
+                                                    { value: 'NotCommitted', label: 'غير ملتزم' },
+                                                ]}
+                                            />
                                         </div>
                                         )}
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">صحة البيانات</label>
-                                            <select
+                                            <Select
                                                 value={dataQuality}
-                                                onChange={e => setDataQuality(e.target.value)}
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                            >
-                                                <option value="">غير محدد</option>
-                                                <option value="correct">✅ صحيحة</option>
-                                                <option value="incorrect">❌ خاطئة</option>
-                                                <option value="needs_edit">✏️ للتعديل</option>
-                                            </select>
+                                                onChange={setDataQuality}
+                                                placeholder="غير محدد"
+                                                ariaLabel="صحة البيانات"
+                                                className="w-full"
+                                                options={[
+                                                    { value: '', label: 'غير محدد' },
+                                                    { value: 'correct', label: '✅ صحيحة' },
+                                                    { value: 'incorrect', label: '❌ خاطئة' },
+                                                    { value: 'needs_edit', label: '✏️ للتعديل' },
+                                                ]}
+                                            />
                                         </div>
 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1537,44 +1546,38 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     مهنة الزبون
                                                     {occupationLocked && <Lock className="w-2.5 h-2.5 text-amber-500" />}
                                                 </label>
-                                                <select
+                                                <Select
                                                     value={occupation}
-                                                    onChange={e => !occupationLocked && setOccupation(e.target.value)}
+                                                    onChange={setOccupation}
                                                     disabled={occupationLocked}
-                                                    className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${occupationLocked ? 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed' : 'bg-white border-gray-200 focus:border-sky-500'}`}
-                                                >
-                                                    <option value="">اختر المهنة</option>
-                                                    {occupationOptions.map((option) => (
-                                                        <option key={option} value={option}>{option}</option>
-                                                    ))}
-                                                </select>
+                                                    placeholder="اختر المهنة"
+                                                    ariaLabel="مهنة الزبون"
+                                                    className="w-full"
+                                                    options={[{ value: '', label: 'اختر المهنة' }, ...occupationOptions.map((option) => ({ value: option, label: option }))]}
+                                                />
                                             </div>
                                             <div className="space-y-1">
                                                 <label className="text-xs font-semibold text-slate-500">مهنة الزوج / الزوجة</label>
-                                                <select
+                                                <Select
                                                     value={spouseOccupation}
-                                                    onChange={e => setSpouseOccupation(e.target.value)}
-                                                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                                >
-                                                    <option value="">اختر المهنة</option>
-                                                    {occupationOptions.map((option) => (
-                                                        <option key={option} value={option}>{option}</option>
-                                                    ))}
-                                                </select>
+                                                    onChange={setSpouseOccupation}
+                                                    placeholder="اختر المهنة"
+                                                    ariaLabel="مهنة الزوج/الزوجة"
+                                                    className="w-full"
+                                                    options={[{ value: '', label: 'اختر المهنة' }, ...occupationOptions.map((option) => ({ value: option, label: option }))]}
+                                                />
                                             </div>
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">مصدر المياه</label>
-                                            <select
+                                            <Select
                                                 value={waterSource}
-                                                onChange={e => setWaterSource(e.target.value)}
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none bg-white"
-                                            >
-                                                <option value="">اختر مصدر المياه</option>
-                                                {waterSourceOptions.map((option) => (
-                                                    <option key={option} value={option}>{option}</option>
-                                                ))}
-                                            </select>
+                                                onChange={setWaterSource}
+                                                placeholder="اختر مصدر المياه"
+                                                ariaLabel="مصدر المياه"
+                                                className="w-full"
+                                                options={[{ value: '', label: 'اختر مصدر المياه' }, ...waterSourceOptions.map((option) => ({ value: option, label: option }))]}
+                                            />
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-semibold text-slate-500">ملاحظات إضافية (محرر نصي)</label>
