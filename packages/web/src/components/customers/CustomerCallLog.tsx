@@ -154,7 +154,9 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
     const [caller, setCaller] = useState<string>('all');
 
     const callerOptions = useMemo(() => {
-        const names = new Set(logs.map(l => l.callerName).filter(Boolean));
+        const names = new Set<string>(
+            logs.map(l => l.callerName).filter((name): name is string => Boolean(name)),
+        );
         return [{ value: 'all', label: 'المتصل: الكل' }, ...Array.from(names).map(n => ({ value: n, label: n }))];
     }, [logs]);
 
