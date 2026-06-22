@@ -6,6 +6,7 @@ import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { isGlobalOnlyPath } from '../lib/branchContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import FloatingActionButton from '../components/FloatingActionButton';
+import logoMark from '../assets/logo-mark.png';
 import NewEmergencyTicketModal from '../components/NewEmergencyTicketModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
@@ -193,9 +194,7 @@ export default function MainLayout() {
             {/* Mobile Header */}
             <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 z-30">
                 <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center shadow-lg shadow-sky-500/30">
-                        <Gem className="w-4 h-4 text-white" />
-                    </div>
+                    <img src={logoMark} alt="Golden Group" className="w-8 h-8 object-contain" />
                     <span className="text-lg font-bold text-slate-800">Golden Group</span>
                 </div>
                 <button
@@ -227,9 +226,7 @@ export default function MainLayout() {
                 {/* Logo & Toggle Header */}
                 <div className="p-5 border-b border-slate-100 flex items-center justify-between">
                     <div className={`flex items-center gap-3 ${isCollapsed ? 'lg:hidden' : 'flex'} ${isMobileMenuOpen ? 'flex' : ''}`}>
-                        <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center shadow-lg shadow-sky-500/30">
-                            <Gem className="w-4 h-4 text-white" />
-                        </div>
+                        <img src={logoMark} alt="Golden Group" className="w-8 h-8 object-contain" />
                         <span className="text-lg font-bold text-slate-800 tracking-wide">Golden Group</span>
                     </div>
                     {/* Desktop Collapse Toggle */}
