@@ -7,6 +7,38 @@ type BuildCustomerOwnershipSqlArgs = {
   outputAlias?: string;
 };
 
+export function eligiblePersonalOwnerCondition(
+  userAlias: string,
+  roleAlias: string,
+  employeeAlias: string,
+): string {
+  return `
+    ${userAlias}.is_active = TRUE
+    AND ${userAlias}.employee_id IS NOT NULL
+    AND ${roleAlias}.team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')
+    AND ${employeeAlias}.status = 'active'
+    AND EXISTS (
+      SELECT 1
+      FROM role_permission_grants owner_rpg
+      JOIN permissions owner_p ON owner_p.id = owner_rpg.permission_id
+      WHERE owner_rpg.role_id = ${roleAlias}.id
+        AND owner_p.key = 'clients.can_be_assigned'
+    )
+  `;
+}
+
+export function personalOwnerExistsPredicate(clientIdExpr: string): string {
+  return `EXISTS (
+    SELECT 1
+    FROM client_assignments ca_owner
+    JOIN hr_users u_owner ON u_owner.id = ca_owner.hr_user_id
+    LEFT JOIN roles r_owner ON r_owner.id = u_owner.role_id
+    LEFT JOIN employees e_owner ON e_owner.id = u_owner.employee_id
+    WHERE ca_owner.client_id = ${clientIdExpr}
+      AND ${eligiblePersonalOwnerCondition('u_owner', 'r_owner', 'e_owner')}
+  )`;
+}
+
 export function buildClientLifecycleStatusSql(clientAlias: string): string {
   return `
     CASE
@@ -92,13 +124,13 @@ export function buildCustomerOwnershipSql(args: BuildCustomerOwnershipSqlArgs): 
         SELECT
           COUNT(*) FILTER (
             WHERE u.id IS NOT NULL
-              AND u.is_active = TRUE
-              AND u.employee_id IS NOT NULL
-              AND r.team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')
-              AND e.status = 'active'
+              AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
           )::int AS eligible_personal_count,
           COUNT(*) FILTER (WHERE ca_all.id IS NOT NULL)::int AS raw_assignment_count,
-          MAX(r.team_slot_type) AS single_team_slot_type,
+          MAX(r.team_slot_type) FILTER (
+            WHERE u.id IS NOT NULL
+              AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
+          ) AS single_team_slot_type,
           COALESCE(
             json_agg(
               json_build_object(
@@ -111,20 +143,14 @@ export function buildCustomerOwnershipSql(args: BuildCustomerOwnershipSqlArgs): 
               ORDER BY ca_all.assigned_at, ca_all.id
             ) FILTER (
               WHERE u.id IS NOT NULL
-                AND u.is_active = TRUE
-                AND u.employee_id IS NOT NULL
-                AND r.team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')
-                AND e.status = 'active'
+                AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
             ),
             '[]'::json
           ) AS personal_assignments,
           COALESCE(
             string_agg(u.name, ' + ' ORDER BY ca_all.assigned_at, ca_all.id) FILTER (
               WHERE u.id IS NOT NULL
-                AND u.is_active = TRUE
-                AND u.employee_id IS NOT NULL
-                AND r.team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')
-                AND e.status = 'active'
+                AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
             ),
             COALESCE(${branchNameExpression}, 'الشركة العامة')
           ) AS personal_owner_label
@@ -177,11 +203,30 @@ export function personalOwnershipPredicate(clientIdExpr: string, userIdPlacehold
     LEFT JOIN employees e ON e.id = u.employee_id
     WHERE ca.client_id = ${clientIdExpr}
       AND ca.hr_user_id = ${userIdPlaceholder}
-      AND u.is_active = TRUE
-      AND u.employee_id IS NOT NULL
-      AND r.team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')
-      AND e.status = 'active'
+      AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
   )`;
+}
+
+export async function getEligiblePersonalOwnerIds(userIds: number[]): Promise<number[]> {
+  const uniqueIds = Array.from(new Set(userIds.filter(id => Number.isInteger(id) && id > 0)));
+  if (uniqueIds.length === 0) return [];
+
+  const { rows } = await pool.query(
+    `SELECT u.id
+       FROM hr_users u
+       LEFT JOIN roles r ON r.id = u.role_id
+       LEFT JOIN employees e ON e.id = u.employee_id
+      WHERE u.id = ANY($1::int[])
+        AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}`,
+    [uniqueIds],
+  );
+
+  return rows.map((row: any) => Number(row.id)).filter(Number.isInteger);
+}
+
+export async function isEligiblePersonalOwner(userId: number): Promise<boolean> {
+  const ids = await getEligiblePersonalOwnerIds([userId]);
+  return ids.includes(userId);
 }
 
 export function mapCustomerOwnership(row: any): CustomerOwnership {
@@ -214,9 +259,10 @@ export async function getCompanyOwnedClients(branchId: number, zoneIds: number[]
            SELECT 1
            FROM client_assignments ca
            JOIN hr_users u ON u.id = ca.hr_user_id
+           LEFT JOIN roles r ON r.id = u.role_id
+           LEFT JOIN employees e ON e.id = u.employee_id
            WHERE ca.client_id = c.id
-             AND u.employee_id IS NOT NULL
-             AND u.is_active = TRUE
+             AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
          )
        )`,
     [branchId, zoneIds],

@@ -34,6 +34,7 @@ const PLANNING_WINDOW_DAYS: Record<string, number> = {
   device_delivery: 3,
   device_installation: 3,
   device_activation: 3,
+  device_disconnection: 3,
   device_transfer: 3,
 };
 const DEFAULT_PLANNING_WINDOW = 7;
@@ -63,7 +64,7 @@ const TASK_GROUP_CONFIG: Record<string, { taskTypes: string[]; emptyLabel: strin
   // After-sales = post-delivery service tasks. Device delivery/installation/
   // activation are their own tables below (product decision 2026-06-15).
   'after-sale-services': {
-    taskTypes: ['device_repair', 'device_retrieval', 'device_return', 'device_transfer', 'device_disconnection', 'parts_sale'],
+    taskTypes: ['device_repair', 'device_retrieval', 'device_return', 'device_transfer', 'parts_sale'],
     emptyLabel: 'مهام خدمات ما بعد البيع',
     permission: 'tasks.after_sales.view',
   },
@@ -91,6 +92,11 @@ const TASK_GROUP_CONFIG: Record<string, { taskTypes: string[]; emptyLabel: strin
     taskTypes: ['device_activation'],
     emptyLabel: 'مهام تشغيل الجهاز',
     permission: 'tasks.activation.view',
+  },
+  'device-disconnection': {
+    taskTypes: ['device_disconnection'],
+    emptyLabel: 'مهام فك الجهاز',
+    permission: 'tasks.disconnection.view',
   },
 };
 
@@ -951,8 +957,9 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   const preOffers = req.body?.preOffers as any[] | undefined;
   const taskType = typeof req.body?.taskType === 'string' ? req.body.taskType.trim() : 'device_demo';
   const taskFamily = typeof req.body?.taskFamily === 'string' ? req.body.taskFamily.trim() : 'marketing';
-  const contractId = Number(req.body?.contractId) || null;
+  let contractId = Number(req.body?.contractId) || null;
   const installedDeviceId = Number(req.body?.installedDeviceId ?? req.body?.deviceId) || null;
+  const requestedInstallmentId = Number(req.body?.installmentId) || null;
   // Golden-warranty tasks (offer / card delivery) can target multiple physical
   // installed devices on one task — stored in open_task_installed_devices.
   const installedDeviceIds: number[] = Array.isArray(req.body?.installedDeviceIds)
@@ -981,6 +988,9 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   ]);
   const creationOrigin = allowedCreationOrigins.has(creationOriginInput) ? creationOriginInput : 'manual_creation';
   const creationReason = typeof req.body?.creationReason === 'string' ? req.body.creationReason.trim() || null : null;
+  const receivableSourceTypeInput = typeof req.body?.receivableSourceType === 'string' ? req.body.receivableSourceType.trim() : '';
+  const receivableSourceIdInput = Number(req.body?.receivableSourceId) || null;
+  const receivableSourceLabelInput = typeof req.body?.receivableSourceLabel === 'string' ? req.body.receivableSourceLabel.trim() || null : null;
 
   const VALID_TASK_FAMILIES = new Set(['marketing', 'service', 'maintenance', 'emergency', 'delivery', 'sales', 'collection', 'warranty']);
 
@@ -988,7 +998,8 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     return res.status(400).json({ error: 'معرف الزبون مطلوب' });
   }
   const canDeriveBranchFromDevice = Boolean((contractId || installedDeviceId) && shouldUseDeviceBranch(taskFamily, taskType));
-  if ((!branchId || !Number.isInteger(branchId)) && !canDeriveBranchFromDevice) {
+  const canDeriveBranchFromInstallment = taskType === 'installment_collection' && Boolean(requestedInstallmentId);
+  if ((!branchId || !Number.isInteger(branchId)) && !canDeriveBranchFromDevice && !canDeriveBranchFromInstallment) {
     return res.status(400).json({ error: 'معرف الفرع مطلوب' });
   }
   if (!VALID_TASK_FAMILIES.has(taskFamily)) {
@@ -1013,7 +1024,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   if (!taskTypeConfig.isActive) {
     return res.status(400).json({ error: `نوع المهمة "${taskType}" غير مفعل حاليا` });
   }
-  if (!taskTypeConfig.allowMultiple && !['device_delivery', 'device_installation', 'device_activation'].includes(taskType)) {
+  if (!taskTypeConfig.allowMultiple && !['device_delivery', 'device_installation', 'device_activation', 'device_disconnection'].includes(taskType)) {
     const { rows: activeDuplicateRows } = await pool.query(
       `SELECT id, status
        FROM open_tasks
@@ -1167,6 +1178,38 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     }
   }
 
+  if (taskType === 'device_disconnection') {
+    if (!deviceIdFromContract) {
+      return res.status(400).json({ error: 'device_disconnection يتطلب installedDeviceId أو عقدا مرتبطا بجهاز' });
+    }
+    if (deviceStatusFromCurrentDevice !== 'active') {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة فك إلا لجهاز حالته active' });
+    }
+    if (!deviceGeoUnitIdFromCurrentDevice || !deviceAddressFromCurrentDevice) {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة فك قبل اكتمال عنوان الجهاز الحالي' });
+    }
+    if (!dueDate) {
+      return res.status(400).json({ error: 'التاريخ المطلوب مطلوب عند إنشاء مهمة فك الجهاز' });
+    }
+    const { rows: activeDuplicateRows } = await pool.query(
+      `SELECT id, status
+         FROM open_tasks
+        WHERE device_id = $1
+          AND task_type = 'device_disconnection'
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (activeDuplicateRows.length > 0) {
+      return res.status(409).json({
+        error: 'لا يمكن إنشاء أكثر من مهمة فك نشطة لنفس الجهاز',
+        existingTaskId: activeDuplicateRows[0].id,
+        existingTaskStatus: activeDuplicateRows[0].status,
+      });
+    }
+  }
+
   if (deviceBranchIdFromContract && shouldUseDeviceBranch(taskFamily, taskType)) {
     branchId = deviceBranchIdFromContract;
   }
@@ -1174,17 +1217,19 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     return res.status(400).json({ error: 'تعذر تحديد فرع تنفيذ المهمة' });
   }
 
-  const branchAccess = authorize(authContext, { permission: 'open_tasks.edit', branchId });
-  if (!branchAccess.allowed) {
-    return res.status(403).json({ error: 'ليس لديك صلاحية إنشاء مهمة ضمن هذا الفرع' });
-  }
+  if (!canDeriveBranchFromInstallment) {
+    const branchAccess = authorize(authContext, { permission: 'open_tasks.edit', branchId });
+    if (!branchAccess.allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية إنشاء مهمة ضمن هذا الفرع' });
+    }
 
-  const { rows: branchStatus } = await pool.query(
-    'SELECT status FROM branches WHERE id = $1',
-    [branchId],
-  );
-  if (branchStatus[0]?.status === 'inactive') {
-    return res.status(400).json({ error: 'لا يمكن إنشاء مهمة جديدة — الفرع المحدد موقوف عن العمل' });
+    const { rows: branchStatus } = await pool.query(
+      'SELECT status FROM branches WHERE id = $1',
+      [branchId],
+    );
+    if (branchStatus[0]?.status === 'inactive') {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة جديدة — الفرع المحدد موقوف عن العمل' });
+    }
   }
 
   const { rows: reasonRows } = await pool.query(
@@ -1201,6 +1246,10 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   );
   if (taskType === 'device_delivery') {
     ['sale_delivery', 'post_maintenance_return', 'temporary_swap_delivery', 'replacement_delivery', 'manual_delivery']
+      .forEach((value) => allowedReasons.add(value));
+  }
+  if (taskType === 'device_disconnection') {
+    ['contract_cancelled', 'temporary_stop', 'customer_request', 'technical_safety', 'replacement_preparation', 'maintenance_preparation', 'other']
       .forEach((value) => allowedReasons.add(value));
   }
   if (!reason || !allowedReasons.has(reason)) {
@@ -1224,7 +1273,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
 
     // Phase 3: resolve device_id from installed_devices when contract_id is known
     const deviceId: number | null = deviceIdFromContract;
-    const deliveryAddress = taskType === 'device_delivery' || taskType === 'device_installation' || taskType === 'device_activation'
+    const deliveryAddress = taskType === 'device_delivery' || taskType === 'device_installation' || taskType === 'device_activation' || taskType === 'device_disconnection'
       ? (deliveryAddressInput || deviceAddressFromCurrentDevice)
       : null;
     if (taskType === 'device_delivery' && !deliveryAddress) {
@@ -1252,13 +1301,84 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     }
 
     // DEC-CT-07: collection tasks must target a specific installment.
-    // The DB CHECK (migration 205) enforces this for new rows.
-    const installmentId = Number(req.body?.installmentId) || null;
+    const installmentId = requestedInstallmentId;
     if (['installment_collection', 'maintenance_collection'].includes(taskType) && !installmentId) {
       await pgClient.query('ROLLBACK');
       return res.status(400).json({
         error: 'installmentId مطلوب لمهام التحصيل (DEC-CT-07)',
       });
+    }
+
+    let receivableSourceType: string | null = null;
+    let receivableSourceId: number | null = null;
+    let receivableSourceLabel: string | null = null;
+    let expectedAmountSyp: number | null = null;
+
+    if (taskType === 'installment_collection' && installmentId) {
+      const { rows: instRows } = await pgClient.query(
+        `SELECT i.id, i.contract_id, i.installment_number, i.remaining_balance,
+                c.customer_id, c.contract_number, c.branch_id, c.service_branch_id
+           FROM contract_installments i
+           JOIN contracts c ON c.id = i.contract_id
+          WHERE i.id = $1
+          LIMIT 1`,
+        [installmentId],
+      );
+      const inst = instRows[0];
+      if (!inst) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json({ error: 'القسط المحدد غير موجود' });
+      }
+      if (Number(inst.customer_id) !== clientId) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json({ error: 'القسط المحدد لا يخص هذا الزبون' });
+      }
+      if (Number(inst.remaining_balance) <= 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json({ error: 'لا يمكن إنشاء مهمة تسديد ذمة لقسط مغلق أو بلا رصيد' });
+      }
+
+      const { rows: activeRows } = await pgClient.query(
+        `SELECT id, status
+           FROM open_tasks
+          WHERE task_type = 'installment_collection'
+            AND installment_id = $1
+            AND status NOT IN ('completed', 'closed', 'cancelled')
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        [installmentId],
+      );
+      if (activeRows.length > 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'يوجد مهمة تسديد ذمة نشطة لهذا القسط',
+          existingTaskId: activeRows[0].id,
+          existingTaskStatus: activeRows[0].status,
+        });
+      }
+
+      contractId = Number(inst.contract_id);
+      branchId = Number(inst.service_branch_id ?? inst.branch_id);
+      expectedAmountSyp = Number(inst.remaining_balance);
+      receivableSourceType = ['contract', 'maintenance_task', 'golden_warranty'].includes(receivableSourceTypeInput)
+        ? receivableSourceTypeInput
+        : 'contract';
+      receivableSourceId = receivableSourceIdInput ?? contractId;
+      receivableSourceLabel = receivableSourceLabelInput ?? `عقد رقم ${inst.contract_number ?? contractId}`;
+
+      const collectionBranchAccess = authorize(authContext, { permission: 'open_tasks.edit', branchId });
+      if (!collectionBranchAccess.allowed) {
+        await pgClient.query('ROLLBACK');
+        return res.status(403).json({ error: 'ليس لديك صلاحية إنشاء مهمة تسديد ذمة ضمن فرع هذا القسط' });
+      }
+      const { rows: collectionBranchStatus } = await pgClient.query(
+        'SELECT status FROM branches WHERE id = $1',
+        [branchId],
+      );
+      if (collectionBranchStatus[0]?.status === 'inactive') {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json({ error: 'لا يمكن إنشاء مهمة جديدة — فرع القسط موقوف عن العمل' });
+      }
     }
 
     const { rows: taskRows } = await pgClient.query(
@@ -1267,16 +1387,20 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
          due_date, expected_date, priority, source, notes, created_by, origin,
          contract_id, device_id, installment_id,
          delivery_address, source_context_type, source_context_id,
-         dispatch_origin_type, dispatch_origin_label, creation_origin, creation_reason
+         dispatch_origin_type, dispatch_origin_label, creation_origin, creation_reason,
+         receivable_source_type, receivable_source_id, receivable_source_label,
+         expected_amount_syp
        ) VALUES ($1, $2, $3, $4, $5, 'open',
          $6::date, $7::date, $8, 'manual', $9, $10, 'manual_entry',
          $11, $12, $13,
-         $14, $15, $16, $17, $18, $19, $20)
+         $14, $15, $16, $17, $18, $19, $20,
+         $21, $22, $23, $24)
        RETURNING id`,
       [clientId, branchId, taskType, taskFamily, reason, dueDate, expectedDate, priority, notes,
        authContext.userId ?? null, contractId, deviceId, installmentId,
        deliveryAddress, sourceContextType, sourceContextId, dispatchOriginType, dispatchOriginLabel,
-       creationOrigin, creationReason],
+       creationOrigin, creationReason, receivableSourceType, receivableSourceId, receivableSourceLabel,
+       expectedAmountSyp],
     );
     const openTaskId = taskRows[0].id;
 
@@ -1357,6 +1481,85 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     return res.status(500).json({ error: err.message });
   } finally {
     pgClient.release();
+  }
+});
+
+router.get('/client/:clientId/collectable-installments', requirePermission('open_tasks.view'), async (req, res) => {
+  try {
+    const authContext = req.authContext!;
+    const clientId = Number(req.params.clientId);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'معرف الزبون غير صالح' });
+    }
+
+    const accessPlan = getOpenTaskListAccessPlan(authContext);
+    if (accessPlan.scope === 'NONE') {
+      return res.status(403).json({ error: 'ليست لديك صلاحية عرض مهام التحصيل' });
+    }
+
+    const params: any[] = [clientId];
+    let branchPredicate = '';
+    if (accessPlan.scope !== 'GLOBAL') {
+      params.push(accessPlan.allowedBranchIds);
+      branchPredicate = `AND COALESCE(c.service_branch_id, c.branch_id) = ANY($${params.length}::int[])`;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT
+         i.id AS "installmentId",
+         i.installment_number AS "installmentNumber",
+         i.due_date AS "dueDate",
+         i.amount_syp AS "amountSyp",
+         i.paid_amount AS "paidAmount",
+         i.remaining_balance AS "remainingBalance",
+         i.status,
+         i.collection_owner_id AS "collectionOwnerId",
+         c.id AS "contractId",
+         c.contract_number AS "contractNumber",
+         COALESCE(c.service_branch_id, c.branch_id) AS "branchId",
+         'contract'::text AS "receivableSourceType",
+         c.id AS "receivableSourceId",
+         ('عقد رقم ' || COALESCE(c.contract_number, c.id::text)) AS "receivableSourceLabel",
+         last_task.id AS "lastTaskId",
+         last_task.status AS "lastTaskStatus",
+         last_result.final_decision AS "lastFinalDecision",
+         last_result.closed_at AS "lastClosedAt"
+       FROM contract_installments i
+       JOIN contracts c ON c.id = i.contract_id
+       LEFT JOIN LATERAL (
+         SELECT ot.id, ot.status
+           FROM open_tasks ot
+          WHERE ot.task_type = 'installment_collection'
+            AND ot.installment_id = i.id
+          ORDER BY ot.created_at DESC
+          LIMIT 1
+       ) last_task ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT vtr.final_decision, vtr.closed_at
+           FROM visit_tasks vt
+           JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+          WHERE vt.source_open_task_id = last_task.id
+          ORDER BY vtr.closed_at DESC
+          LIMIT 1
+       ) last_result ON TRUE
+       WHERE c.customer_id = $1
+         AND i.remaining_balance > 0
+         ${branchPredicate}
+         AND NOT EXISTS (
+           SELECT 1
+             FROM open_tasks active_ot
+            WHERE active_ot.task_type = 'installment_collection'
+              AND active_ot.installment_id = i.id
+              AND active_ot.status NOT IN ('completed', 'closed', 'cancelled')
+         )
+       ORDER BY i.due_date ASC, i.installment_number ASC`,
+      params,
+    );
+
+    return res.json(rows);
+  } catch (err: any) {
+    console.error('[open-tasks] GET /client/:clientId/collectable-installments error:', err);
+    return res.status(500).json({ error: err.message });
   }
 });
 

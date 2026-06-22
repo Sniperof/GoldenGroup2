@@ -22,7 +22,11 @@ import {
   buildCustomerOwnershipSelectColumns,
   buildCustomerOwnershipSql,
   buildClientLifecycleStatusSql,
+  eligiblePersonalOwnerCondition,
+  getEligiblePersonalOwnerIds,
+  isEligiblePersonalOwner,
   mapCustomerOwnership,
+  personalOwnershipPredicate,
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
 
@@ -294,6 +298,157 @@ function normalizeClientPayload<T extends Record<string, any>>(payload: T): T & 
   };
 }
 
+function normalizeTextValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function normalizeNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const numberValue = Number(value);
+  return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null;
+}
+
+function currentDateKey(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Damascus',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const valueByType = new Map(parts.map(part => [part.type, part.value]));
+  return `${valueByType.get('year')}-${valueByType.get('month')}-${valueByType.get('day')}`;
+}
+
+function normalizeReferrerItem(raw: any): Record<string, any> | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const referrerType = normalizeTextValue(raw.referrerType ?? raw.type);
+  const referrerName = normalizeTextValue(raw.referrerName ?? raw.name ?? raw.referralName);
+  const referralEntityId = normalizeNullableNumber(raw.referralEntityId ?? raw.id);
+  const referrerId = normalizeNullableNumber(raw.referrerId);
+  const sourceChannel = normalizeTextValue(raw.sourceChannel ?? raw.channel);
+  const referralDate = normalizeTextValue(raw.referralDate);
+  const referralReason = normalizeTextValue(raw.referralReason);
+  const referralSheetId = normalizeNullableNumber(raw.referralSheetId);
+  const referralAddressText = normalizeTextValue(raw.referralAddressText ?? raw.address);
+  const sourceCandidateId = normalizeNullableNumber(raw.sourceCandidateId);
+
+  if (
+    !referrerType &&
+    !referrerName &&
+    referralEntityId == null &&
+    referrerId == null &&
+    !sourceChannel &&
+    !referralDate &&
+    !referralReason &&
+    referralSheetId == null &&
+    !referralAddressText &&
+    sourceCandidateId == null
+  ) {
+    return null;
+  }
+
+  return {
+    ...raw,
+    id: referralEntityId,
+    type: referrerType,
+    name: referrerName,
+    channel: sourceChannel,
+    address: referralAddressText,
+    referrerType,
+    referrerId,
+    referralEntityId,
+    referrerName,
+    sourceChannel,
+    referralDate,
+    referralReason,
+    referralSheetId,
+    referralAddressText,
+    sourceCandidateId,
+  };
+}
+
+function buildLegacyReferrerFromPayload(payload: Record<string, any>): Record<string, any> | null {
+  return normalizeReferrerItem({
+    referrerType: payload.referrerType,
+    referrerId: payload.referrerId,
+    referrerName: payload.referrerName,
+    sourceChannel: payload.sourceChannel,
+    referralEntityId: payload.referralEntityId,
+    referralDate: payload.referralDate,
+    referralReason: payload.referralReason,
+    referralSheetId: payload.referralSheetId,
+    referralAddressText: payload.referralAddressText,
+  });
+}
+
+function hasConflictingReferrerValue(
+  field: string,
+  legacyValue: unknown,
+  primaryValue: unknown,
+): boolean {
+  if (legacyValue === null || legacyValue === undefined || legacyValue === '') return false;
+  if (primaryValue === null || primaryValue === undefined || primaryValue === '') return false;
+
+  if (field === 'referralEntityId' || field === 'referrerId' || field === 'referralSheetId') {
+    return Number(legacyValue) !== Number(primaryValue);
+  }
+
+  return String(legacyValue).trim() !== String(primaryValue).trim();
+}
+
+function reconcileClientReferrers<T extends Record<string, any>>(
+  payload: T,
+  options: { defaultReferralDate?: string | null } = {},
+): T {
+  const incomingReferrers = Array.isArray(payload.referrers)
+    ? payload.referrers.map(normalizeReferrerItem).filter(Boolean) as Record<string, any>[]
+    : [];
+  const legacyReferrer = buildLegacyReferrerFromPayload(payload);
+  const referrersWithoutDefaults = incomingReferrers.length > 0
+    ? incomingReferrers
+    : (legacyReferrer ? [legacyReferrer] : []);
+  const referrers: Record<string, any>[] = options.defaultReferralDate
+    ? referrersWithoutDefaults.map(referrer => ({
+        ...referrer,
+        referralDate: referrer.referralDate ?? options.defaultReferralDate,
+      }))
+    : referrersWithoutDefaults;
+  const primary = referrers[0] ?? null;
+
+  if (incomingReferrers.length > 0 && legacyReferrer && primary) {
+    const conflictingField = [
+      'referrerType',
+      'referrerName',
+      'referrerId',
+      'referralEntityId',
+      'sourceChannel',
+    ].find(field => hasConflictingReferrerValue(field, legacyReferrer[field], primary[field]));
+
+    if (conflictingField) {
+      const error = new Error(`REFERRER_CONFLICT:${conflictingField}`);
+      (error as any).status = 400;
+      throw error;
+    }
+  }
+
+  return {
+    ...payload,
+    referrers,
+    referrerType: primary?.referrerType ?? null,
+    referrerId: primary?.referrerId ?? null,
+    referrerName: primary?.referrerName ?? null,
+    sourceChannel: primary?.sourceChannel ?? null,
+    referralEntityId: primary?.referralEntityId ?? null,
+    referralDate: primary?.referralDate ?? null,
+    referralReason: primary?.referralReason ?? null,
+    referralSheetId: primary?.referralSheetId ?? null,
+    referralAddressText: primary?.referralAddressText ?? null,
+  };
+}
+
 function enforcePersonalReferrer<T extends Record<string, any>>(
   payload: T,
   currentUser: { id: number; name: string },
@@ -305,6 +460,23 @@ function enforcePersonalReferrer<T extends Record<string, any>>(
 
   return {
     ...payload,
+    referrers: [{
+      id: null,
+      type: 'Personal',
+      name: currentUser.name,
+      channel: normalizeTextValue(payload.sourceChannel),
+      address: normalizeTextValue(payload.referralAddressText),
+      referrerType: 'Personal',
+      referrerId: null,
+      referralEntityId: null,
+      referrerName: currentUser.name,
+      sourceChannel: normalizeTextValue(payload.sourceChannel),
+      referralDate: normalizeTextValue(payload.referralDate),
+      referralReason: normalizeTextValue(payload.referralReason),
+      referralSheetId: normalizeNullableNumber(payload.referralSheetId),
+      referralAddressText: normalizeTextValue(payload.referralAddressText),
+    }],
+    referrerType: 'Personal',
     referrerName: currentUser.name,
     referrerId: null,
     referralEntityId: null,
@@ -543,8 +715,12 @@ async function loadClientSubject(clientId: string | number): Promise<ClientSubje
        c.branch_id AS "branchId",
        COALESCE(
          (SELECT array_agg(hr_user_id)
-            FROM client_assignments
-           WHERE client_id = c.id),
+            FROM client_assignments ca
+            JOIN hr_users u ON u.id = ca.hr_user_id
+            LEFT JOIN roles r ON r.id = u.role_id
+            LEFT JOIN employees e ON e.id = u.employee_id
+           WHERE ca.client_id = c.id
+             AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}),
          '{}'::int[]
        ) AS "assignedUserIds"
      FROM clients c
@@ -557,17 +733,10 @@ async function loadClientSubject(clientId: string | number): Promise<ClientSubje
 
 async function resolveAssignmentUserIds(
   rawIds: unknown,
-  selfId: number,
-  isSuperAdmin: boolean,
 ): Promise<number[] | { error: string }> {
   const ids: number[] = Array.isArray(rawIds)
-    ? rawIds.map(Number).filter(n => Number.isInteger(n) && n > 0)
+    ? Array.from(new Set(rawIds.map(Number).filter(n => Number.isInteger(n) && n > 0)))
     : [];
-
-  // Non-super-admin must always be in their own client's assignments
-  if (!isSuperAdmin && !ids.includes(selfId)) {
-    ids.push(selfId);
-  }
 
   if (ids.length === 0) return [];
 
@@ -579,6 +748,12 @@ async function resolveAssignmentUserIds(
   const invalid = ids.find(id => !validIds.has(id));
   if (invalid != null) {
     return { error: `المستخدم رقم ${invalid} غير موجود في النظام` };
+  }
+
+  const eligibleIds = new Set(await getEligiblePersonalOwnerIds(ids));
+  const ineligible = ids.find(id => !eligibleIds.has(id));
+  if (ineligible != null) {
+    return { error: `USER_NOT_ELIGIBLE_FOR_CLIENT_OWNERSHIP:${ineligible}` };
   }
 
   return ids;
@@ -776,7 +951,7 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
 
     if (listAccess.scope === 'ASSIGNED') {
       params.push(authContext.userId);
-      conditions.push(`EXISTS (SELECT 1 FROM client_assignments WHERE client_id = c.id AND hr_user_id = $${params.length})`);
+      conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
       params.push(requestedBranchId != null ? [requestedBranchId] : authContext.allowedBranchIds);
       conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
     }
@@ -871,9 +1046,12 @@ router.post('/smart-match', async (req, res) => {
       req.header('x-branch-id') != null;
     const targetBranchId = resolveClientTargetBranch(req, req.body?.branchId);
     if (targetBranchId != null) {
+      const selfAssigneeContext = (await isEligiblePersonalOwner(authContext.userId))
+        ? [authContext.userId]
+        : [];
       const createAccess = canCreateClient(authContext, {
         branchId: targetBranchId,
-        assignedUserIds: [authContext.userId],
+        assignedUserIds: selfAssigneeContext,
       });
       const listAccess = canListClients(authContext, targetBranchId);
       if (!createAccess.allowed && !listAccess.allowed) {
@@ -1273,8 +1451,7 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         const resolvedSourceCandidateId = linkedCandidate?.id != null
           ? Number(linkedCandidate.id)
           : sourceCandidateId;
-        const referralDate = linkedCandidate?.referralDate
-          ?? ref.referralDate
+        const referralDate = ref.referralDate
           ?? (ref.__legacy ? incomingRow.referral_date : null);
         const address = linkedCandidate?.addressText
           ?? ref.address
@@ -1472,18 +1649,17 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       return res.status(400).json({ error: 'لا يمكن تسجيل زبون جديد — الفرع المحدد موقوف عن العمل' });
     }
 
-    // Resolve the list of users this client will be assigned to.
-    // Non-super-admin is always included in their own assignments (self-assign).
+    // Resolve the list of users this client will be assigned to. An explicit
+    // assignment list is authoritative; the actor is never added implicitly.
     const assignmentAccess = canManageClientAssignments(authContext, targetBranchId);
     const canManageAssignments = assignmentAccess.allowed;
-    if (Array.isArray(req.body?.assignmentUserIds) && !canManageAssignments) {
+    const hasExplicitAssignments = Array.isArray(req.body?.assignmentUserIds);
+    if (hasExplicitAssignments && !canManageAssignments) {
       return forbidClientAccess(res, assignmentAccess.reason);
     }
-    const resolvedAssignees = await resolveAssignmentUserIds(
-      canManageAssignments ? req.body?.assignmentUserIds : undefined,
-      authContext.userId,
-      authContext.isSuperAdmin,
-    );
+    const resolvedAssignees = hasExplicitAssignments
+      ? await resolveAssignmentUserIds(req.body.assignmentUserIds)
+      : ((await isEligiblePersonalOwner(authContext.userId)) ? [authContext.userId] : []);
     if ('error' in resolvedAssignees) {
       return res.status(400).json({ error: resolvedAssignees.error });
     }
@@ -1496,10 +1672,10 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       return forbidClientAccess(res, createAccess.reason);
     }
 
-    const c = enforcePersonalReferrer(
+    const c = reconcileClientReferrers(enforcePersonalReferrer(
       normalizeClientPayload(req.body ?? {}),
       { id: authContext.userId, name: req.user?.name || '' },
-    );
+    ), { defaultReferralDate: currentDateKey() });
     if (!c.mobile) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     }
@@ -1669,10 +1845,10 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
     );
     const existing = existingRows[0];
 
-    const c = enforcePersonalReferrer(
+    const c = reconcileClientReferrers(enforcePersonalReferrer(
       normalizeClientPayload(req.body ?? {}),
       { id: authContext.userId, name: req.user?.name || '' },
-    );
+    ));
     if (!c.mobile) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     }
@@ -1725,8 +1901,6 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
     if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
       const resolved = await resolveAssignmentUserIds(
         req.body.assignmentUserIds,
-        authContext.userId,
-        authContext.isSuperAdmin,
       );
       if ('error' in resolved) {
         return res.status(400).json({ error: resolved.error });

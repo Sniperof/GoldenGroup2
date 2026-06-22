@@ -405,6 +405,7 @@ export const api = {
   openTasks: {
     create: (data: any) => request<any>('/open-tasks', { method: 'POST', body: JSON.stringify(data) }),
     listByClient: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}`),
+    collectableInstallments: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}/collectable-installments`),
     get: (id: number) => request<any>(`/open-tasks/${id}`),
     update: (id: number, data: any) => request<any>(`/open-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     assignTeam: (id: number, data: { supervisorId?: number; technicianId?: number; traineeId?: number }) =>
@@ -639,6 +640,23 @@ export const api = {
       `/field-visits/${id}/tasks`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+    /** DEC-010: the customer's waiting-phase tasks (visit's branch) pullable into the visit. */
+    pullableTasks: (id: number) => request<Array<{
+      openTaskId: number; taskType: string; arabicLabel: string | null; taskFamily: string | null;
+      status: string; reason: string | null; priority: string | null; creationOrigin: string | null;
+      createdAt: string; expectedDate: string | null; expectedTime: string | null;
+      contractId: number | null; contractNumber: string | null; deviceModelName: string | null;
+      installmentId: number | null; installmentNumber: number | null;
+      installmentAmount: number | string | null; installmentRemaining: number | string | null;
+      expectedAmount: number | string | null; receivableLabel: string | null;
+      taskAddress: string | null; taskGeoUnitId: number | null;
+    }>>(`/field-visits/${id}/pullable-tasks`),
+    /** DEC-010 D-PB8: undo a pull (pulled + pending only). */
+    removePulledTask: (id: number, visitTaskId: number) =>
+      request<{ success: boolean; removedVisitTaskId: number; restoredOpenTaskId: number | null }>(
+        `/field-visits/${id}/tasks/${visitTaskId}`,
+        { method: 'DELETE' },
+      ),
     recordTaskResult: (visitId: number, taskId: number, data: any) =>
       request<any>(`/field-visits/${visitId}/tasks/${taskId}/result`, {
         method: 'POST',

@@ -1,7 +1,7 @@
 // Device operational status + lifecycle dates.
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Loader2, MapPin, Truck, Wrench, X, Zap } from 'lucide-react';
+import { AlertCircle, Loader2, MapPin, Truck, Unplug, Wrench, X, Zap } from 'lucide-react';
 import { DeviceStatusBadge } from '../../../components/devices/DeviceStatusBadge';
 import { SectionShell } from './SectionShell';
 import { api } from '../../../lib/api';
@@ -41,10 +41,11 @@ function LifecycleValue({ value, reason }: { value?: string | null; reason: stri
   );
 }
 
-const ALLOWED_NEXT_TASK: Record<string, { type: 'device_delivery' | 'device_installation' | 'device_activation'; label: string; Icon: any; reason: string }> = {
+const ALLOWED_NEXT_TASK: Record<string, { type: 'device_delivery' | 'device_installation' | 'device_activation' | 'device_disconnection'; label: string; Icon: any; reason: string }> = {
   pending_delivery: { type: 'device_delivery', label: 'جدولة مهمة تسليم', Icon: Truck, reason: 'sale_delivery' },
   delivered: { type: 'device_installation', label: 'جدولة مهمة تركيب', Icon: Wrench, reason: 'other' },
   installed: { type: 'device_activation', label: 'جدولة مهمة تشغيل', Icon: Zap, reason: 'other' },
+  active: { type: 'device_disconnection', label: 'جدولة مهمة فك', Icon: Unplug, reason: 'customer_request' },
 };
 
 export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props) {
@@ -119,7 +120,7 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
         branchId: device.branchId,
         installedDeviceId: device.id,
         taskType: next.type,
-        taskFamily: 'delivery',
+        taskFamily: next.type === 'device_disconnection' ? 'service' : 'delivery',
         reason: next.reason,
         contractId: device.contractId,
         deliveryAddress: device.installationAddressText || undefined,

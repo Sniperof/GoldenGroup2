@@ -22,7 +22,7 @@ import AppointmentSchedulerModal, { CustomerOpenTask } from '../components/telem
 import ClientModal from '../components/ClientModal';
 import Select from '../components/ui/Select';
 import Button from '../components/ui/Button';
-import type { DaySchedule, Contract, Visit, Employee, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client } from '../lib/types';
+import type { DaySchedule, Contract, Visit, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client } from '../lib/types';
 import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
 import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY } from '@golden-crm/shared';
 import { buildGeoHierarchyLabel } from '../utils/addressUtils';
@@ -262,7 +262,6 @@ export default function TelemarketerWorkspace() {
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [visits, setVisits] = useState<Visit[]>([]);
     const [maintenanceRequests, setMaintenanceRequests] = useState<any[]>([]);
-    const [employees, setEmployees] = useState<Employee[]>([]);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [currentSchedule, setCurrentSchedule] = useState<DaySchedule>({ teams: [], solos: [] });
     // React to the external branch switcher (no full reload — §4).
@@ -280,18 +279,17 @@ export default function TelemarketerWorkspace() {
         loadData(date, appointmentDate);
         setSelectedCustomerKey(null);
         // Legacy bulk `api.visits.list()` removed — the modern field_visits
-        // endpoint is per-client. We load contracts/employees/etc. globally
+        // endpoint is per-client. We load contracts and supporting reference data
         // and then fetch visits for the selected customer in a dedicated
         // effect below.
         Promise.all([
             api.contracts.list(),
             api.maintenanceRequests.list(),
-            api.employees.list(),
             api.geoUnits.list(),
-        ]).then(([c, m, e, g]) => {
-            setContracts(c); setMaintenanceRequests(m); setEmployees(e); setGeoUnits(g);
+        ]).then(([c, m, g]) => {
+            setContracts(c); setMaintenanceRequests(m); setGeoUnits(g);
         }).catch(() => {
-            setContracts([]); setMaintenanceRequests([]); setEmployees([]); setGeoUnits([]);
+            setContracts([]); setMaintenanceRequests([]); setGeoUnits([]);
         });
         setVisits([]); // reset while a new date/customer set is loading
     }, [loadClients, loadData, date, appointmentDate, branchId]);
@@ -303,24 +301,22 @@ export default function TelemarketerWorkspace() {
             .catch(() => setCurrentSchedule({ teams: [], solos: [] }));
     }, [appointmentDate, branchId]);
 
-    const getEmp = (id: number | null) => employees.find(e => e.id === id) || null;
-
     const availableTeams = useMemo(() => {
         const teams: { key: string; label: string; type: 'team' | 'solo'; count: number }[] = [];
         currentSchedule.teams.forEach((t, idx) => {
             // Foreign-branch slots arrive redacted to `{ locked: true }` (GAP-DS-005) —
             // skip them, keep idx so team_key stays aligned with route_assignments.
             if ((t as any)?.locked === true) return;
-            const sup = getEmp(t.supervisor);
-            teams.push({ key: `team_${idx}`, label: sup ? `فريق ${sup.name}` : `فريق #${idx + 1}`, type: 'team', count: (t.telemarketers || []).length });
+            const fallbackLabel = t.supervisorName ? `فريق ${t.supervisorName}` : `فريق #${idx + 1}`;
+            teams.push({ key: t.teamKey || `team_${idx}`, label: t.teamLabel || fallbackLabel, type: 'team', count: (t.telemarketers || []).length });
         });
         currentSchedule.solos.forEach((s, idx) => {
             if ((s as any)?.locked === true) return;   // foreign-branch solo slot — skip, keep idx
-            const tech = getEmp(s.technician);
-            teams.push({ key: `solo_${idx}`, label: tech ? `طوارئ: ${tech.name}` : `فريق طوارئ #${idx + 1}`, type: 'solo', count: 1 });
+            const fallbackLabel = s.technicianName ? `طوارئ: ${s.technicianName}` : `فريق طوارئ #${idx + 1}`;
+            teams.push({ key: s.teamKey || `solo_${idx}`, label: s.teamLabel || fallbackLabel, type: 'solo', count: 1 });
         });
         return teams;
-    }, [currentSchedule, employees]);
+    }, [currentSchedule]);
 
     const [selectedTeamKey, setSelectedTeamKey] = useState<string>('');
     const [selectedCustomerKey, setSelectedCustomerKey] = useState<string | null>(null);
