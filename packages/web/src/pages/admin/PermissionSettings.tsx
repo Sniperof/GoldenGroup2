@@ -375,7 +375,7 @@ export default function PermissionSettings() {
             <Shield className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-slate-800">إعدادات نطاقات الصلاحيات</h1>
+            <h1 className="text-2xl mb-1 font-bold text-slate-800">إعدادات نطاقات الصلاحيات</h1>
             <p className="text-xs text-slate-500">
               تحديد النطاقات المسموحة لكل صلاحية — يؤثر على الخيارات المتاحة عند تعيين الصلاحيات للأدوار
             </p>

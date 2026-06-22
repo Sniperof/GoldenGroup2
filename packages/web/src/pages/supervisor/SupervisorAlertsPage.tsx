@@ -60,7 +60,7 @@ export default function SupervisorAlertsPage() {
             <AlertTriangle className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">لوحة تنبيهات المشرف</h1>
+            <h1 className="text-2xl mb-1 font-bold text-slate-800">لوحة تنبيهات المشرف</h1>
             <p className="text-xs text-slate-500">تتبع المهام عالية المحاولات والزيارات بانتظار التوثيق.</p>
           </div>
         </div>

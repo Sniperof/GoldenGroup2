@@ -491,7 +491,7 @@ export default function TaskGroupPage() {
             <Icon className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">{config.label}</h1>
+            <h1 className="text-2xl mb-1 font-bold text-slate-800">{config.label}</h1>
             <p className="text-sm text-slate-500">{config.subtitle}</p>
             <div className="mt-2"><BranchScopeIndicator /></div>
           </div>

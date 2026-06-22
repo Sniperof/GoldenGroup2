@@ -954,7 +954,7 @@ export default function Roles() {
             <ShieldCheck className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">الأدوار والصلاحيات</h1>
+            <h1 className="text-2xl mb-1 font-bold text-slate-800">الأدوار والصلاحيات</h1>
             <p className="text-xs text-slate-500">إدارة أدوار النظام وصلاحياتها، وإسناد المستخدمين إلى الأدوار والفروع</p>
           </div>
         </div>

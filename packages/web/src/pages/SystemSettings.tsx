@@ -29,7 +29,7 @@ export default function SystemSettings() {
                     <Settings className="w-6 h-6 text-slate-600" />
                 </div>
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-800">إعدادات النظام</h1>
+                    <h1 className="text-2xl mb-1 font-bold text-slate-800">إعدادات النظام</h1>
                     <p className="text-slate-500">تحكم ببيانات النظام والخيارات المتقدمة</p>
                 </div>
             </div>

@@ -101,7 +101,7 @@ export default function EmergencyActionTypes() {
             <Zap className="w-5 h-5 text-rose-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">أنواع إجراءات الصيانة الطارئة</h1>
+            <h1 className="text-2xl mb-1 font-bold text-slate-800">أنواع إجراءات الصيانة الطارئة</h1>
             <p className="text-sm text-slate-500 mt-0.5">قائمة الإجراءات التي يمكن تحديدها عند طلب صيانة طارئة</p>
           </div>
         </div>

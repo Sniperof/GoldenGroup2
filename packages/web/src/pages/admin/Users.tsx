@@ -64,7 +64,7 @@ export default function Users() {
               <User className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">المستخدمون</h1>
+              <h1 className="text-2xl mb-1 font-bold text-slate-800">المستخدمون</h1>
               <p className="text-xs text-slate-500">حسابات النظام ضمن نطاقك. الإضافة تتم على مستوى فرع محدد.</p>
               <div className="mt-2"><BranchScopeIndicator /></div>
             </div>

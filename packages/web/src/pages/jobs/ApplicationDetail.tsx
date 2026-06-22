@@ -595,7 +595,7 @@ export default function ApplicationDetail() {
           <ArrowRight className="w-5 h-5" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">طلب التوظيف #{detail.id}</h1>
+          <h1 className="text-2xl mb-1 font-bold text-slate-800">طلب التوظيف #{detail.id}</h1>
           <p className="text-sm text-slate-500">{detail.applicant?.firstName} {detail.applicant?.lastName} — {detail.vacancy?.title}</p>
         </div>
       </div>

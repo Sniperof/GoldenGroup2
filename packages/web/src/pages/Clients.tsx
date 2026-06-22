@@ -398,7 +398,7 @@ export default function Clients() {
             {/* 1. Page Title */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-800">سجلات الزبائن</h1>
+                    <h1 className="text-2xl mb-1 font-bold text-slate-800">سجلات الزبائن</h1>
                     <p className="text-sm text-slate-500 font-medium">إدارة وتحليل بيانات الزبائن والشبكة</p>
                 </div>
                 <div className="flex items-center gap-3">

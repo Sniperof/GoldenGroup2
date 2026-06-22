@@ -1189,7 +1189,7 @@ export default function VisitsListPage() {
             <CalendarDays className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">الزيارات</h1>
+            <h1 className="text-2xl mb-1 font-bold text-slate-800">الزيارات</h1>
             <p className="text-sm text-slate-500">جدول يومي مركزي للزيارات كوعاء لكل المهام التشغيلية.</p>
           </div>
         </div>

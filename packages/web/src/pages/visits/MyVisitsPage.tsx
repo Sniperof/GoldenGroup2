@@ -74,7 +74,7 @@ export default function MyVisitsPage() {
             <CalendarCheck className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">زياراتي</h1>
+            <h1 className="text-2xl mb-1 font-bold text-slate-800">زياراتي</h1>
             <p className="text-sm text-slate-500">زيارات الفريق الذي أنت جزء منه ليوم محدد</p>
           </div>
         </div>

@@ -262,7 +262,7 @@ export default function CandidatesEntry() {
             <div className="flex flex-col gap-6">
                 <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-800">سجلات الأسماء المقترحة</h1>
+                        <h1 className="text-2xl mb-1 font-bold text-slate-800">سجلات الأسماء المقترحة</h1>
                         <p className="text-sm text-slate-500 mt-1">فلترة، تدقيق، وتوجيه الأسماء الجديدة</p>
                         <div className="mt-2"><BranchScopeIndicator /></div>
                     </div>

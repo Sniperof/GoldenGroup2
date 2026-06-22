@@ -157,7 +157,7 @@ export default function TaskTypes() {
               <Settings2 className="w-5 h-5 text-sky-600" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">إعدادات أنواع المهام</h1>
+              <h1 className="text-2xl mb-1 font-bold text-slate-800">إعدادات أنواع المهام</h1>
               <p className="text-slate-500 text-sm">
                 تحكم في النوافذ الزمنية (N) وتفعيل/تعطيل كل نوع — حسب نمطه الزمني.
               </p>

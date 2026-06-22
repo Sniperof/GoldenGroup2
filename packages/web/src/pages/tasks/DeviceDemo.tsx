@@ -194,7 +194,7 @@ export default function DeviceDemo() {
             <Monitor className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">عروض الأجهزة</h1>
+            <h1 className="text-2xl mb-1 font-bold text-slate-800">عروض الأجهزة</h1>
             <p className="text-sm text-slate-500">مهام عرض الجهاز المرتبطة بزيارات التسويق</p>
           </div>
         </div>

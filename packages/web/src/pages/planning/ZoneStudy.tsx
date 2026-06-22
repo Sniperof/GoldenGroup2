@@ -123,7 +123,7 @@ export default function ZoneStudy() {
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-sky-50 text-sky-600"><LayoutGrid className="w-6 h-6" /></div>
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-800">دراسة النطاقات</h1>
+                        <h1 className="text-2xl mb-1 font-bold text-slate-800">دراسة النطاقات</h1>
                         <p className="text-xs text-slate-500">مرحلة تحليلية بين جدولة الفرق وتوزيع المسارات — اقرأ المهام المؤهلة لزبائن الشركة وسحب الفرق الطبيعي لكل منطقة.</p>
                     </div>
                 </div>
