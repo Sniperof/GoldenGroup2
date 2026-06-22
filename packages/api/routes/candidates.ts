@@ -21,6 +21,17 @@ import {
 const router = Router();
 router.use(requireAuth);
 
+function currentDateKey(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Damascus',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const valueByType = new Map(parts.map(part => [part.type, part.value]));
+  return `${valueByType.get('year')}-${valueByType.get('month')}-${valueByType.get('day')}`;
+}
+
 const selectFields = `
   id, first_name AS "firstName", last_name AS "lastName", nickname, mobile,
   contacts, address_text AS "addressText", geo_unit_id AS "geoUnitId", owner_user_id AS "ownerUserId",
@@ -750,7 +761,7 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       referralEntityId: candidate.referralEntityId,
       referrerName: candidate.referralNameSnapshot,
       sourceChannel: candidate.referralOriginChannel,
-      referralDate: candidate.referralDate,
+      referralDate: currentDateKey(),
       referralReason: candidate.referralReason,
       referralSheetId: candidate.referralSheetId,
       referralAddressText: candidate.addressText,
@@ -769,37 +780,53 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
     await db.query('BEGIN');
 
     await db.query(
-      `UPDATE clients
-          SET referrers = CASE
-                WHEN EXISTS (
-                  SELECT 1
-                    FROM jsonb_array_elements(COALESCE(referrers, '[]'::jsonb)) AS existing_referrer
-                   WHERE existing_referrer->>'sourceCandidateId' = $2::text
-                )
-                THEN COALESCE(referrers, '[]'::jsonb)
-                ELSE COALESCE(referrers, '[]'::jsonb) || $3::jsonb
-              END,
-              referrer_name = COALESCE(referrer_name, $4),
-              referrer_type = COALESCE(referrer_type, $5),
-              source_channel = COALESCE(source_channel, $6),
-              referral_entity_id = COALESCE(referral_entity_id, $7),
-              referral_date = COALESCE(referral_date, $8),
-              referral_reason = COALESCE(referral_reason, $9),
-              referral_sheet_id = COALESCE(referral_sheet_id, $10),
-              referral_address_text = COALESCE(referral_address_text, $11)
-        WHERE id = $1`,
+      `WITH next_referrers AS (
+          SELECT CASE
+                  WHEN EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements(COALESCE(referrers, '[]'::jsonb)) AS existing_referrer
+                     WHERE existing_referrer->>'sourceCandidateId' = $2::text
+                  )
+                  THEN COALESCE(referrers, '[]'::jsonb)
+                  ELSE COALESCE(referrers, '[]'::jsonb) || $3::jsonb
+                END AS value
+            FROM clients
+           WHERE id = $1
+        ),
+        primary_referrer AS (
+          SELECT
+            value,
+            value->0 AS item,
+            COALESCE(value->0->>'referralEntityId', value->0->>'id') AS entity_id_text,
+            value->0->>'referralSheetId' AS sheet_id_text,
+            value->0->>'referralDate' AS referral_date_text
+          FROM next_referrers
+        )
+        UPDATE clients
+           SET referrers = primary_referrer.value,
+               referrer_name = COALESCE(primary_referrer.item->>'referrerName', primary_referrer.item->>'name'),
+               referrer_type = COALESCE(primary_referrer.item->>'referrerType', primary_referrer.item->>'type'),
+               source_channel = COALESCE(primary_referrer.item->>'sourceChannel', primary_referrer.item->>'channel'),
+               referral_entity_id = CASE
+                 WHEN primary_referrer.entity_id_text ~ '^\\d+$' THEN primary_referrer.entity_id_text::int
+                 ELSE NULL
+               END,
+               referral_date = CASE
+                 WHEN primary_referrer.referral_date_text ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN primary_referrer.referral_date_text::date
+                 ELSE NULL
+               END,
+               referral_reason = primary_referrer.item->>'referralReason',
+               referral_sheet_id = CASE
+                 WHEN primary_referrer.sheet_id_text ~ '^\\d+$' THEN primary_referrer.sheet_id_text::int
+                 ELSE NULL
+               END,
+               referral_address_text = COALESCE(primary_referrer.item->>'referralAddressText', primary_referrer.item->>'address')
+          FROM primary_referrer
+         WHERE clients.id = $1`,
       [
         clientId,
         String(candidate.id),
         JSON.stringify([newReferrer]),
-        newReferrer.referrerName,
-        newReferrer.referrerType,
-        newReferrer.sourceChannel,
-        newReferrer.referralEntityId,
-        newReferrer.referralDate,
-        newReferrer.referralReason,
-        newReferrer.referralSheetId,
-        newReferrer.referralAddressText,
       ],
     );
 

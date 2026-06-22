@@ -378,7 +378,7 @@ async function createMarketingVisitForAppointment(
   const schedule = await loadDaySchedule(params.date);
   const teamContext = getTeamSnapshotForVisit(schedule, params.teamKey);
 
-  const POST_SALE_TYPES = ['device_delivery', 'device_installation', 'device_activation'];
+  const POST_SALE_TYPES = ['device_delivery', 'device_installation', 'device_activation', 'device_disconnection'];
   const isPostSale = params.selectedTasks.length > 0 &&
     params.selectedTasks.every(t => POST_SALE_TYPES.includes(t.taskType));
   const visitFamily = isPostSale ? 'service' : 'marketing';
@@ -846,8 +846,10 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
     fieldVisitAppointmentParams.push(dateParam);
   }
 
+  const appointmentTeamKeySql = `COALESCE(fv.team_snapshot->>'teamKey', ct.team_key, tl_origin.team_key)`;
+
   if (accessibleTeamKeys !== null && accessibleTeamKeys.length > 0) {
-    fieldVisitAppointmentWhere.push(`fv.team_snapshot->>'teamKey' = ANY($${fvParamIdx++}::varchar[])`);
+    fieldVisitAppointmentWhere.push(`${appointmentTeamKeySql} = ANY($${fvParamIdx++}::varchar[])`);
     fieldVisitAppointmentParams.push(accessibleTeamKeys);
   }
 
@@ -864,7 +866,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         COALESCE(fv.customer_snapshot->>'name', c.name, '') AS "customerName",
         COALESCE(fv.customer_snapshot->>'addressText', fv.customer_snapshot->>'address', '') AS "customerAddress",
         COALESCE(fv.customer_snapshot->>'mobile', c.mobile, '') AS "customerMobile",
-        fv.team_snapshot->>'teamKey' AS "teamKey",
+        ${appointmentTeamKeySql} AS "teamKey",
         fv.scheduled_date::text AS date,
         substring(COALESCE(fv.scheduled_time, '') from 1 for 5) AS "timeSlot",
         COALESCE(fv.customer_snapshot->>'occupation', '') AS occupation,
@@ -887,10 +889,12 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
       JOIN clients c ON c.id = fv.client_id
       LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
       LEFT JOIN contact_targets ct ON ct.latest_visit_id = fv.id
+      LEFT JOIN telemarketing_task_list_items tli_origin ON tli_origin.id = fv.origin_id::text
+      LEFT JOIN telemarketing_task_lists tl_origin ON tl_origin.id = tli_origin.task_list_id
       LEFT JOIN LATERAL (
         SELECT id
         FROM telemarketing_task_lists tl_match
-        WHERE tl_match.team_key = fv.team_snapshot->>'teamKey'
+        WHERE tl_match.team_key = ${appointmentTeamKeySql}
           AND tl_match.branch_id = fv.branch_id
           AND tl_match.date::date <= fv.scheduled_date
         ORDER BY tl_match.date::date DESC, tl_match.created_at DESC
@@ -900,7 +904,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         ${fieldVisitWhere ? 'AND' : 'WHERE'} fv.origin_type = 'telemarketing'
         AND fv.visit_type = 'marketing'
         AND fv.status IN ('scheduled','in_progress','ended','completed')
-      GROUP BY fv.id, c.id, ct.id, tl.id
+      GROUP BY fv.id, c.id, ct.id, tl_origin.id, tl.id
       ORDER BY fv.created_at DESC
     `,
     fieldVisitAppointmentParams,

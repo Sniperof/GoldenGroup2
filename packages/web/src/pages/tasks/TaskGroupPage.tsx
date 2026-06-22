@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck, UserCheck } from 'lucide-react';
+import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck, UserCheck, Unplug } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
@@ -35,6 +35,7 @@ type GroupKey =
   | 'device-delivery'
   | 'device-installation'
   | 'device-activation'
+  | 'device-disconnection'
   | 'my-customers';
 
 type GroupConfig = {
@@ -67,8 +68,8 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     detailHref: '/tasks/group/maintenance',
   },
   'collection': {
-    label: 'مهام تحصيل الأقساط',
-    subtitle: 'تحصيل أقساط العقود وذمم الصيانة',
+    label: 'مهام تسديد الذمم',
+    subtitle: 'تسديد الذمم المفتوحة المرتبطة بالأقساط ومصادرها',
     taskTypes: ['installment_collection', 'maintenance_collection'],
     Icon: DollarSign,
     accentBg: 'bg-emerald-500',
@@ -78,7 +79,7 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   'after-sale-services': {
     label: 'مهام خدمات ما بعد البيع',
     subtitle: 'الفحص والإصلاح والسحب والإرجاع والنقل وبيع القطع',
-    taskTypes: ['device_repair', 'device_retrieval', 'device_return', 'device_transfer', 'device_disconnection', 'parts_sale'],
+    taskTypes: ['device_repair', 'device_retrieval', 'device_return', 'device_transfer', 'parts_sale'],
     Icon: RefreshCw,
     accentBg: 'bg-sky-500',
     accentRing: 'shadow-sky-500/20',
@@ -128,6 +129,15 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     accentBg: 'bg-indigo-500',
     accentRing: 'shadow-indigo-500/20',
     detailHref: '/tasks/group/device-activation',
+  },
+  'device-disconnection': {
+    label: 'مهام فك الجهاز',
+    subtitle: 'فك الجهاز أو إيقاف تشغيله في موقعه الحالي دون افتراض سحبه',
+    taskTypes: ['device_disconnection'],
+    Icon: Unplug,
+    accentBg: 'bg-slate-600',
+    accentRing: 'shadow-slate-500/20',
+    detailHref: '/tasks/group/device-disconnection',
   },
   // ASSIGNED-scope aggregate (§7, مُسنَد): every task of customers the user
   // personally owns, regardless of type. Served by /open-tasks/my-customers;
@@ -283,6 +293,9 @@ function getLocation(row: any, geoMap: Map<number, GeoUnit>): string {
   if (row.taskType === 'device_activation') {
     return currentDeviceGeoLabel || '—';
   }
+  if (row.taskType === 'device_disconnection') {
+    return currentDeviceGeoLabel || '—';
+  }
   const snap = row.clientSnapshot?.address;
   const hierarchy = snap
     ? [snap.governorate, snap.district, snap.subArea, snap.neighborhood]
@@ -301,6 +314,8 @@ function getTaskTypeLabel(taskType: string): string {
       return 'تركيب جهاز';
     case 'device_activation':
       return 'تشغيل جهاز';
+    case 'device_disconnection':
+      return 'فك جهاز';
     case 'emergency_maintenance':
       return 'صيانة طارئة';
     case 'periodic_maintenance':
@@ -460,14 +475,10 @@ export default function TaskGroupPage() {
   const notWiredYet = false;
   const geoMap = new Map(geoUnits.map((unit) => [unit.id, unit]));
 
-  // warranty-services renders two tables: offers/other vs VIP-card delivery (DEC-CT-17).
+  // Every task group (incl. warranty-services: offers + VIP-card delivery) renders
+  // as a single unified table.
   const tableGroups: Array<{ key: string; heading: string | null; rows: any[] }> =
-    group === 'warranty-services'
-      ? [
-          { key: 'offers', heading: 'مهام الكفالة (عرض · إعادة تفعيل · إلغاء)', rows: rows.filter((r) => r.taskType !== 'golden_warranty_card_delivery') },
-          { key: 'cards',  heading: 'تسليم كروت الكفالة الذهبية',              rows: rows.filter((r) => r.taskType === 'golden_warranty_card_delivery') },
-        ].filter((g) => g.rows.length > 0)
-      : [{ key: 'all', heading: null, rows }];
+    [{ key: 'all', heading: null, rows }];
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
@@ -583,7 +594,7 @@ export default function TaskGroupPage() {
         </div>
       )}
 
-      {/* Table(s) — warranty-services splits offers vs card-delivery into two tables (DEC-CT-17) */}
+      {/* Single unified table per group (warranty-services offers + card-delivery combined) */}
       {!loading && rows.length > 0 && tableGroups.map((g) => (
         <div key={g.key} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           {g.heading && (

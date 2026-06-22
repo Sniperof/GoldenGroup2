@@ -62,6 +62,7 @@ const POST_SALE_TASK_TYPES = new Set([
   'device_delivery',
   'device_installation',
   'device_activation',
+  'device_disconnection',
 ]);
 
 // ─── D18 triple guard ──────────────────────────────────────────────────────
@@ -207,6 +208,7 @@ async function loadTeamSnapshot(
     if (!team) return { teamSnapshot: null, responsibleEmployeeId: null };
     return {
       teamSnapshot: {
+        teamKey,
         supervisorEmployeeId: Number.isInteger(team.supervisor) ? team.supervisor : null,
         technicianEmployeeId: Number.isInteger(team.technician) ? team.technician : null,
         traineeEmployeeId: Number.isInteger(team.trainee) ? team.trainee : null,
@@ -223,6 +225,7 @@ async function loadTeamSnapshot(
     // Emergency / solo: technician carries the visit per DEC-007 D47.
     return {
       teamSnapshot: {
+        teamKey,
         technicianEmployeeId: Number.isInteger(solo.technician) ? solo.technician : null,
         telemarketerEmployeeIds: Array.isArray(solo.telemarketers) ? solo.telemarketers : [],
       },
@@ -238,13 +241,14 @@ async function assertTeamSlotAvailable(
   params: { branchId: number; scheduledDate: string; scheduledTime: string; teamKey: string },
 ): Promise<void> {
   const { rows } = await db.query<{ id: number }>(
-    `SELECT id
-       FROM field_visits
-      WHERE branch_id = $1
-        AND scheduled_date = $2
-        AND team_snapshot->>'teamKey' = $3
-        AND substring(COALESCE(scheduled_time, '') from 1 for 5) = substring($4 from 1 for 5)
-        AND status IN ('scheduled', 'in_progress', 'ended', 'completed')
+    `SELECT fv.id
+       FROM field_visits fv
+       LEFT JOIN contact_targets ct ON ct.latest_visit_id = fv.id
+      WHERE fv.branch_id = $1
+        AND fv.scheduled_date = $2
+        AND COALESCE(fv.team_snapshot->>'teamKey', ct.team_key) = $3
+        AND substring(COALESCE(fv.scheduled_time, '') from 1 for 5) = substring($4 from 1 for 5)
+        AND fv.status IN ('scheduled', 'in_progress', 'ended', 'completed')
       LIMIT 1`,
     [params.branchId, params.scheduledDate, params.teamKey, params.scheduledTime],
   );

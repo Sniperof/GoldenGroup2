@@ -663,6 +663,22 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             : referralType === 'Employee'
                 ? employeeFound?.id || undefined
                 : undefined;
+        const existingReferralDate = initialData?.referrers?.[0]?.referralDate || initialData?.referralDate || '';
+        const resolvedReferrers = referralType || resolvedReferrerName || resolvedReferralEntityId
+            ? [{
+                id: resolvedReferralEntityId != null ? String(resolvedReferralEntityId) : `${referralType || 'referrer'}:${resolvedReferrerName || ''}`,
+                type: referralType,
+                name: resolvedReferrerName || '',
+                channel: originChannel,
+                referrerType: referralType,
+                referrerName: resolvedReferrerName || '',
+                sourceChannel: originChannel,
+                referralEntityId: resolvedReferralEntityId ?? null,
+                referralDate: existingReferralDate,
+                referralReason: '',
+                referralSheetId: null,
+            }]
+            : [];
 
         onSave({
             ...formData,
@@ -678,6 +694,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             sourceChannel: originChannel,
             referrerName: resolvedReferrerName || undefined,
             referralEntityId: resolvedReferralEntityId,
+            referrers: resolvedReferrers,
             gender: (gender as any) || undefined,
             nationalId: nationalId.trim() || undefined,
             birthDate: birthDate || undefined,

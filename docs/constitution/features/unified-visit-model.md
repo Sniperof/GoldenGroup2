@@ -241,6 +241,9 @@ planning (التخطيط)
 ### `UV-R009` — إضافة مهام داخل الزيارة (cascading موسّع — D7)
 الفريق المسؤول عن زيارة `in_progress` يستطيع إضافة **أي `open_task` للزبون نفسه** كـ `visit_task` (موجود مسبقاً أو يُنشأ لحظياً). لا قائمة بيضاء، شرط N-window معطّل. القيد الوحيد: نفس `field_visit.client_id`. كل `visit_task` جديد يربط بـ `source_open_task_id`.
 
+### `UV-R019` — سحب مهام الزبون داخل الزيارة (DEC-010)
+أثناء `in_progress`، يسحب الفريق مهام الزبون من مرحلة قيد الانتظار (`open`/`needs_follow_up`) فقط، ضمن فرع الزيارة، بغض النظر عن الموقع، بلا N-Window ولا أهلية، مرتبة الأقدم أولاً وببطاقة غزيرة المعلومات. السحب: `open_task → scheduled` + `visit_task` (`pending`). إلغاء السحب متاح للمهمة المسحوبة `pending` فقط (تعود `open_task` لـ `last_waiting_status`). الإنشاء من داخل الزيارة مؤجَّل. (مرجع: DEC-010)
+
 ### `UV-R010` — دورة حياة 7 حالات (D8 + D18)
 الحالات المعتمدة: `scheduled`, `in_progress`, `ended`, `completed`, `not_completed`, `closed`, `cancelled`. **محذوفة:** `postponed_by_company`, `postponed_by_customer`, `needs_reschedule`. `cancelled` فقط من `scheduled`.
 

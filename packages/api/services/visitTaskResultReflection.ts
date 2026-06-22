@@ -27,6 +27,7 @@
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
 import { checkAndCompleteVisit } from './visitCompletion.js';
+import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
 
 export type DeviceDemoFinalDecision =
   | 'offer_presented'
@@ -49,6 +50,19 @@ export type DeviceActivationFinalDecision =
   | 'activated_successfully'
   | 'activation_failed'
   | 'device_issue';
+
+export type DeviceDisconnectionFinalDecision =
+  | 'disconnected_successfully'
+  | 'not_disconnected'
+  | 'customer_refused_disconnection'
+  | 'requires_retrieval'
+  | 'unsafe_to_disconnect';
+
+export type InstallmentCollectionFinalDecision =
+  | 'paid_full'
+  | 'paid_partial'
+  | 'rescheduled'
+  | 'refused_to_pay';
 
 export type CustomerResponse = 'accepted' | 'rejected' | 'extension_requested';
 
@@ -234,6 +248,56 @@ export interface DeviceActivationReflectionResult {
   visitCompleted: boolean;
 }
 
+export interface DeviceDisconnectionResultBody {
+  final_decision: DeviceDisconnectionFinalDecision;
+  closing_notes?: string | null;
+  notes?: string | null;
+  reason_code?: string | null;
+  expected_date?: string | null;
+  expected_time?: string | null;
+  device_left_on_site?: boolean | null;
+  water_disconnected?: boolean | null;
+  electricity_disconnected?: boolean | null;
+  accessories_removed?: boolean | null;
+  customer_acknowledged?: boolean | null;
+  requires_retrieval_task?: boolean | null;
+  retrieval_reason?: string | null;
+  disconnected_by_employee_id?: number | null;
+  technical_notes?: string | null;
+}
+
+export interface DeviceDisconnectionReflectionResult {
+  visitTaskResultId: number;
+  deviceDisconnectionResultId: number;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'out_of_service' | 'unchanged';
+  visitCompleted: boolean;
+}
+
+export interface InstallmentCollectionResultBody {
+  final_decision: InstallmentCollectionFinalDecision;
+  closing_notes?: string | null;
+  paid_amount_syp?: number | string | null;
+  payment_method?: string | null;
+  payment_reference?: string | null;
+  received_by_employee_id?: number | null;
+  partial_payment_reason_id?: number | null;
+  reschedule_reason_id?: number | null;
+  refusal_reason_id?: number | null;
+  next_expected_date?: string | null;
+  next_priority?: 'high' | 'medium' | 'low' | null;
+}
+
+export interface InstallmentCollectionReflectionResult {
+  visitTaskResultId: number;
+  installmentCollectionResultId: number;
+  openTaskNewStatus: 'completed' | 'cancelled';
+  paymentEntryId: number | null;
+  createdFollowupTaskId: number | null;
+  remainingAfterSyp: number;
+  visitCompleted: boolean;
+}
+
 class ResultValidationError extends Error {
   status = 400;
   constructor(msg: string) {
@@ -269,6 +333,35 @@ function optionalNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizePriority(value: unknown): 'high' | 'medium' | 'low' | null {
+  return value === 'high' || value === 'medium' || value === 'low' ? value : null;
+}
+
+async function assertSystemListCategory(
+  db: Pick<PoolClient, 'query'>,
+  id: unknown,
+  category: string,
+  label: string,
+): Promise<number> {
+  const parsed = Number(id);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new ResultValidationError(`${label} مطلوب`);
+  }
+  const { rows } = await db.query(
+    `SELECT id
+       FROM system_lists
+      WHERE id = $1
+        AND category = $2
+        AND is_active = TRUE
+      LIMIT 1`,
+    [parsed, category],
+  );
+  if (rows.length === 0) {
+    throw new ResultValidationError(`${label} غير صالح`);
+  }
+  return parsed;
 }
 
 // camelCase reading key → device_technical_states column (constitution 01i).
@@ -487,6 +580,50 @@ function assertActivationShape(body: DeviceActivationResultBody): {
     throw new ResultValidationError('تاريخ المتابعة مطلوب عند فشل التشغيل أو وجود مشكلة بالجهاز');
   }
   return { decision, openTaskNewStatus: 'needs_follow_up', deviceNewStatus: 'installed' };
+}
+
+function assertDisconnectionShape(body: DeviceDisconnectionResultBody): {
+  decision: DeviceDisconnectionFinalDecision;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'out_of_service' | 'unchanged';
+} {
+  const decision = body.final_decision;
+  if (![
+    'disconnected_successfully',
+    'not_disconnected',
+    'customer_refused_disconnection',
+    'requires_retrieval',
+    'unsafe_to_disconnect',
+  ].includes(decision)) {
+    throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+  }
+
+  if (!optionalText(body.reason_code)) {
+    throw new ResultValidationError('سبب نتيجة فك الجهاز مطلوب');
+  }
+
+  if (decision === 'disconnected_successfully') {
+    if (body.water_disconnected !== true && body.electricity_disconnected !== true && body.accessories_removed !== true) {
+      throw new ResultValidationError('يجب توثيق إجراء فني واحد على الأقل عند نجاح فك الجهاز');
+    }
+    return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'out_of_service' };
+  }
+
+  if (decision === 'requires_retrieval') {
+    if (!optionalText(body.retrieval_reason)) {
+      throw new ResultValidationError('سبب السحب اللاحق مطلوب عند اختيار يتطلب سحباً');
+    }
+    return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'out_of_service' };
+  }
+
+  if (decision === 'customer_refused_disconnection') {
+    return { decision, openTaskNewStatus: 'cancelled', deviceNewStatus: 'unchanged' };
+  }
+
+  if (!optionalDate(body.expected_date)) {
+    throw new ResultValidationError('تاريخ المتابعة مطلوب عند عدم تنفيذ فك الجهاز');
+  }
+  return { decision, openTaskNewStatus: 'needs_follow_up', deviceNewStatus: 'unchanged' };
 }
 
 function normalizeInstallationParts(parts: unknown): DeviceInstallationPartInput[] {
@@ -1059,13 +1196,34 @@ export async function applyDeviceDemoResult(
 // ── Golden warranty: OFFER result (DEC-CT-17) ────────────────────────────────
 // 3 outcomes: activated (create+activate a warranty per accepted device + baseline
 // 01i reading + payments) / rescheduled (needs_follow_up) / cancelled (rejected).
+interface GoldenOfferPaymentInput {
+  method: string;
+  amountValue?: number | null;
+  currency?: string;
+  exchangeRate?: number | null;
+  amountSyp?: number | null;
+  referenceNumber?: string | null;
+  barterName?: string | null;
+  barterValueSyp?: number | null;
+  transferCompanyId?: number | null;
+  entryType?: string;
+  notes?: string | null;
+}
+interface GoldenOfferInstallmentInput {
+  installmentNumber: number;
+  dueDate: string;
+  amountSyp: number;
+}
 interface GoldenOfferDeviceInput {
   installedDeviceId: number;
   months: number;
   totalValue?: number | null;
   visits?: number | null;
   reading?: Record<string, unknown> | null;
-  payments?: any[];
+  // DEC-CT-17: three-axis payment + optional installment plan.
+  paymentType?: 'cash' | 'installment';
+  payments?: GoldenOfferPaymentInput[];
+  installments?: GoldenOfferInstallmentInput[];
 }
 interface GoldenOfferResultBody {
   final_decision: 'activated' | 'rescheduled' | 'cancelled';
@@ -1159,16 +1317,40 @@ export async function applyGoldenWarrantyOfferResult(
         );
         if (act[0]) throw new ResultValidationError(`الجهاز #${deviceId} عليه كفالة فعّالة لم تنتهِ بعد`);
         const totalValue = d.totalValue != null ? Number(d.totalValue) : null;
+        const paymentType: 'cash' | 'installment' = d.paymentType === 'installment' ? 'installment' : 'cash';
+        const installments = paymentType === 'installment' && Array.isArray(d.installments) ? d.installments : [];
+        if (paymentType === 'installment') {
+          if (totalValue == null || !(totalValue > 0)) {
+            throw new ResultValidationError(`الجهاز #${deviceId}: قيمة الكفالة مطلوبة عند الدفع بالتقسيط`);
+          }
+          if (installments.length === 0) {
+            throw new ResultValidationError(`الجهاز #${deviceId}: يجب توليد أقساط عند الدفع بالتقسيط`);
+          }
+        }
+        const installmentsCount = paymentType === 'installment' ? installments.length : null;
         const { rows: wRows } = await db.query(
           `INSERT INTO device_warranties
              (device_id, warranty_type, start_date, end_date, months, visits, total_value,
-              status, activated_at, source_task_id, offer_task_id)
-           VALUES ($1,'golden',$2,($2::date + ($3 || ' months')::interval)::date,$3,$4,$5,'active',now(),$6,$6)
+              status, activated_at, source_task_id, offer_task_id, payment_type, installments_count)
+           VALUES ($1,'golden',$2,($2::date + make_interval(months => $3::int))::date,$3::int,$4,$5,'active',now(),$6,$6,$7,$8)
            RETURNING id`,
-          [deviceId, receiptDate, months, d.visits ?? null, totalValue, vt.source_open_task_id],
+          [deviceId, receiptDate, months, d.visits ?? null, totalValue, vt.source_open_task_id,
+           paymentType, installmentsCount],
         );
         const warrantyId: number = wRows[0].id;
         createdWarrantyIds.push(warrantyId);
+
+        // Installment schedule (mirrors contract_installments). Confirmed on
+        // creation since the plan is agreed at activation time.
+        for (const inst of installments) {
+          const amt = Number(inst.amountSyp) || 0;
+          await db.query(
+            `INSERT INTO device_warranty_installments
+               (warranty_id, installment_number, due_date, amount_syp, remaining_balance, confirmed)
+             VALUES ($1,$2,$3,$4,$4,true)`,
+            [warrantyId, inst.installmentNumber, inst.dueDate, amt],
+          );
+        }
 
         await insertTechnicalState(db, {
           installedDeviceId: deviceId,
@@ -1182,10 +1364,16 @@ export async function applyGoldenWarrantyOfferResult(
 
         if (Array.isArray(d.payments)) {
           for (const p of d.payments) {
-            const av = Number(p.amountValue);
-            if (!Number.isFinite(av) || av < 0) continue;
+            const isBarter = p.method === 'barter';
+            const av = Number(p.amountValue) || 0;
+            // Non-barter rows need a positive amount; barter carries its value
+            // in barter_value_syp instead.
+            if (!isBarter && !(av > 0)) continue;
             const er = p.exchangeRate != null ? Number(p.exchangeRate) : null;
-            const syp = p.amountSyp != null ? Number(p.amountSyp) : (er ? av * er : av);
+            const syp = p.amountSyp != null ? Number(p.amountSyp)
+              : isBarter ? (Number(p.barterValueSyp) || 0)
+              : (er ? av * er : av);
+            if (!(syp >= 0) || (isBarter && !(syp > 0))) continue;
             await db.query(
               `INSERT INTO device_warranty_payments
                  (warranty_id, method, currency, amount_value, exchange_rate, amount_syp,
@@ -1193,8 +1381,9 @@ export async function applyGoldenWarrantyOfferResult(
                   received_by_employee_id, notes, entry_type)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
               [warrantyId, p.method, p.currency ?? 'SYP', av, er, syp,
-               p.referenceNumber ?? null, p.barterName ?? null, p.barterValueSyp ?? null,
-               p.transferCompanyId ?? null, p.receivedByEmployeeId ?? performedByUserId,
+               p.referenceNumber ?? null, p.barterName ?? null,
+               isBarter ? syp : (p.barterValueSyp ?? null),
+               p.transferCompanyId ?? null, performedByUserId,
                p.notes ?? null, p.entryType ?? 'collection'],
             );
           }
@@ -2155,6 +2344,515 @@ export async function applyDeviceActivationResult(
       deviceActivationResultId,
       openTaskNewStatus: shape.openTaskNewStatus,
       deviceNewStatus: shape.deviceNewStatus,
+      visitCompleted: completion.completed,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// applyDeviceDisconnectionResult
+// ════════════════════════════════════════════════════════════════
+// Records فك الجهاز: a field-side technical stop/disconnection. It never
+// implies possession transfer; retrieval/workshop movement must be recorded
+// through a separate task or possession event.
+// ════════════════════════════════════════════════════════════════
+export async function applyDeviceDisconnectionResult(
+  visitTaskId: number,
+  body: DeviceDisconnectionResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<DeviceDisconnectionReflectionResult> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status,
+              ot.id AS open_task_id, ot.device_id,
+              idev.status AS device_status
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         JOIN installed_devices idev ON idev.id = ot.device_id
+        WHERE vt.id = $1
+        LIMIT 1`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة مفتوحة');
+
+    const vt = vtRows[0];
+    if (vt.task_type !== 'device_disconnection') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بفك الجهاز فقط`);
+    }
+    if (!isPositiveInteger(vt.device_id)) {
+      throw new ResultValidationError('مهمة فك الجهاز يجب أن ترتبط بجهاز مثبت');
+    }
+    if (!['active', 'out_of_service'].includes(String(vt.device_status))) {
+      throw new ResultValidationError('لا يمكن تسجيل فك إلا لجهاز كان فعالاً عند إنشاء المهمة');
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+
+    const shape = assertDisconnectionShape(body);
+    const notes = body.closing_notes ?? body.notes ?? null;
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = EXCLUDED.closing_notes,
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [
+        visitTaskId,
+        shape.decision,
+        optionalText(body.reason_code),
+        notes,
+        performedByUserId,
+      ],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    if (shape.deviceNewStatus === 'out_of_service') {
+      await db.query(
+        `UPDATE installed_devices
+            SET status = 'out_of_service',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.device_id)],
+      );
+    }
+
+    const { rows: disconnectionRows } = await db.query(
+      `INSERT INTO visit_task_device_disconnection_results
+         (visit_task_result_id, outcome, device_left_on_site,
+          water_disconnected, electricity_disconnected, accessories_removed,
+          customer_acknowledged, requires_retrieval_task, retrieval_reason,
+          disconnected_by_employee_id, technical_notes, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+          outcome = EXCLUDED.outcome,
+          device_left_on_site = EXCLUDED.device_left_on_site,
+          water_disconnected = EXCLUDED.water_disconnected,
+          electricity_disconnected = EXCLUDED.electricity_disconnected,
+          accessories_removed = EXCLUDED.accessories_removed,
+          customer_acknowledged = EXCLUDED.customer_acknowledged,
+          requires_retrieval_task = EXCLUDED.requires_retrieval_task,
+          retrieval_reason = EXCLUDED.retrieval_reason,
+          disconnected_by_employee_id = EXCLUDED.disconnected_by_employee_id,
+          technical_notes = EXCLUDED.technical_notes,
+          updated_at = NOW()
+       RETURNING id`,
+      [
+        visitTaskResultId,
+        shape.decision,
+        body.device_left_on_site !== false,
+        body.water_disconnected === true,
+        body.electricity_disconnected === true,
+        body.accessories_removed === true,
+        body.customer_acknowledged === true ? true : (body.customer_acknowledged === false ? false : null),
+        shape.decision === 'requires_retrieval' || body.requires_retrieval_task === true,
+        optionalText(body.retrieval_reason),
+        isPositiveInteger(body.disconnected_by_employee_id) ? Number(body.disconnected_by_employee_id) : null,
+        optionalText(body.technical_notes),
+      ],
+    );
+    const deviceDisconnectionResultId = Number(disconnectionRows[0].id);
+
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [shape.openTaskNewStatus === 'cancelled' ? 'cancelled' : 'completed', visitTaskId],
+    );
+
+    if (shape.openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                expected_time = $3,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), optionalDate(body.expected_date), optionalText(body.expected_time)],
+      );
+    } else if (shape.openTaskNewStatus === 'cancelled') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), notes ?? optionalText(body.reason_code)],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id)],
+      );
+    }
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+
+    if (!useExternal) await db.query('COMMIT');
+
+    return {
+      visitTaskResultId,
+      deviceDisconnectionResultId,
+      openTaskNewStatus: shape.openTaskNewStatus,
+      deviceNewStatus: shape.deviceNewStatus,
+      visitCompleted: completion.completed,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// applyInstallmentCollectionResult
+// ════════════════════════════════════════════════════════════════
+// Records "تسديد ذمة" outcomes for the existing installment_collection task.
+// One result targets one contract_installments row. Partial payment and
+// reschedule close the current task and spawn a fresh collection task for the
+// same installment after the current task is terminal.
+// ════════════════════════════════════════════════════════════════
+export async function applyInstallmentCollectionResult(
+  visitTaskId: number,
+  body: InstallmentCollectionResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<InstallmentCollectionReflectionResult> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status,
+              ot.id AS open_task_id, ot.installment_id, ot.contract_id, ot.branch_id,
+              ot.status AS open_task_status,
+              ot.receivable_source_type, ot.receivable_source_id, ot.receivable_source_label,
+              i.remaining_balance, i.amount_syp, i.contract_id AS installment_contract_id
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         JOIN contract_installments i ON i.id = ot.installment_id
+        WHERE vt.id = $1
+        LIMIT 1
+        FOR UPDATE OF vt, ot, i`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة تسديد ذمة');
+
+    const vt = vtRows[0];
+    if (vt.task_type !== 'installment_collection') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بتسديد الذمم فقط`);
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+
+    const decision = body.final_decision;
+    if (!['paid_full', 'paid_partial', 'rescheduled', 'refused_to_pay'].includes(decision)) {
+      throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+    }
+
+    const amountBefore = Number(vt.remaining_balance) || 0;
+    if (amountBefore <= 0) {
+      throw new ResultValidationError('القسط المحدد لا يملك رصيداً مفتوحاً للتحصيل');
+    }
+
+    const notes = body.closing_notes ?? null;
+    const nextExpectedDate = optionalDate(body.next_expected_date);
+    const nextPriority = normalizePriority(body.next_priority);
+    let paidAmount = optionalNumber(body.paid_amount_syp);
+    let partialReasonId: number | null = null;
+    let rescheduleReasonId: number | null = null;
+    let refusalReasonId: number | null = null;
+
+    if (decision === 'paid_full' || decision === 'paid_partial') {
+      if (!paidAmount || paidAmount <= 0) {
+        throw new ResultValidationError('قيمة الدفعة مطلوبة');
+      }
+      if (!optionalText(body.payment_method)) {
+        throw new ResultValidationError('طريقة الدفع مطلوبة');
+      }
+      if (decision === 'paid_full' && paidAmount + 0.5 < amountBefore) {
+        throw new ResultValidationError('الدفع الكامل يجب أن يغطي كامل الرصيد المتبقي');
+      }
+      if (decision === 'paid_partial') {
+        if (paidAmount >= amountBefore) {
+          throw new ResultValidationError('الدفع الجزئي يجب أن يكون أقل من الرصيد المتبقي');
+        }
+        partialReasonId = await assertSystemListCategory(
+          db,
+          body.partial_payment_reason_id,
+          'collection_partial_payment_reasons',
+          'سبب الدفعة الجزئية',
+        );
+        if (!nextExpectedDate) throw new ResultValidationError('تاريخ المتابعة مطلوب عند الدفعة الجزئية');
+        if (!nextPriority) throw new ResultValidationError('أولوية المهمة الجديدة مطلوبة عند الدفعة الجزئية');
+      }
+    } else {
+      paidAmount = null;
+    }
+
+    if (decision === 'rescheduled') {
+      rescheduleReasonId = await assertSystemListCategory(
+        db,
+        body.reschedule_reason_id,
+        'collection_reschedule_reasons',
+        'سبب إعادة الجدولة',
+      );
+      if (!nextExpectedDate) throw new ResultValidationError('تاريخ المتابعة مطلوب عند إعادة الجدولة');
+      if (!nextPriority) throw new ResultValidationError('أولوية المهمة الجديدة مطلوبة عند إعادة الجدولة');
+    }
+
+    if (decision === 'refused_to_pay') {
+      refusalReasonId = await assertSystemListCategory(
+        db,
+        body.refusal_reason_id,
+        'collection_refusal_reasons',
+        'سبب رفض الدفع',
+      );
+    }
+
+    const reasonCode =
+      partialReasonId != null ? String(partialReasonId)
+      : rescheduleReasonId != null ? String(rescheduleReasonId)
+      : refusalReasonId != null ? String(refusalReasonId)
+      : null;
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = EXCLUDED.closing_notes,
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [visitTaskId, decision, reasonCode, notes, performedByUserId],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    let paymentEntryId: number | null = null;
+    if (paidAmount != null) {
+      const method = optionalText(body.payment_method)!;
+      const { rows: paymentRows } = await db.query(
+        `INSERT INTO contract_payment_entries (
+           contract_id, method, currency, amount_value, amount_syp,
+           reference_number, received_by_employee_id, notes, entry_type, installment_id
+         ) VALUES ($1, $2, 'SYP', $3, $3, $4, $5, $6, 'collection', $7)
+         RETURNING id`,
+        [
+          Number(vt.installment_contract_id ?? vt.contract_id),
+          method,
+          paidAmount,
+          optionalText(body.payment_reference),
+          isPositiveInteger(body.received_by_employee_id) ? Number(body.received_by_employee_id) : performedByUserId,
+          notes,
+          Number(vt.installment_id),
+        ],
+      );
+      paymentEntryId = Number(paymentRows[0].id);
+      await db.query('SELECT recompute_installment_balance($1)', [Number(vt.installment_id)]);
+    }
+
+    const { rows: afterRows } = await db.query(
+      `SELECT remaining_balance
+         FROM contract_installments
+        WHERE id = $1
+        LIMIT 1`,
+      [Number(vt.installment_id)],
+    );
+    const remainingAfter = Number(afterRows[0]?.remaining_balance ?? amountBefore);
+
+    const openTaskNewStatus = decision === 'refused_to_pay' ? 'cancelled' : 'completed';
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [decision === 'refused_to_pay' ? 'cancelled' : 'completed', visitTaskId],
+    );
+
+    if (decision === 'refused_to_pay') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), notes ?? 'refused_to_pay'],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id)],
+      );
+    }
+
+    await db.query(
+      `INSERT INTO task_activity_log
+         (task_id, event_type, performed_by, old_value, new_value, reason, reference_id, created_at)
+       VALUES ($1, 'status_change', $2, $3, $4, $5, $6, NOW())`,
+      [
+        Number(vt.open_task_id),
+        performedByUserId,
+        String(vt.open_task_status ?? ''),
+        openTaskNewStatus,
+        decision,
+        visitTaskResultId,
+      ],
+    );
+
+    let createdFollowupTaskId: number | null = null;
+    if (decision === 'paid_partial' && remainingAfter > 0) {
+      const followup = await createInstallmentCollectionTask(db, {
+        installmentId: Number(vt.installment_id),
+        dueDate: nextExpectedDate,
+        priority: nextPriority,
+        reason: 'remaining_installment_balance',
+        creationOrigin: 'system_trigger',
+        createdBy: performedByUserId,
+        sourceContextType: 'collection_result',
+        sourceContextId: visitTaskResultId,
+        receivableSourceType: vt.receivable_source_type ?? 'contract',
+        receivableSourceId: vt.receivable_source_id != null ? Number(vt.receivable_source_id) : Number(vt.contract_id),
+        receivableSourceLabel: vt.receivable_source_label ?? null,
+      });
+      createdFollowupTaskId = followup.taskId;
+    }
+    if (decision === 'rescheduled') {
+      const followup = await createInstallmentCollectionTask(db, {
+        installmentId: Number(vt.installment_id),
+        dueDate: nextExpectedDate,
+        priority: nextPriority,
+        reason: 'rescheduled_collection',
+        creationOrigin: 'system_trigger',
+        createdBy: performedByUserId,
+        sourceContextType: 'collection_result',
+        sourceContextId: visitTaskResultId,
+        receivableSourceType: vt.receivable_source_type ?? 'contract',
+        receivableSourceId: vt.receivable_source_id != null ? Number(vt.receivable_source_id) : Number(vt.contract_id),
+        receivableSourceLabel: vt.receivable_source_label ?? null,
+      });
+      createdFollowupTaskId = followup.taskId;
+    }
+
+    const { rows: sideRows } = await db.query(
+      `INSERT INTO visit_task_installment_collection_results (
+         visit_task_result_id, installment_id,
+         receivable_source_type, receivable_source_id,
+         amount_before_syp, paid_amount_syp, remaining_after_syp,
+         payment_entry_id, payment_method, payment_reference, received_by_employee_id,
+         partial_payment_reason_id, reschedule_reason_id, refusal_reason_id,
+         next_expected_date, next_priority, notes, created_followup_task_id,
+         created_at, updated_at
+       ) VALUES (
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::date,$16,$17,$18,NOW(),NOW()
+       )
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+         installment_id = EXCLUDED.installment_id,
+         receivable_source_type = EXCLUDED.receivable_source_type,
+         receivable_source_id = EXCLUDED.receivable_source_id,
+         amount_before_syp = EXCLUDED.amount_before_syp,
+         paid_amount_syp = EXCLUDED.paid_amount_syp,
+         remaining_after_syp = EXCLUDED.remaining_after_syp,
+         payment_entry_id = EXCLUDED.payment_entry_id,
+         payment_method = EXCLUDED.payment_method,
+         payment_reference = EXCLUDED.payment_reference,
+         received_by_employee_id = EXCLUDED.received_by_employee_id,
+         partial_payment_reason_id = EXCLUDED.partial_payment_reason_id,
+         reschedule_reason_id = EXCLUDED.reschedule_reason_id,
+         refusal_reason_id = EXCLUDED.refusal_reason_id,
+         next_expected_date = EXCLUDED.next_expected_date,
+         next_priority = EXCLUDED.next_priority,
+         notes = EXCLUDED.notes,
+         created_followup_task_id = EXCLUDED.created_followup_task_id,
+         updated_at = NOW()
+       RETURNING id`,
+      [
+        visitTaskResultId,
+        Number(vt.installment_id),
+        vt.receivable_source_type ?? null,
+        vt.receivable_source_id != null ? Number(vt.receivable_source_id) : null,
+        amountBefore,
+        paidAmount,
+        remainingAfter,
+        paymentEntryId,
+        optionalText(body.payment_method),
+        optionalText(body.payment_reference),
+        isPositiveInteger(body.received_by_employee_id) ? Number(body.received_by_employee_id) : (paidAmount != null ? performedByUserId : null),
+        partialReasonId,
+        rescheduleReasonId,
+        refusalReasonId,
+        nextExpectedDate,
+        nextPriority,
+        notes,
+        createdFollowupTaskId,
+      ],
+    );
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+
+    if (!useExternal) await db.query('COMMIT');
+
+    return {
+      visitTaskResultId,
+      installmentCollectionResultId: Number(sideRows[0].id),
+      openTaskNewStatus,
+      paymentEntryId,
+      createdFollowupTaskId,
+      remainingAfterSyp: remainingAfter,
       visitCompleted: completion.completed,
     };
   } catch (err) {
