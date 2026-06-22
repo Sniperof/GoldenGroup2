@@ -765,7 +765,7 @@ export default function PlanningContactTargets() {
                                     value={searchTerm}
                                     onChange={e => setSearchTerm(e.target.value)}
                                     placeholder="بحث بالاسم أو الهاتف أو رقم الزبون"
-                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pr-10 pl-3 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:bg-white"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pr-10 pl-4 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:bg-white"
                                 />
                             </div>
 

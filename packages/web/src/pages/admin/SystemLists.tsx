@@ -714,7 +714,7 @@ export default function SystemLists() {
                   onChange={e => setSearch(e.target.value)}
                   leading={<Search className="w-4 h-4" />}
                   fullWidth={false}
-                  className="w-48"
+                  className="w-48 h-[39px]"
                 />
                 {canManageSystemLists && (!isCertificateView || activeCertificate) && (
                   <Button onClick={() => openForm()} icon={Plus}>

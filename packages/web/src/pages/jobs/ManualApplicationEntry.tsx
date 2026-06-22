@@ -94,10 +94,10 @@ const sectionColors: Record<number, { bg: string; border: string; badge: string;
 };
 
 const inputCls = (hasError?: boolean) =>
-  `w-full bg-white border ${hasError ? 'border-red-400 ring-2 ring-red-100' : 'border-slate-200 hover:border-slate-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-100'} rounded-xl px-4 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-300`;
+  `w-full bg-white border ${hasError ? 'border-red-400 ring-2 ring-red-100' : 'border-slate-200 hover:border-slate-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-100'} rounded-xl px-4 py-3 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-300`;
 
 const selectCls = (hasError?: boolean) =>
-  `w-full bg-white border ${hasError ? 'border-red-400 ring-2 ring-red-100' : 'border-slate-200 hover:border-slate-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-100'} rounded-xl px-4 py-2.5 text-sm text-slate-800 transition-all outline-none appearance-none cursor-pointer`;
+  `w-full bg-white border ${hasError ? 'border-red-400 ring-2 ring-red-100' : 'border-slate-200 hover:border-slate-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-100'} rounded-xl px-4 py-3 text-sm text-slate-800 transition-all outline-none appearance-none cursor-pointer`;
 
 function SectionCard({ num, title, subtitle, icon: Icon, colorKey, children, delay = 0 }: {
   num: number; title: string; subtitle?: string; icon?: any;

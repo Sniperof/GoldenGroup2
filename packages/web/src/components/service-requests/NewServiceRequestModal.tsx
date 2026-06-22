@@ -267,13 +267,13 @@ export default function NewServiceRequestModal({
             ) : (
               <div className="space-y-1">
                 <div className="relative">
-                  <Search className="h-4 w-4 absolute right-2 top-2.5 text-slate-400" />
+                  <Search className="h-4 w-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     value={clientSearch}
                     onChange={(e) => setClientSearch(e.target.value)}
                     placeholder="ابحث بالاسم أو الهاتف (حرفين فأكثر)"
-                    className="w-full text-sm border border-slate-300 rounded p-2 pr-8"
+                    className="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 pr-10 focus:border-sky-500 focus:outline-none transition-colors"
                   />
                 </div>
                 {searchingClients && (

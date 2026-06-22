@@ -281,8 +281,8 @@ export default function SmartTable<T>({
                             placeholder={searchPlaceholder}
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            leading={<Search className="w-3.5 h-3.5" />}
-                            inputSize="sm"
+                            leading={<Search className="w-4 h-4" />}
+                            className="h-[39px]"
                         />
                     </div>
                     {filters.map(f => (
@@ -291,7 +291,6 @@ export default function SmartTable<T>({
                             value={filterValues[f.key] ?? 'all'}
                             onChange={v => setFilterValues(prev => ({ ...prev, [f.key]: v }))}
                             ariaLabel={f.label}
-                            size="sm"
                             className="min-w-[130px]"
                             options={[
                                 { value: 'all', label: f.label },

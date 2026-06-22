@@ -1455,7 +1455,7 @@ export default function EmployeeFormModal({
               onChange={(e) => handleClientSearch(e.target.value)}
               onFocus={(e) => handleClientSearch(e.target.value)}
               placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-              className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
             />
             {clientSuggestions.length > 0 && (
               <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">

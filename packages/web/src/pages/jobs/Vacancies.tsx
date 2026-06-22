@@ -667,7 +667,7 @@ export default function Vacancies() {
         />
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="text" placeholder="بحث بالرقم أو الإسم..." value={filters.search} onChange={e => setFilter('search', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg pr-10 pl-3 py-2 text-sm focus:ring-2 focus:ring-sky-500" />
+          <input type="text" placeholder="بحث بالرقم أو الإسم..." value={filters.search} onChange={e => setFilter('search', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm focus:border-sky-500 focus:outline-none focus:bg-white transition-colors" />
         </div>
         {(filters.status || filters.branch || filters.search) && (
           <Button variant="ghost" size="sm" onClick={resetFilters} className="text-slate-500 hover:text-red-500 hover:bg-red-50 px-2">مسح الفلاتر</Button>

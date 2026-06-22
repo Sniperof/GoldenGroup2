@@ -180,7 +180,7 @@ function Field({ label, children, hint, required }: { label: string; children: R
     );
 }
 
-const inputClass = "w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all";
+const inputClass = "w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder:text-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all";
 const selectClass = "w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all appearance-none cursor-pointer";
 
 /* ------------------------------------------------------------------ */

@@ -224,7 +224,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                 {selectedPath && !isOpen ? (
                     <div
                         onClick={() => !disabled && openWithDirection()}
-                        className={`flex items-center gap-2 w-full bg-white border rounded-xl px-3 py-2.5 ${invalid ? 'border-red-300 bg-red-50/40' : 'border-slate-200'} ${disabled ? 'cursor-not-allowed bg-slate-50' : invalid ? 'cursor-pointer hover:border-red-400' : 'cursor-pointer hover:border-sky-300'} transition-all group`}
+                        className={`flex items-center gap-2 w-full bg-white border rounded-xl px-3 py-3 ${invalid ? 'border-red-300 bg-red-50/40' : 'border-slate-200'} ${disabled ? 'cursor-not-allowed bg-slate-50' : invalid ? 'cursor-pointer hover:border-red-400' : 'cursor-pointer hover:border-sky-300'} transition-all group`}
                     >
                         <MapPin className="w-4 h-4 text-sky-500 shrink-0" />
                         <span className="px-2 py-0.5 rounded-lg text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
@@ -255,7 +255,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                             onChange={e => { setSearch(e.target.value); openWithDirection(); }}
                             onFocus={() => openWithDirection()}
                             placeholder={placeholder || 'ابحث عن محافظة أو منطقة أو حي...'}
-                            className={`w-full bg-white border rounded-xl px-3 py-2.5 pr-10 text-sm placeholder:text-slate-300 focus:ring-2 focus:outline-none transition-all ${invalid ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-slate-200 focus:border-sky-400 focus:ring-sky-400/10'} ${disabled ? 'cursor-not-allowed bg-slate-50' : ''}`}
+                            className={`w-full bg-white border rounded-xl px-3 py-3 pr-10 text-sm placeholder:text-slate-300 focus:ring-2 focus:outline-none transition-all ${invalid ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-slate-200 focus:border-sky-400 focus:ring-sky-400/10'} ${disabled ? 'cursor-not-allowed bg-slate-50' : ''}`}
                         />
                     </div>
                 )}

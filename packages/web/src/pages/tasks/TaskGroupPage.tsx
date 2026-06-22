@@ -492,7 +492,6 @@ export default function TaskGroupPage() {
           <Select
             value={statusFilter}
             onChange={(v) => setStatusFilter(v)}
-            size="sm"
             ariaLabel="حالة المهمة"
             options={[
               { value: '', label: 'كل حالات المهمة' },
@@ -503,7 +502,6 @@ export default function TaskGroupPage() {
           <Select
             value={visitStatusFilter}
             onChange={(v) => setVisitStatusFilter(v)}
-            size="sm"
             ariaLabel="حالة الزيارة"
             options={[
               { value: '', label: 'كل حالات الزيارة' },
@@ -514,7 +512,6 @@ export default function TaskGroupPage() {
           <Select
             value={scheduledFilter}
             onChange={(v) => setScheduledFilter(v)}
-            size="sm"
             ariaLabel="مجدول / غير مجدول"
             options={[
               { value: '', label: 'مجدول / غير مجدول' },
@@ -527,10 +524,10 @@ export default function TaskGroupPage() {
             type="date"
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="h-10 border border-slate-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
           />
 
-          <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2 px-3 h-10 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
             <input
               type="checkbox"
               checked={hideSnoozed}
@@ -540,7 +537,7 @@ export default function TaskGroupPage() {
             <span title="المهام التي حدد لها التلمارك موعداً متوقعاً في المستقبل">إخفاء المؤجلة</span>
           </label>
 
-          <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2 px-3 h-10 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
             <input
               type="checkbox"
               checked={hideFutureTasks}

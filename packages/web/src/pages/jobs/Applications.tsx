@@ -260,7 +260,7 @@ export default function Applications() {
             value={filters.search}
             onChange={e => setFilter('search', e.target.value)}
             placeholder="بحث بالرقم أو الاسم أو رقم الهاتف..."
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg pr-10 pl-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors"
           />
         </div>
         {(filters.stage || filters.status || filters.gender || filters.search || filters.branch || filters.vacancyId || filters.applicationSource || filters.isArchived === 'true') && (

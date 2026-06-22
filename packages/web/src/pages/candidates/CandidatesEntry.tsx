@@ -320,7 +320,7 @@ export default function CandidatesEntry() {
                                 placeholder="بحث (اسم، رقم، وسيط)..."
                                 value={searchQuery}
                                 onChange={(e) => { setSearchQuery(e.target.value); setCandidatePage(1); }}
-                                className="w-full pl-4 pr-10 py-2 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
+                                className="w-full pl-4 pr-10 py-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
                             />
                         </div>
                         <Select
@@ -536,7 +536,7 @@ export default function CandidatesEntry() {
                                 placeholder="بحث باسم الوسيط..."
                                 value={sheetSearchQuery}
                                 onChange={(e) => { setSheetSearchQuery(e.target.value); setSheetsPage(1); }}
-                                className="w-full pl-4 pr-10 py-2 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white"
+                                className="w-full pl-4 pr-10 py-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white"
                             />
                         </div>
                         <Select

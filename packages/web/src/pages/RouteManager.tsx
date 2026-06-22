@@ -207,7 +207,7 @@ export default function RouteManager() {
                         placeholder="بحث عن مسار..."
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg pr-10 pl-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:outline-none transition-colors"
                     />
                 </div>
                 <BranchScopeIndicator />

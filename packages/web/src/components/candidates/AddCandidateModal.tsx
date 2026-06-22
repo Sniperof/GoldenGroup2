@@ -710,7 +710,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                 onChange={(e) => handleClientSearch(e.target.value)}
                                                 onFocus={() => handleClientSearch(clientSearch)}
                                                 placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-                                                className="w-full p-2.5 rounded-xl border border-indigo-200 bg-white text-sm"
+                                                className="w-full px-4 py-3 rounded-xl border border-indigo-200 bg-white text-sm"
                                             />
                                             {clientSuggestions.length > 0 && (
                                                 <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-10 overflow-hidden">
