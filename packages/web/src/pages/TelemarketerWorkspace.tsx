@@ -40,6 +40,7 @@ const formatDateKey = (date: Date) => {
 const parseDateKey = (value: string) => { const [y, m, d] = value.split('-').map(Number); return new Date(y, m - 1, d); };
 const getToday = () => formatDateKey(new Date());
 const shiftDate = (dateStr: string, days: number) => { const d = parseDateKey(dateStr); d.setDate(d.getDate() + days); return formatDateKey(d); };
+const getPlanningDate = () => shiftDate(getToday(), 1);
 const formatDateArabic = (dateStr: string) => parseDateKey(dateStr).toLocaleDateString('ar-SY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
 // ─── Customer grouping ────────────────────────────────────────────────────────
@@ -266,13 +267,13 @@ export default function TelemarketerWorkspace() {
     const [currentSchedule, setCurrentSchedule] = useState<DaySchedule>({ teams: [], solos: [] });
     // React to the external branch switcher (no full reload — §4).
     const branchId = useBranchContextStore(s => s.branchId);
-    const [date, setDate] = useState(getToday());
+    const [date, setDate] = useState(getPlanningDate());
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-    const appointmentDate = useMemo(() => shiftDate(date, 1), [date]);
+    const appointmentDate = date;
 
     const changeDateBy = useCallback((days: number) => setDate(prev => shiftDate(prev, days)), []);
-    const goToToday = useCallback(() => setDate(getToday()), []);
+    const goToPlanningDate = useCallback(() => setDate(getPlanningDate()), []);
 
     useEffect(() => {
         loadClients();
@@ -1067,7 +1068,7 @@ export default function TelemarketerWorkspace() {
     const bookedCount = customerGroups.filter(cg => cg.status === 'booked' || !!getCustomerAppointment(cg)).length;
     const bookingRate = closedCount > 0 ? Math.round((bookedCount / closedCount) * 100) : 0;
     const totalScheduled = teamAppointments.length;
-    const isToday = date === getToday();
+    const isPlanningDate = date === getPlanningDate();
 
     const renderEmptyState = (icon: React.ReactNode, message: string) => (
         <div className="flex-1 flex items-center justify-center flex-col text-slate-400 bg-slate-50 relative overflow-hidden p-6">
@@ -1092,7 +1093,7 @@ export default function TelemarketerWorkspace() {
                     <button type="button" onClick={() => changeDateBy(-1)} className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200">
                         <ChevronRight className="w-4 h-4 text-slate-600" />
                     </button>
-                    <button type="button" onClick={goToToday} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${isToday ? 'bg-violet-600 text-white border-violet-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                    <button type="button" onClick={goToPlanningDate} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${isPlanningDate ? 'bg-violet-600 text-white border-violet-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
                         {formatDateArabic(date)}
                     </button>
                     <button type="button" onClick={() => changeDateBy(1)} className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200">

@@ -1,103 +1,144 @@
 // ============================================================
-// GoldenWarrantyCardDeliveryModal — routine VIP-card handover.
+// GoldenWarrantyCardDeliveryModal — RESULT modal (3-outcome chooser).
 // Constitution: 02b §13.6 + DEC-CT-17.
 //
-// Hands the customer the VIP card proving golden-warranty enrolment. Activates
-// nothing (warranty is already effective from the offer receipt); just stamps the
-// delivery task. Calls POST /device-warranties/golden/:warrantyId/card-delivery.
+// The task may combine several cards. Outcomes apply to ALL:
+//  - delivered: recipient (customer/other) + auto date → stamps every linked
+//    warranty's card_delivery_task_id. المحصلة = عدد الكروت المُسلَّمة.
+//  - rescheduled: reason + expected date → needs_follow_up.
+//  - cancelled: reason → close.
+// Submits via the unified recordTaskResult.
 // ============================================================
 import { useEffect, useState } from 'react';
-import { CreditCard, Loader2, X } from 'lucide-react';
+import { CreditCard, CalendarClock, CircleCheck, CircleX, Loader2, X } from 'lucide-react';
 import { api } from '../../lib/api';
+import type { TaskResultModalProps } from '../../components/tasks/types';
 
-export default function GoldenWarrantyCardDeliveryModal({
-  taskId,
-  deviceId,
-  onClose,
-  onSaved,
-}: {
-  taskId: number;
-  deviceId?: number | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [warranty, setWarranty] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+type Mode = 'delivered' | 'reschedule' | 'cancel';
+
+export default function GoldenWarrantyCardDeliveryModal({ visitId, taskId, task, onClose, onSaved }: TaskResultModalProps) {
+  const openTaskId = task?.sourceOpenTaskId ?? task?.source_open_task_id ?? task?.id;
+
+  const [mode, setMode] = useState<Mode>('delivered');
+  const [cards, setCards] = useState<any[]>([]);
+  const [recipientType, setRecipientType] = useState<'customer' | 'other'>('customer');
+  const [recipientName, setRecipientName] = useState('');
+  const [followReasons, setFollowReasons] = useState<any[]>([]);
+  const [rejectReasons, setRejectReasons] = useState<any[]>([]);
+  const [reason, setReason] = useState('');
+  const [expectedDate, setExpectedDate] = useState('');
+  const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!deviceId) { setLoading(false); return; }
-    api.deviceWarranties.list(Number(deviceId))
-      .then((ws: any[]) => {
-        const golden = Array.isArray(ws)
-          ? ws.find((w) => w.warrantyType === 'golden' && w.status === 'active')
-          : null;
-        setWarranty(golden ?? null);
-      })
-      .catch(() => setWarranty(null))
-      .finally(() => setLoading(false));
-  }, [deviceId]);
+    if (openTaskId) {
+      api.openTasks.getInstalledDevices(Number(openTaskId))
+        .then((rows: any[]) => setCards(Array.isArray(rows) ? rows.filter((r) => r.activeGoldenWarrantyId) : []))
+        .catch(() => setCards([]));
+    }
+    api.systemLists.getItemsByCode('golden_card_followup_reasons').then((r: any) => setFollowReasons(Array.isArray(r) ? r : [])).catch(() => {});
+    api.systemLists.getItemsByCode('golden_card_rejection_reasons').then((r: any) => setRejectReasons(Array.isArray(r) ? r : [])).catch(() => {});
+  }, [openTaskId]);
 
   async function submit() {
-    if (!warranty) { setError('لا توجد كفالة ذهبية فعّالة على هذا الجهاز'); return; }
-    setError(null);
+    setError('');
+    let body: any;
+    if (mode === 'delivered') {
+      if (recipientType === 'other' && !recipientName.trim()) { setError('اسم المستلِم مطلوب عند التسليم لشخص آخر'); return; }
+      body = { final_decision: 'delivered', recipient_type: recipientType, recipient_name: recipientType === 'other' ? recipientName.trim() : null, closing_notes: notes.trim() || null };
+    } else if (mode === 'reschedule') {
+      if (!reason) { setError('سبب إعادة الجدولة مطلوب'); return; }
+      if (!expectedDate) { setError('التاريخ المتوقع مطلوب'); return; }
+      body = { final_decision: 'rescheduled', reason_code: reason, expected_date: expectedDate, closing_notes: notes.trim() || null };
+    } else {
+      if (!reason) { setError('سبب الرفض مطلوب'); return; }
+      body = { final_decision: 'cancelled', reason_code: reason, closing_notes: notes.trim() || null };
+    }
     setSaving(true);
     try {
-      await api.deviceWarranties.cardDelivery(warranty.id, { taskId });
+      await api.fieldVisits.recordTaskResult(visitId, taskId, body);
       onSaved();
-    } catch (err: any) {
-      setError(err?.message ?? 'فشل تسجيل تسليم الكرت');
+    } catch (e: any) {
+      setError(e?.message ?? 'فشل تسجيل النتيجة');
     } finally {
       setSaving(false);
     }
   }
 
+  const chooser: Array<{ key: Mode; label: string; Icon: any; cls: string }> = [
+    { key: 'delivered', label: 'تسليم الكل', Icon: CircleCheck, cls: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
+    { key: 'reschedule', label: 'إعادة جدولة', Icon: CalendarClock, cls: 'border-amber-300 bg-amber-50 text-amber-800' },
+    { key: 'cancel', label: 'إلغاء التسليم', Icon: CircleX, cls: 'border-rose-300 bg-rose-50 text-rose-800' },
+  ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
-      <div className="w-full max-w-lg rounded-xl border border-amber-200 bg-white shadow-xl">
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-amber-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-amber-600" />
-            <h2 className="text-lg font-bold text-amber-900">تسليم كرت الكفالة الذهبية — مهمة #{taskId}</h2>
-          </div>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700">
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-amber-600" /><h2 className="text-base font-black text-amber-900">نتيجة تسليم كروت الكفالة</h2></div>
+          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700"><X className="h-5 w-5" /></button>
         </div>
 
-        <div className="space-y-4 px-5 py-5">
-          {loading ? (
-            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-amber-500" /></div>
-          ) : (
-            <>
-              {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
-              {warranty ? (
-                <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-4 text-sm text-amber-900 space-y-1">
-                  <p className="font-bold">كفالة ذهبية فعّالة</p>
-                  <p>من {warranty.startDate ?? '—'} حتى {warranty.endDate ?? '—'}</p>
-                  {warranty.cardDeliveryTaskId && (
-                    <p className="text-xs text-amber-700">سبق تسجيل تسليم كرت لهذه الكفالة — سيُحدَّث المرجع.</p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500">لا توجد كفالة ذهبية فعّالة على هذا الجهاز.</p>
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+
+          <div className="rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-2 text-xs text-amber-800">
+            كروت المهمة: {cards.length} — النتيجة تنطبق على الكل.
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {chooser.map(({ key, label, Icon, cls }) => (
+              <button key={key} type="button" onClick={() => { setMode(key); setReason(''); }}
+                className={`rounded-lg border-2 p-3 text-center transition ${mode === key ? cls : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                <Icon className="mx-auto mb-1 h-5 w-5" /><div className="text-sm font-bold">{label}</div>
+              </button>
+            ))}
+          </div>
+
+          {mode === 'delivered' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-4 text-sm">
+                <span className="font-bold text-slate-600">المستلِم:</span>
+                <label className="flex items-center gap-1.5"><input type="radio" checked={recipientType === 'customer'} onChange={() => setRecipientType('customer')} /> الزبون</label>
+                <label className="flex items-center gap-1.5"><input type="radio" checked={recipientType === 'other'} onChange={() => setRecipientType('other')} /> شخص آخر</label>
+              </div>
+              {recipientType === 'other' && (
+                <input type="text" value={recipientName} onChange={(e) => setRecipientName(e.target.value)} placeholder="اسم المستلِم" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               )}
-              <p className="text-xs text-slate-500">
-                تسليم الكرت إجراء روتيني يُثبت تسلّم الزبون للكفالة ولا يغيّر سريانها.
-              </p>
-            </>
+              <p className="text-xs text-slate-400">التاريخ تلقائي (لحظة التسجيل).</p>
+            </div>
           )}
+
+          {(mode === 'reschedule' || mode === 'cancel') && (
+            <div className="space-y-3">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-bold text-slate-500">{mode === 'reschedule' ? 'سبب إعادة الجدولة *' : 'سبب الرفض *'}</span>
+                <select value={reason} onChange={(e) => setReason(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <option value="">— اختر —</option>
+                  {(mode === 'reschedule' ? followReasons : rejectReasons).map((r: any) => <option key={r.id} value={r.value}>{r.value}</option>)}
+                </select>
+              </label>
+              {mode === 'reschedule' && (
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-bold text-slate-500">التاريخ المتوقع *</span>
+                  <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                </label>
+              )}
+            </div>
+          )}
+
+          <label className="block space-y-1.5">
+            <span className="text-xs font-bold text-slate-500">ملاحظات</span>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+          </label>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
-            إلغاء
-          </button>
-          <button onClick={submit} disabled={saving || !warranty}
-            className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
+          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            تأكيد تسليم الكرت
+            {mode === 'delivered' ? 'تأكيد تسليم الكل' : 'حفظ'}
           </button>
         </div>
       </div>

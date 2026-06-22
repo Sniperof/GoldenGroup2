@@ -845,10 +845,9 @@ export default function VisitDetailPage() {
             {resultTask?.task_type === 'golden_warranty_offer' && (
                 <GoldenWarrantyOfferModal
                     key={`${visit.id}:${resultTask.id}`}
-                    taskId={resultTask.source_open_task_id ?? resultTask.open_task_id ?? resultTask.id}
-                    customerId={resultTask.customer_id ?? resultTask.customerId ?? null}
-                    deviceId={resultTask.device_id ?? resultTask.deviceId ?? null}
-                    branchId={resultTask.branch_id ?? resultTask.branchId ?? null}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
                     onClose={() => setResultTask(null)}
                     onSaved={() => { setResultTask(null); load(); }}
                 />
@@ -856,8 +855,9 @@ export default function VisitDetailPage() {
             {resultTask?.task_type === 'golden_warranty_card_delivery' && (
                 <GoldenWarrantyCardDeliveryModal
                     key={`${visit.id}:${resultTask.id}`}
-                    taskId={resultTask.source_open_task_id ?? resultTask.open_task_id ?? resultTask.id}
-                    deviceId={resultTask.device_id ?? resultTask.deviceId ?? null}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
                     onClose={() => setResultTask(null)}
                     onSaved={() => { setResultTask(null); load(); }}
                 />
