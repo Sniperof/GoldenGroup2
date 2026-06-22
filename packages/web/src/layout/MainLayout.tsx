@@ -193,7 +193,7 @@ export default function MainLayout() {
         <div className="flex h-screen bg-slate-50 overflow-hidden">
             {/* Mobile Header */}
             <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 z-30">
-                <div className="flex items-center gap-3">
+                <div dir="ltr" className="flex items-center gap-3">
                     <img src={logoMark} alt="Golden Group" className="w-8 h-8 object-contain" />
                     <span className="text-lg font-bold text-slate-800">Golden Group</span>
                 </div>
@@ -225,7 +225,7 @@ export default function MainLayout() {
             `}>
                 {/* Logo & Toggle Header */}
                 <div className={`p-5 border-b border-slate-100 flex items-center justify-between ${isCollapsed ? 'lg:justify-center' : ''}`}>
-                    <div className={`flex items-center gap-3 ${isMobileMenuOpen ? 'flex' : ''}`}>
+                    <div dir="ltr" className={`flex items-center gap-3 ${isMobileMenuOpen ? 'flex' : ''}`}>
                         <img
                             src={logoMark}
                             alt="Golden Group"
