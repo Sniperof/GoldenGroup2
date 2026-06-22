@@ -269,13 +269,14 @@ export default function TelemarketerWorkspace() {
     const [date, setDate] = useState(getToday());
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+    const appointmentDate = useMemo(() => shiftDate(date, 1), [date]);
 
     const changeDateBy = useCallback((days: number) => setDate(prev => shiftDate(prev, days)), []);
     const goToToday = useCallback(() => setDate(getToday()), []);
 
     useEffect(() => {
         loadClients();
-        loadData(date);
+        loadData(date, appointmentDate);
         setSelectedCustomerKey(null);
         // Legacy bulk `api.visits.list()` removed — the modern field_visits
         // endpoint is per-client. We load contracts/employees/etc. globally
@@ -292,14 +293,14 @@ export default function TelemarketerWorkspace() {
             setContracts([]); setMaintenanceRequests([]); setEmployees([]); setGeoUnits([]);
         });
         setVisits([]); // reset while a new date/customer set is loading
-    }, [loadClients, loadData, date, branchId]);
+    }, [loadClients, loadData, date, appointmentDate, branchId]);
 
     useEffect(() => {
         setCurrentSchedule({ teams: [], solos: [] });
-        api.schedules.get(date)
+        api.schedules.get(appointmentDate)
             .then(data => setCurrentSchedule(data || { teams: [], solos: [] }))
             .catch(() => setCurrentSchedule({ teams: [], solos: [] }));
-    }, [date, branchId]);
+    }, [appointmentDate, branchId]);
 
     const getEmp = (id: number | null) => employees.find(e => e.id === id) || null;
 
@@ -347,9 +348,9 @@ export default function TelemarketerWorkspace() {
         });
     }, [activeTaskList]);
 
-    const teamAppointments = useMemo(() => getAppointmentsForTeamDate(selectedTeamKey, date), [getAppointmentsForTeamDate, selectedTeamKey, date, appointments]);
+    const teamAppointments = useMemo(() => getAppointmentsForTeamDate(selectedTeamKey, appointmentDate), [getAppointmentsForTeamDate, selectedTeamKey, appointmentDate, appointments]);
 
-    const getCustomerAppointment = useCallback((cg: CustomerGroup) => getAppointmentForCustomer(cg, teamAppointments, selectedTeamKey, date), [teamAppointments, selectedTeamKey, date]);
+    const getCustomerAppointment = useCallback((cg: CustomerGroup) => getAppointmentForCustomer(cg, teamAppointments, selectedTeamKey, appointmentDate), [teamAppointments, selectedTeamKey, appointmentDate]);
 
     useEffect(() => {
         const clientIds = Array.from(new Set(
@@ -547,10 +548,10 @@ export default function TelemarketerWorkspace() {
             return true;
         } catch (err: any) {
             setCallLogSaveError(err?.message || 'جهة الاتصال مقفلة حاليا باسم تيلماركتر آخر');
-            await loadData(date);
+            await loadData(date, appointmentDate);
             return false;
         }
-    }, [selectedCustomer, loadData, date]);
+    }, [selectedCustomer, loadData, date, appointmentDate]);
 
     const canDirectBookSelected = !!canBook && !!selectedCustomer && !isBookedForSelected && !isLockedByOtherForSelected && !!directBookingTask;
 
@@ -775,7 +776,7 @@ export default function TelemarketerWorkspace() {
                     teamKey: selectedTeamKey,
                     taskListItemId: selectedCustomer.primaryItem.id,
                     taskListId: activeTaskList.id,
-                    date: extras.visitDate,
+                    date: appointmentDate,
                     timeSlot: extras.visitTime,
                     occupation: '',
                     waterSource: extras.waterSource || '',
@@ -793,7 +794,7 @@ export default function TelemarketerWorkspace() {
                     updateTaskListItemStatus(activeTaskList.id, item.id, 'booked', outcome)
                 ));
                 setIsOutcomeModalOpen(false);
-                await loadData(date);
+                await loadData(date, appointmentDate);
             } catch (err: any) {
                 setCallLogSaveError(err.message || 'فشل حجز الموعد — تحقق من التفاصيل وحاول مجدداً');
             }
@@ -855,7 +856,7 @@ export default function TelemarketerWorkspace() {
             teamKey: selectedTeamKey,
             taskListItemId: selectedCustomer.primaryItem.id,
             taskListId: activeTaskList.id,
-            date: data.visitDate ?? date,
+            date: appointmentDate,
             timeSlot: data.visitTime,
             occupation: '',
             waterSource: data.waterSource,
@@ -881,7 +882,7 @@ export default function TelemarketerWorkspace() {
             updateTaskListItemStatus(activeTaskList.id, item.id, 'booked', 'booked_marketing_appointment')
         ));
 
-        await loadData(date);
+        await loadData(date, appointmentDate);
     };
 
     // ── Manual close handler ─────────────────────────────────────────────────
@@ -901,7 +902,7 @@ export default function TelemarketerWorkspace() {
             setServiceTaskTypeLabel('');
             setServiceTaskNotes('');
             setServiceTaskPriority('');
-            await loadData(date);
+            await loadData(date, appointmentDate);
         } catch (err: any) {
             console.error('Service task creation failed:', err);
         } finally {
@@ -921,7 +922,7 @@ export default function TelemarketerWorkspace() {
             );
             setIsManualCloseOpen(false);
             setManualCloseReason('');
-            await loadData(date);
+            await loadData(date, appointmentDate);
         } catch (err: any) {
             console.error('Manual close failed:', err);
             setCallLogSaveError(err?.message || 'فشل إغلاق جهة الاتصال');
@@ -1710,7 +1711,7 @@ export default function TelemarketerWorkspace() {
 
                     <div className="flex-1 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col relative w-full h-full">
                         <div className="absolute inset-0">
-                            <TeamAgendaPanel appointments={teamAppointments} date={date} />
+                            <TeamAgendaPanel appointments={teamAppointments} date={appointmentDate} />
                         </div>
                     </div>
                 </div>
@@ -1858,6 +1859,7 @@ export default function TelemarketerWorkspace() {
                 canBook={canBook}
                 preselectedContactId={preselectedContactId || undefined}
                 customerOpenTasks={selectedCustomer?.openTasks}
+                appointmentDate={appointmentDate}
                 onSave={handleSaveOutcome}
             />
 
@@ -1868,8 +1870,7 @@ export default function TelemarketerWorkspace() {
                     setAppointmentMode('call_result');
                 }}
                 customerName={selectedCustomer?.name || ''}
-                defaultDate={date}
-                initialDate={appointmentMode === 'direct' ? directBookingTask?.openTaskExpectedDate || undefined : undefined}
+                defaultDate={appointmentDate}
                 defaultTime={appointmentMode === 'direct' ? directBookingTask?.openTaskExpectedTime || undefined : undefined}
                 customerOpenTasks={selectedCustomer?.openTasks || []}
                 entityDetails={entityDetails}

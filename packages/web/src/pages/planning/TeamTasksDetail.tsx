@@ -88,11 +88,12 @@ export default function TeamTasksDetail() {
     useEffect(() => {
         if (!teamKey) return;
         // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
-        const localToday = (() => {
+        const planningDate = (() => {
           const d = new Date();
+          d.setDate(d.getDate() + 1);
           return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         })();
-        const date = searchParams.get('date') || localToday;
+        const date = searchParams.get('date') || planningDate;
         setWorkScopeLoading(true);
         api.workScopes.get(date, teamKey)
             .then(scope => setWorkScope(scope))

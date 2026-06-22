@@ -17,6 +17,8 @@ import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceA
 import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
 import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
 import EmergencyResultModal from '../../taskTypes/emergency_maintenance/EmergencyResultModal';
+import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';
+import GoldenWarrantyCardDeliveryModal from '../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardDeliveryModal';
 import ClientSnapshot from '../../components/ClientSnapshot';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
@@ -836,6 +838,26 @@ export default function VisitDetailPage() {
                     contractId={resultTask.contract_id ?? null}
                     visitTechnicianEmployeeId={primaryTeam?.technician?.id ?? backupTeam?.technician?.id ?? null}
                     visitTechnicianName={primaryTeam?.technician?.name ?? backupTeam?.technician?.name ?? null}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'golden_warranty_offer' && (
+                <GoldenWarrantyOfferModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    taskId={resultTask.source_open_task_id ?? resultTask.open_task_id ?? resultTask.id}
+                    customerId={resultTask.customer_id ?? resultTask.customerId ?? null}
+                    deviceId={resultTask.device_id ?? resultTask.deviceId ?? null}
+                    branchId={resultTask.branch_id ?? resultTask.branchId ?? null}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'golden_warranty_card_delivery' && (
+                <GoldenWarrantyCardDeliveryModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    taskId={resultTask.source_open_task_id ?? resultTask.open_task_id ?? resultTask.id}
+                    deviceId={resultTask.device_id ?? resultTask.deviceId ?? null}
                     onClose={() => setResultTask(null)}
                     onSaved={() => { setResultTask(null); load(); }}
                 />

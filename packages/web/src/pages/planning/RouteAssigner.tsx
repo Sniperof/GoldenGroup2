@@ -18,8 +18,9 @@ const levelColors: Record<number, { bg: string; text: string; border: string }> 
 };
 
 // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
-const getToday = () => {
+const getPlanningDate = () => {
   const d = new Date();
+  d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
@@ -65,7 +66,7 @@ export default function RouteAssigner() {
     const [stationLeadCountsRefreshKey, setStationLeadCountsRefreshKey] = useState(0);
     const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-    const [date, setDate] = useState(getToday);
+    const [date, setDate] = useState(getPlanningDate);
     const [selectedTeam, setSelectedTeam] = useState('');
     const [composition, setComposition] = useState<RouteComposition[]>([]);
     const [extraZones, setExtraZones] = useState<number[]>([]);

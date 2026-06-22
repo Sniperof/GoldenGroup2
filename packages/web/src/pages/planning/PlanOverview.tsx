@@ -31,8 +31,9 @@ const shiftDate = (dateStr: string, days: number) => {
 };
 
 // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
-const getToday = () => {
+const getPlanningDate = () => {
   const d = new Date();
+  d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
@@ -64,7 +65,7 @@ export default function PlanOverview() {
     // React to the external branch switcher (no full reload — §4): refetch when the
     // selected branch changes so the schedule/teams reflect the new branch context.
     const branchId = useBranchContextStore(s => s.branchId);
-    const [date, setDate] = useState(getToday);
+    const [date, setDate] = useState(getPlanningDate);
     const [loading, setLoading] = useState(true);
 
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
@@ -104,7 +105,7 @@ export default function PlanOverview() {
         return () => { cancelled = true; };
     }, [date, branchId]);
 
-    const isToday = date === getToday();
+    const isPlanningDate = date === getPlanningDate();
 
     const getEmp = (id: number | null) => employees.find(e => e.id === id) || null;
     const getUnitName = (id: number) => geoUnits.find(u => u.id === id)?.name || '??';
@@ -300,7 +301,7 @@ export default function PlanOverview() {
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-slate-700 hover:bg-gray-50 hover:border-gray-300 text-sm transition-all active:scale-95 z-10"
                 >
                     <ChevronRight className="w-4 h-4" />
-                    <span>الأمس</span>
+                    <span>اليوم السابق</span>
                 </button>
 
                 <div
@@ -313,7 +314,7 @@ export default function PlanOverview() {
                     <Calendar className="w-5 h-5 text-sky-600 group-hover/cal:scale-110 transition-transform" />
                     <div className="text-center pointer-events-none">
                         <p className="text-slate-900 font-bold">{formatDateArabic(date)}</p>
-                        {isToday && <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full">اليوم</span>}
+                        {isPlanningDate && <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full">خطة الغد</span>}
                     </div>
                     {/* Native Date Input Overlay */}
                     <input
@@ -331,7 +332,7 @@ export default function PlanOverview() {
                     onClick={() => setDate(d => shiftDate(d, 1))}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-slate-700 hover:bg-gray-50 hover:border-gray-300 text-sm transition-all active:scale-95 z-10"
                 >
-                    <span>الغد</span>
+                    <span>اليوم التالي</span>
                     <ChevronLeft className="w-4 h-4" />
                 </button>
             </div>
@@ -371,7 +372,7 @@ export default function PlanOverview() {
             {teamCards.length === 0 ? (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 py-16 text-center">
                     <ClipboardList className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-                    <p className="text-slate-700 text-lg font-medium mb-2">لا يوجد جدول لهذا اليوم</p>
+                    <p className="text-slate-700 text-lg font-medium mb-2">لا يوجد جدول لهذا التاريخ</p>
                     <p className="text-slate-500 text-sm mb-6">انتقل إلى "جدولة الفرق" لإنشاء جدول يومي أولاً.</p>
                     <button
                         onClick={() => navigate('/planning/schedule')}

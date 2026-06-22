@@ -13,7 +13,7 @@ import Button from '../ui/Button';
 import {
     TelemarketingOutcomeCode, OUTCOME_MAP, OUTCOMES_BY_GROUP,
     PHONE_STATUS_LABELS, PHONE_STATUS_TO_CONTACT_ENTRY,
-    getOutcomeMeta, normaliseOutcomeCode, WORKING_HOURS,
+    getOutcomeMeta, normaliseOutcomeCode,
 } from '@golden-crm/shared';
 import type { PhoneStatusUpdate } from '@golden-crm/shared';
 import { TaskListItem, ContactStatus } from '../../lib/types';
@@ -69,6 +69,7 @@ interface OutcomeRecorderModalProps {
     canBook?: boolean;
     /** Open tasks for this customer — used to determine if water source is required */
     customerOpenTasks?: Array<{ openTaskType: string | null }>;
+    appointmentDate?: string;
     onSave: (
         contactId: string,
         outcome: TelemarketingOutcomeCode,
@@ -179,10 +180,10 @@ function getTomorrow(): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function getToday(): string {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+const getHourlyVisitSlots = () => Array.from({ length: 24 }, (_, index) => {
+    const hour = (9 + index) % 24;
+    return `${String(hour).padStart(2, '0')}:00`;
+});
 
 function nowLocal(): string {
     const d = new Date();
@@ -244,6 +245,7 @@ export default function OutcomeRecorderModal({
     preselectedContactId,
     canBook = false,
     customerOpenTasks = [],
+    appointmentDate,
     onSave,
 }: OutcomeRecorderModalProps) {
     const [method, setMethod] = useState<'cellular' | 'whatsapp'>('cellular');
@@ -302,12 +304,12 @@ export default function OutcomeRecorderModal({
             setFollowUpPriority('');
             setRescheduleReason('');
             setServiceTaskType('');
-            setVisitDate(getTomorrow());
-            setVisitTime('');
+            setVisitDate(appointmentDate || getTomorrow());
+            setVisitTime('09:00');
             setApptWaterSource((entityDetails as any)?.waterSource || '');
             setApptNotes('');
         }
-    }, [isOpen, task, preselectedContactId]);
+    }, [isOpen, task, preselectedContactId, appointmentDate, entityDetails]);
 
     // Auto-populate default phone status when outcome changes
     useEffect(() => {
@@ -361,9 +363,10 @@ export default function OutcomeRecorderModal({
 
     // Inline booking
     const isBookingOutcome = outcome === 'booked_marketing_appointment' && !isFreeCall;
+    const lockedVisitDate = appointmentDate || visitDate || getTomorrow();
     const hasDeviceDemo = customerOpenTasks.some(t => t.openTaskType === 'device_demo');
     const bookingValid = !isBookingOutcome || (
-        !!visitDate && !!visitTime && (!hasDeviceDemo || !!apptWaterSource)
+        !!lockedVisitDate && !!visitTime && (!hasDeviceDemo || !!apptWaterSource)
     );
 
     const canSave =
@@ -395,7 +398,7 @@ export default function OutcomeRecorderModal({
                 : null,
             rejectScheduling: showRejectScheduling ? rejectScheduling : undefined,
             serviceTaskType: (finalOutcome === 'service_request' && serviceTaskType) ? serviceTaskType : undefined,
-            visitDate:  isBookingOutcome ? visitDate  : undefined,
+            visitDate:  isBookingOutcome ? lockedVisitDate  : undefined,
             visitTime:  isBookingOutcome ? visitTime  : undefined,
             waterSource: isBookingOutcome ? apptWaterSource : undefined,
             technicianNotes: isBookingOutcome && apptNotes ? apptNotes : undefined,
@@ -735,37 +738,22 @@ export default function OutcomeRecorderModal({
                                 <p className="text-sm font-black text-emerald-800">تفاصيل الموعد</p>
                             </div>
                             <div className="px-4 py-4 space-y-4">
-                                {/* Date + Time row */}
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
-                                            <Calendar className="w-3.5 h-3.5" />
-                                            تاريخ الزيارة <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={visitDate}
-                                            onChange={e => setVisitDate(e.target.value)}
-                                            min={getToday()}
-                                            className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none font-mono"
-                                            dir="ltr"
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
-                                            <Clock className="w-3.5 h-3.5" />
-                                            وقت الزيارة <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="time"
-                                            value={visitTime}
-                                            onChange={e => setVisitTime(e.target.value)}
-                                            min={`${String(WORKING_HOURS.start).padStart(2,'0')}:00`}
-                                            max={`${String(WORKING_HOURS.end).padStart(2,'0')}:00`}
-                                            className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none font-mono"
-                                            dir="ltr"
-                                        />
-                                    </div>
+                                {/* Visit time. The visit date is locked by the workspace plan date. */}
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                                        <Clock className="w-3.5 h-3.5" />
+                                        وقت الزيارة <span className="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        value={visitTime}
+                                        onChange={e => setVisitTime(e.target.value)}
+                                        className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none font-mono"
+                                        dir="ltr"
+                                    >
+                                        {getHourlyVisitSlots().map(slot => (
+                                            <option key={slot} value={slot}>{slot}</option>
+                                        ))}
+                                    </select>
                                 </div>
 
                                 {/* Water source — only for device_demo tasks */}

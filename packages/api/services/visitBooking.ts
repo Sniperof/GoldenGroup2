@@ -233,6 +233,30 @@ async function loadTeamSnapshot(
   return { teamSnapshot: null, responsibleEmployeeId: null };
 }
 
+async function assertTeamSlotAvailable(
+  db: PoolClient,
+  params: { branchId: number; scheduledDate: string; scheduledTime: string; teamKey: string },
+): Promise<void> {
+  const { rows } = await db.query<{ id: number }>(
+    `SELECT id
+       FROM field_visits
+      WHERE branch_id = $1
+        AND scheduled_date = $2
+        AND team_snapshot->>'teamKey' = $3
+        AND substring(COALESCE(scheduled_time, '') from 1 for 5) = substring($4 from 1 for 5)
+        AND status IN ('scheduled', 'in_progress', 'ended', 'completed')
+      LIMIT 1`,
+    [params.branchId, params.scheduledDate, params.teamKey, params.scheduledTime],
+  );
+
+  if (rows.length > 0) {
+    throw new BookingError(
+      409,
+      'هذا الموعد محجوز مسبقاً للفريق في نفس الوقت.',
+    );
+  }
+}
+
 /** Resolve hr_users.id from an employee_id (DEC-007 D47 needs FK id). */
 async function resolveHrUserId(
   db: PoolClient,
@@ -272,6 +296,13 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
     // 3. Resolve team snapshot + responsible user
     const teamInfo = await loadTeamSnapshot(db, input.scheduledDate, input.teamKey);
     const responsibleHrUserId = await resolveHrUserId(db, teamInfo.responsibleEmployeeId);
+
+    await assertTeamSlotAvailable(db, {
+      branchId: input.branchId,
+      scheduledDate: input.scheduledDate,
+      scheduledTime: input.scheduledTime,
+      teamKey: input.teamKey,
+    });
 
     // 4. Create the field_visit
     const visitFamily = inferVisitFamily(input.selectedTasks);

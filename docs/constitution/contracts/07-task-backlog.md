@@ -135,6 +135,7 @@
 - حسم الحاجة إلى `warranty_start_date` صريح يكتب عند `active`
 - توحيد القراءة والكتابة بين `device_warranties` وحقول الكفالة المسطحة على الجهاز
 - حسم تمثيل سبب إلغاء الكفالة في النموذج التنفيذي
+- توحيد العقد والذهبية في مسار واحد بقواعد عدّ مختلفة (DEC-CT-16 → CT-IMPL-016)
 
 ## المرحلة 3: تنظيف الواجهة المفهومية
 
@@ -300,6 +301,59 @@
 
 **الحالة:** مفتوحة
 
+#### CT-IMPL-016 — النموذج الموحّد للكفالات: عقد مرة واحدة + ذهبية متعددة تسلسلية (DEC-CT-16)
+
+**الهدف:** مسار واحد (`device_warranties`) يدعم كفالة عقد وحيدة وكفالات ذهبية متعددة تسلسلية، مع كفالة واحدة فعّالة فقط في أي لحظة.  
+**المرجع:** [02b §13](./02b-contract-warranties.md) + DEC-CT-16.
+
+**المهام الفرعية:**
+
+- migration: حذف `UNIQUE (device_id, warranty_type)` واستبداله بقيد جزئي `UNIQUE (device_id) WHERE warranty_type = 'contract'` (يسمح بتعدّد الذهبية، يبقي العقد واحدة).
+- تعديل `ON CONFLICT` في `syncContractWarrantySnapshot` (`packages/api/routes/contracts.ts`) ليستهدف القيد الجزئي.
+- exclusion constraint يمنع تداخل مدى التواريخ لأي كفالتين فعّالتين على نفس الجهاز («واحدة فعّالة فقط»).
+- تحويل `installed_devices.golden_warranty_end_date` إلى حقل **مشتقّ** (أحدث ذهبية فعّالة) لا مصدر حقيقة.
+- وصل مسار تفعيل الذهبية: نتيجة مهمة `golden_warranty` → إدراج سطر `golden` جديد + ختم `start_date`/`end_date`/`activated_at` (بداية الذهبية من نهاية الكفالة السابقة).
+- اشتقاق النطاق من `warranty_type` (العقد=قطع الطارئة · الذهبية=دورية+طارئة) دون عمود `coverage` لكل سطر.
+
+**يتفرع منه/يكمّله:** CT-IMPL-003 (نموذج حالة الكفالة) · CT-IMPL-009 (تفعيل كفالة العقد).
+
+**الحالة:** ✅ منجزة (migration 306: حذف القيد القديم + partial index للعقد + exclusion constraint؛ إصلاح `ON CONFLICT` في contracts.ts؛ اشتقاق `golden_warranty_end_date` عبر `recomputeGoldenWarrantyEndDate` في deviceWarranties.ts). متحقَّق على DB + typecheck.
+
+#### CT-IMPL-017 — مهمتا الكفالة الذهبية + نموذجها المالي (DEC-CT-17)
+
+**الهدف:** بناء مسار بيع/تفعيل الكفالة الذهبية عبر مهمة عرض ميدانية (تفعيل بالوصل) + مهمة تسليم كرت VIP، مع جدول دفعات مستقل.  
+**المرجع:** [02b §13.6](./02b-contract-warranties.md) + DEC-CT-17 (مبني على CT-IMPL-016).
+
+**المهام الفرعية:**
+
+- `shared/types.ts`: إضافة نوعَي المهمة `golden_warranty_offer` و `golden_warranty_card_delivery` + labels؛ إعادة توجيه `golden_warranty` القديم إلى `_offer` (migration).
+- migration: جدول `device_warranty_payments` **يحاكي نمط `contract_payment_entries`/`emergency_payment_entries`** (`warranty_id` FK, `method` enum نفسه, `amount_value`, `currency`, `exchange_rate`, `amount_syp`, المقايضة, `transfer_company_id`, `entry_type`, `received_by`, `created_at`).
+- migration: عمودا `device_warranties.total_value` + `offer_task_id` + `card_delivery_task_id` (لقطات المصدر). ملاحظة: كفالة العقد **بلا** `total_value`/دفعات.
+- معالجة نتيجة `golden_warranty_offer` في `openTasks`: إنشاء سطر `golden` + التقاط قراءة 01i (`phase=baseline`, المصدر = هذه المهمة) + **التفعيل بالوصل** (`pending → active`, ختم `start_date`=تاريخ الوصل و`end_date`=البداية+المدة و`activated_at`).
+- حارس قبل التفعيل: يرفض إن وُجدت كفالة فعّالة لم تنتهِ على الجهاز (تفرّد «واحدة فعّالة فقط»).
+- معالجة نتيجة `golden_warranty_card_delivery`: ختم تسليم بطاقة VIP فقط (لا تفعيل، لا قراءة فنية).
+- endpoints دفعات `device_warranty_payments` + اشتقاق الرصيد المتبقي.
+- اشتقاق النطاق (دورية+طارئة) من `warranty_type` للعرض.
+- **مودل الصيانة:** تلوين بحسب الكفالة الفعّالة (أزرق=عقد · ذهبي=ذهبية · محايد=لا كفالة) — مؤشّر بصري للفني.
+- **التكلفة غير مقفلة:** التغطية تقترح صفرًا افتراضيًا لكن لا تمنع الفني من إدخال قيمة لأي قطعة/كلفة (لا فرض آلي).
+
+**يكمّله:** CT-IMPL-016 (القيد الجزئي + exclusion + اشتقاق `golden_warranty_end_date`).
+
+**الحالة:** قيد التنفيذ —
+- ✅ migration 307: أعمدة `total_value`/`offer_task_id`/`card_delivery_task_id` + جدول `device_warranty_payments` (بنمط `*_payment_entries`) + قيد «العقد بلا قيمة».
+- ✅ `shared/types.ts`: نوعا المهمة + labels؛ عائلة `warranty-services` موسَّعة (لا قيد CHECK على task_type، لا مهام قديمة → لا migration بيانات).
+- ✅ endpoints الدفعات (`/api/device-warranties/:id/payments` GET/POST + DELETE) + الرصيد المشتقّ.
+- ✅ معالِج نتيجة العرض `POST /api/device-warranties/golden/offer-result` (إنشاء كفالة golden + التفعيل بالوصل start=receiptDate/end=+months + قراءة 01i `baseline` عبر `insertTechnicalState` المُصدَّرة + الحارس «واحدة فعّالة فقط» + دفعات أولية + إكمال المهمة) — متحقَّق على DB (date math + exclusion).
+- ✅ معالِج تسليم الكرت `POST /api/device-warranties/golden/:id/card-delivery` (ختم `card_delivery_task_id` + إكمال المهمة، بلا تفعيل).
+- ✅ المؤشّر اللوني في مودل الصيانة (`EmergencyResultWizard`: شريط أزرق=عقد/ذهبي=ذهبية + تلميح «التكلفة غير مقفلة»؛ و prop اختياري في `components/emergency/EmergencyResultModal`).
+- ✅ **UI:** `GoldenWarrantyOfferModal` (اختيار جهاز + تاريخ الوصل/المدة→نهاية محسوبة + قيمة + دفعات + قراءة 01i عبر `TechnicalStateFields`) و `GoldenWarrantyCardDeliveryModal` (يجد الكفالة الذهبية الفعّالة ويختم التسليم)؛ مُوزَّعان في `VisitDetailPage` حسب `task_type` + دوال `api.deviceWarranties` (offerResult/cardDelivery/payments). typecheck أخضر.
+
+- ✅ منفذ open-tasks: صفحة `/tasks/group/warranty-services` تعرض **جدولين** (مهام الكفالة/العرض · تسليم كروت VIP)؛ النقر على صف عرض/تسليم يفتح المودل في مكانه (لا صفحة تفصيل). أُضيف النوعان لعائلة الـbackend والـfrontend GROUP_CONFIG + labels.
+
+- ✅ نقطة الإنشاء: migration 308 يسجّل النوعين في `task_type_config` (warranty/device/immediate/allow_multiple)؛ زرّ **«عرض كفالة ذهبية»** في `WarrantiesSection` بصفحة الجهاز (يظهر فقط لجهاز `active` بلا كفالة ذهبية فعّالة) → `POST /open-tasks` بنوع `golden_warranty_offer`.
+
+**الحالة الإجمالية:** ✅ منجزة. الحلقة كاملة: زرّ على الجهاز الفعّال → مهمة عرض → تظهر في warranty-services → مودل العرض → تفعيل بالوصل. مدخلان للتنفيذ (الزيارة + warranty-services بجدولين). متحقَّق: DB + typecheck. لم يُجرَ تحقّق runtime/بصري (يحتاج خادمًا فعّالًا + بيانات).
+
 ### المرحلة 4.د — الأطراف والعقد المطبوع
 
 #### CT-IMPL-010 — sale_owner (DEC-CT-11)
@@ -395,6 +449,7 @@
 - واجهة سجل الحيازة (`device_possession_log`) لإدارة التحويلات يدوياً
 - واجهة snapshot فريق العرض على ContractDetail
 - migration cleanup: إسقاط جدول `dues` وعمود `is_active` على `device_warranties` بعد فترة التحول
+- migration cleanup: إسقاط القيد `UNIQUE (device_id, warranty_type)` القديم بعد تطبيق القيد الجزئي (CT-IMPL-016)
 
 ## قاعدة استخدام هذا الباك لوج
 

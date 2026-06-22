@@ -1,21 +1,23 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, MapPin, User, Calendar } from 'lucide-react';
-import { Appointment, WORKING_HOURS } from '../../lib/types';
+import { Appointment } from '../../lib/types';
 
 interface TeamAgendaPanelProps {
     appointments: Appointment[];
     date: string;
 }
 
-// Generate the hourly slots based on WORKING_HOURS
 const getHourlySlots = () => {
     const slots = [];
-    for (let i = WORKING_HOURS.start; i < WORKING_HOURS.end; i++) {
-        slots.push(`${i.toString().padStart(2, '0')}:00`);
+    for (let i = 0; i < 24; i++) {
+        const hour = (9 + i) % 24;
+        slots.push(`${hour.toString().padStart(2, '0')}:00`);
     }
     return slots;
 };
+
+const normalizeTimeSlot = (value: string | null | undefined) => String(value || '').slice(0, 5);
 
 export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelProps) {
     const hourlySlots = getHourlySlots();
@@ -24,7 +26,7 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
     // E.g., if slot is "09:00", we look for appointments where timeSlot starts with "09:"
     const getAppointmentsForSlot = (slotTime: string) => {
         const hourPrefix = slotTime.split(':')[0] + ':';
-        return appointments.filter(app => app.timeSlot.startsWith(hourPrefix));
+        return appointments.filter(app => normalizeTimeSlot(app.timeSlot).startsWith(hourPrefix));
     };
 
     return (
@@ -35,7 +37,7 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                     <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                     <span> مواعيد الفريق</span>
                 </h2>
-                <p className="text-[10px] text-slate-500 mt-1 mr-5">جدول الزيارات لليوم: {date}</p>
+                <p className="text-[10px] text-slate-500 mt-1 mr-5">جدول زيارات الغد: {date}</p>
             </div>
 
             {/* Timetable */}
@@ -78,7 +80,7 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                                                     </p>
                                                 )}
                                                 <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-mono font-bold">
-                                                    {app.timeSlot}
+                                                    {normalizeTimeSlot(app.timeSlot)}
                                                 </div>
                                             </motion.div>
                                         ))}

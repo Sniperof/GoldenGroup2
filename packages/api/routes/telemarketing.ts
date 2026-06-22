@@ -866,7 +866,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
         COALESCE(fv.customer_snapshot->>'mobile', c.mobile, '') AS "customerMobile",
         fv.team_snapshot->>'teamKey' AS "teamKey",
         fv.scheduled_date::text AS date,
-        fv.scheduled_time AS "timeSlot",
+        substring(COALESCE(fv.scheduled_time, '') from 1 for 5) AS "timeSlot",
         COALESCE(fv.customer_snapshot->>'occupation', '') AS occupation,
         COALESCE(fv.customer_snapshot->>'waterSource', '') AS "waterSource",
         COALESCE(fv.telemarketer_notes, fv.field_notes, '') AS notes,
@@ -887,10 +887,15 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
       JOIN clients c ON c.id = fv.client_id
       LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
       LEFT JOIN contact_targets ct ON ct.latest_visit_id = fv.id
-      LEFT JOIN telemarketing_task_lists tl
-        ON tl.team_key = fv.team_snapshot->>'teamKey'
-       AND tl.date = fv.scheduled_date::text
-       AND tl.branch_id = fv.branch_id
+      LEFT JOIN LATERAL (
+        SELECT id
+        FROM telemarketing_task_lists tl_match
+        WHERE tl_match.team_key = fv.team_snapshot->>'teamKey'
+          AND tl_match.branch_id = fv.branch_id
+          AND tl_match.date::date <= fv.scheduled_date
+        ORDER BY tl_match.date::date DESC, tl_match.created_at DESC
+        LIMIT 1
+      ) tl ON TRUE
       ${fieldVisitWhere}
         ${fieldVisitWhere ? 'AND' : 'WHERE'} fv.origin_type = 'telemarketing'
         AND fv.visit_type = 'marketing'

@@ -144,8 +144,9 @@ function compareValues(a: string | number | null, b: string | number | null, dir
 }
 
 // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
-const getToday = () => {
+const getPlanningDate = () => {
   const d = new Date();
+  d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
@@ -395,9 +396,10 @@ export default function PlanningContactTargets() {
     const navigate = useNavigate();
     const { teamKey = '' } = useParams();
     const [searchParams, setSearchParams] = useSearchParams();
-    const date = searchParams.get('date') || getToday();
+    const defaultPlanningDate = getPlanningDate();
+    const date = searchParams.get('date') || defaultPlanningDate;
     const teamLabel = searchParams.get('label') || teamKey;
-    const today = getToday();
+    const today = date;
 
     const [data, setData] = useState<DashboardResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -650,7 +652,7 @@ export default function PlanningContactTargets() {
                             <p className="mt-0.5 text-sm text-slate-500 flex items-center gap-1.5">
                                 <Calendar className="h-3.5 w-3.5" />
                                 {date}
-                                {date === today && <span className="text-[10px] font-bold bg-sky-100 text-sky-600 px-1.5 py-0.5 rounded-full border border-sky-200">اليوم</span>}
+                                {date === defaultPlanningDate && <span className="text-[10px] font-bold bg-sky-100 text-sky-600 px-1.5 py-0.5 rounded-full border border-sky-200">خطة الغد</span>}
                             </p>
                         </div>
                         <div className="flex items-center gap-2">

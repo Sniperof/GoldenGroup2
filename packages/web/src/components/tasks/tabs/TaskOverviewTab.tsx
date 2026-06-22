@@ -18,12 +18,6 @@ export interface TaskOverviewTabProps {
   prioritySaving: boolean;
   priorityError: string;
   onPriorityChange: (next: '' | 'high' | 'medium' | 'low') => void;
-  // Expected date editor
-  expectedDateDraft: string;
-  expectedDateSaving: boolean;
-  expectedDateError: string;
-  onExpectedDateDraftChange: (value: string) => void;
-  onExpectedDateBlur: (value: string) => void;
   // Schedule card extras (task-type-specific rows like visit date/time)
   scheduleExtraRows?: ReactNode;
   // Issues list rendered at top
@@ -36,8 +30,6 @@ export default function TaskOverviewTab({
   task,
   deviceCount, callCount, activityCount, noteCount,
   priorityDraft, prioritySaving, priorityError, onPriorityChange,
-  expectedDateDraft, expectedDateSaving, expectedDateError,
-  onExpectedDateDraftChange, onExpectedDateBlur,
   scheduleExtraRows,
   issues = [],
   extraCards,
@@ -60,11 +52,6 @@ export default function TaskOverviewTab({
         />
         <TaskScheduleCard
           task={task}
-          expectedDateDraft={expectedDateDraft}
-          expectedDateSaving={expectedDateSaving}
-          expectedDateError={expectedDateError}
-          onExpectedDateDraftChange={onExpectedDateDraftChange}
-          onExpectedDateBlur={onExpectedDateBlur}
           extraRows={scheduleExtraRows}
         />
         <TaskCreationCard task={task} />

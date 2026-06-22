@@ -78,8 +78,21 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
     );
   }
 
-  // Address resolution (prefer DeviceSnapshot.location, fallback to contract.installationAddress)
-  const address = device?.location || contract?.installationAddress || null;
+  // Address resolution — merge field-by-field so the detailed text + GPS show
+  // whenever EITHER source has them (device location may carry geo but no GPS,
+  // while the contract's installation address may carry the detailed text/GPS).
+  const dLoc = device?.location ?? null;
+  const cAddr = contract?.installationAddress ?? null;
+  const address = (dLoc || cAddr)
+    ? {
+        geoUnitId: dLoc?.geoUnitId ?? cAddr?.geoUnitId ?? null,
+        geoUnitName: dLoc?.geoUnitName ?? cAddr?.geoUnitName ?? null,
+        geoPath: (Array.isArray(dLoc?.geoPath) && dLoc.geoPath.length > 0) ? dLoc.geoPath : (cAddr?.geoPath ?? null),
+        addressText: dLoc?.addressText ?? cAddr?.addressText ?? null,
+        lat: dLoc?.lat ?? cAddr?.lat ?? null,
+        lng: dLoc?.lng ?? cAddr?.lng ?? null,
+      }
+    : null;
   const addressLat = address?.lat;
   const addressLng = address?.lng;
 
@@ -102,6 +115,12 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
               <Badge text={SALE_SUBTYPE_LABELS[contract.saleSubtype].label} cls={SALE_SUBTYPE_LABELS[contract.saleSubtype].cls} />
             )}
           </div>
+          {/* BR §9.2 — a temporary sale must never read as a definitive one. */}
+          {contract.policy?.isTemporary && (
+            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+              عقد مؤقت — يحتاج حسماً لاحقاً ولا يُعامَل كبيع قطعي.
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1.5">
             <InfoLine label="رقم العقد" value={<span className="font-mono">{contract.contractNumber ?? '—'}</span>} />
             <InfoLine label="تاريخ العقد" value={formatDate(contract.contractDate)} />
@@ -109,6 +128,12 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
             {contract.parties?.branchName && <InfoLine label="الفرع" value={contract.parties.branchName} />}
             {contract.parties?.closingEmployeeName && (
               <InfoLine label="مُغلِق العقد" value={contract.parties.closingEmployeeName} />
+            )}
+            {contract.parties?.saleOwnerName && (
+              <InfoLine label="منسوب البيعة" value={contract.parties.saleOwnerName} />
+            )}
+            {contract.commercial?.saleSource && (
+              <InfoLine label="مصدر البيع" value={contract.commercial.saleSource} />
             )}
           </div>
         </Card>

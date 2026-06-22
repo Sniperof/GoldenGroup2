@@ -288,7 +288,9 @@ const TECH_STATE_COLUMN_MAP: Record<string, string> = {
 
 // Append a device-keyed technical health reading. No-op when no measurement was
 // recorded. Enforces device + task linkage via the table's NOT VALID checks.
-async function insertTechnicalState(
+// Exported for reuse by other field-task result paths (e.g. golden warranty
+// offer, constitution 01i §2 — any field task is a valid source task).
+export async function insertTechnicalState(
   db: Pick<PoolClient, 'query'>,
   args: {
     installedDeviceId: number;

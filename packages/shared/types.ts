@@ -462,7 +462,8 @@ export type MarketingVisitTaskType =
   | 'device_activation' | 'periodic_maintenance' | 'emergency_maintenance'
   | 'installment_collection' | 'maintenance_collection' | 'gift_delivery'
   | 'device_checkup' | 'parts_sale' | 'device_retrieval' | 'device_repair'
-  | 'device_return' | 'golden_warranty' | 'warranty_cancellation'
+  | 'device_return' | 'golden_warranty' | 'golden_warranty_offer'
+  | 'golden_warranty_card_delivery' | 'warranty_cancellation'
   | 'warranty_reactivation' | 'device_disconnection' | 'device_transfer';
 
 export type MarketingVisitTaskStatus = 'pending' | 'completed' | 'not_completed';
@@ -1640,9 +1641,33 @@ export const OPEN_TASK_STATUS_LABELS: Record<OpenTaskStatus, string> = {
   cancelled: 'ملغاة',
 };
 
-export const OPEN_TASK_TYPE_LABELS: Record<OpenTaskType, string> = {
+// Arabic labels for every task type that can surface on a task/visit. Keyed by
+// string (not the narrow OpenTaskType) so post-sale and service types render in
+// Arabic everywhere (task header, visits list, telemarketer, etc.) instead of
+// falling back to the raw English task_type.
+export const OPEN_TASK_TYPE_LABELS: Record<string, string> = {
   device_demo: 'عرض جهاز',
+  device_purchase: 'شراء جهاز',
+  device_delivery: 'تسليم جهاز',
+  device_installation: 'تركيب جهاز',
+  device_activation: 'تشغيل جهاز',
+  periodic_maintenance: 'صيانة دورية',
   emergency_maintenance: 'صيانة طارئة',
+  installment_collection: 'تحصيل قسط',
+  maintenance_collection: 'تحصيل ذمم صيانة',
+  gift_delivery: 'تسليم هدية',
+  device_checkup: 'فحص جهاز',
+  parts_sale: 'بيع قطع',
+  device_retrieval: 'سحب جهاز',
+  device_repair: 'إصلاح جهاز',
+  device_return: 'إرجاع جهاز',
+  golden_warranty: 'كفالة ذهبية',
+  golden_warranty_offer: 'عرض كفالة ذهبية',
+  golden_warranty_card_delivery: 'تسليم كرت كفالة ذهبية',
+  warranty_cancellation: 'إلغاء كفالة',
+  warranty_reactivation: 'إعادة تفعيل كفالة',
+  device_disconnection: 'فصل جهاز',
+  device_transfer: 'نقل جهاز',
 };
 
 export const OPEN_TASK_REASON_LABELS: Record<OpenTaskReason, string> = {

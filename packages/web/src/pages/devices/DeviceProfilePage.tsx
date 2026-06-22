@@ -229,7 +229,11 @@ export default function DeviceProfilePage() {
           <OperationalStatusSection device={device} tasks={tasks} onTaskCreated={fetchAll} />
           <CurrentHolderSection device={device} currentPossession={currentPossession} />
           <PossessionHistorySection entries={possessionLog} />
-          <WarrantiesSection warranties={warranties} />
+          <WarrantiesSection
+            warranties={warranties}
+            device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}
+            onCreated={fetchAll}
+          />
           <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
           <LinkedContractSection contract={contract} apiBase={API_BASE} />
           <FinancialSection contract={contract} customerId={device.customerId ?? null} />

@@ -10,8 +10,9 @@ import type { GeoUnit } from '../../lib/types';
 import type { ZoneStudyMode, ZoneStudyResponse } from '@golden-crm/shared';
 
 // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
-const getToday = () => {
+const getPlanningDate = () => {
   const d = new Date();
+  d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const emptyGeoSelection: GeoSelection = { govId: '', regionId: '', subId: '', neighborhoodId: '' };
@@ -33,7 +34,7 @@ function extractError(err: unknown): string {
 
 export default function ZoneStudy() {
     const navigate = useNavigate();
-    const [date, setDate] = useState(getToday);
+    const [date, setDate] = useState(getPlanningDate);
     const [mode, setMode] = useState<ZoneStudyMode>('auto');
     const [data, setData] = useState<ZoneStudyResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -231,7 +232,7 @@ export default function ZoneStudy() {
             {/* No-schedule banner (auto) */}
             {!loading && mode === 'auto' && snapshot && !snapshot.branchSchedulePresent && (
                 <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    لا فرق محفوظة لهذا اليوم — يُعرض عمود الشركة فقط.{' '}
+                    لا فرق محفوظة لهذا التاريخ — يُعرض عمود الشركة فقط.{' '}
                     <button onClick={() => navigate('/planning/schedule')} className="font-bold underline">ارجع لجدولة الفرق</button>
                 </div>
             )}
@@ -243,11 +244,11 @@ export default function ZoneStudy() {
                         <Loader2 className="w-6 h-6 animate-spin" />
                     </div>
                 ) : !snapshot ? (
-                    <div className="py-16 text-center text-slate-400 text-sm">لا snapshot محفوظ لهذا اليوم.</div>
+                    <div className="py-16 text-center text-slate-400 text-sm">لا snapshot محفوظ لهذا التاريخ.</div>
                 ) : zones.length === 0 ? (
                     <div className="py-16 text-center text-slate-400 text-sm">
                         {mode === 'auto'
-                            ? 'لا zones تستدعي الدراسة لهذا اليوم.'
+                            ? 'لا zones تستدعي الدراسة لهذا التاريخ.'
                             : 'أضف منطقة لاستكشاف توزيع الفرق.'}
                     </div>
                 ) : (
@@ -310,7 +311,7 @@ export default function ZoneStudy() {
             </div>
 
             <p className="mt-3 text-[11px] text-slate-400 leading-relaxed">
-                <span className="font-bold">قراءة الأرقام:</span> عمود الشركة = مهام مؤهلة (كل الأنواع) لزبائن لا يملكها موظف. عمود كل فريق = <span className="font-bold text-slate-600">المحتملون</span> (زبائن LEAD يملكها الفريق بلا عرض جهاز مفتوح) / <span className="font-bold text-emerald-600">عروض الجهاز المؤهلة</span> (حمل اليوم الفعلي). الصفحة للقراءة فقط؛ القرار يدوي في توزيع المسارات.
+                <span className="font-bold">قراءة الأرقام:</span> عمود الشركة = مهام مؤهلة (كل الأنواع) لزبائن لا يملكها موظف. عمود كل فريق = <span className="font-bold text-slate-600">المحتملون</span> (زبائن LEAD يملكها الفريق بلا عرض جهاز مفتوح) / <span className="font-bold text-emerald-600">عروض الجهاز المؤهلة</span> (حمل التاريخ المحدد). الصفحة للقراءة فقط؛ القرار يدوي في توزيع المسارات.
             </p>
         </div>
     );
