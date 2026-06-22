@@ -198,10 +198,7 @@ export default function MainLayout() {
             <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 z-30">
                 <div dir="ltr" className="flex items-center gap-3">
                     <img src={logoMark} alt="Golden Group" className="w-8 h-8 object-contain" />
-                    <div className="flex items-baseline gap-2">
-                        <span className="text-lg font-bold text-slate-800">Golden Group</span>
-                        <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700 border border-sky-100">{APP_VERSION_LABEL}</span>
-                    </div>
+                    <span className="text-lg font-bold text-slate-800">Golden Group</span>
                 </div>
                 <button
                     onClick={toggleSidebar}
@@ -239,10 +236,7 @@ export default function MainLayout() {
                             title={isCollapsed ? 'توسيع القائمة' : undefined}
                             className={`w-8 h-8 object-contain shrink-0 ${isCollapsed ? 'lg:cursor-pointer' : ''}`}
                         />
-                        <div className={`flex items-baseline gap-2 ${isCollapsed ? 'lg:hidden' : ''}`}>
-                            <span className="text-lg font-bold text-slate-800 tracking-wide">Golden Group</span>
-                            <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700 border border-sky-100">{APP_VERSION_LABEL}</span>
-                        </div>
+                        <span className={`text-lg font-bold text-slate-800 tracking-wide ${isCollapsed ? 'lg:hidden' : ''}`}>Golden Group</span>
                     </div>
                     {/* Desktop Collapse Toggle — only when expanded; collapsed expands via logo click */}
                     <button
@@ -827,6 +821,14 @@ export default function MainLayout() {
 
 
                 </nav>
+
+                {/* Release Version */}
+                <div className={`px-4 py-3 border-t border-slate-100 ${isCollapsed ? 'lg:flex lg:justify-center' : ''}`}>
+                    <div className={`rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-center ${isCollapsed ? 'lg:px-2' : ''}`}>
+                        <p className={`text-[10px] font-semibold text-slate-400 ${isCollapsed ? 'lg:hidden' : ''}`}>Golden Group</p>
+                        <p className="text-xs font-bold text-sky-700">{APP_VERSION_LABEL}</p>
+                    </div>
+                </div>
 
                 {/* User Profile */}
                 <div className="p-4 border-t border-slate-200 bg-slate-50/50">
