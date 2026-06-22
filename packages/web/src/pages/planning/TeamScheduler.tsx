@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle, LayoutGrid, ArrowLeft } from 'lucide-react';
 import { api } from '../../lib/api';
+import IconButton from '../../components/ui/IconButton';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import type { DaySchedule, Employee } from '../../lib/types';
 
@@ -290,7 +291,7 @@ export default function TeamScheduler() {
                                                 <span className="font-bold text-slate-800 text-sm">{teamName}</span>
                                                 <span className="text-xs text-slate-500">فريق قياسي</span>
                                             </div>
-                                            <button onClick={() => removeTeamSlot(idx)} className="text-slate-400 hover:text-red-500 transition-colors"><X className="w-4 h-4" /></button>
+                                            <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeTeamSlot(idx)} />
                                         </div>
                                         <div className="p-4 grid grid-cols-2 gap-3">
                                             {/* Supervisor Slot */}
@@ -299,7 +300,7 @@ export default function TeamScheduler() {
                                                     <div className="flex items-center gap-2">
                                                         <img src={employees.find(e => e.id === t.supervisor)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
                                                         <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(t.supervisor)}</p><p className="text-xs text-indigo-500">مشرف</p></div>
-                                                        <button onClick={e => { e.stopPropagation(); unassign('team', idx, 'supervisor'); }} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('team', idx, 'supervisor'); }} />
                                                     </div>
                                                 ) : (
                                                     <div className="text-center py-2"><UserCheck className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">مشرف</p></div>
@@ -311,7 +312,7 @@ export default function TeamScheduler() {
                                                     <div className="flex items-center gap-2">
                                                         <img src={employees.find(e => e.id === t.technician)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
                                                         <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(t.technician)}</p><p className="text-xs text-emerald-500">فني</p></div>
-                                                        <button onClick={e => { e.stopPropagation(); unassign('team', idx, 'technician'); }} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('team', idx, 'technician'); }} />
                                                     </div>
                                                 ) : (
                                                     <div className="text-center py-2"><User className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">فني</p></div>
@@ -323,7 +324,7 @@ export default function TeamScheduler() {
                                                     <div className="flex items-center gap-2">
                                                         <img src={employees.find(e => e.id === t.trainee)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
                                                         <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(t.trainee)}</p><p className="text-xs text-amber-500">متدرب</p></div>
-                                                        <button onClick={e => { e.stopPropagation(); unassign('team', idx, 'trainee'); }} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('team', idx, 'trainee'); }} />
                                                     </div>
                                                 ) : (
                                                     <div className="text-center py-2"><GraduationCap className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">متدرب (اختياري)</p></div>
@@ -341,7 +342,7 @@ export default function TeamScheduler() {
                                                                 <div key={teleId} className="flex items-center gap-1.5 bg-white border border-violet-100 rounded-full pl-1.5 pr-3 py-1 shadow-sm">
                                                                     <img src={employees.find(e => e.id === teleId)?.avatar || ''} alt="" className="w-5 h-5 rounded-full" />
                                                                     <span className="text-xs font-medium text-slate-700">{getEmpName(teleId)}</span>
-                                                                    <button onClick={e => { e.stopPropagation(); unassign('team', idx, 'telemarketer', teleId); }} className="text-slate-400 hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
+                                                                    <IconButton icon={X} label="حذف" variant="danger" size="sm" className="ml-1" onClick={e => { e.stopPropagation(); unassign('team', idx, 'telemarketer', teleId); }} />
                                                                 </div>
                                                             ))}
                                                         </div>
@@ -372,7 +373,7 @@ export default function TeamScheduler() {
                                                 <span className="font-bold text-slate-800 text-sm">{emergencyName}</span>
                                                 <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[10px] font-bold">{formLabel}</span>
                                             </div>
-                                            <button onClick={() => removeSoloSlot(idx)} className="text-slate-400 hover:text-red-500 transition-colors"><X className="w-4 h-4" /></button>
+                                            <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeSoloSlot(idx)} />
                                         </div>
                                         <div className="p-4 grid grid-cols-2 gap-3">
                                             {/* Technician — required, full width */}
@@ -381,7 +382,7 @@ export default function TeamScheduler() {
                                                     <div className="flex items-center gap-2">
                                                         <img src={employees.find(e => e.id === s.technician)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
                                                         <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(s.technician)}</p><p className="text-xs text-emerald-500">فني (مطلوب)</p></div>
-                                                        <button onClick={e => { e.stopPropagation(); unassign('solo', idx, 'technician'); }} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('solo', idx, 'technician'); }} />
                                                     </div>
                                                 ) : (
                                                     <div className="text-center py-2"><User className="w-5 h-5 mx-auto text-red-400 mb-1" /><p className="text-xs text-red-400">فني (مطلوب)</p></div>
@@ -393,7 +394,7 @@ export default function TeamScheduler() {
                                                     <div className="flex items-center gap-2">
                                                         <img src={employees.find(e => e.id === s.trainee)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
                                                         <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(s.trainee)}</p><p className="text-xs text-amber-500">متدرب</p></div>
-                                                        <button onClick={e => { e.stopPropagation(); unassign('solo', idx, 'trainee'); }} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('solo', idx, 'trainee'); }} />
                                                     </div>
                                                 ) : (
                                                     <div className="text-center py-2"><GraduationCap className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">متدرب (اختياري)</p></div>
@@ -412,7 +413,7 @@ export default function TeamScheduler() {
                                                                 <div key={teleId} className="flex items-center gap-1.5 bg-white border border-violet-100 rounded-full pl-1.5 pr-3 py-1 shadow-sm">
                                                                     <img src={employees.find(e => e.id === teleId)?.avatar || ''} alt="" className="w-5 h-5 rounded-full" />
                                                                     <span className="text-xs font-medium text-slate-700">{getEmpName(teleId)}</span>
-                                                                    <button onClick={e => { e.stopPropagation(); unassign('solo', idx, 'telemarketer', teleId); }} className="text-slate-400 hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
+                                                                    <IconButton icon={X} label="حذف" variant="danger" size="sm" className="ml-1" onClick={e => { e.stopPropagation(); unassign('solo', idx, 'telemarketer', teleId); }} />
                                                                 </div>
                                                             ))}
                                                         </div>

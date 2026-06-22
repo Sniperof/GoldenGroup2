@@ -9,6 +9,7 @@
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, Loader2, LineChart, ListOrdered, X, ChevronLeft } from 'lucide-react';
+import IconButton from '../../../components/ui/IconButton';
 import { api } from '../../../lib/api';
 
 type FieldKind = 'num' | 'enum' | 'bool';
@@ -255,7 +256,7 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
             <h3 className="text-base font-black text-slate-800">الصحة الفنية للجهاز</h3>
             <span className="text-xs font-bold text-slate-400">({rows.length} قراءة)</span>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X className="w-4 h-4" /></button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
 
         <div className="px-5 pt-4">

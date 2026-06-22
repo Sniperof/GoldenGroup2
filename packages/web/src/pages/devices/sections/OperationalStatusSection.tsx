@@ -9,6 +9,7 @@ import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../.
 import MapPicker from '../../../components/MapPicker';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
+import IconButton from '../../../components/ui/IconButton';
 
 interface Props {
   device: any;
@@ -274,9 +275,7 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
                 <Wrench className="h-5 w-5 text-sky-600" />
                 <h2 className="text-base font-black text-slate-900">إنشاء مهمة تركيب</h2>
               </div>
-              <button onClick={() => setShowInstallationModal(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-                <X className="h-5 w-5" />
-              </button>
+              <IconButton icon={X} label="إغلاق" onClick={() => setShowInstallationModal(false)} />
             </div>
             <div className="max-h-[75vh] space-y-4 overflow-y-auto px-5 py-4">
               {modalError && (
@@ -346,9 +345,7 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
                 <Zap className="h-5 w-5 text-sky-600" />
                 <h2 className="text-base font-black text-slate-900">إنشاء مهمة تشغيل</h2>
               </div>
-              <button onClick={() => setShowActivationModal(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-                <X className="h-5 w-5" />
-              </button>
+              <IconButton icon={X} label="إغلاق" onClick={() => setShowActivationModal(false)} />
             </div>
             <div className="space-y-4 px-5 py-4">
               {modalError && (

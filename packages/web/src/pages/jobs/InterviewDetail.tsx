@@ -8,6 +8,7 @@ import {
   Car, Monitor, Globe, DollarSign
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import IconButton from '../../components/ui/IconButton';
 import PermissionGate from '../../components/PermissionGate';
 import Button from '../../components/ui/Button';
 import { fetchInterviewersForApplication } from './interviewerLookup';
@@ -328,7 +329,7 @@ export default function InterviewDetail() {
               onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-lg font-bold text-slate-800">تعديل المقابلة</h3>
-                <button onClick={() => setShowEditModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
+                <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setShowEditModal(false)} />
               </div>
               {editError && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2">
@@ -422,7 +423,7 @@ export default function InterviewDetail() {
               onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-lg font-bold text-slate-800">تسجيل نتيجة المقابلة</h3>
-                <button onClick={() => setShowResultModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
+                <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setShowResultModal(false)} />
               </div>
               <div className="space-y-4">
                 <div className="flex gap-3">

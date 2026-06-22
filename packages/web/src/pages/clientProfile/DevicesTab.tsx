@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Cpu, ExternalLink, Plus, X, Save, MapPin } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
 
 import { api } from '../../lib/api';
 import { DeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
@@ -89,9 +90,7 @@ function ExternalDeviceModalV2({
       <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h3 className="text-base font-black text-slate-800">اضافة جهاز خارجي</h3>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600">
-            <X className="h-4 w-4" />
-          </button>
+          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
         <div className="space-y-4 px-5 py-5">
           {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}

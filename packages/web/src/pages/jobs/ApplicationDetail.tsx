@@ -15,6 +15,7 @@ import {
   BookOpen, ExternalLink, Plus,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import IconButton from '../../components/ui/IconButton';
 import PermissionGate from '../../components/PermissionGate';
 import { calculateJobMatchScore } from '../../lib/jobMatch';
 import { getUnifiedApplicationState } from '../../lib/applicationState';
@@ -1620,9 +1621,7 @@ export default function ApplicationDetail() {
                     طلب #{detail.id} — {detail.applicant?.firstName} {detail.applicant?.lastName}
                   </p>
                 </div>
-                <button onClick={() => setShowReviewModal(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
+                <IconButton icon={X} label="إغلاق" onClick={() => setShowReviewModal(false)} />
               </div>
 
               {/* Body */}

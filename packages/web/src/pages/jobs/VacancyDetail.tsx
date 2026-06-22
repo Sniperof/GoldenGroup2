@@ -9,6 +9,7 @@ import {
   PhoneCall, User, BookOpen, Clock, TrendingUp,
   MessageSquare, Zap,
 } from 'lucide-react';
+import IconButton from '../../components/ui/IconButton';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
@@ -593,9 +594,7 @@ export default function VacancyDetail() {
                   <h2 className="text-lg font-bold text-slate-800">تعديل الشاغر الوظيفي</h2>
                   <p className="text-xs text-slate-400 mt-0.5">{detail.title} — {detail.branch}</p>
                 </div>
-                <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
-                  <X className="w-5 h-5" />
-                </button>
+                <IconButton icon={X} label="إغلاق" onClick={() => setShowModal(false)} />
               </div>
 
               {/* Body */}

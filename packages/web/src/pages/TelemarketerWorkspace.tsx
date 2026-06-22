@@ -7,6 +7,7 @@ import {
     Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import IconButton from '../components/ui/IconButton';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useClientStore } from '../hooks/useClientStore';
@@ -1511,9 +1512,7 @@ export default function TelemarketerWorkspace() {
                                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                                         {callLogSaveError}
                                     </span>
-                                    <button onClick={() => setCallLogSaveError(null)} className="text-red-400 hover:text-red-600">
-                                        <X className="w-3.5 h-3.5" />
-                                    </button>
+                                    <IconButton icon={X} label="إغلاق" size="sm" className="text-red-400 hover:text-red-600" onClick={() => setCallLogSaveError(null)} />
                                 </div>
                             )}
 
@@ -1603,9 +1602,7 @@ export default function TelemarketerWorkspace() {
                                                 <h3 className="font-bold text-slate-900">إغلاق جهة الاتصال</h3>
                                                 <p className="text-xs text-slate-500 mt-0.5">تعود المهمة إلى مرحلة قيد الانتظار</p>
                                             </div>
-                                            <button onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} className="text-slate-400 hover:text-slate-600">
-                                                <X className="h-4 w-4" />
-                                            </button>
+                                            <IconButton icon={X} label="إغلاق" size="sm" onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} />
                                         </div>
                                         <div className="px-5 py-4">
                                             <label className="block text-xs font-bold text-slate-600 mb-1">سبب الإغلاق (اختياري)</label>
@@ -1749,9 +1746,7 @@ export default function TelemarketerWorkspace() {
                                 <h3 className="font-bold text-slate-800 text-base">اختر رقم التواصل</h3>
                                 <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.name}</p>
                             </div>
-                            <button onClick={() => setIsContactPickerOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
-                                <X className="w-4 h-4" />
-                            </button>
+                            <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setIsContactPickerOpen(false)} />
                         </div>
 
                         {/* Contact list */}
@@ -1805,9 +1800,7 @@ export default function TelemarketerWorkspace() {
                                 <h3 className="font-bold text-slate-800">إنشاء مهمة خدمة</h3>
                                 <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.name}</p>
                             </div>
-                            <button onClick={() => setIsServiceTaskOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
-                                <X className="w-4 h-4" />
-                            </button>
+                            <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setIsServiceTaskOpen(false)} />
                         </div>
                         <div className="px-5 py-4 space-y-3">
                             {/* Task type — pre-filled, read-only display */}
