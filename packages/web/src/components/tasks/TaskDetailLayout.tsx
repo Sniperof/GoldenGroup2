@@ -87,10 +87,6 @@ export default function TaskDetailLayout({
   const [prioritySaving, setPrioritySaving] = useState(false);
   const [priorityError, setPriorityError] = useState('');
 
-  const [expectedDateDraft, setExpectedDateDraft] = useState('');
-  const [expectedDateSaving, setExpectedDateSaving] = useState(false);
-  const [expectedDateError, setExpectedDateError] = useState('');
-
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -114,7 +110,6 @@ export default function TaskDetailLayout({
         setAttempts(attemptsData?.attempts ?? []);
         setPreOffers(taskPreOffers);
         setPriorityDraft(taskData?.priority ?? '');
-        setExpectedDateDraft(taskData?.expectedDate ? taskData.expectedDate.slice(0, 10) : '');
       } catch (err: any) {
         if (!active) return;
         setError(err.message || 'فشل في تحميل بيانات المهمة');
@@ -141,24 +136,6 @@ export default function TaskDetailLayout({
       setPriorityError(err.message || 'فشل في تحديث الأولوية');
     } finally {
       setPrioritySaving(false);
-    }
-  };
-
-  const handleExpectedDateBlur = async (newDate: string) => {
-    if (!task?.id) return;
-    const prev = expectedDateDraft;
-    setExpectedDateDraft(newDate);
-    setExpectedDateSaving(true);
-    setExpectedDateError('');
-    try {
-      const updated = await api.openTasks.update(task.id, { expectedDate: newDate || null });
-      setTask(updated);
-      setExpectedDateDraft(updated?.expectedDate ? updated.expectedDate.slice(0, 10) : '');
-    } catch (err: any) {
-      setExpectedDateDraft(prev);
-      setExpectedDateError(err.message || 'فشل في تحديث الموعد المتوقع');
-    } finally {
-      setExpectedDateSaving(false);
     }
   };
 
@@ -244,11 +221,6 @@ export default function TaskDetailLayout({
               prioritySaving={prioritySaving}
               priorityError={priorityError}
               onPriorityChange={handlePriorityChange}
-              expectedDateDraft={expectedDateDraft}
-              expectedDateSaving={expectedDateSaving}
-              expectedDateError={expectedDateError}
-              onExpectedDateDraftChange={setExpectedDateDraft}
-              onExpectedDateBlur={handleExpectedDateBlur}
               scheduleExtraRows={scheduleExtraRows ? scheduleExtraRows(data) : undefined}
               issues={issues}
               extraCards={extension?.overviewExtraCards ? extension.overviewExtraCards(data) : null}
@@ -265,6 +237,7 @@ export default function TaskDetailLayout({
 
           {activeTab === 'communication' && (
             <TaskCommunicationOnlyTab
+              task={task}
               calls={calls}
               activity={activity}
               onSubmitNote={handleSubmitNote}

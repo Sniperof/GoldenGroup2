@@ -55,12 +55,23 @@ interface PartRow {
   unitPrice: string;
 }
 
+// DEC-CT-17: the maintenance modal is colour-coded by the device's ACTIVE
+// warranty — blue=contract, gold=golden, neutral=none — so the technician sees
+// the expected coverage at a glance. It does NOT lock costs (DEC-CT-16 §3).
+export type ActiveWarrantyKind = 'contract' | 'golden';
+const WARRANTY_THEME: Record<ActiveWarrantyKind, { band: string; badge: string; label: string }> = {
+  contract: { band: 'bg-sky-50 border-sky-200',   badge: 'bg-sky-100 text-sky-800 border-sky-300',     label: 'كفالة عقد' },
+  golden:   { band: 'bg-amber-50 border-amber-200', badge: 'bg-amber-100 text-amber-800 border-amber-300', label: 'كفالة ذهبية' },
+};
+
 interface Props {
   isOpen: boolean;
   saving: boolean;
   error: string;
   onClose: () => void;
   onSubmit: (payload: EmergencyResultPayload) => Promise<void>;
+  /** Device's active warranty (drives the header colour). Omit when none. */
+  activeWarranty?: { type: ActiveWarrantyKind; endDate?: string | null } | null;
 }
 
 function parseOptNum(v: string): number | null {
@@ -68,7 +79,7 @@ function parseOptNum(v: string): number | null {
   return v.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-export default function EmergencyResultModal({ isOpen, saving, error, onClose, onSubmit }: Props) {
+export default function EmergencyResultModal({ isOpen, saving, error, onClose, onSubmit, activeWarranty }: Props) {
   const [finalDecision, setFinalDecision] = useState<EmergencyFinalDecision | ''>('');
   const [closingNotes, setClosingNotes] = useState('');
 
@@ -93,6 +104,8 @@ export default function EmergencyResultModal({ isOpen, saving, error, onClose, o
   const [validationError, setValidationError] = useState('');
 
   if (!isOpen) return null;
+
+  const warrantyTheme = activeWarranty ? WARRANTY_THEME[activeWarranty.type] : null;
 
   const addPart = () => setParts((p) => [...p, { partNameSnapshot: '', quantity: 1, unitPrice: '' }]);
   const removePart = (i: number) => setParts((p) => p.filter((_, idx) => idx !== i));
@@ -157,9 +170,17 @@ export default function EmergencyResultModal({ isOpen, saving, error, onClose, o
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" dir="rtl">
       <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-6 py-4 shrink-0">
-          <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة زيارة الصيانة</h2>
+        {/* Header — colour-coded by active warranty (DEC-CT-17) */}
+        <div className={`flex items-center justify-between border-b px-6 py-4 shrink-0 ${warrantyTheme ? warrantyTheme.band : 'border-slate-100 bg-slate-50'}`}>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة زيارة الصيانة</h2>
+            {warrantyTheme && (
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold ${warrantyTheme.badge}`}>
+                {warrantyTheme.label}
+                {activeWarranty?.endDate ? ` · حتى ${activeWarranty.endDate}` : ''}
+              </span>
+            )}
+          </div>
           <button type="button" onClick={onClose} disabled={saving}
             className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-slate-600 transition-colors">
             <X className="h-5 w-5" />
@@ -298,6 +319,11 @@ export default function EmergencyResultModal({ isOpen, saving, error, onClose, o
             <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-700 select-none">
               التكاليف المالية (اختياري)
             </summary>
+            {warrantyTheme && (
+              <div className="mx-4 mt-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-xs text-slate-600">
+                الجهاز ضمن <span className="font-bold">{warrantyTheme.label}</span> — التكلفة معدومة افتراضيًا، ويمكنك إدخال قيمة لأي قطعة أو كلفة عند الحاجة (لا إقفال).
+              </div>
+            )}
             <div className="px-4 pb-4 pt-2 grid grid-cols-2 gap-3">
               {[
                 { label: 'تكلفة العمالة', value: laborCost, setter: setLaborCost },

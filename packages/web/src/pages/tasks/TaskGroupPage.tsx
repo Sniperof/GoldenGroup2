@@ -15,6 +15,8 @@ import {
 import { getExpectedDateStatus, getDueDateStatus } from '../../lib/taskDateStatus';
 import { getGeoUnits, type GeoUnit } from '../../lib/geoUnitsCache';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
+import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';
+import GoldenWarrantyCardDeliveryModal from '../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardDeliveryModal';
 
 // ============================================================
 // TaskGroupPage — Unified tasks list for all 6 display_groups.
@@ -96,7 +98,7 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   'warranty-services': {
     label: 'مهام خدمات الكفالة',
     subtitle: 'الكفالة الذهبية، إعادة تفعيل الكفالة, وإلغاؤها',
-    taskTypes: ['golden_warranty', 'warranty_reactivation', 'warranty_cancellation'],
+    taskTypes: ['golden_warranty', 'golden_warranty_offer', 'golden_warranty_card_delivery', 'warranty_reactivation', 'warranty_cancellation'],
     Icon: ShieldCheck,
     accentBg: 'bg-violet-500',
     accentRing: 'shadow-violet-500/20',
@@ -311,6 +313,10 @@ function getTaskTypeLabel(taskType: string): string {
       return 'تسليم هدية';
     case 'golden_warranty':
       return 'كفالة ذهبية';
+    case 'golden_warranty_offer':
+      return 'عرض كفالة ذهبية';
+    case 'golden_warranty_card_delivery':
+      return 'تسليم كرت كفالة ذهبية';
     case 'warranty_reactivation':
       return 'إعادة تفعيل كفالة';
     case 'warranty_cancellation':
@@ -368,6 +374,9 @@ export default function TaskGroupPage() {
   const [clientPopupId, setClientPopupId] = useState<number | null>(null);
   const [savingPriorityId, setSavingPriorityId] = useState<number | null>(null);
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+  // DEC-CT-17: golden-warranty tasks open their result modal in-place (no detail page).
+  const [offerTask, setOfferTask] = useState<any | null>(null);
+  const [cardTask, setCardTask] = useState<any | null>(null);
 
   useEffect(() => {
     getGeoUnits().then(setGeoUnits).catch(() => setGeoUnits([]));
@@ -455,6 +464,22 @@ export default function TaskGroupPage() {
   // All groups are now served by the backend group endpoint (migration 288).
   const notWiredYet = false;
   const geoMap = new Map(geoUnits.map((unit) => [unit.id, unit]));
+
+  // Golden-warranty rows open a modal in place; everything else navigates to its detail page.
+  const actionRow = (row: any) => {
+    if (row.taskType === 'golden_warranty_offer') { setOfferTask(row); return; }
+    if (row.taskType === 'golden_warranty_card_delivery') { setCardTask(row); return; }
+    navigate(`${(group === 'my-customers' ? (TASK_TYPE_DETAIL_HREF[row.taskType] ?? config.detailHref) : config.detailHref)}/${row.id}`);
+  };
+
+  // warranty-services renders two tables: offers/other vs VIP-card delivery (DEC-CT-17).
+  const tableGroups: Array<{ key: string; heading: string | null; rows: any[] }> =
+    group === 'warranty-services'
+      ? [
+          { key: 'offers', heading: 'مهام الكفالة (عرض · إعادة تفعيل · إلغاء)', rows: rows.filter((r) => r.taskType !== 'golden_warranty_card_delivery') },
+          { key: 'cards',  heading: 'تسليم كروت الكفالة الذهبية',              rows: rows.filter((r) => r.taskType === 'golden_warranty_card_delivery') },
+        ].filter((g) => g.rows.length > 0)
+      : [{ key: 'all', heading: null, rows }];
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
@@ -570,9 +595,12 @@ export default function TaskGroupPage() {
         </div>
       )}
 
-      {/* Table */}
-      {!loading && rows.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      {/* Table(s) — warranty-services splits offers vs card-delivery into two tables (DEC-CT-17) */}
+      {!loading && rows.length > 0 && tableGroups.map((g) => (
+        <div key={g.key} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          {g.heading && (
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">{g.heading}</div>
+          )}
           {/* Horizontal scroll: table expands to natural width so every row stays on one line. */}
           <div className="overflow-x-auto">
             <table className="text-sm min-w-max whitespace-nowrap">
@@ -599,14 +627,14 @@ export default function TaskGroupPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
+                {g.rows.map((row) => {
                   const mobile = getPrimaryMobile(row);
                   const name = getFullCustomerName(row);
                   const phase = (row.phase ?? getTaskPhase(row.taskStatus as OpenTaskStatus)) as keyof typeof OPEN_TASK_PHASE_LABELS;
                   const dateCounterReference = getDateCounterReference(row);
 
                   return (
-                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`${(group === 'my-customers' ? (TASK_TYPE_DETAIL_HREF[row.taskType] ?? config.detailHref) : config.detailHref)}/${row.id}`)}>
+                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => actionRow(row)}>
                       <td className="px-4 py-3 text-slate-700 font-mono text-xs">
                         #{row.id}
                       </td>
@@ -708,12 +736,32 @@ export default function TaskGroupPage() {
             </table>
           </div>
         </div>
-      )}
+      ))}
 
       {clientPopupId !== null && (
         <ClientCardPopup
           clientId={clientPopupId}
           onClose={() => setClientPopupId(null)}
+        />
+      )}
+
+      {offerTask && (
+        <GoldenWarrantyOfferModal
+          taskId={offerTask.id}
+          customerId={offerTask.clientId ?? offerTask.customerId ?? null}
+          deviceId={offerTask.deviceId ?? offerTask.installedDeviceId ?? null}
+          branchId={effectiveBranchId ?? null}
+          onClose={() => setOfferTask(null)}
+          onSaved={() => { setOfferTask(null); load(); }}
+        />
+      )}
+
+      {cardTask && (
+        <GoldenWarrantyCardDeliveryModal
+          taskId={cardTask.id}
+          deviceId={cardTask.deviceId ?? cardTask.installedDeviceId ?? null}
+          onClose={() => setCardTask(null)}
+          onSaved={() => { setCardTask(null); load(); }}
         />
       )}
     </div>

@@ -26,7 +26,6 @@ interface AppointmentSchedulerModalProps {
     onClose: () => void;
     customerName: string;
     defaultDate: string;
-    initialDate?: string;
     defaultTime?: string;
     /** All open tasks belonging to this customer in the current task list */
     customerOpenTasks: CustomerOpenTask[];
@@ -53,34 +52,39 @@ function getTomorrow(): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function getToday(): string {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+const getHourlyVisitSlots = () => Array.from({ length: 24 }, (_, index) => {
+    const hour = (9 + index) % 24;
+    return `${String(hour).padStart(2, '0')}:00`;
+});
+
+const normalizeTimeSlot = (value: string | null | undefined) => String(value || '').slice(0, 5);
+const normalizeHourlySlot = (value: string | null | undefined) => {
+    const normalized = normalizeTimeSlot(value);
+    return getHourlyVisitSlots().includes(normalized) ? normalized : '09:00';
+};
 
 export default function AppointmentSchedulerModal({
     isOpen,
     onClose,
     customerName,
     defaultDate,
-    initialDate,
     defaultTime,
     customerOpenTasks,
     entityDetails,
     onSave,
 }: AppointmentSchedulerModalProps) {
-    const [visitDate, setVisitDate] = useState(getToday());
-    const [visitTime, setVisitTime] = useState('');
+    const [visitDate, setVisitDate] = useState(defaultDate || getTomorrow());
+    const [visitTime, setVisitTime] = useState('09:00');
     const [waterSource, setWaterSource] = useState('');
     const [technicianNotes, setTechnicianNotes] = useState('');
     const [saving, setSaving] = useState(false);
     const [waterSourceOptions, setWaterSourceOptions] = useState<string[]>([]);
 
-    // Reset fields when opening — default date is today.
+    // Reset fields when opening. The page owns the scheduling date.
     useEffect(() => {
         if (isOpen) {
-            setVisitDate(initialDate || getToday());
-            setVisitTime(defaultTime || '');
+            setVisitDate(defaultDate || getTomorrow());
+            setVisitTime(normalizeHourlySlot(defaultTime));
             setWaterSource(entityDetails?.waterSource || '');
             setTechnicianNotes('');
 
@@ -100,7 +104,7 @@ export default function AppointmentSchedulerModal({
                 active = false;
             };
         }
-    }, [isOpen, entityDetails, customerOpenTasks, initialDate, defaultTime]);
+    }, [isOpen, entityDetails, customerOpenTasks, defaultDate, defaultTime]);
 
     if (!isOpen) return null;
 
@@ -165,35 +169,21 @@ export default function AppointmentSchedulerModal({
                 {/* Body */}
                 <div className="p-5 overflow-y-auto flex-1 space-y-5 custom-scrollbar">
 
-                    {/* Visit Date + Time — side by side */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                                <Calendar className="w-4 h-4 text-emerald-500" />تاريخ الزيارة <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="date"
-                                value={visitDate}
-                                onChange={e => setVisitDate(e.target.value)}
-                                min={getToday()}
-                                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
-                                dir="ltr"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                                <Clock className="w-4 h-4 text-emerald-500" />وقت الزيارة <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="time"
-                                value={visitTime}
-                                onChange={e => setVisitTime(e.target.value)}
-                                min="08:00"
-                                max="18:00"
-                                className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
-                                dir="ltr"
-                            />
-                        </div>
+                    {/* Visit time. The scheduling date is locked by the workspace. */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                            <Clock className="w-4 h-4 text-emerald-500" />وقت الزيارة <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                            value={visitTime}
+                            onChange={e => setVisitTime(e.target.value)}
+                            className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                            dir="ltr"
+                        >
+                            {getHourlyVisitSlots().map(slot => (
+                                <option key={slot} value={slot}>{slot}</option>
+                            ))}
+                        </select>
                     </div>
 
                     <div className="space-y-2">

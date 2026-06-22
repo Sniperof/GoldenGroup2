@@ -12,11 +12,13 @@ function simpleUUID() {
     });
 }
 
+const normalizeTimeSlot = (value: string | null | undefined) => String(value || '').slice(0, 5);
+
 interface TelemarketingStore {
     taskLists: TaskList[];
     appointments: Appointment[];
     callLogs: CallLog[];
-    loadData: (date?: string) => Promise<void>;
+    loadData: (date?: string, appointmentDate?: string) => Promise<void>;
     addCallLog: (log: Omit<CallLog, 'id' | 'timestamp'>) => Promise<void>;
     addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries?: SelectedTaskEntry[]) => Promise<void>;
     addDirectAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries: SelectedTaskEntry[]) => Promise<void>;
@@ -32,12 +34,16 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
     appointments: [],
     callLogs: [],
 
-    loadData: async (date?: string) => {
+    loadData: async (date?: string, appointmentDate?: string) => {
         try {
             const snapshot = await api.telemarketing.snapshot(date);
+            const appointmentSnapshot =
+                appointmentDate && appointmentDate !== date
+                    ? await api.telemarketing.snapshot(appointmentDate)
+                    : snapshot;
             set({
                 taskLists: snapshot.taskLists,
-                appointments: snapshot.appointments,
+                appointments: appointmentSnapshot.appointments,
                 callLogs: snapshot.callLogs,
             });
         } catch (error) {
@@ -62,7 +68,7 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
             (appointment) =>
                 appointment.teamKey === appointmentInput.teamKey &&
                 appointment.date === appointmentInput.date &&
-                appointment.timeSlot === appointmentInput.timeSlot,
+                normalizeTimeSlot(appointment.timeSlot) === normalizeTimeSlot(appointmentInput.timeSlot),
         );
 
         if (isBooked) {
@@ -123,7 +129,7 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
             (appointment) =>
                 appointment.teamKey === appointmentInput.teamKey &&
                 appointment.date === appointmentInput.date &&
-                appointment.timeSlot === appointmentInput.timeSlot,
+                normalizeTimeSlot(appointment.timeSlot) === normalizeTimeSlot(appointmentInput.timeSlot),
         );
 
         if (isBooked) {
@@ -198,7 +204,7 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
         new Set(
             get().appointments
                 .filter((appointment) => appointment.teamKey === teamKey && appointment.date === date)
-                .map((appointment) => appointment.timeSlot),
+                .map((appointment) => normalizeTimeSlot(appointment.timeSlot)),
         ),
 
     getCallHistory: (entityType, entityId) =>

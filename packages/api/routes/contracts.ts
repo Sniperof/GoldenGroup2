@@ -7,6 +7,7 @@ import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
 import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
+import { persistOpenTaskSnapshots } from './openTasks.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -264,7 +265,7 @@ async function syncContractWarrantySnapshot(
     `INSERT INTO device_warranties
       (device_id, warranty_type, start_date, end_date, months, visits, status, activated_at)
      VALUES ($1, 'contract', $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (device_id, warranty_type) DO UPDATE SET
+     ON CONFLICT (device_id) WHERE warranty_type = 'contract' DO UPDATE SET
        months = EXCLUDED.months,
        visits = EXCLUDED.visits,
        start_date = CASE
@@ -1737,14 +1738,19 @@ async function createDeliveryTaskForContract(db: any, contract: any) {
   // Device branch is authoritative once materialized; otherwise fall back to the
   // contract's planned service branch, then the sale branch.
   const deliveryBranchId = devIdRows[0]?.branchId ?? contract.serviceBranchId ?? contract.branchId;
-  await db.query(
+  const { rows: insertedRows } = await db.query(
     `INSERT INTO open_tasks (
        client_id, branch_id, task_type, task_family, reason, status, due_date,
        source, origin, contract_id, device_id, delivery_address, creation_origin
      ) VALUES ($1, $2, 'device_delivery', 'delivery', 'sale_delivery', 'open', $3,
-               'system', 'system_trigger', $4, $5, $6, 'system_trigger')`,
+               'system', 'system_trigger', $4, $5, $6, 'system_trigger')
+     RETURNING id`,
     [contract.customerId, deliveryBranchId, dueDate, contract.id, deliveryDeviceId, devIdRows[0]?.installationAddressText ?? null],
   );
+  // Freeze the client/contract/device snapshots at creation so the task's
+  // "العقد والجهاز" tab is populated. Constitution:
+  // docs/constitution/components/{contract,device}-snapshot.md §7/§5.2.
+  await persistOpenTaskSnapshots(db, insertedRows[0].id, contract.customerId, contract.id, deliveryDeviceId);
 }
 
 function toNullableNumber(value: unknown): number | null {

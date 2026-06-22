@@ -15,8 +15,9 @@ const isLockedSlot = (slot: any): boolean => Boolean(slot) && slot.locked === tr
 // Local calendar date (NOT UTC). toISOString() returns the UTC date, which is a day
 // behind between local midnight and the UTC offset (01:00 in Damascus +03 is still
 // "yesterday" in UTC) — that off-by-one showed 14/6 instead of 15/6.
-const getToday = () => {
+const getPlanningDate = () => {
   const d = new Date();
+  d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
@@ -34,7 +35,7 @@ const teamSlotTypeLabels: Record<string, string> = {
 export default function TeamScheduler() {
     const navigate = useNavigate();
     const [current, setCurrent] = useState<DaySchedule>({ teams: [], solos: [] });
-    const [date, setDate] = useState(getToday);
+    const [date, setDate] = useState(getPlanningDate);
     const [selectedSlot, setSelectedSlot] = useState<{ type: SlotType; slotIdx: number; role: SlotRole } | null>(null);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [loading, setLoading] = useState(true);

@@ -73,7 +73,7 @@ const TASK_GROUP_CONFIG: Record<string, { taskTypes: string[]; emptyLabel: strin
     permission: 'tasks.gifts.view',
   },
   'warranty-services': {
-    taskTypes: ['golden_warranty', 'warranty_cancellation', 'warranty_reactivation'],
+    taskTypes: ['golden_warranty', 'golden_warranty_offer', 'golden_warranty_card_delivery', 'warranty_cancellation', 'warranty_reactivation'],
     emptyLabel: 'مهام خدمات الكفالة',
     permission: 'tasks.warranty.view',
   },
@@ -372,7 +372,9 @@ export async function buildDeviceSnapshot(db: Queryable, installedDeviceId: numb
     `SELECT
       d.id, d.contract_id, c.contract_number, c.customer_name,
       d.customer_id, d.branch_id, b.name AS branch_name,
-      d.device_model_id, d.device_model_name, d.serial_number,
+      d.device_model_id,
+      COALESCE(NULLIF(d.device_model_name, ''), dm.name_ar, dm.name) AS device_model_name,
+      d.serial_number,
       d.status, d.delivery_date, d.installation_date, d.activated_at,
       d.installation_geo_unit_id, gu.name AS installation_geo_unit_name,
       d.installation_address_text, d.installation_lat, d.installation_lng,
@@ -382,6 +384,7 @@ export async function buildDeviceSnapshot(db: Queryable, installedDeviceId: numb
      LEFT JOIN contracts c   ON c.id  = d.contract_id
      LEFT JOIN branches  b   ON b.id  = d.branch_id
      LEFT JOIN geo_units gu  ON gu.id = d.installation_geo_unit_id
+     LEFT JOIN device_models dm ON dm.id = d.device_model_id
      WHERE d.id = $1`,
     [installedDeviceId],
   );
@@ -524,60 +527,127 @@ export async function buildOpenTaskSnapshots(db: Queryable, clientId: number, co
     clientType: clientRow.is_candidate ? 'Candidate' : 'Client',
   };
 
-  let contractSnapshot = null;
-  if (contractId) {
-    const { rows: contractRows } = await db.query(
-      `SELECT
-        c.id, c.contract_number, c.contract_date,
-        c.device_model_id, c.device_model_name, c.maintenance_plan,
-        c.payment_type, c.final_price, c.down_payment, c.installments_count,
-        c.status,
-        d.serial_number, d.warranty_months, d.warranty_visits,
-        d.installation_geo_unit_id, d.installation_address_text,
-        d.installation_lat, d.installation_lng,
-        gu.name AS installation_geo_unit_name
-       FROM contracts c
-       LEFT JOIN installed_devices d ON d.contract_id = c.id
-       LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
-       WHERE c.id = $1`,
-      [contractId],
-    );
-
-    if (contractRows[0]) {
-      const cr = contractRows[0];
-      contractSnapshot = {
-        contractId: cr.id,
-        contractNumber: cr.contract_number ?? '',
-        contractDate: cr.contract_date ?? '',
-        device: {
-          modelId: cr.device_model_id ?? null,
-          modelName: cr.device_model_name ?? '',
-          serialNumber: cr.serial_number ?? '',
-          maintenancePlan: cr.maintenance_plan ?? '',
-          warrantyMonths: cr.warranty_months ? Number(cr.warranty_months) : null,
-          warrantyVisits: cr.warranty_visits ? Number(cr.warranty_visits) : null,
-        },
-        installationAddress: {
-          geoUnitId: cr.installation_geo_unit_id ?? null,
-          geoUnitName: cr.installation_geo_unit_name ?? null,
-          addressText: cr.installation_address_text ?? null,
-          lat: cr.installation_lat ? Number(cr.installation_lat) : null,
-          lng: cr.installation_lng ? Number(cr.installation_lng) : null,
-        },
-        financials: {
-          paymentType: cr.payment_type ?? '',
-          finalPrice: Number(cr.final_price) || 0,
-          downPayment: Number(cr.down_payment) || 0,
-          installmentsCount: cr.installments_count || 0,
-          currency: 'SYP',
-        },
-        status: cr.status ?? '',
-      };
-    }
-  }
+  const contractSnapshot = await buildContractSnapshotForTask(db, contractId);
 
   const deviceSnapshot = await buildDeviceSnapshot(db, installedDeviceId ?? null);
   return { clientSnapshot, contractSnapshot, deviceSnapshot };
+}
+
+/**
+ * Standard ContractSnapshot for a task, per
+ * docs/constitution/components/contract-snapshot.md §4.2.
+ * Superset shape: the spec's parties/commercial/deviceRef/policy + the legacy
+ * device/installationAddress/financials blocks that DeliveryInfoTab still reads.
+ */
+export async function buildContractSnapshotForTask(db: Queryable, contractId?: number | null) {
+  if (!contractId) return null;
+  const { rows } = await db.query(
+    `SELECT
+       c.id, c.contract_number, c.contract_date, c.status,
+       c.contract_type, c.sale_subtype,
+       c.customer_id, c.customer_name,
+       c.branch_id, c.closing_employee_id, c.sale_owner_id,
+       c.sale_type, c.sale_source, c.source_open_task_id,
+       c.source_task_offer_id, c.sale_reference_number,
+       c.device_model_id,
+       COALESCE(NULLIF(c.device_model_name, ''), dm.name_ar, dm.name) AS device_model_name,
+       c.maintenance_plan,
+       c.payment_type, c.base_price, c.final_price, c.down_payment, c.installments_count,
+       d.id AS installed_device_id, d.serial_number, d.warranty_months, d.warranty_visits,
+       d.installation_geo_unit_id, d.installation_address_text,
+       d.installation_lat, d.installation_lng,
+       gu.name AS installation_geo_unit_name,
+       b.name  AS branch_name,
+       closer.name AS closing_employee_name,
+       owner.name  AS sale_owner_name
+     FROM contracts c
+     LEFT JOIN installed_devices d ON d.contract_id = c.id
+     LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
+     LEFT JOIN branches  b  ON b.id  = c.branch_id
+     LEFT JOIN hr_users  closer ON closer.id = c.closing_employee_id
+     LEFT JOIN employees owner  ON owner.id  = c.sale_owner_id
+     LEFT JOIN device_models dm ON dm.id = c.device_model_id
+     WHERE c.id = $1`,
+    [contractId],
+  );
+  const cr = rows[0];
+  if (!cr) return null;
+
+  const saleSubtype = cr.sale_subtype ?? null;
+  const isFree = saleSubtype === 'free';
+
+  return {
+    // identity
+    contractId: cr.id,
+    id: cr.id,
+    contractNumber: cr.contract_number ?? '',
+    contractDate: cr.contract_date ?? '',
+    status: cr.status ?? '',
+    contractType: cr.contract_type ?? 'sale_contract',
+    saleSubtype,
+
+    parties: {
+      customerId: cr.customer_id ?? null,
+      customerName: cr.customer_name ?? null,
+      branchId: cr.branch_id ?? null,
+      branchName: cr.branch_name ?? null,
+      closingEmployeeId: cr.closing_employee_id ?? null,
+      closingEmployeeName: cr.closing_employee_name ?? null,
+      saleOwnerId: cr.sale_owner_id ?? null,
+      saleOwnerName: cr.sale_owner_name ?? null,
+    },
+
+    commercial: {
+      saleType: cr.sale_type ?? null,
+      saleSource: cr.sale_source ?? null,
+      sourceOpenTaskId: cr.source_open_task_id ?? null,
+      sourceTaskOfferId: cr.source_task_offer_id ?? null,
+      saleReferenceNumber: cr.sale_reference_number ?? null,
+    },
+
+    deviceRef: {
+      installedDeviceId: cr.installed_device_id ?? null,
+      deviceModelId: cr.device_model_id ?? null,
+      deviceModelName: cr.device_model_name ?? null,
+      serialNumber: cr.serial_number ?? null,
+    },
+
+    // Legacy device/address blocks — kept for DeliveryInfoTab.
+    device: {
+      modelId: cr.device_model_id ?? null,
+      modelName: cr.device_model_name ?? '',
+      serialNumber: cr.serial_number ?? '',
+      maintenancePlan: cr.maintenance_plan ?? '',
+      warrantyMonths: cr.warranty_months ? Number(cr.warranty_months) : null,
+      warrantyVisits: cr.warranty_visits ? Number(cr.warranty_visits) : null,
+    },
+    installationAddress: {
+      geoUnitId: cr.installation_geo_unit_id ?? null,
+      geoUnitName: cr.installation_geo_unit_name ?? null,
+      addressText: cr.installation_address_text ?? null,
+      lat: cr.installation_lat ? Number(cr.installation_lat) : null,
+      lng: cr.installation_lng ? Number(cr.installation_lng) : null,
+    },
+
+    financials: {
+      paymentType: cr.payment_type ?? '',
+      basePrice: Number(cr.base_price) || 0,
+      finalPrice: Number(cr.final_price) || 0,
+      downPayment: Number(cr.down_payment) || 0,
+      installmentsCount: cr.installments_count || 0,
+      currency: 'SYP',
+      noFinancialObligations: isFree,
+    },
+
+    policy: {
+      isDefinitive: saleSubtype === 'definitive',
+      isTemporary: saleSubtype === 'temporary',
+      isFree,
+      requiresFinancialTracking: !isFree,
+      createsDevice: true,
+      createsDeliveryTask: true,
+    },
+  };
 }
 
 export async function persistOpenTaskSnapshots(db: Queryable, openTaskId: number, clientId: number, contractId?: number | null, installedDeviceId?: number | null) {
@@ -2143,6 +2213,36 @@ router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
     }
 
     const taskData = mapOpenTaskRow(row);
+
+    // Defensive live-rebuild: if a task is linked to a contract/device but its
+    // frozen snapshot is missing (e.g. created by a path that forgot to persist
+    // it), build it on read so the "العقد والجهاز" tab is never silently empty.
+    // persistOpenTaskSnapshots auto-resolves the contract from the device and
+    // stamps open_tasks.contract_id — so a task that has only device_id still
+    // gets a full contract snapshot (and its financials). We then read the
+    // freshly persisted values back for the response.
+    const needsContractSnap = !taskData.contractSnapshot && (taskData.contractId || taskData.deviceId);
+    const needsDeviceSnap = !taskData.deviceSnapshot && taskData.deviceId;
+    if (needsContractSnap || needsDeviceSnap) {
+      try {
+        await persistOpenTaskSnapshots(pool, taskData.id, taskData.clientId, taskData.contractId, taskData.deviceId);
+        const { rows: fresh } = await pool.query(
+          `SELECT contract_snapshot AS "contractSnapshot",
+                  device_snapshot   AS "deviceSnapshot",
+                  contract_id       AS "contractId"
+             FROM open_tasks WHERE id = $1`,
+          [taskData.id],
+        );
+        if (fresh[0]) {
+          taskData.contractSnapshot = fresh[0].contractSnapshot ?? taskData.contractSnapshot;
+          taskData.deviceSnapshot = fresh[0].deviceSnapshot ?? taskData.deviceSnapshot;
+          taskData.contractId = fresh[0].contractId ?? taskData.contractId;
+        }
+      } catch (persistErr: any) {
+        console.warn('[open-tasks] snapshot backfill-on-read skipped for', taskData.id, ':', persistErr?.message);
+      }
+    }
+
     const ts = taskData.teamSnapshot;
     if (ts && typeof ts === 'object' && (ts.supervisorEmployeeId !== undefined || ts.technicianEmployeeId !== undefined)) {
       const idList = [ts.supervisorEmployeeId, ts.technicianEmployeeId, ts.traineeEmployeeId]

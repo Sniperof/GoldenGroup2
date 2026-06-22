@@ -17,6 +17,14 @@ const PHASES = [
 
 type PhaseKey = typeof PHASES[number]['key'];
 
+// DEC-CT-17: colour the maintenance flow by the device's ACTIVE warranty —
+// blue=contract, gold=golden. Informational only; never locks costs (DEC-CT-16 §3).
+type WarrantyKind = 'contract' | 'golden';
+const WARRANTY_THEME: Record<WarrantyKind, { banner: string; label: string }> = {
+  contract: { banner: 'border-sky-300 bg-sky-50 text-sky-800',     label: 'كفالة عقد' },
+  golden:   { banner: 'border-amber-300 bg-amber-50 text-amber-800', label: 'كفالة ذهبية' },
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -34,6 +42,7 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
   const [result, setResult]       = useState<any>(null);
   const [loading, setLoading]     = useState(true);
   const [activePhase, setActive]  = useState<PhaseKey>('preState');
+  const [activeWarranty, setActiveWarranty] = useState<{ type: WarrantyKind; endDate?: string | null } | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -44,6 +53,19 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
         const first = PHASES.find(p => !r.completedPhases[p.key]);
         if (first) setActive(first.key);
         else setActive('costs'); // all done, show costs
+
+        // Resolve the device's active warranty to colour the flow (DEC-CT-17).
+        const deviceId = r?.taskMeta?.installedDeviceId;
+        if (deviceId) {
+          api.deviceWarranties.list(Number(deviceId))
+            .then((ws: any[]) => {
+              const active = Array.isArray(ws) ? ws.find(w => w.status === 'active') : null;
+              setActiveWarranty(active ? { type: active.warrantyType, endDate: active.endDate } : null);
+            })
+            .catch(() => setActiveWarranty(null));
+        } else {
+          setActiveWarranty(null);
+        }
       })
       .catch(() => setResult(null))
       .finally(() => setLoading(false));
@@ -60,8 +82,21 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
   const completed = result?.completedPhases ?? {};
   const phases    = result?.phases ?? {};
 
+  const warrantyTheme = activeWarranty ? WARRANTY_THEME[activeWarranty.type] : null;
+
   return (
     <div className="space-y-5">
+      {/* Active-warranty banner — colour-coded coverage (DEC-CT-17) */}
+      {warrantyTheme && (
+        <div className={`rounded-xl border px-4 py-2.5 text-sm font-bold flex items-center justify-between ${warrantyTheme.banner}`}>
+          <span>
+            الجهاز ضمن {warrantyTheme.label}
+            {activeWarranty?.endDate ? ` · حتى ${activeWarranty.endDate}` : ''}
+          </span>
+          <span className="text-xs font-normal">التكلفة معدومة افتراضيًا — يمكن إدخال قيمة عند الحاجة (لا إقفال)</span>
+        </div>
+      )}
+
       {/* Progress strip */}
       <div className="flex items-center gap-0">
         {PHASES.map((p, i) => {

@@ -322,6 +322,11 @@ export const api = {
   deviceWarranties: {
     list: (deviceId: number) => request<any[]>(`/device-warranties?deviceId=${deviceId}`),
     update: (id: number, data: any) => request<any>(`/device-warranties/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    // DEC-CT-17 golden-warranty flows
+    offerResult: (data: any) => request<any>(`/device-warranties/golden/offer-result`, { method: 'POST', body: JSON.stringify(data) }),
+    cardDelivery: (warrantyId: number, data: any) => request<any>(`/device-warranties/golden/${warrantyId}/card-delivery`, { method: 'POST', body: JSON.stringify(data) }),
+    payments: (warrantyId: number) => request<any>(`/device-warranties/${warrantyId}/payments`),
+    addPayment: (warrantyId: number, data: any) => request<any>(`/device-warranties/${warrantyId}/payments`, { method: 'POST', body: JSON.stringify(data) }),
   },
   installedDevices: {
     list: (params?: { customerId?: number; branchId?: number; status?: string }) => {

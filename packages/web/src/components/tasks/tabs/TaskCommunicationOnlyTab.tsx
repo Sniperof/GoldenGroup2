@@ -33,16 +33,39 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
 };
 
 export interface TaskCommunicationOnlyTabProps {
+  task: any;
   calls: any[];
   activity: any[];
   onSubmitNote: (text: string) => Promise<void>;
 }
 
-export default function TaskCommunicationOnlyTab({ calls, activity, onSubmitNote }: TaskCommunicationOnlyTabProps) {
+export default function TaskCommunicationOnlyTab({ task, calls, activity, onSubmitNote }: TaskCommunicationOnlyTabProps) {
   const [noteText, setNoteText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const notes = activity.filter((a) => a.eventType === 'note_added');
+
+  // The task's own `notes` field is the creator's opening note — treat it as the
+  // first note in the thread, attributed to whoever created the task.
+  const creatorNote = task?.notes
+    ? {
+        id: 'creator-note',
+        author: task.createdByName || 'منشئ المهمة',
+        createdAt: task.createdAt,
+        text: task.notes,
+        isCreator: true,
+      }
+    : null;
+  const activityNotes = activity
+    .filter((a) => a.eventType === 'note_added')
+    .map((a) => ({
+      id: a.id,
+      author: a.performedByName || 'مستخدم',
+      createdAt: a.createdAt,
+      text: a.newValue,
+      isCreator: false,
+    }));
+  const notes = [...(creatorNote ? [creatorNote] : []), ...activityNotes];
+
   const issues: string[] = [];
   if (calls.length === 0) issues.push('لا توجد مكالمات تيلماركتر');
   if (activity.length === 0) issues.push('لا يوجد سجل نشاط بعد');
@@ -193,6 +216,29 @@ export default function TaskCommunicationOnlyTab({ calls, activity, onSubmitNote
 
       <Card title="الملاحظات" icon={MessageSquare}>
         <div className="space-y-4">
+          {notes.length > 0 ? (
+            <div className="space-y-2.5">
+              {notes.map((n) => (
+                <div
+                  key={n.id}
+                  className={`rounded-xl border p-3 ${n.isCreator ? 'border-indigo-200 bg-indigo-50/50' : 'border-slate-100 bg-slate-50'}`}
+                >
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <span className="text-xs font-bold text-slate-700">{n.author}</span>
+                    {n.isCreator && (
+                      <span className="text-[10px] font-bold text-indigo-600 bg-white border border-indigo-200 px-1.5 py-0.5 rounded">
+                        منشئ المهمة · أول ملاحظة
+                      </span>
+                    )}
+                    {n.createdAt && <span className="text-[10px] text-slate-400">{formatDateTime(n.createdAt)}</span>}
+                  </div>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{n.text}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={MessageSquare} title="لا توجد ملاحظات بعد" description="ستظهر هنا ملاحظة منشئ المهمة وأي ملاحظات متابعة لاحقة." />
+          )}
           {error && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">{error}</div>}
           <textarea
             value={noteText}
