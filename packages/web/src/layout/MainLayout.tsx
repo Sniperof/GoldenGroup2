@@ -20,6 +20,8 @@ import {
     Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug,
 } from 'lucide-react';
 
+const APP_VERSION_LABEL = '4.0v';
+
 const navItems = [
     { path: '/', label: 'نظرة عامة', icon: LayoutDashboard },
 ];
@@ -196,7 +198,10 @@ export default function MainLayout() {
             <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 z-30">
                 <div dir="ltr" className="flex items-center gap-3">
                     <img src={logoMark} alt="Golden Group" className="w-8 h-8 object-contain" />
-                    <span className="text-lg font-bold text-slate-800">Golden Group</span>
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-lg font-bold text-slate-800">Golden Group</span>
+                        <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700 border border-sky-100">{APP_VERSION_LABEL}</span>
+                    </div>
                 </div>
                 <button
                     onClick={toggleSidebar}
@@ -234,7 +239,10 @@ export default function MainLayout() {
                             title={isCollapsed ? 'توسيع القائمة' : undefined}
                             className={`w-8 h-8 object-contain shrink-0 ${isCollapsed ? 'lg:cursor-pointer' : ''}`}
                         />
-                        <span className={`text-lg font-bold text-slate-800 tracking-wide ${isCollapsed ? 'lg:hidden' : ''}`}>Golden Group</span>
+                        <div className={`flex items-baseline gap-2 ${isCollapsed ? 'lg:hidden' : ''}`}>
+                            <span className="text-lg font-bold text-slate-800 tracking-wide">Golden Group</span>
+                            <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700 border border-sky-100">{APP_VERSION_LABEL}</span>
+                        </div>
                     </div>
                     {/* Desktop Collapse Toggle — only when expanded; collapsed expands via logo click */}
                     <button
