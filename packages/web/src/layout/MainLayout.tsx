@@ -224,10 +224,10 @@ export default function MainLayout() {
                 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}
             `}>
                 {/* Logo & Toggle Header */}
-                <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-                    <div className={`flex items-center gap-3 ${isCollapsed ? 'lg:hidden' : 'flex'} ${isMobileMenuOpen ? 'flex' : ''}`}>
-                        <img src={logoMark} alt="Golden Group" className="w-8 h-8 object-contain" />
-                        <span className="text-lg font-bold text-slate-800 tracking-wide">Golden Group</span>
+                <div className={`border-b border-slate-100 flex items-center justify-between ${isCollapsed ? 'p-5 lg:flex-col lg:justify-center lg:gap-2 lg:p-3' : 'p-5'}`}>
+                    <div className={`flex items-center gap-3 ${isMobileMenuOpen ? 'flex' : ''}`}>
+                        <img src={logoMark} alt="Golden Group" className="w-8 h-8 object-contain shrink-0" />
+                        <span className={`text-lg font-bold text-slate-800 tracking-wide ${isCollapsed ? 'lg:hidden' : ''}`}>Golden Group</span>
                     </div>
                     {/* Desktop Collapse Toggle */}
                     <button
