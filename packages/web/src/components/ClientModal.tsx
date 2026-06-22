@@ -973,20 +973,17 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
                                                 {/* Row 1: Type + Number + Duplicate badge + Remove */}
                                                 <div className="flex items-center gap-2">
-                                                    <select
+                                                    <Select
                                                         value={c.type}
-                                                        onChange={e => !isLocked && updateContact(c.id, 'type', e.target.value as ContactType)}
+                                                        onChange={v => !isLocked && updateContact(c.id, 'type', v as ContactType)}
                                                         disabled={isLocked}
-                                                        className={`border rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[100px] ${
-                                                            isLocked
-                                                                ? lockSource === 'smart' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed' : 'bg-amber-50/40 border-amber-200 text-amber-700 cursor-not-allowed'
-                                                                : 'bg-white border-slate-200'
-                                                        }`}
-                                                    >
-                                                        {Object.entries(contactTypeConfig).map(([key, cfg]) => (
-                                                            <option key={key} value={key}>{cfg.emoji} {cfg.label}</option>
-                                                        ))}
-                                                    </select>
+                                                        size="sm"
+                                                        className="min-w-[110px]"
+                                                        options={Object.entries(contactTypeConfig).map(([key, cfg]) => ({
+                                                            value: key as ContactType,
+                                                            label: `${cfg.emoji} ${cfg.label}`,
+                                                        }))}
+                                                    />
 
                                                     {c.type === 'mobile' && (
                                                         <span className="bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">+963</span>
@@ -1077,15 +1074,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none"
                                                     />
 
-                                                    <select
+                                                    <Select
                                                         value={c.status}
-                                                        onChange={e => updateContact(c.id, 'status', e.target.value as ContactStatus)}
-                                                        className={`border rounded-lg px-2 py-1.5 text-xs font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[c.status]?.style || contactStatusConfig.active.style}`}
-                                                    >
-                                                        {Object.entries(contactStatusConfig).map(([key, cfg]) => (
-                                                            <option key={key} value={key}>{cfg.label}</option>
-                                                        ))}
-                                                    </select>
+                                                        onChange={v => updateContact(c.id, 'status', v as ContactStatus)}
+                                                        size="sm"
+                                                        className="min-w-[110px]"
+                                                        options={Object.entries(contactStatusConfig).map(([key, cfg]) => ({
+                                                            value: key as ContactStatus,
+                                                            label: cfg.label,
+                                                        }))}
+                                                    />
 
                                                     <button
                                                         type="button"

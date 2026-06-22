@@ -175,16 +175,12 @@ export default function AppointmentSchedulerModal({
                         <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                             <Clock className="w-4 h-4 text-emerald-500" />وقت الزيارة <span className="text-red-500">*</span>
                         </label>
-                        <select
+                        <Select
                             value={visitTime}
-                            onChange={e => setVisitTime(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
-                            dir="ltr"
-                        >
-                            {getHourlyVisitSlots().map(slot => (
-                                <option key={slot} value={slot}>{slot}</option>
-                            ))}
-                        </select>
+                            onChange={setVisitTime}
+                            className="w-full"
+                            options={getHourlyVisitSlots().map(slot => ({ value: slot, label: slot }))}
+                        />
                     </div>
 
                     <div className="space-y-2">

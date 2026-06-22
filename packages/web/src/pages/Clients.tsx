@@ -476,7 +476,6 @@ export default function Clients() {
                             value={filterClass}
                             onChange={setFilterClass}
                             ariaLabel="التصنيف"
-                            variant="filled"
                             options={[
                                 { value: 'all', label: 'كل التصنيفات' },
                                 { value: 'Lead', label: 'Lead - مرشح' },
@@ -489,7 +488,6 @@ export default function Clients() {
                             value={filterMediator}
                             onChange={setFilterMediator}
                             ariaLabel="نوع الوسيط"
-                            variant="filled"
                             options={[
                                 { value: 'all', label: 'كل أنواع الوسيط' },
                                 { value: 'Personal', label: 'شخصي' },
@@ -502,7 +500,6 @@ export default function Clients() {
                             value={filterArea}
                             onChange={setFilterArea}
                             ariaLabel="المحافظة"
-                            variant="filled"
                             options={[{ value: 'all', label: 'كل المحافظات' }, ...geoUnits.filter(g => g.level === 1).map(g => ({ value: String(g.id), label: g.name }))]}
                         />
 

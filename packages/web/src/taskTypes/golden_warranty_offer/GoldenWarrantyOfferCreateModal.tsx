@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Award, Loader2, X } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../../components/ui/Select';
 
 interface DevicePick { id: number; label: string; hasActiveGolden: boolean; selected: boolean; }
 
@@ -101,11 +102,24 @@ export default function GoldenWarrantyOfferCreateModal({
             <label className="space-y-1.5 block"><span className="text-xs font-bold text-slate-500">التاريخ المطلوب *</span>
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
             <label className="space-y-1.5 block"><span className="text-xs font-bold text-slate-500">الأولوية</span>
-              <select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                <option value="high">عالية</option><option value="medium">متوسطة</option><option value="low">منخفضة</option></select></label>
+              <Select
+                value={priority}
+                onChange={setPriority}
+                className="w-full"
+                options={[
+                  { value: 'high', label: 'عالية' },
+                  { value: 'medium', label: 'متوسطة' },
+                  { value: 'low', label: 'منخفضة' },
+                ]}
+              /></label>
             <label className="space-y-1.5 block col-span-2"><span className="text-xs font-bold text-slate-500">سبب الإنشاء</span>
-              <select value={reason} onChange={(e) => setReason(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                <option value="">— اختر —</option>{reasons.map((r: any) => <option key={r.id} value={r.value}>{r.value}</option>)}</select></label>
+              <Select
+                value={reason}
+                onChange={setReason}
+                className="w-full"
+                placeholder="— اختر —"
+                options={reasons.map((r: any) => ({ value: r.value, label: r.value }))}
+              /></label>
             <label className="space-y-1.5 block col-span-2"><span className="text-xs font-bold text-slate-500">ملاحظات</span>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
           </div>

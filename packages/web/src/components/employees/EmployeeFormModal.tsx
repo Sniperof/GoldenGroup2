@@ -1392,7 +1392,6 @@ export default function EmployeeFormModal({
               onChange={handleReferralTypeChange}
               placeholder="بدون تحديد"
               ariaLabel="نوع الوسيط"
-              variant="filled"
               className="w-full"
               options={REFERRER_TYPE_OPTIONS.map(item => ({ value: item.value, label: item.label }))}
             />

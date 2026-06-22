@@ -406,7 +406,6 @@ export default function GeoSettings() {
                                             onChange={(v) => { setModalGov(v); setModalRegion(''); setModalSubDistrict(''); }}
                                             placeholder="اختر المحافظة..."
                                             ariaLabel="المحافظة"
-                                            variant="filled"
                                             className="w-full"
                                             options={[{ value: '', label: 'اختر المحافظة...' }, ...governorates.map(g => ({ value: String(g.id), label: g.name }))]}
                                         />
@@ -422,7 +421,6 @@ export default function GeoSettings() {
                                             disabled={!modalGov}
                                             placeholder="اختر المنطقة..."
                                             ariaLabel="المنطقة"
-                                            variant="filled"
                                             className="w-full"
                                             options={[{ value: '', label: 'اختر المنطقة...' }, ...regions.map(r => ({ value: String(r.id), label: r.name }))]}
                                         />
@@ -438,7 +436,6 @@ export default function GeoSettings() {
                                             disabled={!modalRegion}
                                             placeholder="اختر الناحية..."
                                             ariaLabel="الناحية"
-                                            variant="filled"
                                             className="w-full"
                                             options={[{ value: '', label: 'اختر الناحية...' }, ...subDistricts.map(s => ({ value: String(s.id), label: s.name }))]}
                                         />

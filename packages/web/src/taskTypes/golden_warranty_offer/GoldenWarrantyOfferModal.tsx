@@ -15,6 +15,7 @@ import { Award, CalendarClock, ChevronDown, ChevronLeft, CircleCheck, CircleX, L
 import { api } from '../../lib/api';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import { TechnicalStateFields, buildTechnicalStatePayload, hasAnyTechnicalReading, type TechStateForm } from '../../components/devices/TechnicalStateFields';
+import Select from '../../components/ui/Select';
 
 const PAYMENT_METHODS: Array<{ value: string; label: string }> = [
   { value: 'cash', label: 'نقدي' }, { value: 'usd_cash', label: 'دولار نقدي' },
@@ -195,10 +196,13 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                           </div>
                           {d.payments.map((p, pi) => (
                             <div key={pi} className="mb-1 flex items-center gap-2">
-                              <select value={p.method} onChange={(e) => updateDevice(i, { payments: d.payments.map((x, xi) => xi === pi ? { ...x, method: e.target.value } : x) })}
-                                className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs">
-                                {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                              </select>
+                              <Select
+                                value={p.method}
+                                onChange={(v) => updateDevice(i, { payments: d.payments.map((x, xi) => xi === pi ? { ...x, method: v } : x) })}
+                                className="flex-1"
+                                size="sm"
+                                options={PAYMENT_METHODS.map((m) => ({ value: m.value, label: m.label }))}
+                              />
                               <input type="number" min="0" placeholder="المبلغ" value={p.amountValue}
                                 onChange={(e) => updateDevice(i, { payments: d.payments.map((x, xi) => xi === pi ? { ...x, amountValue: e.target.value } : x) })}
                                 className="w-28 rounded border border-slate-200 px-2 py-1 text-xs" />
@@ -224,10 +228,13 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
             <div className="space-y-3">
               <label className="block space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">{mode === 'later' ? 'سبب التفعيل لاحقاً *' : 'سبب الرفض *'}</span>
-                <select value={reason} onChange={(e) => setReason(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <option value="">— اختر —</option>
-                  {(mode === 'later' ? laterReasons : rejectReasons).map((r: any) => <option key={r.id} value={r.value}>{r.value}</option>)}
-                </select>
+                <Select
+                  value={reason}
+                  onChange={setReason}
+                  className="w-full"
+                  placeholder="— اختر —"
+                  options={(mode === 'later' ? laterReasons : rejectReasons).map((r: any) => ({ value: r.value, label: r.value }))}
+                />
               </label>
               {mode === 'later' && (
                 <label className="block space-y-1.5">

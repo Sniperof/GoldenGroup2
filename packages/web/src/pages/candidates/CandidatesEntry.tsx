@@ -327,7 +327,6 @@ export default function CandidatesEntry() {
                             value={candidateStatusFilter}
                             onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }}
                             ariaLabel="حالة المرشح"
-                            variant="filled"
                             options={[
                                 { value: '', label: 'كل الحالات' },
                                 { value: 'Suggested', label: 'مقترح' },
@@ -341,7 +340,6 @@ export default function CandidatesEntry() {
                                 value={candidateSupervisorFilter}
                                 onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }}
                                 ariaLabel="المسؤول"
-                                variant="filled"
                                 options={[{ value: '', label: 'كل المسؤولين' }, ...candidateSupervisors.map(s => ({ value: s, label: s }))]}
                             />
                         )}
@@ -350,7 +348,6 @@ export default function CandidatesEntry() {
                                 value={candidateBranchFilter}
                                 onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }}
                                 ariaLabel="الفرع"
-                                variant="filled"
                                 options={[{ value: '', label: 'كل الفروع' }, ...candidateBranches.map(b => ({ value: b, label: b }))]}
                             />
                         )}
@@ -546,7 +543,6 @@ export default function CandidatesEntry() {
                             value={sheetStatusFilter}
                             onChange={(v) => { setSheetStatusFilter(v); setSheetsPage(1); }}
                             ariaLabel="حالة اللائحة"
-                            variant="filled"
                             options={[
                                 { value: '', label: 'كل الحالات' },
                                 { value: 'New', label: 'نشط' },
@@ -559,7 +555,6 @@ export default function CandidatesEntry() {
                                 value={sheetSupervisorFilter}
                                 onChange={(v) => { setSheetSupervisorFilter(v); setSheetsPage(1); }}
                                 ariaLabel="المشرفة"
-                                variant="filled"
                                 options={[{ value: '', label: 'كل المشرفات' }, ...sheetSupervisors.map(s => ({ value: s, label: s }))]}
                             />
                         )}
@@ -568,7 +563,6 @@ export default function CandidatesEntry() {
                                 value={sheetBranchFilter}
                                 onChange={(v) => { setSheetBranchFilter(v); setSheetsPage(1); }}
                                 ariaLabel="الفرع"
-                                variant="filled"
                                 options={[{ value: '', label: 'كل الفروع' }, ...sheetBranches.map(b => ({ value: b, label: b }))]}
                             />
                         )}

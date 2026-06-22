@@ -646,7 +646,6 @@ export default function Vacancies() {
         <Select<VacancyStatus | ''>
           value={filters.status}
           onChange={v => setFilter('status', v)}
-          variant="filled"
           size="sm"
           ariaLabel="الحالة"
           options={[
@@ -659,7 +658,6 @@ export default function Vacancies() {
         <Select
           value={filters.branch}
           onChange={v => setFilter('branch', v)}
-          variant="filled"
           size="sm"
           ariaLabel="الفرع"
           options={[

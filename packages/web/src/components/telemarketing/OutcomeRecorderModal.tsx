@@ -744,16 +744,12 @@ export default function OutcomeRecorderModal({
                                         <Clock className="w-3.5 h-3.5" />
                                         وقت الزيارة <span className="text-red-500">*</span>
                                     </label>
-                                    <select
+                                    <Select
                                         value={visitTime}
-                                        onChange={e => setVisitTime(e.target.value)}
-                                        className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none font-mono"
-                                        dir="ltr"
-                                    >
-                                        {getHourlyVisitSlots().map(slot => (
-                                            <option key={slot} value={slot}>{slot}</option>
-                                        ))}
-                                    </select>
+                                        onChange={setVisitTime}
+                                        className="w-full"
+                                        options={getHourlyVisitSlots().map(slot => ({ value: slot, label: slot }))}
+                                    />
                                 </div>
 
                                 {/* Water source — only for device_demo tasks */}

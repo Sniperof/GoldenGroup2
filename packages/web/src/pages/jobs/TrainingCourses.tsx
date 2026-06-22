@@ -265,7 +265,6 @@ export default function TrainingCourses() {
         <Select
           value={filters.training_status}
           onChange={v => setFilter('training_status', v)}
-          variant="filled"
           className="min-w-[150px]"
           options={[
             { value: '', label: 'كل الحالات' },

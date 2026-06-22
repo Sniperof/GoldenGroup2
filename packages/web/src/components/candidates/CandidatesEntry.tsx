@@ -56,7 +56,6 @@ export default function CandidatesEntry() {
                         value={filterStatus}
                         onChange={setFilterStatus}
                         ariaLabel="فلترة الحالة"
-                        variant="filled"
                         options={[
                             { value: 'All', label: 'الكل' },
                             { value: 'New', label: 'جديد (New)' },

@@ -773,7 +773,6 @@ export default function PlanningContactTargets() {
                                 value={stationFilter}
                                 onChange={setStationFilter}
                                 ariaLabel="المحطة"
-                                variant="filled"
                                 options={[{ value: 'all', label: 'كل المحطات' }, ...stationOptions.map(station => ({ value: station, label: station }))]}
                             />
 
@@ -781,7 +780,6 @@ export default function PlanningContactTargets() {
                                 value={attemptFilter}
                                 onChange={setAttemptFilter}
                                 ariaLabel="المحاولات"
-                                variant="filled"
                                 options={[
                                     { value: 'all', label: 'كل المحاولات' },
                                     { value: '1', label: '1+ محاولة' },

@@ -873,19 +873,20 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                     className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none"
                                                 />
 
-                                                <select
+                                                <Select
                                                     value={contact.status}
-                                                    onChange={e => {
+                                                    onChange={v => {
                                                         const newContacts = [...candidateData.contacts];
-                                                        newContacts[index] = { ...contact, status: e.target.value as ContactStatus };
+                                                        newContacts[index] = { ...contact, status: v as ContactStatus };
                                                         setCandidateData({ ...candidateData, contacts: newContacts });
                                                     }}
-                                                    className={`border rounded-lg px-2 py-1.5 text-xs font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[contact.status as ContactStatus]?.style || ''}`}
-                                                >
-                                                    {Object.entries(contactStatusConfig).map(([key, cfg]) => (
-                                                        <option key={key} value={key}>{cfg.label}</option>
-                                                    ))}
-                                                </select>
+                                                    size="sm"
+                                                    className="min-w-[110px]"
+                                                    options={Object.entries(contactStatusConfig).map(([key, cfg]) => ({
+                                                        value: key as ContactStatus,
+                                                        label: cfg.label,
+                                                    }))}
+                                                />
 
                                                 <button
                                                     type="button"

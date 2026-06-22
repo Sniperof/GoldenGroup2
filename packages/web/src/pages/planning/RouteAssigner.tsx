@@ -478,7 +478,6 @@ export default function RouteAssigner() {
                         onChange={onTeamChange}
                         placeholder="اختر الفريق..."
                         ariaLabel="الفريق"
-                        variant="filled"
                         className="w-56"
                         options={[{ value: '', label: 'اختر الفريق...' }, ...teamOptions.map(o => ({ value: o.value, label: o.label }))]}
                     />
@@ -522,7 +521,6 @@ export default function RouteAssigner() {
                             onChange={setSelectedRouteId}
                             disabled={!selectedTeam}
                             ariaLabel="المسار"
-                            variant="filled"
                             className="w-full"
                             options={[{ value: '', label: selectedTeam ? 'اختر مساراً محدداً مسبقاً...' : 'اختر الفريق أولاً...' }, ...availableRoutes.map(r => ({ value: String(r.id), label: r.name }))]}
                         />

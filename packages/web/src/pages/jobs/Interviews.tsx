@@ -354,7 +354,6 @@ export default function Interviews() {
         <Select
           value={filters.jobVacancyId}
           onChange={v => setFilter('jobVacancyId', v)}
-          variant="filled"
           className="w-48"
           options={[{ value: '', label: 'كل الوظائف' }, ...vacancies.map(v => ({ value: String(v.id), label: v.title }))]}
         />

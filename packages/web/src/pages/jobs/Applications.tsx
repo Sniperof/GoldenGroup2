@@ -218,7 +218,6 @@ export default function Applications() {
           onChange={v => setFilter('stage', v as ApplicationStage | '')}
           placeholder="كل المراحل"
           ariaLabel="المرحلة"
-          variant="filled"
           size="sm"
           options={ALL_STAGES.map(s => ({ value: s, label: STAGE_LABELS[s] }))}
         />
@@ -227,7 +226,6 @@ export default function Applications() {
           onChange={v => setFilter('status', v as ApplicationStatus | '')}
           placeholder="كل الحالات"
           ariaLabel="الحالة"
-          variant="filled"
           size="sm"
           options={ALL_STATUSES.map(s => ({ value: s, label: STATUS_LABELS[s] }))}
         />
@@ -236,7 +234,6 @@ export default function Applications() {
           onChange={v => setFilter('gender', v)}
           placeholder="كل الأجناس"
           ariaLabel="الجنس"
-          variant="filled"
           size="sm"
           options={[
             { value: 'ذكر', label: 'ذكر' },
@@ -248,7 +245,6 @@ export default function Applications() {
           onChange={v => setFilter('applicationSource', v)}
           placeholder="كل المصادر"
           ariaLabel="المصدر"
-          variant="filled"
           size="sm"
           options={[
             { value: 'Mobile App', label: 'Mobile App' },
