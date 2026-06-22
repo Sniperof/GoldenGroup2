@@ -255,7 +255,7 @@ export default function MainLayout() {
                 {!isCollapsed && !isGlobalOnlyPage && <BranchSwitcher />}
 
                 {/* Navigation */}
-                <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1 mt-16 lg:mt-0">
+                <nav className="flex-1 overflow-y-auto custom-scroll py-6 px-3 space-y-1 mt-16 lg:mt-0">
                     {navItems.map(item => (
                         <NavLink
                             key={item.path}
@@ -298,7 +298,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {visibleRecordsChildren.map(child => (
                                         <NavLink
@@ -306,13 +306,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -430,7 +430,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {visibleJobsChildren.map(child => (
                                         <NavLink
@@ -438,13 +438,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -477,7 +477,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {planningChildren.map(child => (
                                         <NavLink
@@ -485,13 +485,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -524,7 +524,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {requestsChildren.map(child => (
                                         <NavLink
@@ -532,13 +532,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -609,7 +609,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {visibleOperationsChildren.map(child => (
                                         <NavLink
@@ -617,13 +617,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -656,7 +656,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {geoChildren.map(child => (
                                         <NavLink
@@ -664,13 +664,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}

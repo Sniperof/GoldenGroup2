@@ -343,6 +343,36 @@ a.shadow-lg {
     scrollbar-color: #B4BDC8 #EEF1F4;
 }
 
+/* ------------------------------------------------------------
+   Global scrollbar — apply the brand-tinted thin scrollbar to
+   every scrollable area app-wide, so individual components no
+   longer need the .custom-scroll / .custom-scrollbar helper.
+   ------------------------------------------------------------ */
+* {
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: #B4BDC8 #EEF1F4;
+}
+*::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+*::-webkit-scrollbar-track {
+    background: #EEF1F4; /* ink-100 */
+}
+*::-webkit-scrollbar-thumb {
+    background: #B4BDC8; /* ink-300 */
+    border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+    background: #8C97A6; /* ink-400 */
+}
+
+/* Alias kept for components that still reference it */
+.custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #B4BDC8 #EEF1F4;
+}
+
 /* ============================================================
    Range slider for route stations — brand blue
    ============================================================ */
