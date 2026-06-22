@@ -1128,7 +1128,7 @@ export default function TelemarketerWorkspace() {
                             const isActive = statusFilter === filter;
                             return (
                                 <button key={filter} onClick={() => setStatusFilter(filter)}
-                                    className={`px-2 py-1 rounded-md text-xs font-bold transition-all ${isActive ? `${config.activeBg} ${config.activeText} shadow-sm` : `${config.inactiveBg} ${config.inactiveText} hover:opacity-80`}`}>
+                                    className={`px-2 py-1 rounded-lg text-xs font-bold transition-all ${isActive ? `${config.activeBg} ${config.activeText} shadow-sm` : `${config.inactiveBg} ${config.inactiveText} hover:opacity-80`}`}>
                                     {config.label} ({count})
                                 </button>
                             );
@@ -1267,7 +1267,7 @@ export default function TelemarketerWorkspace() {
                                                 )}
                                             </div>
                                             <div className="mt-2 flex items-center gap-2 flex-wrap">
-                                                <span className={`px-2 py-0.5 rounded-md text-xs font-black border ${
+                                                <span className={`px-2 py-0.5 rounded-lg text-xs font-black border ${
                                                     selectedCustomer.entityType === 'client'
                                                         ? 'bg-sky-50 text-sky-700 border-sky-200'
                                                         : 'bg-amber-50 text-amber-700 border-amber-200'
@@ -1275,7 +1275,7 @@ export default function TelemarketerWorkspace() {
                                                     {selectedSnapshotMeta.classification}
                                                 </span>
                                                 {selectedSnapshotMeta.rating && selectedSnapshotMeta.classification === 'OP' && (
-                                                    <span className="px-2 py-0.5 rounded-md text-xs font-black border bg-emerald-50 text-emerald-700 border-emerald-200">
+                                                    <span className="px-2 py-0.5 rounded-lg text-xs font-black border bg-emerald-50 text-emerald-700 border-emerald-200">
                                                         {selectedSnapshotMeta.rating}
                                                     </span>
                                                 )}
@@ -1283,12 +1283,12 @@ export default function TelemarketerWorkspace() {
                                                     <OwnershipBadge ownership={selectedCustomer.primaryItem.ownership} />
                                                 ) : null}
                                                 {selectedSnapshotMeta.branchName && (
-                                                    <span className="px-2 py-0.5 rounded-md text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">
+                                                    <span className="px-2 py-0.5 rounded-lg text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">
                                                         {selectedSnapshotMeta.branchName}
                                                     </span>
                                                 )}
                                                 {selectedCustomer.lockedByHrUserName && (
-                                                    <span className="px-2 py-0.5 rounded-md text-xs font-bold border bg-amber-50 text-amber-700 border-amber-200">
+                                                    <span className="px-2 py-0.5 rounded-lg text-xs font-bold border bg-amber-50 text-amber-700 border-amber-200">
                                                         قيد المتابعة: {selectedCustomer.lockedByHrUserName}
                                                     </span>
                                                 )}
@@ -1355,7 +1355,7 @@ export default function TelemarketerWorkspace() {
                                         <div className="flex items-center justify-between gap-3 mb-2">
                                             <p className="text-xs text-slate-400 font-black">أرقام إضافية</p>
                                             {selectedOtherTargets.length > 0 && (
-                                                <span className="text-xs px-2 py-0.5 rounded-md border border-cyan-100 bg-cyan-50 text-cyan-700 font-black">
+                                                <span className="text-xs px-2 py-0.5 rounded-lg border border-cyan-100 bg-cyan-50 text-cyan-700 font-black">
                                                     {selectedOtherTargets.length} جهة أخرى اليوم
                                                 </span>
                                             )}
@@ -1384,14 +1384,14 @@ export default function TelemarketerWorkspace() {
                                 {(selectedCustomer.openTasks.length > 0 || selectedSnapshotMeta.notes) && (
                                     <div className="mt-4 flex flex-wrap items-start gap-2 border-t border-slate-100 pt-3">
                                         {selectedCustomer.openTasks.map(ot => (
-                                            <span key={ot.taskListItemId} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border bg-violet-50 border-violet-100 text-violet-700 font-black">
+                                            <span key={ot.taskListItemId} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg border bg-violet-50 border-violet-100 text-violet-700 font-black">
                                                 <Layers className="w-3 h-3" />
                                                 {(OPEN_TASK_TYPE_LABELS as Record<string, string>)[ot.openTaskType as OpenTaskType] || ot.openTaskType}
                                                 {ot.openTaskReason && <span className="text-violet-400">{(OPEN_TASK_REASON_LABELS as Record<string, string>)[ot.openTaskReason as OpenTaskReason] || ot.openTaskReason}</span>}
                                             </span>
                                         ))}
                                         {selectedSnapshotMeta.notes && (
-                                            <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border bg-slate-50 border-slate-200 text-slate-600 font-bold max-w-full">
+                                            <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg border bg-slate-50 border-slate-200 text-slate-600 font-bold max-w-full">
                                                 <FileText className="w-3 h-3 shrink-0" />
                                                 <span className="truncate">{selectedSnapshotMeta.notes}</span>
                                             </span>

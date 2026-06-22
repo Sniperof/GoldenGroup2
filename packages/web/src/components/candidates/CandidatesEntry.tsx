@@ -127,7 +127,7 @@ export default function CandidatesEntry() {
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col gap-1">
                                                     <div className="flex items-center gap-1.5">
-                                                        <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-xs font-bold border border-indigo-100">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold border border-indigo-100">
                                                             {candidate.referralType}
                                                         </span>
                                                         <span className="text-xs font-bold text-slate-700">{candidate.referralNameSnapshot}</span>

@@ -71,7 +71,7 @@ export default function ScheduleFromExpectedModal({
 
         <div className="px-5 py-4 space-y-3">
           {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs font-bold text-red-700">
+            <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs font-bold text-red-700">
               {error}
             </div>
           )}
@@ -96,7 +96,7 @@ export default function ScheduleFromExpectedModal({
                 type="date"
                 value={overrideDate}
                 onChange={(e) => setOverrideDate(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
               />
             </div>
             <div>
@@ -116,7 +116,7 @@ export default function ScheduleFromExpectedModal({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
             />
           </div>
         </div>

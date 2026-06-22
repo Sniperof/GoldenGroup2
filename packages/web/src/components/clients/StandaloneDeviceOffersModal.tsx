@@ -183,7 +183,7 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
-      <div className="w-full max-w-5xl rounded-3xl bg-white shadow-2xl">
+      <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
             <h3 className="text-base font-bold text-slate-800">إنشاء عروض أجهزة مستقلة</h3>

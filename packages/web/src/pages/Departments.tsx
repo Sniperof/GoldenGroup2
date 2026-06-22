@@ -297,7 +297,7 @@ export default function Departments() {
             <button
               onClick={() => openEdit(d)}
               disabled={!canEditDepartmentModal}
-              className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50"
+              className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50"
               title="تعديل"
             >
               <Edit className="w-4 h-4" />
@@ -305,7 +305,7 @@ export default function Departments() {
             <button
               onClick={() => handleDelete(d)}
               disabled={!canManageDepartments}
-              className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50"
+              className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50"
               title="حذف"
             >
               <Trash2 className="w-4 h-4" />

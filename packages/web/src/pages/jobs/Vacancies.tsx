@@ -744,7 +744,7 @@ export default function Vacancies() {
             <motion.div
               initial={{ scale: 0.96, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.96, opacity: 0, y: 20 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden"
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden"
               style={{ maxHeight: 'min(90vh, 740px)' }}
               onClick={e => e.stopPropagation()} dir="rtl">
 

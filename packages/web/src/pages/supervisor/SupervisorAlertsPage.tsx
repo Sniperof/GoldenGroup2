@@ -90,11 +90,11 @@ export default function SupervisorAlertsPage() {
           </p>
 
           {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs font-bold text-red-700">{error}</div>
+            <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs font-bold text-red-700">{error}</div>
           )}
 
           {escalations.length === 0 ? (
-            <div className="rounded-md border border-dashed border-orange-300 bg-white/60 p-3 text-center text-xs text-orange-800">
+            <div className="rounded-lg border border-dashed border-orange-300 bg-white/60 p-3 text-center text-xs text-orange-800">
               لا توجد زيارات بحاجة لتصعيد حالياً.
             </div>
           ) : (
@@ -103,7 +103,7 @@ export default function SupervisorAlertsPage() {
                 <Link
                   key={item.visitId}
                   to={`/field-visits/${item.visitId}`}
-                  className="block rounded-md bg-white border border-orange-200 p-2 hover:bg-orange-50/60"
+                  className="block rounded-lg bg-white border border-orange-200 p-2 hover:bg-orange-50/60"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">

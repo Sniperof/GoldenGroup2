@@ -664,12 +664,12 @@ export default function TaskGroupPage() {
                       <td className="px-4 py-3 text-slate-600" dir="ltr">{mobile}</td>
                       <td className="px-4 py-3"><OwnershipCell ownership={row.ownership} /></td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold border ${OPEN_TASK_PHASE_COLORS[phase]}`}>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold border ${OPEN_TASK_PHASE_COLORS[phase]}`}>
                           {OPEN_TASK_PHASE_LABELS[phase]}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${TASK_STATUS_COLORS[row.taskStatus] || 'bg-slate-100 text-slate-600'}`}>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${TASK_STATUS_COLORS[row.taskStatus] || 'bg-slate-100 text-slate-600'}`}>
                           {(OPEN_TASK_STATUS_LABELS as Record<string, string>)[row.taskStatus] || row.taskStatus}
                         </span>
                       </td>
@@ -720,7 +720,7 @@ export default function TaskGroupPage() {
                       <td className="px-4 py-3 text-slate-600">{formatDate(row.scheduledDate)}</td>
                       <td className="px-4 py-3">
                         {row.visitStatus ? (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${VISIT_STATUS_COLORS[row.visitStatus] || 'bg-slate-100 text-slate-600'}`}>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${VISIT_STATUS_COLORS[row.visitStatus] || 'bg-slate-100 text-slate-600'}`}>
                             {VISIT_STATUS_LABELS[row.visitStatus] || row.visitStatus}
                           </span>
                         ) : (

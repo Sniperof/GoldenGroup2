@@ -213,17 +213,17 @@ export default function OpenTasks() {
                       {getTaskLocation(task)}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium border border-purple-100">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-purple-50 text-purple-700 text-xs font-medium border border-purple-100">
                         {OPEN_TASK_TYPE_LABELS[task.taskType] || task.taskType}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${FAMILY_COLORS[task.taskFamily] || 'bg-slate-100 text-slate-600'}`}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${FAMILY_COLORS[task.taskFamily] || 'bg-slate-100 text-slate-600'}`}>
                         {OPEN_TASK_FAMILY_LABELS[task.taskFamily] || task.taskFamily}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${STATUS_COLORS[task.status] || 'bg-slate-100 text-slate-600'}`}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${STATUS_COLORS[task.status] || 'bg-slate-100 text-slate-600'}`}>
                         {OPEN_TASK_STATUS_LABELS[task.status] || task.status}
                       </span>
                     </td>

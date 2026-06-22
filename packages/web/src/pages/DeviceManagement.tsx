@@ -444,7 +444,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                         <button
                                             type="button" key={cat}
                                             onClick={() => setNewDevice(prev => ({ ...prev, category: cat }))}
-                                            className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all flex items-center justify-center gap-1.5
+                                            className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5
                                                 ${newDevice.category === cat ? 'bg-white shadow text-sky-600' : 'text-slate-500 hover:text-slate-700'}`}
                                         >
                                             <span className="text-base">{categoryLabels[cat].icon}</span>
@@ -943,7 +943,7 @@ const DeviceManagement = () => {
                         const S = serviceLabels[type];
                         if (!S) return null;
                         return (
-                            <div key={type} title={S.label} className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium cursor-help ${S.color}`}>
+                            <div key={type} title={S.label} className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-help ${S.color}`}>
                                 <span>{S.icon}</span><span>{S.label}</span>
                             </div>
                         );
@@ -1086,7 +1086,7 @@ const DeviceManagement = () => {
                                         <button
                                             type="button"
                                             onClick={() => openEditDevice(d)}
-                                            className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                            className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
                                             title="تعديل الجهاز"
                                         >
                                             <Pencil className="w-4 h-4" />
@@ -1121,7 +1121,7 @@ const DeviceManagement = () => {
                                                 <button
                                                     type="button"
                                                     onClick={(event) => { event.stopPropagation(); openPartPrices(p); }}
-                                                    className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
                                                     title="سجل أسعار القطعة"
                                                 >
                                                     <Tag className="w-4 h-4" />
@@ -1131,7 +1131,7 @@ const DeviceManagement = () => {
                                                 <button
                                                     type="button"
                                                     onClick={(event) => { event.stopPropagation(); openPartForm(p); }}
-                                                    className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
                                                     title="تعديل القطعة"
                                                 >
                                                     <Pencil className="w-4 h-4" />

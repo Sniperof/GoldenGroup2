@@ -262,7 +262,7 @@ export default function MaintenanceReceiptModal({ taskId, isOpen, onClose }: Pro
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-3" dir="rtl">
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl flex flex-col max-h-[92vh]">
+      <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 bg-rose-50/50 px-6 py-4 shrink-0">
           <div>

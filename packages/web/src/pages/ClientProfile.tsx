@@ -529,7 +529,7 @@ function OverviewTab({ client, onClientChanged, canEditContactControl }: { clien
                         <Plus className="w-5 h-5 text-sky-500" />
                         ملاحظات الزبون
                     </h3>
-                    <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm prose prose-sm max-w-none prose-slate">
+                    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm prose prose-sm max-w-none prose-slate">
                         <div
                             className="rich-notes text-slate-600 leading-relaxed"
                             dangerouslySetInnerHTML={{ __html: client.notes }}
@@ -543,7 +543,7 @@ function OverviewTab({ client, onClientChanged, canEditContactControl }: { clien
                     </div>
                 </section>
             ) : (
-                <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-center text-slate-400 shadow-sm">
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-slate-400 shadow-sm">
                     <FileText className="mx-auto mb-3 h-8 w-8 opacity-50" />
                     <p className="text-sm font-bold">لا توجد ملاحظات مسجلة لهذا الزبون.</p>
                 </div>
@@ -888,7 +888,7 @@ function VisitsTab({ client }: { client: Client }) {
             ) : (
                 <div className="space-y-6">
                     {tasks.length === 0 ? (
-                        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-12 text-center flex-1 flex flex-col items-center justify-center">
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-12 text-center flex-1 flex flex-col items-center justify-center">
                             <Navigation className="w-10 h-10 text-slate-300 mb-4" />
                             <h4 className="text-lg text-slate-600 font-black mb-2">لا توجد مهام مسجلة</h4>
                             <p className="text-sm text-slate-400 max-w-sm mx-auto leading-relaxed">اضغط "إضافة عرض جهاز" لإنشاء مهمة جديدة.</p>
@@ -1085,7 +1085,7 @@ function NetworkTab({ client }: { client: Client }) {
                         <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الوسطاء: {incoming.length}</p>
                     </div>
                 </div>
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                     {incoming.length > 0 ? (
                         <>
                             <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-500">
@@ -1141,7 +1141,7 @@ function NetworkTab({ client }: { client: Client }) {
                         <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الأسماء: {outgoing.length}</p>
                     </div>
                 </div>
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                     {outgoing.length > 0 ? (
                         <>
                             <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-500">

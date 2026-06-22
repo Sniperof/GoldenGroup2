@@ -459,7 +459,7 @@ export default function EmergencyProblemsSection({
 
                     {/* Saved no_resolve_reason badge */}
                     {(p.status === 'deferred' || p.status === 'unresolvable_field') && p.noResolveReason && (
-                      <div className="mt-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 inline-block">
+                      <div className="mt-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 inline-block">
                         السَّبب: {NO_RESOLVE_REASON_LABEL[p.noResolveReason] ?? p.noResolveReason}
                       </div>
                     )}

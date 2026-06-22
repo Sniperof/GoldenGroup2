@@ -15,7 +15,7 @@ export function SectionShell({ id, title, subtitle, actions, children }: Props) 
   return (
     <section
       id={id}
-      className="bg-white rounded-3xl border border-slate-100 shadow-sm scroll-mt-24"
+      className="bg-white rounded-2xl border border-slate-100 shadow-sm scroll-mt-24"
     >
       <header className="flex items-start justify-between gap-3 px-6 pt-5 pb-3 border-b border-slate-50">
         <div>

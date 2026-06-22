@@ -138,7 +138,7 @@ export default function ContactControlCard({ client, onChange }: Props) {
 
         {cooldownActive ? (
           <div className="space-y-2">
-            <div className="rounded-md bg-amber-50 border border-amber-200 p-2 text-xs">
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-xs">
               <div className="font-bold text-amber-800">نشطة حتى: {formatDate(cooldownUntil)}</div>
               {cooldownReason && (
                 <div className="mt-1 text-amber-700">السبب: {cooldownReason}</div>

@@ -103,19 +103,19 @@ export default function Dashboard() {
                     <div className="p-4 space-y-4">
                         <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors">
                             <span className="text-sm text-slate-600 font-medium">المشرفون المتاحون</span>
-                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-md border border-slate-200 shadow-sm">{activeSupervisors}</span>
+                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-sm">{activeSupervisors}</span>
                         </div>
                         <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors">
                             <span className="text-sm text-slate-600 font-medium">الفنيون المتاحون</span>
-                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-md border border-slate-200 shadow-sm">{activeTechnicians}</span>
+                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-sm">{activeTechnicians}</span>
                         </div>
                         <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors">
                             <span className="text-sm text-slate-600 font-medium">المسارات المعرّفة</span>
-                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-md border border-slate-200 shadow-sm">{dashboardData?.totalRoutes ?? 0}</span>
+                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-sm">{dashboardData?.totalRoutes ?? 0}</span>
                         </div>
                         <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors">
                             <span className="text-sm text-slate-600 font-medium">الزبائن الجدد</span>
-                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-md border border-slate-200 shadow-sm">{recentClients.length}</span>
+                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-sm">{recentClients.length}</span>
                         </div>
                     </div>
                 </motion.div>

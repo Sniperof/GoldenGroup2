@@ -227,7 +227,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                         className={`flex items-center gap-2 w-full bg-white border rounded-xl px-3 py-2.5 ${invalid ? 'border-red-300 bg-red-50/40' : 'border-slate-200'} ${disabled ? 'cursor-not-allowed bg-slate-50' : invalid ? 'cursor-pointer hover:border-red-400' : 'cursor-pointer hover:border-sky-300'} transition-all group`}
                     >
                         <MapPin className="w-4 h-4 text-sky-500 shrink-0" />
-                        <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
+                        <span className="px-2 py-0.5 rounded-lg text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
                             {short!.gov}
                         </span>
                         <span className="text-sm text-slate-700 font-medium truncate flex-1">
@@ -237,7 +237,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                             <button
                                 type="button"
                                 onClick={e => { e.stopPropagation(); handleClear(); }}
-                                className="w-6 h-6 rounded-md flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                                className="w-6 h-6 rounded-lg flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
                             >
                                 <X className="w-3.5 h-3.5" />
                             </button>

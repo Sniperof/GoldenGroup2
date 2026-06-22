@@ -54,7 +54,7 @@ function LinkConfirmOverlay({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-10 flex items-center justify-center rounded-3xl bg-slate-900/60 backdrop-blur-sm p-5"
+            className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/60 backdrop-blur-sm p-5"
         >
             <motion.div
                 initial={{ scale: 0.93, opacity: 0, y: 16 }}
@@ -279,7 +279,7 @@ export default function QualificationModal({
                     initial={{ opacity: 0, scale: 0.95, y: 20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                    className="relative bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col"
+                    className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col"
                 >
                     {/* Confirmation overlay — rendered inside the card */}
                     <AnimatePresence>
@@ -498,7 +498,7 @@ export default function QualificationModal({
                                 <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 mb-4">
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-xs text-slate-500 font-bold">بيانات الاسم المقترح</span>
-                                        <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-mono font-bold tracking-widest">
+                                        <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-lg font-mono font-bold tracking-widest">
                                             {candidate.mobile}
                                         </span>
                                     </div>

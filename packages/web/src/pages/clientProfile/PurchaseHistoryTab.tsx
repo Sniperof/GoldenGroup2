@@ -207,7 +207,7 @@ export function PurchaseHistoryTab({ client }: Props) {
         />
       </section>
 
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         {records.length === 0 ? (
           <div className="px-6 py-16 text-center text-slate-400">
             <History className="w-10 h-10 mx-auto mb-3 text-slate-300" />

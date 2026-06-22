@@ -225,7 +225,7 @@ export default function VisitLifecycleActionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" dir="rtl">
-      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
           <div className="flex items-start gap-3">
             <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${meta.iconClassName}`}>
@@ -300,7 +300,7 @@ export default function VisitLifecycleActionModal({
               </div>
 
               {taskStates.map((task) => (
-                <div key={task.openTaskId} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div key={task.openTaskId} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h3 className="text-base font-bold text-slate-800">{task.taskLabel}</h3>
@@ -370,7 +370,7 @@ export default function VisitLifecycleActionModal({
                 />
               </label>
 
-              <div className="rounded-3xl border border-slate-200 bg-white p-5">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5">
                 <p className="text-sm font-black text-slate-900">ملخص التنفيذ</p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">

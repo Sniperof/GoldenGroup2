@@ -51,7 +51,7 @@ export function ProblemsHistorySection({ deviceId }: { deviceId: number }) {
   }, [deviceId]);
 
   return (
-    <section id="problems" className="bg-white rounded-3xl border border-slate-100 shadow-sm">
+    <section id="problems" className="bg-white rounded-2xl border border-slate-100 shadow-sm">
       <header className="flex items-center justify-between gap-3 p-5 border-b border-slate-100">
         <div className="flex items-center gap-2">
           <Wrench className="w-5 h-5 text-rose-500" />

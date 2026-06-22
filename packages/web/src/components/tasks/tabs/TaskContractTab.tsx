@@ -236,7 +236,7 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
             <div className="mb-3 flex items-center flex-wrap gap-1.5 text-xs">
               {pathNames.map((n, i) => (
                 <span key={i} className="inline-flex items-center gap-1.5">
-                  <span className="rounded-md bg-white border border-slate-200 px-2 py-0.5 font-bold text-slate-700">{n}</span>
+                  <span className="rounded-lg bg-white border border-slate-200 px-2 py-0.5 font-bold text-slate-700">{n}</span>
                   {i < pathNames.length - 1 && <span className="text-slate-300">›</span>}
                 </span>
               ))}

@@ -125,7 +125,7 @@ export default function DeviceProfilePage() {
 
   if (!device) {
     return (
-      <div className="max-w-3xl mx-auto bg-white border border-rose-100 rounded-3xl p-10 text-center">
+      <div className="max-w-3xl mx-auto bg-white border border-rose-100 rounded-2xl p-10 text-center">
         <h2 className="text-lg font-bold text-rose-700 mb-2">الجهاز غير موجود</h2>
         <p className="text-xs text-slate-500 mb-4">قد يكون قد حُذف، أو ليس لديك صلاحية للاطلاع عليه.</p>
         <button
@@ -162,7 +162,7 @@ export default function DeviceProfilePage() {
       </nav>
 
       {/* Header card */}
-      <header className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
+      <header className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">{device.deviceModelName || `جهاز #${device.id}`}</h1>

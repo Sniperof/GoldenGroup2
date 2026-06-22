@@ -79,13 +79,13 @@ export default function AttemptAlertsCard() {
       </p>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs font-bold text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs font-bold text-red-700">
           {error}
         </div>
       )}
 
       {items.length === 0 ? (
-        <div className="rounded-md border border-dashed border-amber-300 bg-white/60 p-3 text-center text-xs text-amber-800">
+        <div className="rounded-lg border border-dashed border-amber-300 bg-white/60 p-3 text-center text-xs text-amber-800">
           لا توجد مهام فوق العتبة حالياً.
         </div>
       ) : (
@@ -93,7 +93,7 @@ export default function AttemptAlertsCard() {
           {items.map((item) => (
             <div
               key={item.openTaskId}
-              className="rounded-md bg-white border border-amber-200 p-2 flex items-center justify-between gap-2"
+              className="rounded-lg bg-white border border-amber-200 p-2 flex items-center justify-between gap-2"
             >
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-bold text-slate-800 truncate">
@@ -106,7 +106,7 @@ export default function AttemptAlertsCard() {
                   آخر محاولة: {formatDateTime(item.lastAttemptAt)}
                 </div>
               </div>
-              <div className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-100 text-amber-900 text-xs font-bold">
+              <div className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-100 text-amber-900 text-xs font-bold">
                 <Phone className="w-3 h-3" /> {item.attemptCount}
               </div>
             </div>

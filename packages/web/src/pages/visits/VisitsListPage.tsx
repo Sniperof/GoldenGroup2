@@ -394,7 +394,7 @@ function TeamCell({ row }: { row: VisitRow }) {
   return (
     <div className="flex min-w-[180px] flex-col gap-1">
       {teamName && (
-        <span className="inline-flex items-center gap-1 w-fit rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-black text-indigo-700">
+        <span className="inline-flex items-center gap-1 w-fit rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-black text-indigo-700">
           <UsersRound className="h-3 w-3" />
           {teamName}
           {team?.reassigned && <span className="text-amber-600">·معاد</span>}

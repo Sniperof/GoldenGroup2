@@ -859,7 +859,7 @@ export default function EmployeeDetail() {
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
 
         {/* ── Hero card ───────────────────────────────────────────────────── */}
-        <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           {/* Decorative top bar */}
           <div className="h-2 bg-gradient-to-l from-sky-400 via-sky-500 to-indigo-500" />
 

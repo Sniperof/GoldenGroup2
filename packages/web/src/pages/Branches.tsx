@@ -250,10 +250,10 @@ export default function Branches() {
           getId={(b) => b.id}
           actions={(b) => (
             <div className="flex items-center gap-1">
-              <button onClick={() => openForm(b)} disabled={!canEditBranches} className="p-1.5 rounded-md hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50" title="تعديل">
+              <button onClick={() => openForm(b)} disabled={!canEditBranches} className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-500 disabled:opacity-50" title="تعديل">
                 <Edit className="w-4 h-4" />
               </button>
-              <button onClick={() => handleDelete(b.id)} disabled={!canManageBranchStructure} className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50" title="حذف">
+              <button onClick={() => handleDelete(b.id)} disabled={!canManageBranchStructure} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 disabled:opacity-50" title="حذف">
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>

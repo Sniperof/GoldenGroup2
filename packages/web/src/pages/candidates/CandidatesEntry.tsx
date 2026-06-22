@@ -614,12 +614,12 @@ export default function CandidatesEntry() {
                                                             {sheet.fieldVisitId ? (
                                                                 <Link
                                                                     to={`/field-visits/${sheet.fieldVisitId}`}
-                                                                    className="inline-flex items-center gap-1 rounded-md border border-sky-100 bg-sky-50 px-1.5 py-0.5 text-xs font-bold text-sky-700 hover:border-sky-200 hover:bg-sky-100"
+                                                                    className="inline-flex items-center gap-1 rounded-lg border border-sky-100 bg-sky-50 px-1.5 py-0.5 text-xs font-bold text-sky-700 hover:border-sky-200 hover:bg-sky-100"
                                                                 >
                                                                     من زيارة #{sheet.fieldVisitId}
                                                                 </Link>
                                                             ) : (
-                                                                <span className="inline-flex items-center rounded-md border border-slate-100 bg-slate-50 px-1.5 py-0.5 text-xs font-bold text-slate-500">
+                                                                <span className="inline-flex items-center rounded-lg border border-slate-100 bg-slate-50 px-1.5 py-0.5 text-xs font-bold text-slate-500">
                                                                     يدوي
                                                                 </span>
                                                             )}

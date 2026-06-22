@@ -173,7 +173,7 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
           {error && (
-            <div className="rounded-md bg-red-50 border border-red-200 p-2 text-xs font-bold text-red-700">
+            <div className="rounded-lg bg-red-50 border border-red-200 p-2 text-xs font-bold text-red-700">
               {error}
             </div>
           )}
@@ -242,14 +242,14 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
           <button
             onClick={onClose}
             disabled={busy}
-            className="px-3 py-1.5 rounded-md text-xs font-bold border border-slate-300 text-slate-700 bg-white hover:bg-slate-100"
+            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-700 bg-white hover:bg-slate-100"
           >
             إلغاء
           </button>
           <button
             onClick={() => void save()}
             disabled={busy}
-            className="px-3 py-1.5 rounded-md text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-1"
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-1"
           >
             {skipMode ? <SkipForward className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
             {skipMode ? 'تأكيد التخطي' : 'حفظ الاستبيان'}

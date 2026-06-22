@@ -270,7 +270,7 @@ export default function GeoSettings() {
                         >
                             <tab.icon className="w-4 h-4" />
                             <span>{tab.label}</span>
-                            <span className={`px-1.5 py-0.5 rounded-md text-xs font-bold ${activeTab === tab.level ? 'bg-sky-50 text-sky-600' : 'bg-slate-200 text-slate-500'}`}>
+                            <span className={`px-1.5 py-0.5 rounded-lg text-xs font-bold ${activeTab === tab.level ? 'bg-sky-50 text-sky-600' : 'bg-slate-200 text-slate-500'}`}>
                                 {byLevel(tab.level).length}
                             </span>
                         </button>
@@ -293,12 +293,12 @@ export default function GeoSettings() {
                     actions={(u) => (
                         <div className="flex items-center gap-1">
                             {canManageGeo && (
-                                <button onClick={() => openEditModal(u)} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-400 hover:text-sky-500 transition-all border border-transparent hover:border-slate-100">
+                                <button onClick={() => openEditModal(u)} className="p-1.5 rounded-lg hover:bg-white hover:shadow-sm text-slate-400 hover:text-sky-500 transition-all border border-transparent hover:border-slate-100">
                                     <Pencil className="w-4 h-4" />
                                 </button>
                             )}
                             {canManageGeo && (
-                                <button onClick={() => deleteUnit(u.id)} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-400 hover:text-red-500 transition-all border border-transparent hover:border-slate-100">
+                                <button onClick={() => deleteUnit(u.id)} className="p-1.5 rounded-lg hover:bg-white hover:shadow-sm text-slate-400 hover:text-red-500 transition-all border border-transparent hover:border-slate-100">
                                     <Trash2 className="w-4 h-4" />
                                 </button>
                             )}

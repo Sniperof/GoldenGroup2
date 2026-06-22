@@ -166,7 +166,7 @@ export default function ZoneStudy() {
                                 key={m}
                                 type="button"
                                 onClick={() => setMode(m)}
-                                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${mode === m ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${mode === m ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
                                 {m === 'auto' ? 'النطاقات المؤهلة' : 'استكشاف نطاقات'}
                             </button>
@@ -278,7 +278,7 @@ export default function ZoneStudy() {
                                     <tr key={zone.zoneId} className="hover:bg-slate-50/60">
                                         <td className="px-4 py-3 font-bold text-slate-800">{zone.zoneName}</td>
                                         <td className="px-4 py-3 text-center">
-                                            <span className={`inline-flex min-w-[2rem] justify-center rounded-md px-2 py-0.5 font-bold ${zone.companyEligibleCount > 0 ? 'bg-sky-50 text-sky-700' : 'text-slate-300'}`}>
+                                            <span className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-0.5 font-bold ${zone.companyEligibleCount > 0 ? 'bg-sky-50 text-sky-700' : 'text-slate-300'}`}>
                                                 {zone.companyEligibleCount}
                                             </span>
                                         </td>

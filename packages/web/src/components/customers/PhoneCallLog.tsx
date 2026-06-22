@@ -161,7 +161,7 @@ export default function PhoneCallLog({ customerId, contactId, contactLabel, cont
                                     </span>
                                 )}
                             </div>
-                            <span className="text-slate-400 font-mono text-xs bg-white border border-slate-100 px-2 py-0.5 rounded-md shadow-sm whitespace-nowrap">
+                            <span className="text-slate-400 font-mono text-xs bg-white border border-slate-100 px-2 py-0.5 rounded-lg shadow-sm whitespace-nowrap">
                                 {formatDate(log.callDate)}
                             </span>
                         </div>

@@ -713,7 +713,7 @@ export default function RolePermissions() {
                           <span className="text-xs text-slate-400">{subSelected}/{perms.length}</span>
                           <button
                             onClick={() => toggleSubModule(perms)}
-                            className={`text-xs font-semibold px-2.5 py-1 rounded-md transition-colors ${
+                            className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors ${
                               allSubSelected
                                 ? 'bg-sky-100 text-sky-600 hover:bg-sky-200'
                                 : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
@@ -746,7 +746,7 @@ export default function RolePermissions() {
                                 onClick={() => toggle(perm)}
                                 disabled={!canManageRolePermissions || !!isProtectedRole}
                                 aria-pressed={isOn}
-                                className="mt-0.5 shrink-0 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-300 disabled:cursor-not-allowed"
+                                className="mt-0.5 shrink-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-300 disabled:cursor-not-allowed"
                               >
                                 {isOn
                                   ? <CheckSquare className="w-4 h-4 text-sky-500" />

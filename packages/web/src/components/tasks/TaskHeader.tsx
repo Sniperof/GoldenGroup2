@@ -71,12 +71,12 @@ export default function TaskHeader({ task, typeIcon: TypeIcon, typeIconColor = '
               {statusLabel}
             </span>
             {task.taskFamily && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
                 {TASK_FAMILY_LABELS[task.taskFamily] ?? task.taskFamily}
               </span>
             )}
             {task.originRefId && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200" title="ناتجة عن مهمة سابقة">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200" title="ناتجة عن مهمة سابقة">
                 <Link2 className="w-3 h-3" />
                 مشتقّة من #{task.originRefId}
               </span>
@@ -88,7 +88,7 @@ export default function TaskHeader({ task, typeIcon: TypeIcon, typeIconColor = '
       </div>
 
       <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-slate-500">
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100">
           <Tag className="w-3 h-3" />
           {typeLabel}
         </span>

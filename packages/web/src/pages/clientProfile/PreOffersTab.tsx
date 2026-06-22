@@ -201,7 +201,7 @@ export function PreOffersTab({ client }: Props) {
           </div>
           {createButton}
         </header>
-        <div className="bg-white rounded-3xl border border-slate-100 p-16 text-center flex flex-col items-center justify-center shadow-sm">
+        <div className="bg-white rounded-2xl border border-slate-100 p-16 text-center flex flex-col items-center justify-center shadow-sm">
           <Sparkles className="w-12 h-12 text-slate-300 mb-4" />
           <h4 className="text-base text-slate-600 font-black mb-2">لا توجد عروض مسبقة مسجلة</h4>
           <p className="text-xs text-slate-400 font-bold max-w-md">
@@ -257,7 +257,7 @@ export function PreOffersTab({ client }: Props) {
       </div>
 
       {/* Main table */}
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 text-slate-500 font-black sticky top-0">
