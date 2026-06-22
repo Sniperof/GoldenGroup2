@@ -480,6 +480,7 @@ export const api = {
     getActivity: (id: number) => request<any[]>(`/open-tasks/${id}/activity`),
     addActivity: (id: number, data: any) => request<any>(`/open-tasks/${id}/activity`, { method: 'POST', body: JSON.stringify(data) }),
     getDevices: (id: number) => request<any[]>(`/open-tasks/${id}/devices`),
+    getInstalledDevices: (id: number) => request<any[]>(`/open-tasks/${id}/installed-devices`),
     addDevices: (id: number, data: any) => request<any>(`/open-tasks/${id}/devices`, { method: 'POST', body: JSON.stringify(data) }),
     getCalls: (id: number) => request<any[]>(`/open-tasks/${id}/calls`),
     /** سياق المهمة: سلسلة محاولات التنفيذ (visit_tasks) تحت هذه المهمة. */

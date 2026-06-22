@@ -953,6 +953,11 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   const taskFamily = typeof req.body?.taskFamily === 'string' ? req.body.taskFamily.trim() : 'marketing';
   const contractId = Number(req.body?.contractId) || null;
   const installedDeviceId = Number(req.body?.installedDeviceId ?? req.body?.deviceId) || null;
+  // Golden-warranty tasks (offer / card delivery) can target multiple physical
+  // installed devices on one task — stored in open_task_installed_devices.
+  const installedDeviceIds: number[] = Array.isArray(req.body?.installedDeviceIds)
+    ? req.body.installedDeviceIds.map((x: any) => Number(x)).filter((n: number) => Number.isInteger(n) && n > 0)
+    : [];
   const deliveryAddressInput = typeof req.body?.deliveryAddress === 'string' ? req.body.deliveryAddress.trim() : '';
   const plannedInstallationGeoUnitId = Number(req.body?.installationGeoUnitId ?? req.body?.plannedInstallationGeoUnitId) || null;
   const plannedInstallationAddressText = typeof (req.body?.installationAddressText ?? req.body?.plannedInstallationAddressText) === 'string'
@@ -975,6 +980,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     'system_trigger',
   ]);
   const creationOrigin = allowedCreationOrigins.has(creationOriginInput) ? creationOriginInput : 'manual_creation';
+  const creationReason = typeof req.body?.creationReason === 'string' ? req.body.creationReason.trim() || null : null;
 
   const VALID_TASK_FAMILIES = new Set(['marketing', 'service', 'maintenance', 'emergency', 'delivery', 'sales', 'collection', 'warranty']);
 
@@ -1261,16 +1267,16 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
          due_date, expected_date, priority, source, notes, created_by, origin,
          contract_id, device_id, installment_id,
          delivery_address, source_context_type, source_context_id,
-         dispatch_origin_type, dispatch_origin_label, creation_origin
+         dispatch_origin_type, dispatch_origin_label, creation_origin, creation_reason
        ) VALUES ($1, $2, $3, $4, $5, 'open',
          $6::date, $7::date, $8, 'manual', $9, $10, 'manual_entry',
          $11, $12, $13,
-         $14, $15, $16, $17, $18, $19)
+         $14, $15, $16, $17, $18, $19, $20)
        RETURNING id`,
       [clientId, branchId, taskType, taskFamily, reason, dueDate, expectedDate, priority, notes,
        authContext.userId ?? null, contractId, deviceId, installmentId,
        deliveryAddress, sourceContextType, sourceContextId, dispatchOriginType, dispatchOriginLabel,
-       creationOrigin],
+       creationOrigin, creationReason],
     );
     const openTaskId = taskRows[0].id;
 
@@ -1288,6 +1294,16 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
           `INSERT INTO open_task_devices (task_id, device_model_id, device_name_snapshot, quantity)
            VALUES ($1, $2, $3, $4)`,
           [openTaskId, deviceModelId, deviceName, quantity > 0 ? quantity : 1],
+        );
+      }
+    }
+
+    if (installedDeviceIds.length > 0) {
+      for (const did of installedDeviceIds) {
+        await pgClient.query(
+          `INSERT INTO open_task_installed_devices (task_id, installed_device_id)
+           VALUES ($1, $2) ON CONFLICT (task_id, installed_device_id) DO NOTHING`,
+          [openTaskId, did],
         );
       }
     }
@@ -3952,6 +3968,40 @@ router.get('/:id/attempts', requirePermission('open_tasks.view'), async (req, re
   } catch (err: any) {
     console.error('[open-tasks] GET /:id/attempts error:', err);
     res.status(500).json({ error: 'فشل في تحميل سياق المهمة' });
+  }
+});
+
+// Physical installed devices linked to a task (golden-warranty multi-device tasks).
+// Returns each device with model + serial + its active golden warranty (if any),
+// so result modals can list them. DEC-CT-17.
+router.get('/:id/installed-devices', requirePermission('open_tasks.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+    const { rows: taskRows } = await pool.query('SELECT branch_id FROM open_tasks WHERE id = $1', [id]);
+    if (taskRows.length === 0) return res.status(404).json({ error: 'المهمة غير موجودة' });
+    if (!canViewOpenTask(authContext, taskRows[0].branch_id).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
+    }
+    const { rows } = await pool.query(
+      `SELECT d.id AS "installedDeviceId",
+              d.serial_number AS "serialNumber",
+              COALESCE(dm.name_ar, dm.name_en, 'جهاز') AS "deviceModelName",
+              w.id AS "activeGoldenWarrantyId", w.end_date AS "activeGoldenEndDate"
+         FROM open_task_installed_devices otid
+         JOIN installed_devices d ON d.id = otid.installed_device_id
+         LEFT JOIN device_models dm ON dm.id = d.device_model_id
+         LEFT JOIN device_warranties w
+                ON w.device_id = d.id AND w.warranty_type='golden' AND w.status='active'
+        WHERE otid.task_id = $1
+        ORDER BY otid.id`,
+      [id],
+    );
+    res.json(rows);
+  } catch (err: any) {
+    console.error('[open-tasks] GET /:id/installed-devices error:', err);
+    res.status(500).json({ error: 'فشل جلب أجهزة المهمة' });
   }
 });
 

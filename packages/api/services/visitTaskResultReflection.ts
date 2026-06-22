@@ -1056,6 +1056,325 @@ export async function applyDeviceDemoResult(
   }
 }
 
+// ── Golden warranty: OFFER result (DEC-CT-17) ────────────────────────────────
+// 3 outcomes: activated (create+activate a warranty per accepted device + baseline
+// 01i reading + payments) / rescheduled (needs_follow_up) / cancelled (rejected).
+interface GoldenOfferDeviceInput {
+  installedDeviceId: number;
+  months: number;
+  totalValue?: number | null;
+  visits?: number | null;
+  reading?: Record<string, unknown> | null;
+  payments?: any[];
+}
+interface GoldenOfferResultBody {
+  final_decision: 'activated' | 'rescheduled' | 'cancelled';
+  receipt_date?: string | null;
+  devices?: GoldenOfferDeviceInput[];
+  reason_code?: string | null;
+  expected_date?: string | null;
+  expected_time?: string | null;
+  closing_notes?: string | null;
+}
+
+export async function applyGoldenWarrantyOfferResult(
+  visitTaskId: number,
+  body: GoldenOfferResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<{ visitTaskResultId: number; openTaskNewStatus: string; visitCompleted: boolean; createdWarrantyIds: number[] }> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status, fv.branch_id, ot.contract_id
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+        WHERE vt.id = $1 LIMIT 1`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير موجود');
+    const vt = vtRows[0];
+    if (vt.task_type !== 'golden_warranty_offer') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" — هذا الـ service لعرض الكفالة الذهبية فقط`);
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة — الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+
+    const decision = body.final_decision;
+    if (!['activated', 'rescheduled', 'cancelled'].includes(decision)) {
+      throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+    }
+
+    let openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled' = 'completed';
+    let openTaskExpectedDate: string | null = null;
+
+    if (decision === 'rescheduled') {
+      if (!body.reason_code) throw new ResultValidationError('سبب التفعيل لاحقاً مطلوب');
+      if (!optionalDate(body.expected_date)) throw new ResultValidationError('التاريخ المتوقع مطلوب');
+      openTaskNewStatus = 'needs_follow_up';
+      openTaskExpectedDate = body.expected_date ?? null;
+    } else if (decision === 'cancelled') {
+      if (!body.reason_code) throw new ResultValidationError('سبب الرفض مطلوب');
+      openTaskNewStatus = 'cancelled';
+    } else {
+      if (!Array.isArray(body.devices) || body.devices.length === 0) {
+        throw new ResultValidationError('يجب تحديد جهاز واحد على الأقل للتفعيل');
+      }
+    }
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision, reason_code = EXCLUDED.reason_code,
+         closing_notes = EXCLUDED.closing_notes, closed_by = EXCLUDED.closed_by,
+         closed_at = NOW(), updated_at = NOW()
+       RETURNING id`,
+      [visitTaskId, decision, body.reason_code ?? null, body.closing_notes ?? null, performedByUserId],
+    );
+    const visitTaskResultId: number = vtrRows[0].id;
+
+    const createdWarrantyIds: number[] = [];
+    if (decision === 'activated') {
+      const receiptDate = body.receipt_date ?? new Date().toISOString().slice(0, 10);
+      for (const d of body.devices!) {
+        const deviceId = Number(d.installedDeviceId);
+        const months = Number(d.months);
+        if (!Number.isFinite(deviceId) || !Number.isFinite(months) || months <= 0) {
+          throw new ResultValidationError('بيانات الجهاز أو المدة غير صالحة');
+        }
+        const { rows: act } = await db.query(
+          `SELECT id FROM device_warranties WHERE device_id=$1 AND status='active' AND end_date > $2 LIMIT 1`,
+          [deviceId, receiptDate],
+        );
+        if (act[0]) throw new ResultValidationError(`الجهاز #${deviceId} عليه كفالة فعّالة لم تنتهِ بعد`);
+        const totalValue = d.totalValue != null ? Number(d.totalValue) : null;
+        const { rows: wRows } = await db.query(
+          `INSERT INTO device_warranties
+             (device_id, warranty_type, start_date, end_date, months, visits, total_value,
+              status, activated_at, source_task_id, offer_task_id)
+           VALUES ($1,'golden',$2,($2::date + ($3 || ' months')::interval)::date,$3,$4,$5,'active',now(),$6,$6)
+           RETURNING id`,
+          [deviceId, receiptDate, months, d.visits ?? null, totalValue, vt.source_open_task_id],
+        );
+        const warrantyId: number = wRows[0].id;
+        createdWarrantyIds.push(warrantyId);
+
+        await insertTechnicalState(db, {
+          installedDeviceId: deviceId,
+          openTaskId: vt.source_open_task_id,
+          contractId: vt.contract_id ?? null,
+          taskTypeSnapshot: 'golden_warranty_offer',
+          phase: 'baseline',
+          recordedBy: performedByUserId,
+          reading: d.reading ?? null,
+        });
+
+        if (Array.isArray(d.payments)) {
+          for (const p of d.payments) {
+            const av = Number(p.amountValue);
+            if (!Number.isFinite(av) || av < 0) continue;
+            const er = p.exchangeRate != null ? Number(p.exchangeRate) : null;
+            const syp = p.amountSyp != null ? Number(p.amountSyp) : (er ? av * er : av);
+            await db.query(
+              `INSERT INTO device_warranty_payments
+                 (warranty_id, method, currency, amount_value, exchange_rate, amount_syp,
+                  reference_number, barter_name, barter_value_syp, transfer_company_id,
+                  received_by_employee_id, notes, entry_type)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+              [warrantyId, p.method, p.currency ?? 'SYP', av, er, syp,
+               p.referenceNumber ?? null, p.barterName ?? null, p.barterValueSyp ?? null,
+               p.transferCompanyId ?? null, p.receivedByEmployeeId ?? performedByUserId,
+               p.notes ?? null, p.entryType ?? 'collection'],
+            );
+          }
+        }
+
+        await db.query(
+          `UPDATE installed_devices d SET golden_warranty_end_date = (
+             SELECT MAX(w.end_date) FROM device_warranties w
+              WHERE w.device_id = d.id AND w.warranty_type='golden' AND w.status='active')
+           WHERE d.id = $1`,
+          [deviceId],
+        );
+      }
+    }
+
+    const newVtStatus = decision === 'cancelled' ? 'cancelled' : 'completed';
+    await db.query(`UPDATE visit_tasks SET status = $1, updated_at = NOW() WHERE id = $2`, [newVtStatus, visitTaskId]);
+
+    if (vt.source_open_task_id) {
+      if (openTaskNewStatus === 'cancelled') {
+        await db.query(
+          `UPDATE open_tasks SET status='cancelled', cancellation_reason=COALESCE($2, cancellation_reason), updated_at=NOW() WHERE id=$1`,
+          [vt.source_open_task_id, body.reason_code ?? null],
+        );
+      } else if (openTaskNewStatus === 'needs_follow_up') {
+        await db.query(
+          `UPDATE open_tasks SET last_waiting_status = CASE WHEN status IN ('open','needs_follow_up') THEN status ELSE COALESCE(last_waiting_status,'open') END,
+                  status='needs_follow_up', expected_date=COALESCE($2::date, expected_date), expected_time=COALESCE($3, expected_time), updated_at=NOW() WHERE id=$1`,
+          [vt.source_open_task_id, openTaskExpectedDate, body.expected_time ?? null],
+        );
+      } else {
+        await db.query(`UPDATE open_tasks SET status='completed', updated_at=NOW() WHERE id=$1`, [vt.source_open_task_id]);
+      }
+    }
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+    if (!useExternal) await db.query('COMMIT');
+    return { visitTaskResultId, openTaskNewStatus, visitCompleted: completion.completed, createdWarrantyIds };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+// ── Golden warranty: CARD DELIVERY result (DEC-CT-17) ────────────────────────
+// 3 outcomes: delivered (recipient + auto date, stamps card_delivery_task_id) /
+// rescheduled (needs_follow_up) / cancelled (rejected receipt).
+interface GoldenCardResultBody {
+  final_decision: 'delivered' | 'rescheduled' | 'cancelled';
+  recipient_type?: 'customer' | 'other';
+  recipient_name?: string | null;
+  reason_code?: string | null;
+  expected_date?: string | null;
+  expected_time?: string | null;
+  closing_notes?: string | null;
+}
+
+export async function applyGoldenWarrantyCardDeliveryResult(
+  visitTaskId: number,
+  body: GoldenCardResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<{ visitTaskResultId: number; openTaskNewStatus: string; visitCompleted: boolean; deliveredCount: number }> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status, ot.device_id
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+        WHERE vt.id = $1 LIMIT 1`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير موجود');
+    const vt = vtRows[0];
+    if (vt.task_type !== 'golden_warranty_card_delivery') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" — هذا الـ service لتسليم كرت الكفالة فقط`);
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة — الزيارة في حالة "${vt.visit_status}"`);
+    }
+
+    const decision = body.final_decision;
+    if (!['delivered', 'rescheduled', 'cancelled'].includes(decision)) {
+      throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+    }
+
+    let openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled' = 'completed';
+    let openTaskExpectedDate: string | null = null;
+    let closingNotes = body.closing_notes ?? null;
+
+    if (decision === 'rescheduled') {
+      if (!body.reason_code) throw new ResultValidationError('سبب إعادة الجدولة مطلوب');
+      if (!optionalDate(body.expected_date)) throw new ResultValidationError('التاريخ المتوقع مطلوب');
+      openTaskNewStatus = 'needs_follow_up';
+      openTaskExpectedDate = body.expected_date ?? null;
+    } else if (decision === 'cancelled') {
+      if (!body.reason_code) throw new ResultValidationError('سبب الرفض مطلوب');
+      openTaskNewStatus = 'cancelled';
+    } else {
+      const recipient = body.recipient_type === 'other' ? (body.recipient_name ?? '').trim() : 'الزبون';
+      if (body.recipient_type === 'other' && !recipient) {
+        throw new ResultValidationError('اسم المستلِم مطلوب عند التسليم لشخص آخر');
+      }
+      closingNotes = `تم تسليم الكرت إلى: ${recipient}${closingNotes ? ` — ${closingNotes}` : ''}`;
+    }
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision, reason_code = EXCLUDED.reason_code,
+         closing_notes = EXCLUDED.closing_notes, closed_by = EXCLUDED.closed_by,
+         closed_at = NOW(), updated_at = NOW()
+       RETURNING id`,
+      [visitTaskId, decision, body.reason_code ?? null, closingNotes, performedByUserId],
+    );
+    const visitTaskResultId: number = vtrRows[0].id;
+
+    let deliveredCount = 0;
+    if (decision === 'delivered') {
+      // The task may combine several cards — stamp every linked device's active
+      // golden warranty (fallback to the single open_tasks.device_id).
+      const { rows: devRows } = await db.query(
+        `SELECT installed_device_id FROM open_task_installed_devices WHERE task_id = $1`,
+        [vt.source_open_task_id],
+      );
+      const deviceIds: number[] = devRows.length > 0
+        ? devRows.map((r: any) => Number(r.installed_device_id))
+        : (vt.device_id ? [Number(vt.device_id)] : []);
+      for (const did of deviceIds) {
+        const upd = await db.query(
+          `UPDATE device_warranties SET card_delivery_task_id = $1, updated_at = now()
+            WHERE id = (SELECT id FROM device_warranties
+                         WHERE device_id = $2 AND warranty_type='golden' AND status='active'
+                         ORDER BY end_date DESC LIMIT 1)`,
+          [vt.source_open_task_id, did],
+        );
+        deliveredCount += upd.rowCount ?? 0;
+      }
+    }
+
+    const newVtStatus = decision === 'cancelled' ? 'cancelled' : 'completed';
+    await db.query(`UPDATE visit_tasks SET status = $1, updated_at = NOW() WHERE id = $2`, [newVtStatus, visitTaskId]);
+
+    if (vt.source_open_task_id) {
+      if (openTaskNewStatus === 'cancelled') {
+        await db.query(
+          `UPDATE open_tasks SET status='cancelled', cancellation_reason=COALESCE($2, cancellation_reason), updated_at=NOW() WHERE id=$1`,
+          [vt.source_open_task_id, body.reason_code ?? null],
+        );
+      } else if (openTaskNewStatus === 'needs_follow_up') {
+        await db.query(
+          `UPDATE open_tasks SET last_waiting_status = CASE WHEN status IN ('open','needs_follow_up') THEN status ELSE COALESCE(last_waiting_status,'open') END,
+                  status='needs_follow_up', expected_date=COALESCE($2::date, expected_date), expected_time=COALESCE($3, expected_time), updated_at=NOW() WHERE id=$1`,
+          [vt.source_open_task_id, openTaskExpectedDate, body.expected_time ?? null],
+        );
+      } else {
+        await db.query(`UPDATE open_tasks SET status='completed', updated_at=NOW() WHERE id=$1`, [vt.source_open_task_id]);
+      }
+    }
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+    if (!useExternal) await db.query('COMMIT');
+    return { visitTaskResultId, openTaskNewStatus, visitCompleted: completion.completed, deliveredCount };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
 export async function applyDeviceDeliveryResult(
   visitTaskId: number,
   body: DeviceDeliveryResultBody,

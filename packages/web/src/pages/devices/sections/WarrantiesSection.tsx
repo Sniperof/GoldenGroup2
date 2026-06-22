@@ -7,10 +7,11 @@
 // golden warranty). The task then surfaces in /tasks/group/warranty-services.
 
 import { useState } from 'react';
-import { Award, Loader2 } from 'lucide-react';
-import { api } from '../../../lib/api';
+import { Award, CreditCard } from 'lucide-react';
 import { WarrantyStatusBadge } from '../../../components/devices/WarrantyStatusBadge';
 import { SectionShell } from './SectionShell';
+import GoldenWarrantyOfferCreateModal from '../../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferCreateModal';
+import GoldenWarrantyCardCreateModal from '../../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardCreateModal';
 
 interface DeviceCtx {
   id: number;
@@ -37,47 +38,52 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 function OfferGoldenButton({ device, onCreated }: { device: DeviceCtx; onCreated?: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function createOffer() {
-    if (!device.customerId) { setErr('لا يمكن إنشاء المهمة: الزبون غير معروف'); return; }
-    setBusy(true); setErr(null); setMsg(null);
-    try {
-      await api.openTasks.create({
-        taskType: 'golden_warranty_offer',
-        taskFamily: 'warranty',
-        clientId: device.customerId,
-        installedDeviceId: device.id,
-        contractId: device.contractId ?? null,
-        ...(device.branchId ? { branchId: device.branchId } : {}),
-        creationOrigin: 'manual_creation',
-        reason: 'عرض كفالة ذهبية',
-      });
-      setMsg('تم إنشاء مهمة عرض كفالة ذهبية — تظهر الآن في قسم خدمات الكفالة.');
-      onCreated?.();
-    } catch (e: any) {
-      setErr(e?.message ?? 'فشل إنشاء مهمة العرض');
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  const [open, setOpen] = useState(false);
+  if (!device.customerId) return null;
   return (
-    <div className="flex flex-col items-start gap-1">
+    <>
       <button
         type="button"
-        onClick={createOffer}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100"
       >
-        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Award className="h-3.5 w-3.5" />}
+        <Award className="h-3.5 w-3.5" />
         عرض كفالة ذهبية
       </button>
-      {msg && <span className="text-[11px] text-emerald-600">{msg}</span>}
-      {err && <span className="text-[11px] text-rose-600">{err}</span>}
-    </div>
+      {open && (
+        <GoldenWarrantyOfferCreateModal
+          customerId={device.customerId}
+          branchId={device.branchId ?? null}
+          onClose={() => setOpen(false)}
+          onSaved={() => { setOpen(false); onCreated?.(); }}
+        />
+      )}
+    </>
+  );
+}
+
+function CardDeliveryButton({ device, onCreated }: { device: DeviceCtx; onCreated?: () => void }) {
+  const [open, setOpen] = useState(false);
+  if (!device.customerId) return null;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100"
+      >
+        <CreditCard className="h-3.5 w-3.5" />
+        تسليم كرت كفالة
+      </button>
+      {open && (
+        <GoldenWarrantyCardCreateModal
+          customerId={device.customerId}
+          branchId={device.branchId ?? null}
+          onClose={() => setOpen(false)}
+          onSaved={() => { setOpen(false); onCreated?.(); }}
+        />
+      )}
+    </>
   );
 }
 
@@ -87,7 +93,12 @@ export function WarrantiesSection({ warranties, device, onCreated }: Props) {
   // (DEC-CT-16: one active golden at a time; offer is guarded by the prior ending).
   const canOfferGolden = device?.status === 'active' && !hasActiveGolden;
 
-  const action = device && canOfferGolden ? <OfferGoldenButton device={device} onCreated={onCreated} /> : undefined;
+  const action = device ? (
+    <div className="flex items-center gap-2">
+      {canOfferGolden && <OfferGoldenButton device={device} onCreated={onCreated} />}
+      {hasActiveGolden && <CardDeliveryButton device={device} onCreated={onCreated} />}
+    </div>
+  ) : undefined;
 
   if (!warranties?.length) {
     return (

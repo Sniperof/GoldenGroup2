@@ -15,8 +15,6 @@ import {
 import { getExpectedDateStatus, getDueDateStatus } from '../../lib/taskDateStatus';
 import { getGeoUnits, type GeoUnit } from '../../lib/geoUnitsCache';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
-import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';
-import GoldenWarrantyCardDeliveryModal from '../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardDeliveryModal';
 
 // ============================================================
 // TaskGroupPage — Unified tasks list for all 6 display_groups.
@@ -374,9 +372,6 @@ export default function TaskGroupPage() {
   const [clientPopupId, setClientPopupId] = useState<number | null>(null);
   const [savingPriorityId, setSavingPriorityId] = useState<number | null>(null);
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
-  // DEC-CT-17: golden-warranty tasks open their result modal in-place (no detail page).
-  const [offerTask, setOfferTask] = useState<any | null>(null);
-  const [cardTask, setCardTask] = useState<any | null>(null);
 
   useEffect(() => {
     getGeoUnits().then(setGeoUnits).catch(() => setGeoUnits([]));
@@ -464,13 +459,6 @@ export default function TaskGroupPage() {
   // All groups are now served by the backend group endpoint (migration 288).
   const notWiredYet = false;
   const geoMap = new Map(geoUnits.map((unit) => [unit.id, unit]));
-
-  // Golden-warranty rows open a modal in place; everything else navigates to its detail page.
-  const actionRow = (row: any) => {
-    if (row.taskType === 'golden_warranty_offer') { setOfferTask(row); return; }
-    if (row.taskType === 'golden_warranty_card_delivery') { setCardTask(row); return; }
-    navigate(`${(group === 'my-customers' ? (TASK_TYPE_DETAIL_HREF[row.taskType] ?? config.detailHref) : config.detailHref)}/${row.id}`);
-  };
 
   // warranty-services renders two tables: offers/other vs VIP-card delivery (DEC-CT-17).
   const tableGroups: Array<{ key: string; heading: string | null; rows: any[] }> =
@@ -634,7 +622,7 @@ export default function TaskGroupPage() {
                   const dateCounterReference = getDateCounterReference(row);
 
                   return (
-                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => actionRow(row)}>
+                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`${(group === 'my-customers' ? (TASK_TYPE_DETAIL_HREF[row.taskType] ?? config.detailHref) : config.detailHref)}/${row.id}`)}>
                       <td className="px-4 py-3 text-slate-700 font-mono text-xs">
                         #{row.id}
                       </td>
@@ -742,26 +730,6 @@ export default function TaskGroupPage() {
         <ClientCardPopup
           clientId={clientPopupId}
           onClose={() => setClientPopupId(null)}
-        />
-      )}
-
-      {offerTask && (
-        <GoldenWarrantyOfferModal
-          taskId={offerTask.id}
-          customerId={offerTask.clientId ?? offerTask.customerId ?? null}
-          deviceId={offerTask.deviceId ?? offerTask.installedDeviceId ?? null}
-          branchId={effectiveBranchId ?? null}
-          onClose={() => setOfferTask(null)}
-          onSaved={() => { setOfferTask(null); load(); }}
-        />
-      )}
-
-      {cardTask && (
-        <GoldenWarrantyCardDeliveryModal
-          taskId={cardTask.id}
-          deviceId={cardTask.deviceId ?? cardTask.installedDeviceId ?? null}
-          onClose={() => setCardTask(null)}
-          onSaved={() => { setCardTask(null); load(); }}
         />
       )}
     </div>

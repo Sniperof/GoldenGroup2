@@ -7,7 +7,7 @@ import type { AuthContext } from '@golden-crm/shared';
 import { canViewFieldVisit, canEditFieldVisit, getFieldVisitListAccessPlan } from '../policies/fieldVisitPolicy.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
-import { applyDeviceActivationResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { applyDeviceActivationResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
 import {
   buildClientLifecycleStatusSql,
   buildCustomerOwnershipSql,
@@ -2692,6 +2692,16 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
       // Lifecycle-only path (reschedule / cancel). The "apply maintenance"
       // outcome continues to use the dedicated /api/emergency-result wizard.
       const result = await applyEmergencyMaintenanceLifecycleResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'golden_warranty_offer') {
+      const result = await applyGoldenWarrantyOfferResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'golden_warranty_card_delivery') {
+      const result = await applyGoldenWarrantyCardDeliveryResult(taskId, body, authContext.userId);
       return res.json({ success: true, ...result });
     }
 

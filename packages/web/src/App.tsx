@@ -34,6 +34,7 @@ import TeamTasksDetail from './pages/planning/TeamTasksDetail';
 import DeviceDemo from './pages/tasks/DeviceDemo';
 import DeviceDemoDetail from './pages/tasks/DeviceDemoDetail';
 import PostSaleTaskDetail from './pages/tasks/PostSaleTaskDetail';
+import WarrantyServicesTaskDetail from './pages/tasks/WarrantyServicesTaskDetail';
 import OpenTasks from './pages/OpenTasks';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
@@ -124,6 +125,7 @@ export default function App() {
                         <Route path="/tasks/group/device-activation/:id" element={<PostSaleTaskDetail />} />
                         {/* Unified open_task detail under group URL — V1.0 reuses EmergencyTaskDetail. */}
                         <Route path="/tasks/group/maintenance/:id" element={<EmergencyTaskDetail />} />
+                        <Route path="/tasks/group/warranty-services/:id" element={<WarrantyServicesTaskDetail />} />
                         {/* Unified task groups (2026-06-01) — single page, 6 display_groups */}
                         <Route path="/tasks/group/:group" element={<TaskGroupPage />} />
                         <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
