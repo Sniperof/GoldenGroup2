@@ -37,7 +37,7 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                     <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                     <span> مواعيد الفريق</span>
                 </h2>
-                <p className="text-[10px] text-slate-500 mt-1 mr-5">جدول زيارات الغد: {date}</p>
+                <p className="text-[10px] text-slate-500 mt-1 mr-5">جدول زيارات الخطة: {date}</p>
             </div>
 
             {/* Timetable */}
