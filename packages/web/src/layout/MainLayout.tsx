@@ -224,17 +224,23 @@ export default function MainLayout() {
                 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}
             `}>
                 {/* Logo & Toggle Header */}
-                <div className={`border-b border-slate-100 flex items-center justify-between ${isCollapsed ? 'p-5 lg:flex-col lg:justify-center lg:gap-2 lg:p-3' : 'p-5'}`}>
+                <div className={`p-5 border-b border-slate-100 flex items-center justify-between ${isCollapsed ? 'lg:justify-center' : ''}`}>
                     <div className={`flex items-center gap-3 ${isMobileMenuOpen ? 'flex' : ''}`}>
-                        <img src={logoMark} alt="Golden Group" className="w-8 h-8 object-contain shrink-0" />
+                        <img
+                            src={logoMark}
+                            alt="Golden Group"
+                            onClick={() => { if (isCollapsed) toggleCollapse(); }}
+                            title={isCollapsed ? 'توسيع القائمة' : undefined}
+                            className={`w-8 h-8 object-contain shrink-0 ${isCollapsed ? 'lg:cursor-pointer' : ''}`}
+                        />
                         <span className={`text-lg font-bold text-slate-800 tracking-wide ${isCollapsed ? 'lg:hidden' : ''}`}>Golden Group</span>
                     </div>
-                    {/* Desktop Collapse Toggle */}
+                    {/* Desktop Collapse Toggle — only when expanded; collapsed expands via logo click */}
                     <button
                         onClick={toggleCollapse}
-                        className="hidden lg:flex p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                        className={`p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors ${isCollapsed ? 'hidden' : 'hidden lg:flex'}`}
                     >
-                        {isCollapsed ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                        <ChevronRight className="w-5 h-5" />
                     </button>
                     {/* Mobile Close Button */}
                     <button
