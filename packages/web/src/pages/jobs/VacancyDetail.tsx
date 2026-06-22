@@ -212,7 +212,7 @@ export default function VacancyDetail() {
           <ArrowRight className="w-5 h-5" />
         </button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold text-slate-800">إدارة التوظيف</h1>
+          <h1 className="text-2xl font-bold text-slate-800">إدارة التوظيف</h1>
           <p className="text-sm text-slate-400 mt-0.5">
             إدارة شاغر {detail.title} · المرجع: JOB-2024-{id}
           </p>
@@ -240,7 +240,7 @@ export default function VacancyDetail() {
               <div className={`p-1.5 rounded-lg ${s.bg}`}>
                 <s.icon className={`w-4 h-4 ${s.accent}`} />
               </div>
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">{s.label}</span>
+              <span className="text-xs text-slate-400 font-bold uppercase tracking-wide">{s.label}</span>
             </div>
             <p className={`text-2xl font-bold ${s.accent}`}>{s.value}</p>
           </div>
@@ -255,7 +255,7 @@ export default function VacancyDetail() {
 
           {/* Job Info Card */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <h3 className="text-base font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
               <Briefcase className="w-3.5 h-3.5 text-sky-500" /> معلومات الشاغر
             </h3>
             <div className="space-y-3 mb-4">
@@ -345,14 +345,14 @@ export default function VacancyDetail() {
 
           {/* Requirements Card */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <h3 className="text-base font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
               <GraduationCap className="w-3.5 h-3.5 text-sky-500" /> متطلبات الشاغر
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50">
                 <GraduationCap className="w-5 h-5 text-sky-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">المؤهل العلمي</p>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">المؤهل العلمي</p>
                   <p className="text-sm font-medium text-slate-700">{detail.requiredCertificate || '—'}</p>
                   {detail.requiredMajor && <p className="text-xs text-slate-500 mt-0.5">{detail.requiredMajor}</p>}
                 </div>
@@ -360,7 +360,7 @@ export default function VacancyDetail() {
               <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50">
                 <MapPin className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">الموقع</p>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">الموقع</p>
                   <p className="text-sm font-medium text-slate-700">{locationStr || '—'}</p>
                   {detail.detailedAddress && (
                     <p className="text-xs text-slate-500 mt-0.5">{detail.detailedAddress}</p>
@@ -370,7 +370,7 @@ export default function VacancyDetail() {
               <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50">
                 <Clock className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">الخبرة المطلوبة</p>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">الخبرة المطلوبة</p>
                   <p className="text-sm font-medium text-slate-700">
                     {detail.requiredExperienceYears != null
                       ? `${detail.requiredExperienceYears} سنة فأكثر`
@@ -381,7 +381,7 @@ export default function VacancyDetail() {
               <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50">
                 <User className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">الجنس والعمر</p>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">الجنس والعمر</p>
                   <p className="text-sm font-medium text-slate-700">{detail.requiredGender || 'لا يهم'}</p>
                   {(detail.requiredAgeMin || detail.requiredAgeMax) && (
                     <p className="text-xs text-slate-500 mt-0.5">
@@ -393,7 +393,7 @@ export default function VacancyDetail() {
               <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50">
                 <Car className="w-5 h-5 text-sky-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">السيارة</p>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">السيارة</p>
                   <p className="text-sm font-medium text-slate-700">
                     {detail.hasCarRequired ? 'هل يمتلك المتقدم سيارة: مطلوب' : 'هل يمتلك المتقدم سيارة: غير مطلوب'}
                   </p>
@@ -402,7 +402,7 @@ export default function VacancyDetail() {
             </div>
             {detail.responsibilities && (
               <div className="mt-4 pt-4 border-t border-slate-100">
-                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">المسؤوليات والمهام</p>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">المسؤوليات والمهام</p>
                 <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{detail.responsibilities}</p>
               </div>
             )}
@@ -411,7 +411,7 @@ export default function VacancyDetail() {
           {/* Skills Tags */}
           {skills.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <BookOpen className="w-3.5 h-3.5 text-sky-500" /> التقنيات المطلوبة
               </h3>
               <div className="flex flex-wrap gap-2">
@@ -428,7 +428,7 @@ export default function VacancyDetail() {
           {/* Contact Methods */}
           {detail.contactMethods && detail.contactMethods.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <PhoneCall className="w-3.5 h-3.5 text-sky-500" /> وسائل التواصل المنشورة مع الشاغر
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -454,7 +454,7 @@ export default function VacancyDetail() {
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
           <Users className="w-4 h-4 text-sky-500" />
-          <h3 className="text-sm font-bold text-slate-700">المرشحون المرتبطون</h3>
+          <h3 className="text-base font-bold text-slate-800">المرشحون المرتبطون</h3>
           <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">
             {applications.length}
           </span>
@@ -615,7 +615,7 @@ export default function VacancyDetail() {
 
                 {/* Basic */}
                 <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
                     <Briefcase className="w-3.5 h-3.5" /> الأساسيات
                   </p>
                   <div>
@@ -663,7 +663,7 @@ export default function VacancyDetail() {
 
                 {/* Requirements */}
                 <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
                     <GraduationCap className="w-3.5 h-3.5" /> المتطلبات
                   </p>
                   <div className="grid grid-cols-2 gap-3">
@@ -726,7 +726,7 @@ export default function VacancyDetail() {
 
                 {/* Contact Methods */}
                 <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
                     <PhoneCall className="w-3.5 h-3.5" /> وسائل التواصل
                   </p>
                   {branchContacts.length > 0 ? (
@@ -740,7 +740,7 @@ export default function VacancyDetail() {
                             <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${isSelected ? 'bg-sky-500 border-sky-500' : 'border-slate-300'}`}>
                               {isSelected && <CheckCircle className="w-3 h-3 text-white" />}
                             </div>
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold border ${CONTACT_TAG_COLORS[contact.type]}`}>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border ${CONTACT_TAG_COLORS[contact.type]}`}>
                               <Icon className="w-3 h-3" /> {CONTACT_LABELS[contact.type]}
                             </span>
                             <span className="font-mono text-xs text-slate-700" dir="ltr">{contact.value}</span>
@@ -755,7 +755,7 @@ export default function VacancyDetail() {
 
                 {/* Dates */}
                 <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5" /> التوقيت
                   </p>
                   <div className="grid grid-cols-3 gap-3">

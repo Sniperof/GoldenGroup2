@@ -64,7 +64,7 @@ export function TasksSection({ tasks, deviceId, contractId }: Props) {
                   <td className="py-2 px-2 text-slate-500">{t.taskFamily}</td>
                   <td className="py-2 px-2 text-slate-700">{fmt(t.dueDate)}</td>
                   <td className="py-2 px-2">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${st.cls}`}>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${st.cls}`}>
                       {st.label}
                     </span>
                   </td>

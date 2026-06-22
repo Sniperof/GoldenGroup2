@@ -89,7 +89,7 @@ function ExternalDeviceModalV2({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
       <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h3 className="text-base font-black text-slate-800">اضافة جهاز خارجي</h3>
+          <h3 className="text-base font-bold text-slate-800">اضافة جهاز خارجي</h3>
           <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
         <div className="space-y-4 px-5 py-5">
@@ -132,11 +132,11 @@ function ExternalDeviceModalV2({
               </label>
               <div className="flex items-center gap-3">
                 {mapPosition && (
-                  <span className="font-mono text-[10px] text-slate-400" dir="ltr">
+                  <span className="font-mono text-xs text-slate-400" dir="ltr">
                     {mapPosition[0].toFixed(5)}, {mapPosition[1].toFixed(5)}
                   </span>
                 )}
-                <button type="button" onClick={onToggleMapPicker} className="text-[11px] font-semibold text-sky-600 hover:text-sky-500">
+                <button type="button" onClick={onToggleMapPicker} className="text-xs font-semibold text-sky-600 hover:text-sky-500">
                   {showMapPicker ? 'اخفاء الخريطة' : 'اظهار الخريطة'}
                 </button>
               </div>
@@ -375,7 +375,7 @@ export function DevicesTab({ client }: Props) {
   return (
     <div className="space-y-4 max-w-7xl">
       <header className="flex items-center justify-between gap-4 flex-wrap">
-        <h3 className="text-lg font-black text-slate-800">أجهزة الزبون</h3>
+        <h3 className="text-base font-bold text-slate-800">أجهزة الزبون</h3>
         <div className="flex items-center gap-1 flex-wrap">
           <button
             type="button"
@@ -449,7 +449,7 @@ export function DevicesTab({ client }: Props) {
                     />
                   </td>
                   <td className="py-3 px-4">
-                    <span className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${device.deviceSource === 'external' ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700'}`}>
+                    <span className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${device.deviceSource === 'external' ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700'}`}>
                       {device.deviceSource === 'external' ? 'خارجي' : 'من عقد'}
                     </span>
                     <br />

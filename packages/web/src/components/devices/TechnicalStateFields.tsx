@@ -98,7 +98,7 @@ export function TechnicalStateFields({
     <div className="space-y-5">
       {/* مصدر المياه */}
       <div>
-        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">مصدر المياه</p>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">مصدر المياه</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Field label="نوع المصدر">{Sel('waterSourceType', [{ value: 'رئيسية', label: 'رئيسية' }, { value: 'خزان', label: 'خزان' }])}</Field>
           <Field label="العيار (ppm)">{Num('waterSourceTds')}</Field>
@@ -109,7 +109,7 @@ export function TechnicalStateFields({
 
       {/* قراءات الجهاز */}
       <div>
-        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">قراءات الجهاز</p>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">قراءات الجهاز</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Field label="عيار حنفية الجهاز (ppm)">{Num('tapTdsBefore')}</Field>
           <Field label="ضغط المضخة (bar)">{Num('pumpPressure')}</Field>
@@ -130,7 +130,7 @@ export function TechnicalStateFields({
       {/* التعقيم — اختياري حسب نوع الجهاز */}
       {hasSterilization && (
         <div>
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">التعقيم</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">التعقيم</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Field label="ترانس التعقيم">{Sel('sterilizationTransformer', WORKS)}</Field>
             <Field label="لمبة التعقيم">{Sel('uvLamp', WORKS)}</Field>
@@ -141,7 +141,7 @@ export function TechnicalStateFields({
 
       {/* الضاغطات والتوصيلات */}
       <div>
-        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">الضاغطات والتوصيلات</p>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">الضاغطات والتوصيلات</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Field label="لو برشر">{Sel('lowPressureSwitch', WORKS)}</Field>
           <Field label="نوع القسام">{Sel('valveType', [{ value: 'ميكانيك', label: 'ميكانيك' }, { value: 'كهرباء', label: 'كهرباء' }])}</Field>

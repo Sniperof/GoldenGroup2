@@ -76,7 +76,7 @@ export function CardTitle({ className = '', children, ...rest }: HTMLAttributes<
 
 export function CardBody({ className = '', children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={`text-[13.5px] text-slate-700 ${className}`} {...rest}>
+    <div className={`text-base text-slate-700 ${className}`} {...rest}>
       {children}
     </div>
   );

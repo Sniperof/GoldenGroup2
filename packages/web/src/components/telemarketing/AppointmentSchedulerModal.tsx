@@ -154,7 +154,7 @@ export default function AppointmentSchedulerModal({
                 className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
                 {/* Header */}
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-emerald-50 shrink-0">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-emerald-50 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
                             <Calendar className="w-5 h-5 text-emerald-600" />
@@ -178,7 +178,7 @@ export default function AppointmentSchedulerModal({
                         <select
                             value={visitTime}
                             onChange={e => setVisitTime(e.target.value)}
-                            className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
                             dir="ltr"
                         >
                             {getHourlyVisitSlots().map(slot => (
@@ -202,7 +202,7 @@ export default function AppointmentSchedulerModal({
                                     <div key={task.taskListItemId} className="flex items-center justify-between gap-3">
                                         <span className="font-bold">{getTaskLabel(task.openTaskType)}</span>
                                         {task.openTaskReason && (
-                                            <span className="text-[10px] bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-emerald-700">
+                                            <span className="text-xs bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-emerald-700">
                                                 {task.openTaskReason}
                                             </span>
                                         )}
@@ -237,13 +237,13 @@ export default function AppointmentSchedulerModal({
                             value={technicianNotes}
                             onChange={e => setTechnicianNotes(e.target.value)}
                             placeholder="أي تفاصيل يجب أن يعرفها الفريق قبل الزيارة..."
-                            className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none min-h-[80px] resize-none"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm placeholder:text-slate-400 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none min-h-[80px] resize-none"
                         />
                     </div>
                 </div>
 
                 {/* Footer */}
-                <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
+                <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
                     <Button variant="ghost" disabled={saving} onClick={onClose}>إلغاء</Button>
                     <Button
                         icon={CheckCircle2}

@@ -266,7 +266,7 @@ export default function MaintenanceReceiptModal({ taskId, isOpen, onClose }: Pro
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 bg-rose-50/50 px-6 py-4 shrink-0">
           <div>
-            <h3 className="text-base font-black text-slate-800">وصل الصيانة</h3>
+            <h3 className="text-base font-bold text-slate-800">وصل الصيانة</h3>
             <p className="mt-0.5 text-xs text-slate-500">مهمة #{taskId}</p>
           </div>
           <IconButton icon={X} label="إغلاق" onClick={onClose} />

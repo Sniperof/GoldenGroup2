@@ -210,7 +210,7 @@ export default function InterviewDetail() {
           <ArrowRight className="w-5 h-5" />
         </button>
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <Users className="w-5 h-5 text-sky-500" />
             مقابلة #{detail.id} — {detail.applicant.firstName} {detail.applicant.lastName}
           </h1>
@@ -231,7 +231,7 @@ export default function InterviewDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+            <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
               <Users className="w-4 h-4 text-sky-500" /> بيانات المقابلة
             </h3>
             <div className="grid grid-cols-2 gap-4 text-sm">
@@ -254,7 +254,7 @@ export default function InterviewDetail() {
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+            <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
               <User className="w-4 h-4 text-sky-500" /> بيانات المتقدم
             </h3>
             <div className="grid grid-cols-2 gap-4 text-sm">
@@ -275,7 +275,7 @@ export default function InterviewDetail() {
 
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+            <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-sky-500" /> بيانات الشاغر
             </h3>
             <div className="space-y-3 text-sm">
@@ -290,7 +290,7 @@ export default function InterviewDetail() {
 
           {isScheduled && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-sm font-bold text-slate-700 mb-4">الإجراءات</h3>
+              <h3 className="text-base font-bold text-slate-800 mb-4">الإجراءات</h3>
               <div className="space-y-2">
                 <PermissionGate permission="jobs.interviews.edit">
                   <Button fullWidth icon={Edit} onClick={openEdit} disabled={actionLoading}>
@@ -328,7 +328,7 @@ export default function InterviewDetail() {
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
               onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-bold text-slate-800">تعديل المقابلة</h3>
+                <h3 className="text-base font-bold text-slate-800">تعديل المقابلة</h3>
                 <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setShowEditModal(false)} />
               </div>
               {editError && (
@@ -422,7 +422,7 @@ export default function InterviewDetail() {
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
               onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-bold text-slate-800">تسجيل نتيجة المقابلة</h3>
+                <h3 className="text-base font-bold text-slate-800">تسجيل نتيجة المقابلة</h3>
                 <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setShowResultModal(false)} />
               </div>
               <div className="space-y-4">

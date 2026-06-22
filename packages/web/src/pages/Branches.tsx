@@ -231,7 +231,7 @@ export default function Branches() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <Building2 className="w-7 h-7 text-sky-500" />
             إدارة الفروع
           </h1>
@@ -265,8 +265,8 @@ export default function Branches() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh]">
             {/* Modal header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex-shrink-0">
-              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex-shrink-0">
+              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-sky-500" />
                 {editingBranch ? 'تعديل بيانات الفرع' : 'إضافة فرع جديد'}
               </h3>
@@ -283,7 +283,7 @@ export default function Branches() {
                     <input required value={name} onChange={e => setName(e.target.value)}
                       disabled={!canEditCurrentBranchDetails}
                       placeholder="مثال: فرع الرصافة الرئيسي"
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none disabled:bg-gray-50" />
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none disabled:bg-slate-50" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-sm font-semibold text-slate-700">الحالة</label>
@@ -312,7 +312,7 @@ export default function Branches() {
                     minSelectableLevel={3}
                     disabled={!canEditCurrentBranchDetails} />
                   {!locationSelection.subId && !locationSelection.neighborhoodId && (
-                    <p className="text-[11px] text-amber-600 font-medium">
+                    <p className="text-xs text-amber-600 font-medium">
                       يجب اختيار ناحية أو حي على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
                     </p>
                   )}
@@ -324,7 +324,7 @@ export default function Branches() {
                       disabled={!canEditCurrentBranchDetails}
                       rows={3}
                       placeholder="مثال: الشارع، البناء، الطابق، أقرب نقطة دالة..."
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none resize-none disabled:bg-gray-50"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none resize-none disabled:bg-slate-50"
                     />
                   </div>
                 </div>
@@ -499,9 +499,9 @@ export default function Branches() {
               </div>
 
               {/* Footer */}
-              <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 flex-shrink-0">
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 flex-shrink-0">
                 <button type="button" onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors">
+                  className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors">
                   إلغاء
                 </button>
                 <button type="submit" disabled={loading}

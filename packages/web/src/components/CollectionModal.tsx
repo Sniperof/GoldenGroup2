@@ -65,9 +65,9 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
                     exit={{ opacity: 0, scale: 0.95 }}
                     className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden"
                 >
-                    <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                    <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                         <div>
-                            <h3 className="text-lg font-bold text-slate-900">تسجيل مكالمة تحصيل</h3>
+                            <h3 className="text-base font-bold text-slate-800">تسجيل مكالمة تحصيل</h3>
                             <p className="text-sm text-slate-500 mt-1">{due.customerName} - {due.mobile}</p>
                         </div>
                         <IconButton icon={X} label="إغلاق" shape="circle" onClick={onClose} />
@@ -87,7 +87,7 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
                                     onClick={() => setOutcome(opt.id as Outcome)}
                                     className={`flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all ${outcome === opt.id
                                         ? 'border-sky-600 bg-sky-50 text-sky-700'
-                                        : 'border-gray-100 hover:border-sky-100 hover:bg-gray-50 text-slate-600'
+                                        : 'border-slate-100 hover:border-sky-100 hover:bg-slate-50 text-slate-600'
                                         }`}
                                 >
                                     <opt.icon className={`w-6 h-6 ${outcome === opt.id ? 'text-sky-600' : 'text-slate-400'}`} />
@@ -105,7 +105,7 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
                                     required
                                     value={promiseDate}
                                     onChange={(e) => setPromiseDate(e.target.value)}
-                                    className="w-full p-3 rounded-xl border border-gray-200 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none text-right"
+                                    className="w-full p-3 rounded-xl border border-slate-200 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none text-right"
                                 />
                             </div>
                         )}
@@ -131,7 +131,7 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
                             <textarea
                                 value={notes}
                                 onChange={(e) => setNotes(e.target.value)}
-                                className="w-full p-3 rounded-xl border border-gray-200 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none min-h-[80px]"
+                                className="w-full p-3 rounded-xl border border-slate-200 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none min-h-[80px]"
                                 placeholder="تفاصيل المكالمة..."
                             />
                         </div>

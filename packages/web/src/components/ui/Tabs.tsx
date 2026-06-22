@@ -47,7 +47,7 @@ export default function Tabs<K extends string = string>({
               key={tab.id}
               type="button"
               onClick={() => onChange(tab.id)}
-              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-bold transition-all ${
+              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-base font-bold transition-all ${
                 active ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
             >
@@ -55,7 +55,7 @@ export default function Tabs<K extends string = string>({
               <span>{tab.label}</span>
               {tab.count !== undefined && (
                 <span
-                  className={`rounded-full text-[11px] font-bold px-1.5 ${
+                  className={`rounded-full text-xs font-bold px-1.5 ${
                     active ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'
                   }`}
                 >
@@ -79,7 +79,7 @@ export default function Tabs<K extends string = string>({
             key={tab.id}
             type="button"
             onClick={() => onChange(tab.id)}
-            className={`relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors whitespace-nowrap ${
+            className={`relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-base font-bold transition-colors whitespace-nowrap ${
               active
                 ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
                 : 'text-slate-500 hover:text-slate-800'
@@ -89,7 +89,7 @@ export default function Tabs<K extends string = string>({
             <span>{tab.label}</span>
             {tab.count !== undefined && (
               <span
-                className={`rounded-full text-[11px] font-bold px-1.5 ${
+                className={`rounded-full text-xs font-bold px-1.5 ${
                   active ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'
                 }`}
               >

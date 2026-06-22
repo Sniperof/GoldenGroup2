@@ -123,7 +123,7 @@ export default function ZoneStudy() {
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-sky-50 text-sky-600"><LayoutGrid className="w-6 h-6" /></div>
                     <div>
-                        <h1 className="text-xl font-bold text-slate-900">دراسة النطاقات</h1>
+                        <h1 className="text-2xl font-bold text-slate-800">دراسة النطاقات</h1>
                         <p className="text-xs text-slate-500">مرحلة تحليلية بين جدولة الفرق وتوزيع المسارات — اقرأ المهام المؤهلة لزبائن الشركة وسحب الفرق الطبيعي لكل منطقة.</p>
                     </div>
                 </div>
@@ -193,14 +193,14 @@ export default function ZoneStudy() {
                 </div>
 
                 {data?.refreshedAt && (
-                    <p className="mt-2 text-[11px] text-slate-400">آخر تحديث: {new Date(data.refreshedAt).toLocaleString('ar')}</p>
+                    <p className="mt-2 text-xs text-slate-400">آخر تحديث: {new Date(data.refreshedAt).toLocaleString('ar')}</p>
                 )}
             </div>
 
             {/* Manual picker */}
             {mode === 'manual' && !isFrozen && (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4">
-                    <h3 className="text-slate-900 font-bold text-sm flex items-center gap-2 mb-3"><MapPin className="w-4 h-4 text-orange-500" />أضف منطقة للاستكشاف</h3>
+                    <h3 className="text-slate-800 font-bold text-base flex items-center gap-2 mb-3"><MapPin className="w-4 h-4 text-orange-500" />أضف منطقة للاستكشاف</h3>
                     <div className="flex flex-wrap items-end gap-3">
                         <div className="min-w-[260px] flex-1">
                             <GeoSmartSearch
@@ -264,7 +264,7 @@ export default function ZoneStudy() {
                                         <th key={t.teamKey} className="text-center font-bold px-4 py-3 whitespace-nowrap">
                                             <div className="flex flex-col items-center">
                                                 <span>{t.teamLabel}</span>
-                                                <span className="text-[10px] font-normal text-slate-400 inline-flex items-center gap-1">
+                                                <span className="text-xs font-normal text-slate-400 inline-flex items-center gap-1">
                                                     <Info className="w-3 h-3" /> محتملون / عروض مؤهلة
                                                 </span>
                                             </div>
@@ -310,7 +310,7 @@ export default function ZoneStudy() {
                 )}
             </div>
 
-            <p className="mt-3 text-[11px] text-slate-400 leading-relaxed">
+            <p className="mt-3 text-xs text-slate-400 leading-relaxed">
                 <span className="font-bold">قراءة الأرقام:</span> عمود الشركة = مهام مؤهلة (كل الأنواع) لزبائن لا يملكها موظف. عمود كل فريق = <span className="font-bold text-slate-600">المحتملون</span> (زبائن LEAD يملكها الفريق بلا عرض جهاز مفتوح) / <span className="font-bold text-emerald-600">عروض الجهاز المؤهلة</span> (حمل التاريخ المحدد). الصفحة للقراءة فقط؛ القرار يدوي في توزيع المسارات.
             </p>
         </div>

@@ -9,9 +9,9 @@
 //   gold      — filled brand gold (special CTAs)
 //
 // Sizes:
-//   sm — h-8  px-4  text-[12.5px]
-//   md — h-10 px-5  text-[13.5px]  (default)
-//   lg — h-12 px-6  text-[15px]
+//   sm — h-8  px-4  text-sm
+//   md — h-10 px-5  text-base  (default)
+//   lg — h-12 px-6  text-lg
 //
 // All pill-shaped. Optional leading/trailing Lucide icon.
 // `loading` shows a spinner and disables the button.
@@ -46,9 +46,9 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
-  sm: 'h-8 px-4 text-[12.5px] gap-1.5',
-  md: 'h-10 px-5 text-[13.5px] gap-2',
-  lg: 'h-12 px-6 text-[15px] gap-2',
+  sm: 'h-8 px-4 text-sm gap-1.5',
+  md: 'h-10 px-5 text-base gap-2',
+  lg: 'h-12 px-6 text-lg gap-2',
 };
 
 const ICON_SIZE: Record<ButtonSize, string> = {

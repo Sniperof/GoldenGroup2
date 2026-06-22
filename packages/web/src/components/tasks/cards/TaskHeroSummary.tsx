@@ -64,7 +64,7 @@ export default function TaskHeroSummary({ task }: TaskHeroSummaryProps) {
             <span className="text-sm font-black tracking-tight">{statusLabel}</span>
           </div>
           {task.lastWaitingStatus && task.lastWaitingStatus !== task.status && (
-            <span className="text-[11px] text-slate-500">
+            <span className="text-xs text-slate-500">
               من قبل: {OPEN_TASK_STATUS_LABELS[task.lastWaitingStatus as OpenTaskStatus] ?? task.lastWaitingStatus}
             </span>
           )}
@@ -73,12 +73,12 @@ export default function TaskHeroSummary({ task }: TaskHeroSummaryProps) {
         {/* Right side: priority + attempts as compact chips */}
         <div className="flex items-center gap-2 flex-wrap">
           <div className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold ${priorityClass}`}>
-            <span className="text-[10px] text-slate-400 font-bold">الأولوية</span>
+            <span className="text-xs text-slate-400 font-bold">الأولوية</span>
             <span>{priorityLabel}</span>
           </div>
           <div className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold ${attemptsTone}`}>
             <Repeat2 className="w-3.5 h-3.5" />
-            <span className="text-[10px] text-slate-400 font-bold">محاولات</span>
+            <span className="text-xs text-slate-400 font-bold">محاولات</span>
             <span className="tabular-nums">{attemptsCount}</span>
           </div>
         </div>
@@ -91,7 +91,7 @@ export default function TaskHeroSummary({ task }: TaskHeroSummaryProps) {
             <CalendarDays className="w-4 h-4" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-slate-400 tracking-wide">التاريخ المطلوب</p>
+            <p className="text-xs font-bold text-slate-400 tracking-wide">التاريخ المطلوب</p>
             <div className="flex items-center gap-2 flex-wrap mt-0.5">
               <span className={`text-sm font-bold ${dueStatus?.textClass ?? 'text-slate-700'}`}>
                 {task.dueDate ? formatDate(task.dueDate) : '—'}
@@ -110,7 +110,7 @@ export default function TaskHeroSummary({ task }: TaskHeroSummaryProps) {
             <CalendarDays className="w-4 h-4" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-slate-400 tracking-wide">المتابعة المتوقعة</p>
+            <p className="text-xs font-bold text-slate-400 tracking-wide">المتابعة المتوقعة</p>
             <div className="flex items-center gap-2 flex-wrap mt-0.5">
               <span className="text-sm font-bold text-slate-700">
                 {task.expectedDate ? formatDate(task.expectedDate) : '—'}

@@ -94,7 +94,7 @@ export default function DeviceActivationResultModal({
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-2">
             <MonitorCheck className="h-5 w-5 text-sky-600" />
-            <h2 className="text-base font-black text-slate-900">تسجيل نتيجة تشغيل الجهاز</h2>
+            <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة تشغيل الجهاز</h2>
           </div>
           <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </div>
@@ -131,7 +131,7 @@ export default function DeviceActivationResultModal({
             <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-800">
               <Gauge className="h-4 w-4 text-sky-600" />
               الحالة الفنية للجهاز
-              <span className="text-[10px] font-bold rounded-full border border-slate-200 bg-slate-50 text-slate-500 px-2 py-0.5">قراءة مرجعية</span>
+              <span className="text-xs font-bold rounded-full border border-slate-200 bg-slate-50 text-slate-500 px-2 py-0.5">قراءة مرجعية</span>
             </div>
             <TechnicalStateFields value={techState} onChange={setTechState} hasSterilization={hasSterilization} />
           </div>

@@ -52,7 +52,7 @@ export function InstalledPartsSection({ contract, deviceParts, onChanged }: Prop
         <div>
           <h4 className="text-xs font-black text-slate-500 mb-2">بانتظار التركيب ({pending.length})</h4>
           {pending.length === 0 ? (
-            <p className="text-[11px] text-slate-400 italic">لا قطع بانتظار التركيب.</p>
+            <p className="text-xs text-slate-400 italic">لا قطع بانتظار التركيب.</p>
           ) : (
             <div className="space-y-2">
               {pending.map((it: any) => (
@@ -74,7 +74,7 @@ export function InstalledPartsSection({ contract, deviceParts, onChanged }: Prop
         <div>
           <h4 className="text-xs font-black text-slate-500 mb-2">مركّبة ({installed.length})</h4>
           {installed.length === 0 ? (
-            <p className="text-[11px] text-slate-400 italic">لا قطع مركّبة بعد.</p>
+            <p className="text-xs text-slate-400 italic">لا قطع مركّبة بعد.</p>
           ) : (
             <div className="space-y-2">
               {installed.map((it: any) => (
@@ -98,7 +98,7 @@ export function InstalledPartsSection({ contract, deviceParts, onChanged }: Prop
         {deviceParts?.length > 0 && (
           <div className="pt-4 mt-4 border-t border-slate-100">
             <h4 className="text-xs font-black text-slate-500 mb-2">سجل القطع الفنية ({deviceParts.length})</h4>
-            <ul className="space-y-1.5 text-[11px] text-slate-600">
+            <ul className="space-y-1.5 text-xs text-slate-600">
               {deviceParts.map(p => (
                 <li key={p.id} className="flex items-center gap-2">
                   <span className="font-bold text-slate-700">{p.partNameSnapshot || `#${p.sparePartId}`}</span>

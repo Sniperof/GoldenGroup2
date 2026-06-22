@@ -13,7 +13,7 @@ const priorityConfig = {
 };
 
 const statusConfig = {
-    Pending: { label: 'قيد الانتظار', style: 'bg-gray-50 text-slate-600 border-gray-200' },
+    Pending: { label: 'قيد الانتظار', style: 'bg-slate-50 text-slate-600 border-slate-200' },
     Postponed: { label: 'مؤجل', style: 'bg-amber-50 text-amber-700 border-amber-200' },
     'Solved Remote': { label: 'حل عن بعد', style: 'bg-purple-50 text-purple-700 border-purple-200' },
     Completed: { label: 'مكتمل', style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -49,7 +49,7 @@ export default function Emergency() {
             render: (r) => (
                 <div className="flex flex-col">
                     <span className="text-sm font-semibold text-slate-700">{new Date(r.requestDate).toLocaleDateString('ar-SY')}</span>
-                    <span className="text-[10px] text-slate-400">{new Date(r.requestDate).toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="text-xs text-slate-400">{new Date(r.requestDate).toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
             )
         },
@@ -95,7 +95,7 @@ export default function Emergency() {
                 return (
                     <div className={`flex items-center gap-1 px-2 py-1 rounded-full border ${p.bg} ${p.border} ${p.color} w-fit`}>
                         <Icon className="w-3 h-3" />
-                        <span className="text-[10px] font-bold">{p.label}</span>
+                        <span className="text-xs font-bold">{p.label}</span>
                     </div>
                 );
             }
@@ -160,9 +160,9 @@ export default function Emergency() {
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Modal Header */}
-                            <div className="p-5 border-b border-gray-100 flex justify-between items-start bg-slate-50/50">
+                            <div className="p-5 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
                                 <div>
-                                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                    <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
                                         <AlertTriangle className="w-5 h-5 text-orange-500" />
                                         طلب صيانة #{selectedRequest.id}
                                     </h3>
@@ -172,7 +172,7 @@ export default function Emergency() {
                             </div>
 
                             {/* Tabs */}
-                            <div className="flex border-b border-gray-100 px-5 gap-6">
+                            <div className="flex border-b border-slate-100 px-5 gap-6">
                                 <button onClick={() => setActiveTab('details')} className={`py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'details' ? 'border-sky-500 text-sky-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
                                     <FileText className="w-4 h-4 inline-block ml-1" /> التفاصيل
                                 </button>
@@ -212,7 +212,7 @@ export default function Emergency() {
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+                                        <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
                                             <div>
                                                 <span className="text-xs text-slate-400 block mb-2">الفني المسؤول</span>
                                                 <div className="flex items-center gap-2">
@@ -223,7 +223,7 @@ export default function Emergency() {
                                                         <p className="text-sm font-bold text-slate-700">
                                                             {technicians.find(t => t.id === selectedRequest.technicianId)?.name || 'غير محدد'}
                                                         </p>
-                                                        <p className="text-[10px] text-slate-400">فني صيانة</p>
+                                                        <p className="text-xs text-slate-400">فني صيانة</p>
                                                     </div>
                                                 </div>
                                             </div>
@@ -237,7 +237,7 @@ export default function Emergency() {
                                                         <p className="text-sm font-bold text-slate-700">
                                                             {telemarketers.find(t => t.id === selectedRequest.telemarketerId)?.name || 'غير محدد'}
                                                         </p>
-                                                        <p className="text-[10px] text-slate-400">Telemarketer</p>
+                                                        <p className="text-xs text-slate-400">Telemarketer</p>
                                                     </div>
                                                 </div>
                                             </div>
@@ -252,23 +252,23 @@ export default function Emergency() {
                                             <div className="bg-white border border-blue-100 rounded-xl overflow-hidden shadow-sm">
                                                 <div className="bg-blue-50/50 px-4 py-3 border-b border-blue-100 flex items-center gap-2">
                                                     <Droplets className="w-5 h-5 text-blue-500" />
-                                                    <h3 className="text-sm font-bold text-slate-800">مؤشرات المياه (Water Readings)</h3>
+                                                    <h3 className="text-base font-bold text-slate-800">مؤشرات المياه (Water Readings)</h3>
                                                 </div>
                                                 <div className="p-4 grid grid-cols-2 gap-4">
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">المصدر</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">المصدر</span>
                                                         <div className="font-semibold text-slate-700 text-sm">{selectedRequest.technicalReport.water.sourceType}</div>
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">ضغط الدخول</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">ضغط الدخول</span>
                                                         <div className="font-semibold text-slate-700 text-sm">{selectedRequest.technicalReport.water.inputPressure} Bar</div>
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">TDS الدخول</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">TDS الدخول</span>
                                                         <div className="font-semibold text-slate-700 text-sm">{selectedRequest.technicalReport.water.tdsBefore} PPM</div>
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">TDS الخروج</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">TDS الخروج</span>
                                                         <div className="font-bold text-emerald-600 text-sm">{selectedRequest.technicalReport.water.tdsAfter} PPM</div>
                                                     </div>
                                                 </div>
@@ -278,25 +278,25 @@ export default function Emergency() {
                                             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                                                 <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
                                                     <Gauge className="w-5 h-5 text-slate-500" />
-                                                    <h3 className="text-sm font-bold text-slate-800">حالة القطع (Components Health)</h3>
+                                                    <h3 className="text-base font-bold text-slate-800">حالة القطع (Components Health)</h3>
                                                 </div>
                                                 <div className="p-4 grid grid-cols-2 gap-4">
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">ضغط المضخة</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">ضغط المضخة</span>
                                                         <div className="font-semibold text-slate-700 text-sm">{selectedRequest.technicalReport.components.pumpPressure} Bar</div>
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">الممبرين production</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">الممبرين production</span>
                                                         <div className={`font-bold text-sm ${selectedRequest.technicalReport.components.membraneOutput === 'Good' ? 'text-emerald-600' : 'text-red-500'}`}>
                                                             {selectedRequest.technicalReport.components.membraneOutput}
                                                         </div>
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">Flow Restrictor</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">Flow Restrictor</span>
                                                         <div className="font-semibold text-slate-700 text-sm">{selectedRequest.technicalReport.components.flowRestrictor} cc</div>
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">ضغط الخزان</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">ضغط الخزان</span>
                                                         <div className="font-semibold text-slate-700 text-sm">{selectedRequest.technicalReport.components.tankPressure} Bar</div>
                                                     </div>
                                                 </div>
@@ -306,27 +306,27 @@ export default function Emergency() {
                                             <div className="bg-white border border-amber-100 rounded-xl overflow-hidden shadow-sm">
                                                 <div className="bg-amber-50/50 px-4 py-3 border-b border-amber-100 flex items-center gap-2">
                                                     <Zap className="w-5 h-5 text-amber-500" />
-                                                    <h3 className="text-sm font-bold text-slate-800">الكهرباء والأمان (Safety)</h3>
+                                                    <h3 className="text-base font-bold text-slate-800">الكهرباء والأمان (Safety)</h3>
                                                 </div>
                                                 <div className="p-4 grid grid-cols-2 gap-4">
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">Low Pressure Sw</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">Low Pressure Sw</span>
                                                         <div className={`font-bold text-sm ${selectedRequest.technicalReport.electrical.lowPressureSwitch === 'Faulty' ? 'text-red-500' : 'text-slate-700'}`}>
                                                             {selectedRequest.technicalReport.electrical.lowPressureSwitch}
                                                         </div>
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">High Pressure Sw</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">High Pressure Sw</span>
                                                         <div className={`font-bold text-sm ${selectedRequest.technicalReport.electrical.highPressureSwitch === 'Faulty' ? 'text-red-500' : 'text-slate-700'}`}>
                                                             {selectedRequest.technicalReport.electrical.highPressureSwitch}
                                                         </div>
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">Solenoid Valve</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">Solenoid Valve</span>
                                                         <div className="font-semibold text-slate-700 text-sm">{selectedRequest.technicalReport.electrical.solenoidValve}</div>
                                                     </div>
                                                     <div>
-                                                        <span className="text-[10px] text-slate-400 block mb-1">UV System</span>
+                                                        <span className="text-xs text-slate-400 block mb-1">UV System</span>
                                                         <div className={`font-bold text-sm ${selectedRequest.technicalReport.electrical.uvStatus === 'Working' ? 'text-emerald-600' : 'text-red-500'}`}>
                                                             {selectedRequest.technicalReport.electrical.uvStatus}
                                                         </div>
@@ -338,7 +338,7 @@ export default function Emergency() {
                                             <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
                                                 <div className="flex items-center gap-2 mb-2">
                                                     <PenTool className="w-4 h-4 text-yellow-600" />
-                                                    <h3 className="text-sm font-bold text-yellow-800">ملاحظات الفني & التوصيات</h3>
+                                                    <h3 className="text-base font-bold text-yellow-800">ملاحظات الفني & التوصيات</h3>
                                                 </div>
                                                 <p className="text-sm text-slate-700 mb-2 font-medium">"{selectedRequest.technicalReport.technicianNotes}"</p>
                                                 <div className="text-xs text-slate-500 bg-white/50 p-2 rounded-lg border border-yellow-100">
@@ -348,8 +348,8 @@ export default function Emergency() {
                                         </div>
                                     ) : (
                                         <div className="space-y-4 text-center py-8">
-                                            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                                                <Battery className="w-8 h-8 text-gray-400" />
+                                            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                <Battery className="w-8 h-8 text-slate-400" />
                                             </div>
                                             <p className="text-slate-500 font-medium">لم يتم رفع تقرير فني بعد</p>
                                         </div>
@@ -366,12 +366,12 @@ export default function Emergency() {
                                                 <div className="flex-1">
                                                     <div className="flex justify-between items-start">
                                                         <span className="text-sm font-bold text-slate-700">مكالمة صادرة - متابعة</span>
-                                                        <span className="text-[10px] text-slate-400">منذ ساعتين</span>
+                                                        <span className="text-xs text-slate-400">منذ ساعتين</span>
                                                     </div>
                                                     <p className="text-xs text-slate-500 mt-1">تم الاتصال بالزبون للتأكد من وصول الفني. الزبون أكد الوصول والبدء بالعمل.</p>
                                                     <div className="flex items-center gap-2 mt-2">
-                                                        <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">مدة المكالمة: 02:15</span>
-                                                        <span className="text-[10px] text-slate-400">سها جميل</span>
+                                                        <span className="text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">مدة المكالمة: 02:15</span>
+                                                        <span className="text-xs text-slate-400">سها جميل</span>
                                                     </div>
                                                 </div>
                                             </div>

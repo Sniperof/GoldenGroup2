@@ -49,7 +49,7 @@ function OwnershipCell({ ownership }: { ownership?: CustomerOwnership | null }) 
                 {label}
             </span>
             {isPersonal && personalAssignments.length > 1 ? (
-                <span className="text-[10px] font-bold text-slate-400">{personalAssignments.length} إسنادات شخصية فعالة</span>
+                <span className="text-xs font-bold text-slate-400">{personalAssignments.length} إسنادات شخصية فعالة</span>
             ) : null}
         </div>
     );
@@ -302,7 +302,7 @@ export default function Clients() {
                     <ClientAvatar gender={c.gender} dataQuality={c.dataQuality} size="sm" />
                     <div>
                         <span className="block text-slate-800 font-semibold text-sm">{c.firstName} {c.fatherName} {c.lastName}</span>
-                        {c.nickname && <span className="block text-[10px] text-slate-400">({c.nickname})</span>}
+                        {c.nickname && <span className="block text-xs text-slate-400">({c.nickname})</span>}
                     </div>
                 </div>
             ),
@@ -321,7 +321,7 @@ export default function Clients() {
                 const stage = c.lifecycleStage;
                 if (stage === 'OP') return <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-200 shadow-sm flex items-center gap-1 w-fit"><CheckCircle2 className="w-3 h-3" /> زبون فعلي (OP)</span>;
                 if (stage === 'FOP') return <span className="px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 text-xs font-bold border border-orange-200 shadow-sm flex items-center gap-1 w-fit"><Clock className="w-3 h-3" /> مستهدف (FOP)</span>;
-                return <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-gray-200 flex items-center gap-1 w-fit"><AlertCircle className="w-3 h-3" /> مرشح (Lead)</span>;
+                return <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold border border-slate-200 flex items-center gap-1 w-fit"><AlertCircle className="w-3 h-3" /> مرشح (Lead)</span>;
             },
             getValue: (c) => c.lifecycleStage
         },
@@ -329,9 +329,9 @@ export default function Clients() {
             key: 'rating', label: 'الالتزام', sortable: true,
             render: (c) => {
                 const r = c.rating || 'Undefined';
-                if (r === 'Committed') return <span className="px-2.5 py-1 rounded-lg bg-green-50 text-green-700 text-[11px] font-black border border-green-200">ملتزم</span>;
-                if (r === 'NotCommitted') return <span className="px-2.5 py-1 rounded-lg bg-red-50 text-red-700 text-[11px] font-black border border-red-200">غير ملتزم</span>;
-                return <span className="px-2.5 py-1 rounded-lg bg-slate-50 text-slate-400 text-[11px] font-black border border-slate-200">غير محدد</span>;
+                if (r === 'Committed') return <span className="px-2.5 py-1 rounded-lg bg-green-50 text-green-700 text-xs font-black border border-green-200">ملتزم</span>;
+                if (r === 'NotCommitted') return <span className="px-2.5 py-1 rounded-lg bg-red-50 text-red-700 text-xs font-black border border-red-200">غير ملتزم</span>;
+                return <span className="px-2.5 py-1 rounded-lg bg-slate-50 text-slate-400 text-xs font-black border border-slate-200">غير محدد</span>;
             }
         },
         {
@@ -344,7 +344,7 @@ export default function Clients() {
                     'Unknown': 'مجهول',
                     'Other': 'أخرى',
                 };
-                return <span className="text-xs text-slate-600 bg-gray-50 px-2 py-1 rounded border border-gray-200">{types[c.referrerType || ''] || c.referrerType || '--'}</span>;
+                return <span className="text-xs text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-200">{types[c.referrerType || ''] || c.referrerType || '--'}</span>;
             }
         },
         { key: 'referrerName', label: 'اسم الوسيط', sortable: true, render: (c) => <span className="text-sm font-medium text-slate-700">{c.referrerName || '--'}</span> },
@@ -398,7 +398,7 @@ export default function Clients() {
             {/* 1. Page Title */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800">سجلات الزبائن</h1>
+                    <h1 className="text-2xl font-bold text-slate-800">سجلات الزبائن</h1>
                     <p className="text-sm text-slate-500 font-medium">إدارة وتحليل بيانات الزبائن والشبكة</p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -447,10 +447,10 @@ export default function Clients() {
                             <div className={`p-2 rounded-xl ${kpi.bg} ${kpi.color} group-hover:scale-110 transition-transform`}>
                                 <kpi.icon className="w-5 h-5" />
                             </div>
-                            <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">مؤشرات مباشرة</span>
+                            <span className="text-xs font-black text-slate-300 uppercase tracking-widest">مؤشرات مباشرة</span>
                         </div>
                         <p className="text-xs font-bold text-slate-400 mb-1">{kpi.label}</p>
-                        <p className={`text-xl font-black ${kpi.color}`}>{kpi.value}</p>
+                        <p className={`text-lg font-black ${kpi.color}`}>{kpi.value}</p>
                     </div>
                 ))}
             </div>
@@ -534,7 +534,7 @@ export default function Clients() {
                 ]}
                 actions={(c) => (
                     <div className="flex items-center gap-1">
-                        <button onClick={(e) => { e.stopPropagation(); openEditModal(c as any); }} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-400 hover:text-sky-500 transition-all border border-transparent hover:border-gray-100" title="تعديل بيانات الزبون">
+                        <button onClick={(e) => { e.stopPropagation(); openEditModal(c as any); }} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-400 hover:text-sky-500 transition-all border border-transparent hover:border-slate-100" title="تعديل بيانات الزبون">
                             <Pencil className="w-4 h-4" />
                         </button>
                     </div>

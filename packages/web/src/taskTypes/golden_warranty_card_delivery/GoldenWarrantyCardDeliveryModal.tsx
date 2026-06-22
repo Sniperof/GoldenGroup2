@@ -59,7 +59,7 @@ export default function GoldenWarrantyCardDeliveryModal({
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-5 py-4">
           <div className="flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-amber-600" />
-            <h2 className="text-base font-black text-amber-900">تسليم كرت الكفالة الذهبية — مهمة #{taskId}</h2>
+            <h2 className="text-lg font-bold text-amber-900">تسليم كرت الكفالة الذهبية — مهمة #{taskId}</h2>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700">
             <X className="h-5 w-5" />

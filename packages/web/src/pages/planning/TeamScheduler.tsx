@@ -182,7 +182,7 @@ export default function TeamScheduler() {
         <div className="h-full overflow-y-auto p-8 custom-scroll">
             <div className="flex items-end justify-between mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 mb-1">جدولة الفرق</h1>
+                    <h1 className="text-2xl font-bold text-slate-800 mb-1">جدولة الفرق</h1>
                     <p className="text-slate-500 text-sm">تعيين المشرفين والفنيين للفرق اليومية.</p>
                 </div>
                 <button
@@ -195,7 +195,7 @@ export default function TeamScheduler() {
             </div>
 
             {/* Control Bar */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6 flex items-center gap-4 flex-wrap">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex items-center gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-sky-500" />
                     <input type="date" value={date} onChange={e => { setDate(e.target.value); setSelectedSlot(null); }} className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none" />
@@ -217,13 +217,13 @@ export default function TeamScheduler() {
             <div className="grid grid-cols-3 gap-6">
                 {/* Staff Pool */}
                 <div className="col-span-1">
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden sticky top-0">
-                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-                            <h3 className="text-gray-500 font-semibold text-xs uppercase tracking-wider flex items-center gap-2"><Users className="w-4 h-4 text-gray-400" />الموظفون المتاحون</h3>
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden sticky top-0">
+                        <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+                            <h3 className="text-slate-500 font-bold text-base uppercase tracking-wider flex items-center gap-2"><Users className="w-4 h-4 text-slate-400" />الموظفون المتاحون</h3>
                         </div>
-                        <div className="divide-y divide-gray-100 max-h-[60vh] overflow-y-auto custom-scroll">
+                        <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto custom-scroll">
                             {poolEmployees.length === 0 ? (
-                                <p className="text-center text-gray-400 text-sm py-8">لا يوجد موظفون متاحون</p>
+                                <p className="text-center text-slate-400 text-sm py-8">لا يوجد موظفون متاحون</p>
                             ) : poolEmployees.map(e => (
                                 <motion.div
                                     key={e.id}
@@ -242,21 +242,21 @@ export default function TeamScheduler() {
                                         }`}
                                 >
                                     <div className="relative">
-                                        <img src={e.avatar} alt="" className="w-9 h-9 rounded-full border border-gray-100 object-cover" />
-                                        <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${e.status === 'active' ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
+                                        <img src={e.avatar} alt="" className="w-9 h-9 rounded-full border border-slate-100 object-cover" />
+                                        <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${e.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-medium text-slate-700 truncate">{e.name}</p>
-                                        <p className="text-xs text-gray-500">{e.teamSlotType ? teamSlotTypeLabels[e.teamSlotType] : ''}</p>
+                                        <p className="text-xs text-slate-500">{e.teamSlotType ? teamSlotTypeLabels[e.teamSlotType] : ''}</p>
                                     </div>
                                     {e.teamSlotType === 'SUPERVISOR' ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold">مشرف</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-xs font-bold">مشرف</span>
                                     ) : e.teamSlotType === 'TELEMARKETER' ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 text-[10px] font-bold">مسوق</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 text-xs font-bold">مسوق</span>
                                     ) : e.teamSlotType === 'TRAINEE' ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 text-[10px] font-bold">متدرب</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 text-xs font-bold">متدرب</span>
                                     ) : (
-                                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold">فني</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold">فني</span>
                                     )}
                                 </motion.div>
                             ))}
@@ -285,7 +285,7 @@ export default function TeamScheduler() {
                                 const teamTeles = t.telemarketers || [];
 
                                 return (
-                                    <motion.div key={`team-${idx}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                    <motion.div key={`team-${idx}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                                         <div className="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center text-sky-600"><Users className="w-4 h-4" /></div>
@@ -332,7 +332,7 @@ export default function TeamScheduler() {
                                                 )}
                                             </div>
                                         </div>
-                                        <div className="p-4 border-t border-gray-100 bg-slate-50/50">
+                                        <div className="p-4 border-t border-slate-100 bg-slate-50/50">
                                             {/* Telemarketer Slots */}
                                             <div onClick={() => selectSlot('team', idx, 'telemarketer')} className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isTele ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
                                                 {teamTeles.length > 0 ? (
@@ -347,7 +347,7 @@ export default function TeamScheduler() {
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                        {isTele && <p className="text-[10px] text-sky-600 mt-2 text-center">انقر على موظف من القائمة جانباً للإضافة</p>}
+                                                        {isTele && <p className="text-xs text-sky-600 mt-2 text-center">انقر على موظف من القائمة جانباً للإضافة</p>}
                                                     </div>
                                                 ) : (
                                                     <div className="text-center py-2"><PhoneCall className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">مسوق هاتفي (اختياري)</p></div>
@@ -372,7 +372,7 @@ export default function TeamScheduler() {
                                             <div className="flex items-center gap-2">
                                                 <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600"><AlertCircle className="w-4 h-4" /></div>
                                                 <span className="font-bold text-slate-800 text-sm">{emergencyName}</span>
-                                                <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[10px] font-bold">{formLabel}</span>
+                                                <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-xs font-bold">{formLabel}</span>
                                             </div>
                                             <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeSoloSlot(idx)} />
                                         </div>
@@ -418,7 +418,7 @@ export default function TeamScheduler() {
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                        {isTele && <p className="text-[10px] text-sky-600 mt-2 text-center">انقر على موظف من القائمة جانباً للإضافة</p>}
+                                                        {isTele && <p className="text-xs text-sky-600 mt-2 text-center">انقر على موظف من القائمة جانباً للإضافة</p>}
                                                     </div>
                                                 ) : (
                                                     <div className="text-center py-2">

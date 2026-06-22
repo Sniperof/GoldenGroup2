@@ -157,7 +157,7 @@ export default function TaskTypes() {
               <Settings2 className="w-5 h-5 text-sky-600" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900">إعدادات أنواع المهام</h1>
+              <h1 className="text-2xl font-bold text-slate-800">إعدادات أنواع المهام</h1>
               <p className="text-slate-500 text-sm">
                 تحكم في النوافذ الزمنية (N) وتفعيل/تعطيل كل نوع — حسب نمطه الزمني.
               </p>
@@ -212,9 +212,9 @@ export default function TaskTypes() {
               </div>
 
               {/* Items table */}
-              <div className="bg-white rounded-b-xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-200 text-xs text-slate-500">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
                     <tr>
                       <th className="text-right p-3 font-bold">نوع المهمة</th>
                       <th className="text-right p-3 font-bold">العائلة</th>
@@ -236,7 +236,7 @@ export default function TaskTypes() {
                       return (
                         <tr
                           key={config.taskType}
-                          className={`border-b border-gray-100 last:border-b-0 ${idx % 2 === 1 ? 'bg-gray-50/50' : ''}`}
+                          className={`border-b border-slate-100 last:border-b-0 ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}
                         >
                           <td className="p-3">
                             <div className="font-bold text-slate-900">{config.arabicLabel}</div>
@@ -293,7 +293,7 @@ export default function TaskTypes() {
                                     [config.taskType]: { ...prev[config.taskType], planningWindowDays: e.target.value },
                                   }))
                                 }
-                                className="w-24 bg-white border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 text-center focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none disabled:opacity-60"
+                                className="w-24 bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 text-center focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none disabled:opacity-60"
                               />
                             )}
                           </td>
@@ -322,7 +322,7 @@ export default function TaskTypes() {
                               type="button"
                               disabled={!canManage || !dirty || saving}
                               onClick={() => handleSave(config)}
-                              className="inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-500 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                              className="inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
                             >
                               {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                               حفظ

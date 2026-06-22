@@ -46,7 +46,7 @@ function Deadline({ createdAt, dueWithinHours }: { createdAt: string; dueWithinH
     >
       <Clock className="h-4 w-4 shrink-0" />
       {label}
-      <span className="mr-auto text-[10px] font-normal opacity-70">SLA: {dueWithinHours} ساعة</span>
+      <span className="mr-auto text-xs font-normal opacity-70">SLA: {dueWithinHours} ساعة</span>
     </div>
   );
 }
@@ -94,7 +94,7 @@ function TeamCard({ team }: { team: any }) {
                 <p className="text-sm font-semibold text-slate-800 truncate">{team[item.key].name}</p>
               </div>
             </div>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${item.badge}`}>{item.label}</span>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded border ${item.badge}`}>{item.label}</span>
           </div>
         ))}
       </div>
@@ -134,7 +134,7 @@ function GoalIndicator({ problems }: { problems: any[] }) {
         <div className={`h-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
       </div>
       {(deferred > 0 || unresolvable > 0) && (
-        <div className="mt-2 flex gap-1.5 flex-wrap text-[10px] font-bold">
+        <div className="mt-2 flex gap-1.5 flex-wrap text-xs font-bold">
           {deferred > 0 && (
             <span className="rounded-full bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5">
               مؤجَّلة: {deferred}
@@ -242,7 +242,7 @@ export default function EmergencyDetailsTab({ data }: { data: TaskDetailData }) 
               <span className="text-xs font-bold text-slate-400">الأولوية</span>
               {sr.priority ? (
                 <span
-                  className={`text-[11px] font-bold rounded-full border px-2.5 py-0.5 ${
+                  className={`text-xs font-bold rounded-full border px-2.5 py-0.5 ${
                     (PRIORITY_META[sr.priority] ?? PRIORITY_META.Normal).cls
                   }`}
                 >
@@ -292,12 +292,12 @@ export default function EmergencyDetailsTab({ data }: { data: TaskDetailData }) 
                           {p.problemTypeLabel ?? `نوع #${p.problemTypeId}`}
                         </span>
                         <span
-                          className={`text-[10px] font-bold rounded-full border px-2 py-0.5 ${meta.cls}`}
+                          className={`text-xs font-bold rounded-full border px-2 py-0.5 ${meta.cls}`}
                         >
                           {meta.label}
                         </span>
                         {p.addedDuringPhase === 'field_discovery' && (
-                          <span className="text-[10px] font-bold rounded-full border px-2 py-0.5 bg-violet-50 text-violet-700 border-violet-200">
+                          <span className="text-xs font-bold rounded-full border px-2 py-0.5 bg-violet-50 text-violet-700 border-violet-200">
                             مُكتشَف ميدانياً
                           </span>
                         )}
@@ -391,7 +391,7 @@ export default function EmergencyDetailsTab({ data }: { data: TaskDetailData }) 
             <span className="text-xs font-bold text-slate-400">الأولوية</span>
             {ticket.priority ? (
               <span
-                className={`text-[11px] font-bold rounded-full border px-2.5 py-0.5 ${
+                className={`text-xs font-bold rounded-full border px-2.5 py-0.5 ${
                   (PRIORITY_META[ticket.priority] ?? PRIORITY_META.Normal).cls
                 }`}
               >

@@ -331,7 +331,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
             dir="rtl"
         >
             {/* Page header */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0 flex items-center gap-3">
+            <div className="bg-white border-b border-slate-200 px-6 py-4 shrink-0 flex items-center gap-3">
                 <button onClick={onCancel} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
                     <ChevronRight className="w-4 h-4" />
                     <span>الأجهزة</span>
@@ -353,54 +353,54 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
 
                     {/* ── Section: الأسماء والسعر ── */}
                     <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-                        <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3">معلومات الجهاز الأساسية</h3>
+                        <h3 className="text-base font-bold text-slate-800 border-b border-slate-100 pb-3">معلومات الجهاز الأساسية</h3>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم الجهاز بالعربية <span className="text-red-500">*</span></label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1.5">اسم الجهاز بالعربية <span className="text-red-500">*</span></label>
                                 <input
                                     type="text" name="nameAr" required
                                     value={newDevice.nameAr || ''}
                                     onChange={handleInputChange}
-                                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm"
+                                    className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm"
                                     placeholder="مثال: فلتر جولدن 7 مراحل"
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم الجهاز بالإنكليزية <span className="text-red-500">*</span></label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1.5">اسم الجهاز بالإنكليزية <span className="text-red-500">*</span></label>
                                 <input
                                     type="text" name="nameEn"
                                     value={newDevice.nameEn || ''}
                                     onChange={handleInputChange}
-                                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm"
+                                    className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm"
                                     dir="ltr" placeholder="Golden 7 Stage Filter"
                                 />
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1.5">الرمز</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">الرمز</label>
                             <input
                                 type="text" name="code"
                                 value={newDevice.code || ''}
                                 onChange={handleInputChange}
-                                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm"
+                                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm"
                                 dir="ltr"
                                 placeholder="مثال: GW-7H-2025"
                             />
-                            <p className="text-[10px] text-slate-400 mt-1">رمز داخلي اختياري للجهاز</p>
+                            <p className="text-xs text-slate-400 mt-1">رمز داخلي اختياري للجهاز</p>
                         </div>
 
                         <div className="grid grid-cols-1 gap-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1.5">السعر الأساسي <span className="text-red-500">*</span></label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1.5">السعر الأساسي <span className="text-red-500">*</span></label>
                                 <div className="relative">
                                     <input
                                         type="number" name="basePrice" required min={1}
                                         value={newDevice.basePrice || ''}
                                         onChange={handleInputChange}
                                         disabled={isEditing}
-                                        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm pr-12 disabled:bg-slate-50 disabled:text-slate-400"
+                                        className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-sm pr-12 disabled:bg-slate-50 disabled:text-slate-400"
                                     />
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">ل.س</span>
                                 </div>
@@ -408,24 +408,24 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1.5">وصف الجهاز</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">وصف الجهاز</label>
                             <textarea
                                 name="description"
                                 value={newDevice.description || ''}
                                 onChange={handleInputChange}
                                 rows={3}
-                                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm resize-none"
+                                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm resize-none"
                                 placeholder="وصف مختصر عن الجهاز..."
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1.5">وصف الجهاز بالإنكليزية</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-1.5">وصف الجهاز بالإنكليزية</label>
                             <textarea
                                 name="descriptionEn"
                                 value={newDevice.descriptionEn || ''}
                                 onChange={handleInputChange}
                                 rows={3}
-                                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm resize-none"
+                                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-sm resize-none"
                                 dir="ltr"
                                 placeholder="English description..."
                             />
@@ -434,18 +434,18 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
 
                     {/* ── Section: التصنيف والصيانة ── */}
                     <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-                        <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3">التصنيف والصيانة</h3>
+                        <h3 className="text-base font-bold text-slate-800 border-b border-slate-100 pb-3">التصنيف والصيانة</h3>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">الفئة</label>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">الفئة</label>
                                 <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
                                     {(['منزلي', 'صناعي'] as const).map(cat => (
                                         <button
                                             type="button" key={cat}
                                             onClick={() => setNewDevice(prev => ({ ...prev, category: cat }))}
                                             className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all flex items-center justify-center gap-1.5
-                                                ${newDevice.category === cat ? 'bg-white shadow text-sky-600' : 'text-gray-500 hover:text-gray-700'}`}
+                                                ${newDevice.category === cat ? 'bg-white shadow text-sky-600' : 'text-slate-500 hover:text-slate-700'}`}
                                         >
                                             <span className="text-base">{categoryLabels[cat].icon}</span>
                                             {categoryLabels[cat].label}
@@ -458,7 +458,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
 
                         {/* الخدمات المدعومة */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">الخدمات المدعومة</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">الخدمات المدعومة</label>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                 {supportedServiceOptions.map(type => {
                                     const active = (newDevice.supportedVisitTypes as string[] || []).includes(type.id);
@@ -471,7 +471,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                         >
                                             <span className={active ? 'text-sky-600' : 'text-slate-400'}>{type.icon}</span>
                                             <span className="text-xs font-bold">{type.label}</span>
-                                            <span className="text-[10px] opacity-70">{type.desc}</span>
+                                            <span className="text-xs opacity-70">{type.desc}</span>
                                         </button>
                                     );
                                 })}
@@ -481,7 +481,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
 
                     {/* ── Section: الكفالة والعروض ── */}
                     <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-                        <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3">الكفالة والعروض</h3>
+                        <h3 className="text-base font-bold text-slate-800 border-b border-slate-100 pb-3">الكفالة والعروض</h3>
 
                         {/* Contract warranty periods */}
                         <div className="space-y-2">
@@ -581,7 +581,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
 
                     {/* ── Section: الوسائط ── */}
                     <div className="bg-white rounded-xl border border-slate-200 p-5">
-                        <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3 mb-4">الصور والوسائط</h3>
+                        <h3 className="text-base font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">الصور والوسائط</h3>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                             {/* Images */}
@@ -632,7 +632,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
 
                     {/* ── Actions ── */}
                     <div className="flex gap-3 pb-6">
-                        <button type="button" onClick={onCancel} className="flex-1 px-6 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm transition-colors">
+                        <button type="button" onClick={onCancel} className="flex-1 px-6 py-3 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 font-semibold text-sm transition-colors">
                             إلغاء
                         </button>
                         <button
@@ -908,7 +908,7 @@ const DeviceManagement = () => {
             render: (d) => (
                 <div>
                     <span className="font-semibold text-slate-700 block text-sm">{d.nameAr || d.name}</span>
-                    <span className="text-xs text-gray-400 font-mono">#{String(d.id).padStart(4, '0')}</span>
+                    <span className="text-xs text-slate-400 font-mono">#{String(d.id).padStart(4, '0')}</span>
                 </div>
             ),
         },
@@ -919,10 +919,10 @@ const DeviceManagement = () => {
         {
             key: 'category', label: 'الفئة', sortable: true,
             render: (d) => {
-                const cat = categoryLabels[d.category] || { label: d.category, icon: '📦', color: 'bg-gray-100 text-gray-800' };
+                const cat = categoryLabels[d.category] || { label: d.category, icon: '📦', color: 'bg-slate-100 text-slate-800' };
                 return (
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium gap-1.5 ${cat.color}`}>
-                        <span className="text-[11px]">{cat.icon}</span>{cat.label}
+                        <span className="text-xs">{cat.icon}</span>{cat.label}
                     </span>
                 );
             },
@@ -965,7 +965,7 @@ const DeviceManagement = () => {
             render: (p) => (
                 <div>
                     <span className="font-semibold text-slate-700 block text-sm">{p.name}</span>
-                    <span className="text-xs text-gray-400 font-mono">{p.code}</span>
+                    <span className="text-xs text-slate-400 font-mono">{p.code}</span>
                 </div>
             ),
         },
@@ -991,12 +991,12 @@ const DeviceManagement = () => {
                     {p.compatibleDeviceIds.map(did => {
                         const dev = devices.find(d => d.id === did);
                         return dev ? (
-                            <span key={did} className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-600 border border-sky-200">
+                            <span key={did} className="px-2 py-0.5 rounded text-xs font-medium bg-sky-50 text-sky-600 border border-sky-200">
                                 {dev.nameAr || dev.name}
                             </span>
                         ) : null;
                     })}
-                    {p.compatibleDeviceIds.length === 0 && <span className="text-xs text-gray-300">—</span>}
+                    {p.compatibleDeviceIds.length === 0 && <span className="text-xs text-slate-300">—</span>}
                 </div>
             ),
         },
@@ -1020,7 +1020,7 @@ const DeviceManagement = () => {
             <div className="h-full flex items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
                     <Loader2 className="w-8 h-8 text-sky-500 animate-spin" />
-                    <span className="text-sm text-gray-500">جاري تحميل البيانات...</span>
+                    <span className="text-sm text-slate-500">جاري تحميل البيانات...</span>
                 </div>
             </div>
         );
@@ -1031,18 +1031,18 @@ const DeviceManagement = () => {
             <div className="h-full flex flex-col overflow-hidden">
                 {/* TAB HEADER — hidden when adding device */}
                 {!isAddingDevice && (
-                    <div className="bg-white border-b border-gray-200 flex gap-1 px-6 pt-4 shrink-0">
+                    <div className="bg-white border-b border-slate-200 flex gap-1 px-6 pt-4 shrink-0">
                         {tabs.map(tab => (
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
                                 className={`flex items-center gap-2 px-5 py-3 text-sm font-bold rounded-t-lg transition-all relative top-[1px] ${activeTab === tab.id
-                                    ? 'bg-slate-50 text-sky-600 border border-gray-200 border-b-slate-50 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-gray-50'}`}
+                                    ? 'bg-slate-50 text-sky-600 border border-slate-200 border-b-slate-50 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
                             >
                                 <tab.icon className="w-4 h-4" />
                                 <span>{tab.label}</span>
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${activeTab === tab.id ? 'bg-sky-100 text-sky-600' : 'bg-gray-100 text-gray-500'}`}>
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${activeTab === tab.id ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500'}`}>
                                     {tab.count}
                                 </span>
                             </button>
@@ -1170,37 +1170,37 @@ const DeviceManagement = () => {
                             dir="rtl"
                             onClick={e => e.stopPropagation()}
                         >
-                            <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-                                <h2 className="text-xl font-bold text-slate-900">{editingPart ? 'تعديل قطعة غيار' : 'إضافة قطعة غيار'}</h2>
+                            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                                <h2 className="text-lg font-bold text-slate-800">{editingPart ? 'تعديل قطعة غيار' : 'إضافة قطعة غيار'}</h2>
                                 <IconButton icon={X} label="إغلاق" onClick={() => { setIsAddingPart(false); setEditingPart(null); }} />
                             </div>
                             <form onSubmit={handlePartSubmit} className="p-6 space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">اسم القطعة <span className="text-red-400">*</span></label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">اسم القطعة <span className="text-red-400">*</span></label>
                                         <input type="text" required value={partForm.name || ''} onChange={e => setPartForm(p => ({ ...p, name: e.target.value }))}
-                                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm" placeholder="مثال: فلتر PP 5 مايكرون" />
+                                            className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm" placeholder="مثال: فلتر PP 5 مايكرون" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">الرمز (SKU) <span className="text-red-400">*</span></label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">الرمز (SKU) <span className="text-red-400">*</span></label>
                                         <input type="text" required value={partForm.code || ''} onChange={e => setPartForm(p => ({ ...p, code: e.target.value }))}
-                                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none font-mono text-sm" dir="ltr" placeholder="SP-XXX" />
+                                            className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none font-mono text-sm" dir="ltr" placeholder="SP-XXX" />
                                     </div>
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">السعر ل.س</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">السعر ل.س</label>
                                     <input type="number" value={partForm.basePrice || ''} onChange={e => setPartForm(p => ({ ...p, basePrice: Number(e.target.value) }))}
                                         disabled={!!editingPart}
-                                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm disabled:bg-slate-50 disabled:text-slate-400" />
+                                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-right text-sm disabled:bg-slate-50 disabled:text-slate-400" />
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">نوع القطعة</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-2">نوع القطعة</label>
                                     <div className="space-y-2">
                                         {/* قطع الغيار frame */}
                                         <div className="rounded-xl border-2 border-slate-200 p-2 space-y-1.5">
-                                            <span className="block text-[10px] font-bold text-slate-400 px-1 uppercase tracking-wider">قطع غيار</span>
+                                            <span className="block text-xs font-bold text-slate-400 px-1 uppercase tracking-wider">قطع غيار</span>
                                             <div className="flex gap-2">
                                                 {(['Periodic', 'Emergency'] as const).map(type => {
                                                     const tc = partTypeConfig[type];
@@ -1208,10 +1208,10 @@ const DeviceManagement = () => {
                                                     return (
                                                         <button key={type} type="button"
                                                             onClick={() => setPartForm(p => ({ ...p, maintenanceType: type }))}
-                                                            className={`flex-1 px-3 py-3 rounded-lg border-2 transition-all text-center ${isActive ? `${tc.bg} ${tc.border} ${tc.color} shadow-sm` : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'}`}
+                                                            className={`flex-1 px-3 py-3 rounded-lg border-2 transition-all text-center ${isActive ? `${tc.bg} ${tc.border} ${tc.color} shadow-sm` : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
                                                         >
                                                             <span className="text-sm font-bold block">{tc.label}</span>
-                                                            <span className="text-[10px] opacity-70 block mt-0.5">{tc.hint}</span>
+                                                            <span className="text-xs opacity-70 block mt-0.5">{tc.hint}</span>
                                                         </button>
                                                     );
                                                 })}
@@ -1224,16 +1224,16 @@ const DeviceManagement = () => {
                                             return (
                                                 <button type="button"
                                                     onClick={() => setPartForm(p => ({ ...p, maintenanceType: 'Accessory' }))}
-                                                    className={`w-full px-3 py-3 rounded-xl border-2 transition-all text-center ${isActive ? `${tc.bg} ${tc.border} ${tc.color} shadow-sm` : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'}`}
+                                                    className={`w-full px-3 py-3 rounded-xl border-2 transition-all text-center ${isActive ? `${tc.bg} ${tc.border} ${tc.color} shadow-sm` : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
                                                 >
                                                     <span className="text-sm font-bold block">{tc.label}</span>
-                                                    <span className="text-[10px] opacity-70 block mt-0.5">{tc.hint}</span>
+                                                    <span className="text-xs opacity-70 block mt-0.5">{tc.hint}</span>
                                                 </button>
                                             );
                                         })()}
                                     </div>
                                     {partForm.maintenanceType === 'Periodic' && (
-                                        <div className="mt-2 flex items-center gap-2 text-[11px] text-blue-600 bg-blue-50 rounded-lg px-3 py-2 border border-blue-100">
+                                        <div className="mt-2 flex items-center gap-2 text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2 border border-blue-100">
                                             <RefreshCw className="w-3.5 h-3.5 shrink-0" />
                                             <span>استخدام هذه القطعة في زيارة سيعيد ضبط عداد الصيانة الدورية للجهاز</span>
                                         </div>
@@ -1241,20 +1241,20 @@ const DeviceManagement = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">الأجهزة المتوافقة</label>
-                                    <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                    <label className="block text-sm font-medium text-slate-700 mb-2">الأجهزة المتوافقة</label>
+                                    <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-3 bg-slate-50">
                                         {devices.map(dev => {
                                             const isSelected = partForm.compatibleDeviceIds?.includes(dev.id) || false;
                                             return (
                                                 <label key={dev.id}
-                                                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${isSelected ? 'bg-sky-50 border border-sky-200' : 'bg-white border border-gray-100 hover:bg-gray-50'}`}
+                                                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${isSelected ? 'bg-sky-50 border border-sky-200' : 'bg-white border border-slate-100 hover:bg-slate-50'}`}
                                                 >
                                                     <input type="checkbox" checked={isSelected} onChange={() => toggleDeviceCompat(dev.id)} className="accent-sky-600 w-4 h-4" />
                                                     <div className="flex-1 min-w-0">
                                                         <span className="text-sm font-medium text-slate-700 block">{dev.nameAr || dev.name}</span>
-                                                        <span className="text-[10px] text-gray-400">{categoryLabels[dev.category]?.label || dev.category}</span>
+                                                        <span className="text-xs text-slate-400">{categoryLabels[dev.category]?.label || dev.category}</span>
                                                     </div>
-                                                    <Gem className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-sky-500' : 'text-gray-300'}`} />
+                                                    <Gem className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-sky-500' : 'text-slate-300'}`} />
                                                 </label>
                                             );
                                         })}
@@ -1262,7 +1262,7 @@ const DeviceManagement = () => {
                                 </div>
 
                                 <div className="pt-2 flex gap-3">
-                                    <button type="button" onClick={() => { setIsAddingPart(false); setEditingPart(null); }} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm">إلغاء</button>
+                                    <button type="button" onClick={() => { setIsAddingPart(false); setEditingPart(null); }} className="flex-1 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm">إلغاء</button>
                                     <button type="submit" className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-medium text-sm">
                                         <Save className="w-4 h-4" />
                                         <span>{editingPart ? 'حفظ التعديلات' : 'إضافة القطعة'}</span>

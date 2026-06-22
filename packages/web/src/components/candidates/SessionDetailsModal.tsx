@@ -105,7 +105,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
             <div className="bg-white rounded-2xl w-[95vw] max-w-6xl h-[90vh] shadow-2xl p-6 flex flex-col">
                 <div className="flex justify-between items-start mb-6 shrink-0">
                     <div>
-                        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                             <FileText className="w-5 h-5 text-amber-600" />
                             تفاصيل لائحة الأسماء #{sheet.id}
                         </h2>
@@ -146,10 +146,10 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                 </div>
 
                 <div className="border-t border-slate-100 pt-4 overflow-hidden flex flex-col flex-1">
-                    <h3 className="text-sm font-bold text-slate-700 mb-3 px-1">قائمة الأسماء في هذه الورقة</h3>
-                    <div className="overflow-x-auto overflow-y-auto custom-scroll flex-1 rounded-xl border border-gray-200">
+                    <h3 className="text-base font-bold text-slate-800 mb-3 px-1">قائمة الأسماء في هذه الورقة</h3>
+                    <div className="overflow-x-auto overflow-y-auto custom-scroll flex-1 rounded-xl border border-slate-200">
                         <table className="w-full text-right bg-white">
-                            <thead className="bg-slate-50 border-b border-gray-200 sticky top-0 z-10 shadow-sm">
+                            <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                                 <tr>
                                     <th className="px-4 py-3 text-xs font-black text-slate-500 w-16">ID</th>
                                     <th className="px-4 py-3 text-xs font-black text-slate-600">الاسم المقترح</th>
@@ -160,7 +160,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                     <th className="px-4 py-3 text-xs font-black text-slate-600 text-center w-24">الإجراءات</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-100">
+                            <tbody className="divide-y divide-slate-100">
                                 {sheetCandidates.map(c => {
                                     const allNumbers = c.contacts && c.contacts.length > 0
                                         ? c.contacts.map(con => con.number).filter(Boolean)
@@ -177,7 +177,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                                 {[c.firstName, c.lastName].filter(Boolean).join(' ') || c.nickname || '--'}
                                             </span>
                                             {c.nickname && (c.firstName || c.lastName) && (
-                                                <div className="text-[10px] text-slate-400 mt-0.5">({c.nickname})</div>
+                                                <div className="text-xs text-slate-400 mt-0.5">({c.nickname})</div>
                                             )}
                                         </td>
                                         {/* أرقام التواصل */}
@@ -212,7 +212,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                         </td>
                                         {/* الحالة */}
                                         <td className="px-4 py-3">
-                                            <span className={`px-2 py-1 rounded text-[10px] font-bold border ${
+                                            <span className={`px-2 py-1 rounded text-xs font-bold border ${
                                                 c.status === 'Suggested' ? 'bg-sky-50 text-sky-700 border-sky-200'
                                                 : c.status === 'FollowUp' ? 'bg-amber-50 text-amber-700 border-amber-200'
                                                 : c.status === 'Qualified' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -224,7 +224,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                                 : 'مرفوض'}
                                             </span>
                                             {c.duplicateFlag && (
-                                                <div className={`text-[10px] font-bold mt-1 flex items-center gap-1 ${c.status === 'Qualified' ? 'text-emerald-600' : 'text-amber-500'}`}>
+                                                <div className={`text-xs font-bold mt-1 flex items-center gap-1 ${c.status === 'Qualified' ? 'text-emerald-600' : 'text-amber-500'}`}>
                                                     <AlertCircle className="w-3 h-3" />
                                                     {c.status === 'Qualified' ? 'زبون حالي' : 'احتمال تكرار'}
                                                 </div>

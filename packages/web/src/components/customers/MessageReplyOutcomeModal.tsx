@@ -68,7 +68,7 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
                 className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
                 {/* Header */}
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-amber-50 shrink-0">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-amber-50 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
                             <Send className="w-5 h-5 text-amber-600" />
@@ -115,7 +115,7 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
                                     <button key={code} type="button" onClick={() => setOutcome(code)}
                                         className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border-2 transition-all text-right ${outcome === code
                                             ? 'bg-red-50 border-red-300 text-red-700 ring-2 ring-offset-1 ring-red-200 shadow-sm'
-                                            : 'bg-white border-gray-100 text-slate-600 hover:border-gray-200 hover:bg-gray-50'}`}>
+                                            : 'bg-white border-slate-100 text-slate-600 hover:border-slate-200 hover:bg-slate-50'}`}>
                                         <span className="text-sm font-bold">{OUTCOME_MAP[code].label}</span>
                                         {outcome === code && <CheckCircle2 className="w-4 h-4 shrink-0" />}
                                     </button>
@@ -159,7 +159,7 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
                                             <button key={code} type="button" onClick={() => setOutcome(code)}
                                                 className={`flex items-center justify-between px-3 py-2.5 rounded-lg border-2 transition-all text-right ${outcome === code
                                                     ? 'bg-sky-50 border-sky-400 text-sky-700 ring-2 ring-sky-200 shadow-sm'
-                                                    : 'bg-white border-gray-100 text-slate-600 hover:border-gray-200 hover:bg-gray-50'}`}>
+                                                    : 'bg-white border-slate-100 text-slate-600 hover:border-slate-200 hover:bg-slate-50'}`}>
                                                 <span className="text-sm font-bold">{OUTCOME_MAP[code].label}</span>
                                                 {outcome === code && <CheckCircle2 className="w-4 h-4 shrink-0" />}
                                             </button>
@@ -262,12 +262,12 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
                         </label>
                         <textarea value={notes} onChange={e => setNotes(e.target.value)}
                             placeholder="أي تفاصيل إضافية..."
-                            className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none min-h-[72px] resize-none transition-all" />
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm placeholder:text-slate-400 focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none min-h-[72px] resize-none transition-all" />
                     </div>
                 </div>
 
                 {/* Footer */}
-                <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
+                <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
                     <Button variant="ghost" onClick={onClose}>إلغاء</Button>
                     <Button variant="gold" onClick={handleSave} disabled={!canSave} icon={CheckCircle2}>
                         حفظ النتيجة

@@ -62,7 +62,7 @@ export default function EmergencyResultModal({
                 <ChevronLeft className="h-4 w-4" /> رجوع
               </button>
             )}
-            <h2 className="text-lg font-semibold text-slate-800">
+            <h2 className="text-lg font-bold text-slate-800">
               {mode === 'choose'     && `نتيجة الصيانة الطارئة — مهمة #${taskId}`}
               {mode === 'apply'      && `تطبيق الصيانة — مهمة #${taskId}`}
               {mode === 'reschedule' && `إعادة جَدولة المهمة #${taskId}`}

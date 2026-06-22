@@ -32,9 +32,9 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
 }
 
 const SIZE_CLASSES: Record<InputSize, string> = {
-  sm: 'h-8 text-[12.5px]',
-  md: 'h-10 text-[13.5px]',
-  lg: 'h-12 text-[15px]',
+  sm: 'h-8 text-sm',
+  md: 'h-10 text-sm',
+  lg: 'h-12 text-lg',
 };
 
 // Slot padding (inline-start padding for leading; inline-end padding for
@@ -90,7 +90,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       {label && (
         <label
           htmlFor={inputId}
-          className={`block text-[12.5px] font-semibold mb-1.5 ${hasError ? 'text-red-600' : 'text-slate-700'}`}
+          className={`block text-base font-semibold mb-1.5 ${hasError ? 'text-red-600' : 'text-slate-700'}`}
         >
           {label}
           {required && <span className="text-red-500 mr-1">*</span>}
@@ -125,11 +125,11 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         )}
       </div>
       {hasError ? (
-        <p id={errorId} className="mt-1.5 text-[11.5px] text-red-600">
+        <p id={errorId} className="mt-1.5 text-xs text-red-600">
           {error}
         </p>
       ) : helper ? (
-        <p id={helperId} className="mt-1.5 text-[11.5px] text-slate-500">
+        <p id={helperId} className="mt-1.5 text-xs text-slate-500">
           {helper}
         </p>
       ) : null}

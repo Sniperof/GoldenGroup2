@@ -144,8 +144,8 @@ export default function Select<V extends string | number>({
   const triggerBase =
     'group inline-flex w-full items-center justify-between gap-2 rounded-full font-bold transition-colors focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed';
   const triggerSize = size === 'sm'
-    ? 'h-8 px-4 text-[12.5px]'
-    : 'h-10 px-4 text-[13.5px]';
+    ? 'h-8 px-4 text-sm'
+    : 'h-10 px-4 text-sm';
   const triggerVariant = variant === 'filled'
     ? 'bg-[#EEF1F4] text-slate-700 hover:bg-[#E3E7EC]'
     : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-300';
@@ -205,7 +205,7 @@ export default function Select<V extends string | number>({
                 onPointerEnter={() => !opt.disabled && setActiveIndex(i)}
                 onClick={() => commit(i)}
                 className={[
-                  'flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors',
+                  'flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
                   opt.disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
                   isSelected
                     ? 'bg-sky-50 text-sky-700 font-semibold'

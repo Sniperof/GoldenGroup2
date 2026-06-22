@@ -58,7 +58,7 @@ export default function AttemptAlertsCard() {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-700" />
-          <h3 className="text-sm font-bold text-amber-900">
+          <h3 className="text-base font-bold text-amber-900">
             تنبيه المحاولات (≥ {threshold})
           </h3>
         </div>
@@ -73,7 +73,7 @@ export default function AttemptAlertsCard() {
         </Button>
       </div>
 
-      <p className="text-[11px] text-amber-800/80">
+      <p className="text-xs text-amber-800/80">
         قائمة المهام التي تجاوزت عتبة المحاولات. تنبيه إعلامي فقط — لا إغلاق قسري
         (DEC-006 D37). العتبة قابلة للضبط من إعدادات النظام.
       </p>
@@ -99,14 +99,14 @@ export default function AttemptAlertsCard() {
                 <div className="text-xs font-bold text-slate-800 truncate">
                   {item.clientName}
                 </div>
-                <div className="text-[11px] text-slate-500 truncate">
+                <div className="text-xs text-slate-500 truncate">
                   مهمة #{item.openTaskId} · {item.taskType}
                 </div>
-                <div className="text-[10px] text-slate-400">
+                <div className="text-xs text-slate-400">
                   آخر محاولة: {formatDateTime(item.lastAttemptAt)}
                 </div>
               </div>
-              <div className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-100 text-amber-900 text-[11px] font-bold">
+              <div className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-100 text-amber-900 text-xs font-bold">
                 <Phone className="w-3 h-3" /> {item.attemptCount}
               </div>
             </div>

@@ -53,14 +53,14 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
 
   return (
     <div className="space-y-2">
-      {label && <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>}
+      {label && <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{label}</p>}
 
       {entries.map((e, idx) => {
         const syp = entrySyp(e);
         return (
           <div key={e._key} className="rounded-2xl border border-slate-200 bg-slate-50/40 p-3 space-y-2.5">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-400">جزء #{idx + 1}</span>
+              <span className="text-xs font-bold text-slate-400">جزء #{idx + 1}</span>
               {!disabled && entries.length > 1 && (
                 <button type="button" onClick={() => remove(e._key)}
                   className="h-5 w-5 rounded-full bg-slate-200 hover:bg-red-100 hover:text-red-600 text-slate-400 flex items-center justify-center transition-colors">
@@ -74,7 +74,7 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
               {METHOD_META.map(m => (
                 <button key={m.value} type="button" disabled={disabled}
                   onClick={() => update(e._key, { method: m.value, amountValue: '', currency: 'syp', exchangeRate: '', transferCompanyId: '', barterDescription: '' })}
-                  className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl border-2 text-[10px] font-bold transition-all ${
+                  className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl border-2 text-xs font-bold transition-all ${
                     e.method === m.value
                       ? 'border-rose-400 bg-rose-50 text-rose-700'
                       : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
@@ -89,13 +89,13 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
             {e.method === 'barter' && (
               <div className="grid grid-cols-2 gap-2">
                 <div className="col-span-2 space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-500">ماذا تم المقايضة عليه</label>
+                  <label className="block text-xs font-bold text-slate-500">ماذا تم المقايضة عليه</label>
                   <Input value={e.barterDescription}
                     onChange={ev => update(e._key, { barterDescription: ev.target.value })}
                     placeholder="وصف الشيء المقايض..." disabled={disabled} />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-500">القيمة (ل.س)</label>
+                  <label className="block text-xs font-bold text-slate-500">القيمة (ل.س)</label>
                   <Input type="number" min={0} value={e.amountValue}
                     onChange={ev => update(e._key, { amountValue: ev.target.value })}
                     placeholder="0" disabled={disabled} dir="ltr" />
@@ -114,7 +114,7 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
               <div className="space-y-2">
                 {e.method === 'transfer' && (
                   <div className="space-y-1">
-                    <label className="block text-[10px] font-bold text-slate-500">شركة الحوالة</label>
+                    <label className="block text-xs font-bold text-slate-500">شركة الحوالة</label>
                     <Select
                       value={e.transferCompanyId}
                       onChange={v => update(e._key, { transferCompanyId: v })}
@@ -128,7 +128,7 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
                 )}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="block text-[10px] font-bold text-slate-500">العملة</label>
+                    <label className="block text-xs font-bold text-slate-500">العملة</label>
                     <div className="flex rounded-xl border border-slate-200 overflow-hidden">
                       {(['syp', 'usd'] as const).map(c => (
                         <button key={c} type="button" disabled={disabled}
@@ -144,7 +144,7 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-[10px] font-bold text-slate-500">
+                    <label className="block text-xs font-bold text-slate-500">
                       المبلغ {e.currency === 'usd' ? '($)' : '(ل.س)'}
                     </label>
                     <Input type="number" min={0} value={e.amountValue}
@@ -155,7 +155,7 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
                 {e.currency === 'usd' && (
                   <div className="grid grid-cols-2 gap-2 items-end">
                     <div className="space-y-1">
-                      <label className="block text-[10px] font-bold text-slate-500">سعر الصرف</label>
+                      <label className="block text-xs font-bold text-slate-500">سعر الصرف</label>
                       <Input type="number" min={0} value={e.exchangeRate}
                         onChange={ev => update(e._key, { exchangeRate: ev.target.value })}
                         placeholder="ل.س / $" disabled={disabled} dir="ltr" />

@@ -211,7 +211,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
               <span className={`mt-3 font-semibold text-sm transition-colors duration-300 ${
                 step.status !== 'pending' ? 'text-slate-800' : 'text-slate-400'
               }`}>{step.label}</span>
-              <span className="text-[11px] text-slate-400 hidden md:block max-w-[120px] mt-1">{step.description}</span>
+              <span className="text-xs text-slate-400 hidden md:block max-w-[120px] mt-1">{step.description}</span>
             </div>
           );
         })}
@@ -232,7 +232,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
             <div className="flex items-center justify-between">
               <h4 className="font-semibold text-sm text-slate-800">{step.label}</h4>
               {step.task && (
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${getStatusBadgeClass(step.task.status)}`}>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStatusBadgeClass(step.task.status)}`}>
                   {getStatusLabel(step.task.status)}
                 </span>
               )}
@@ -240,7 +240,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
 
             {/* Task Info or CTAs */}
             {step.task ? (
-              <div className="text-[11px] text-slate-600 space-y-1 bg-slate-50 rounded-lg p-3 border border-slate-100">
+              <div className="text-xs text-slate-600 space-y-1 bg-slate-50 rounded-lg p-3 border border-slate-100">
                 <div className="flex justify-between">
                   <span>تاريخ الجدولة:</span>
                   <span className="font-semibold text-slate-800">{step.task.dueDate || 'غير محدد'}</span>
@@ -259,7 +259,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
                 )}
               </div>
             ) : (
-              <p className="text-[11px] text-slate-400 italic">لا توجد مهمة مجدولة حالياً</p>
+              <p className="text-xs text-slate-400 italic">لا توجد مهمة مجدولة حالياً</p>
             )}
 
             {/* Action Buttons */}
@@ -313,7 +313,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-lg space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <Truck className="w-5 h-5 text-sky-600" />
                 تسجيل نتيجة تسليم الجهاز
               </h3>

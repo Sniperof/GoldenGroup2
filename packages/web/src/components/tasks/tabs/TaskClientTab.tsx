@@ -224,7 +224,7 @@ export default function TaskClientTab({ task, onClientClick }: TaskClientTabProp
                 <span className="text-sm font-bold text-slate-800 font-mono" dir="ltr">
                   {primaryMobile || '—'}
                 </span>
-                <span className="text-[10px] text-slate-400">رئيسي</span>
+                <span className="text-xs text-slate-400">رئيسي</span>
               </div>
               {contacts.map((c: any, i: number) => {
                 const Icon = getContactIcon(c.label);
@@ -235,7 +235,7 @@ export default function TaskClientTab({ task, onClientClick }: TaskClientTabProp
                     {c.label && <span className="text-xs text-slate-500">{c.label}:</span>}
                     <span className="text-sm text-slate-700 font-mono" dir="ltr">{c.number}</span>
                     {c.hasWhatsApp && <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />}
-                    {inactive && <span className="text-[10px] text-slate-400">(غير نشط)</span>}
+                    {inactive && <span className="text-xs text-slate-400">(غير نشط)</span>}
                   </div>
                 );
               })}
@@ -314,7 +314,7 @@ export default function TaskClientTab({ task, onClientClick }: TaskClientTabProp
               <div className="pr-6">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs">
                   {legacyReferrer.type && (
-                    <span className="text-[10px] font-bold text-slate-500">
+                    <span className="text-xs font-bold text-slate-500">
                       {REFERRER_TYPE_LABELS[legacyReferrer.type] ?? legacyReferrer.type}
                     </span>
                   )}

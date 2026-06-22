@@ -289,10 +289,10 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
 
             {grouped.map((group, gi) => (
                 <Card key={gi} padding="none" className="overflow-hidden">
-                    <div className="px-5 py-2.5 bg-slate-50 border-b border-gray-100">
+                    <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-100">
                         <span className="text-xs font-black text-slate-500 uppercase tracking-wide">{group.label}</span>
                     </div>
-                    <div className="divide-y divide-gray-50">
+                    <div className="divide-y divide-slate-50">
                         {group.entries.map(log => {
                             const meta = getOutcomeMeta(log.outcome);
                             const bc = borderColor(log.outcome, log.status);
@@ -309,38 +309,38 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
                                             <div>
                                                 <span className="font-bold text-sm text-slate-800">{meta.label}</span>
                                                 {log.status === 'pending' && (
-                                                    <span className="mr-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">
+                                                    <span className="mr-2 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">
                                                         منتظر رد
                                                     </span>
                                                 )}
                                             </div>
-                                            <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap shrink-0">
+                                            <span className="text-xs text-slate-400 font-mono whitespace-nowrap shrink-0">
                                                 {formatTime(log.callDate)}
                                             </span>
                                         </div>
 
                                         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                                             {log.contactLabel && (
-                                                <span className="text-[10px] bg-sky-50 text-sky-600 border border-sky-100 px-2 py-0.5 rounded font-bold">
+                                                <span className="text-xs bg-sky-50 text-sky-600 border border-sky-100 px-2 py-0.5 rounded font-bold">
                                                     {log.contactLabel} ({maskedNumber(log.contactNumber)})
                                                 </span>
                                             )}
-                                            <span className="flex items-center gap-1 text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
+                                            <span className="flex items-center gap-1 text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
                                                 {channelIcon(log.communicationChannel)}
                                                 {channelLabel(log.communicationChannel)}
                                             </span>
-                                            <span className="text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded font-bold border border-violet-100">
+                                            <span className="text-xs bg-violet-50 text-violet-600 px-2 py-0.5 rounded font-bold border border-violet-100">
                                                 {sourceLabel(log.sourceType)}
                                             </span>
                                             {log.callerName && (
-                                                <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
+                                                <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
                                                     {log.callerName}
                                                 </span>
                                             )}
                                                 {canEdit && log.status === 'pending' && log.communicationChannel?.includes('text') && (
                                                 <button
                                                     onClick={() => setEditLog(log)}
-                                                    className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded font-bold border border-amber-100 hover:bg-amber-100 transition-colors flex items-center gap-1"
+                                                    className="text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded font-bold border border-amber-100 hover:bg-amber-100 transition-colors flex items-center gap-1"
                                                 >
                                                     <Edit3 className="w-3 h-3" /> تعديل النتيجة
                                                 </button>
@@ -350,12 +350,12 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
                                         {/* Linked tasks — show when call covered multiple tasks */}
                                         {Array.isArray((log as any).linkedTasks) && (log as any).linkedTasks.length > 0 && (
                                             <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                                                <span className="flex items-center gap-1 text-[10px] text-violet-600 font-bold">
+                                                <span className="flex items-center gap-1 text-xs text-violet-600 font-bold">
                                                     <Layers className="w-3 h-3" />
                                                     {(log as any).linkedTasks.length} مهام:
                                                 </span>
                                                 {(log as any).linkedTasks.map((t: any) => (
-                                                    <span key={t.taskId} className="text-[10px] bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded font-bold">
+                                                    <span key={t.taskId} className="text-xs bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded font-bold">
                                                         {t.arabicLabel}
                                                     </span>
                                                 ))}

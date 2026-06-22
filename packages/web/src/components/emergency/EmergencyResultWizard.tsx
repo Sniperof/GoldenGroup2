@@ -117,7 +117,7 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
               }`}>
                 {done && !active ? <CheckCircle2 className="h-4 w-4" /> : p.step}
               </div>
-              <span className={`text-[10px] font-bold leading-tight ${
+              <span className={`text-xs font-bold leading-tight ${
                 active ? 'text-rose-700' : done ? 'text-emerald-700' : 'text-slate-400'
               }`}>
                 {p.label}

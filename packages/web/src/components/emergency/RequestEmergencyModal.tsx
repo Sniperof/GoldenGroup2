@@ -141,7 +141,7 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
+            <span className="inline-flex items-center gap-1 text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
               <Clock className="h-3 w-3" /> 48 ساعة
             </span>
             <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
@@ -164,7 +164,7 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
                 options={contracts.map(c => ({ value: String(c.id), label: `${c.contractNumber} — ${c.deviceModelName || 'جهاز'}` }))}
               />
               {contractId && contracts.find(c => c.id === contractId)?.installationAddressText && (
-                <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+                <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
                   <span className="font-bold text-slate-500">موقع الجهاز:</span>
                   {contracts.find(c => c.id === contractId)?.installationAddressText}
                 </p>

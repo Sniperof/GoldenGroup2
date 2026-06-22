@@ -40,7 +40,7 @@ interface InstalledDevice {
 /* ------------------------------------------------------------------ */
 
 const statusConfig: Record<string, { label: string; style: string }> = {
-    registered:        { label: 'مُسجّل',          style: 'bg-gray-50 text-slate-600 border-gray-200' },
+    registered:        { label: 'مُسجّل',          style: 'bg-slate-50 text-slate-600 border-slate-200' },
     pending_delivery:  { label: 'بانتظار التسليم', style: 'bg-amber-50 text-amber-700 border-amber-200' },
     delivered:         { label: 'مُسلّم',          style: 'bg-sky-50 text-sky-700 border-sky-200' },
     installed:         { label: 'مُركّب',          style: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
@@ -115,7 +115,7 @@ export default function InstalledDevicesList() {
                 <div>
                     <span className="text-sm font-semibold text-slate-800">{d.deviceModelName || '—'}</span>
                     {d.serialNumber && (
-                        <span className="block text-[10px] text-slate-400 font-mono">{d.serialNumber}</span>
+                        <span className="block text-xs text-slate-400 font-mono">{d.serialNumber}</span>
                     )}
                 </div>
             ),
@@ -143,11 +143,11 @@ export default function InstalledDevicesList() {
                 const subtype = d.deviceSource !== 'external' && d.saleSubtype ? subtypeLabels[d.saleSubtype] ?? d.saleSubtype : null;
                 return (
                     <div className="flex items-center gap-1.5">
-                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${d.deviceSource === 'external' ? 'bg-fuchsia-50 text-fuchsia-700' : 'bg-slate-50 text-slate-600'}`}>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${d.deviceSource === 'external' ? 'bg-fuchsia-50 text-fuchsia-700' : 'bg-slate-50 text-slate-600'}`}>
                             {sourceLabels[d.deviceSource] || d.deviceSource}
                         </span>
                         {subtype && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-700">{subtype}</span>
+                            <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-sky-50 text-sky-700">{subtype}</span>
                         )}
                     </div>
                 );
@@ -166,13 +166,13 @@ export default function InstalledDevicesList() {
                 return (
                     <div className="flex flex-col gap-0.5">
                         {d.isGoldenWarranty && (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600">
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600">
                                 <ShieldCheck className="w-3.5 h-3.5" />ذهبية
                             </span>
                         )}
                         {terms.length > 0
-                            ? <span className="text-[11px] text-slate-600">{terms.join(' · ')}</span>
-                            : (!d.isGoldenWarranty && <span className="text-[11px] text-slate-400">—</span>)}
+                            ? <span className="text-xs text-slate-600">{terms.join(' · ')}</span>
+                            : (!d.isGoldenWarranty && <span className="text-xs text-slate-400">—</span>)}
                     </div>
                 );
             },
@@ -180,7 +180,7 @@ export default function InstalledDevicesList() {
         {
             key: 'status', label: 'الحالة', sortable: true,
             render: (d) => {
-                const s = statusConfig[d.status] ?? { label: d.status, style: 'bg-gray-50 text-slate-600 border-gray-200' };
+                const s = statusConfig[d.status] ?? { label: d.status, style: 'bg-slate-50 text-slate-600 border-slate-200' };
                 return <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${s.style}`}>{s.label}</span>;
             },
         },

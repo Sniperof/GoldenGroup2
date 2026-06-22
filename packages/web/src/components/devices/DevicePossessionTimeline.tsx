@@ -47,17 +47,17 @@ export function DevicePossessionTimeline({ entries, resolveHolderName }: Props) 
                   reason={e.reason}
                   showReason
                 />
-                <div className="mt-2 text-[11px] text-slate-500 leading-relaxed">
+                <div className="mt-2 text-xs text-slate-500 leading-relaxed">
                   <span>من: <span className="font-semibold text-slate-700">{fmt(e.startAt)}</span></span>
                   {' — '}
                   <span>إلى: <span className="font-semibold text-slate-700">{isOpen ? 'الآن (حالي)' : fmt(e.endAt)}</span></span>
                 </div>
                 {e.notes && (
-                  <p className="mt-1 text-[11px] text-slate-400 italic">{e.notes}</p>
+                  <p className="mt-1 text-xs text-slate-400 italic">{e.notes}</p>
                 )}
               </div>
               {idx === 0 && isOpen && (
-                <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
+                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
                   الحالي
                 </span>
               )}

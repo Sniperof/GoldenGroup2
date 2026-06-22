@@ -695,7 +695,7 @@ export default function TaskGroupPage() {
                           return (
                             <div className="flex flex-col gap-1 items-start">
                               <span className={s.textClass}>{formatDate(row.dueDate)}</span>
-                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${s.badgeClass}`}>
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>
                                 {s.shortLabel}
                               </span>
                             </div>
@@ -710,7 +710,7 @@ export default function TaskGroupPage() {
                           return (
                             <div className="flex flex-col gap-1 items-start">
                               <span className={s.textClass}>{formatDate(row.expectedDate)}</span>
-                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${s.badgeClass}`}>
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>
                                 {s.shortLabel}
                               </span>
                             </div>

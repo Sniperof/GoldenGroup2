@@ -27,7 +27,7 @@ export function Card({ title, icon: Icon, children, className = '', accent }: { 
         ) : (
           <Icon className="w-4 h-4 text-slate-400" />
         )}
-        <h3 className="text-sm font-bold text-slate-700">{title}</h3>
+        <h3 className="text-base font-bold text-slate-800">{title}</h3>
       </div>
       <div className="p-5">{children}</div>
     </div>

@@ -27,7 +27,7 @@ function TabButton({ active, label, onClick }: { active: boolean; label: string;
     <button
       type="button"
       onClick={onClick}
-      className={`relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors ${active
+      className={`relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-base font-bold transition-colors ${active
         ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
         : 'text-slate-500 hover:text-slate-800'
       }`}

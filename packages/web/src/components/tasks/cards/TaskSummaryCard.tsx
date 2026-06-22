@@ -52,8 +52,8 @@ export default function TaskSummaryCard({ task, priorityDraft, prioritySaving, p
                 { value: 'low', label: PRIORITY_LABELS.low },
               ]}
             />
-            {prioritySaving && <span className="text-[11px] text-slate-400">جارٍ الحفظ...</span>}
-            {priorityError && <span className="text-[11px] text-rose-600">{priorityError}</span>}
+            {prioritySaving && <span className="text-xs text-slate-400">جارٍ الحفظ...</span>}
+            {priorityError && <span className="text-xs text-rose-600">{priorityError}</span>}
           </div>
         </div>
         <InfoLine label="السبب" value={task.reason ? (REASON_LABELS[task.reason] ?? task.reason) : '—'} />

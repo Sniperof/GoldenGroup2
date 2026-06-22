@@ -12,7 +12,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     <div className="space-y-1">
       <label className="block text-xs font-bold text-slate-600">{label}</label>
       {children}
-      {hint && <p className="text-[10px] text-slate-400">{hint}</p>}
+      {hint && <p className="text-xs text-slate-400">{hint}</p>}
     </div>
   );
 }
@@ -60,14 +60,14 @@ function EfficiencyBadge({ inlet, outlet }: { inlet: string; outlet: string }) {
     <div className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 ring-4 ${cls}`}>
       <div className="text-center">
         <div className="text-2xl font-black leading-none">{eff}%</div>
-        <div className="text-[10px] font-bold mt-0.5 opacity-70">{label}</div>
+        <div className="text-xs font-bold mt-0.5 opacity-70">{label}</div>
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-xs font-bold mb-0.5">كفاءة الميمبرين</div>
-        <div className="text-[10px] opacity-60 font-mono ltr">
+        <div className="text-xs opacity-60 font-mono ltr">
           (1 − {i} / {o}) × 100
         </div>
-        <div className="text-[10px] opacity-60 mt-0.5">
+        <div className="text-xs opacity-60 mt-0.5">
           دخل: <span className="font-bold">{i} ppm</span> · خرج: <span className="font-bold">{o} ppm</span>
         </div>
       </div>
@@ -184,7 +184,7 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
     <Card padding="none" className="overflow-hidden" dir="rtl">
       {/* Header */}
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between">
-        <h3 className="font-bold text-slate-800 text-sm">{title}</h3>
+        <h3 className="font-bold text-slate-800 text-base">{title}</h3>
         {initialData && <Badge variant="success" size="sm">محفوظة ✓</Badge>}
       </div>
 
@@ -209,7 +209,7 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
       <div className="p-5 space-y-5">
         {/* === Section: مصدر المياه === */}
         <div>
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">مصدر المياه</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">مصدر المياه</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="نوع المصدر">
               <Select value={f.waterSourceType ?? ''} onChange={set('waterSourceType')} options={[
@@ -235,7 +235,7 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
 
         {/* === Section: قراءات الجهاز === */}
         <div>
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">قراءات الجهاز</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">قراءات الجهاز</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="عيار حنفية الجهاز (ppm)">
               <NumInput value={f.tapTdsBefore ?? ''} onChange={set('tapTdsBefore')} />
@@ -277,7 +277,7 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
 
         {/* === Section: التعقيم === */}
         <div>
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">التعقيم</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">التعقيم</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Field label="ترانس التعقيم">
               <BoolSelect value={f.sterilizationTransformer ?? ''} onChange={set('sterilizationTransformer')} />
@@ -293,7 +293,7 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
 
         {/* === Section: الضاغطات === */}
         <div>
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">الضاغطات والتوصيلات</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">الضاغطات والتوصيلات</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="لو برشر">
               <BoolSelect value={f.lowPressureSwitch ?? ''} onChange={set('lowPressureSwitch')} />

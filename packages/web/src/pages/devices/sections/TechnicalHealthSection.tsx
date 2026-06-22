@@ -109,7 +109,7 @@ function taskLabel(r: any) {
 
 function PhaseBadge({ phase }: { phase: string }) {
   const meta = PHASE_META[phase] ?? { label: phase, cls: 'bg-slate-50 text-slate-600 border-slate-200' };
-  return <span className={`text-[10px] font-bold rounded-full border px-2 py-0.5 ${meta.cls}`}>{meta.label}</span>;
+  return <span className={`text-xs font-bold rounded-full border px-2 py-0.5 ${meta.cls}`}>{meta.label}</span>;
 }
 
 // Minimal inline sparkline for a numeric series (oldest→newest left→right).
@@ -144,7 +144,7 @@ function ReadingCard({ r }: { r: any }) {
         <div className="flex items-center gap-2 flex-wrap">
           <PhaseBadge phase={r.phase} />
           {taskLabel(r) && (
-            <span className="text-[10px] font-bold rounded-full border border-sky-200 bg-sky-50 text-sky-700 px-2 py-0.5">{taskLabel(r)}</span>
+            <span className="text-xs font-bold rounded-full border border-sky-200 bg-sky-50 text-sky-700 px-2 py-0.5">{taskLabel(r)}</span>
           )}
           <span className="text-xs text-slate-500">{formatDate(r.createdAt)}</span>
         </div>
@@ -154,11 +154,11 @@ function ReadingCard({ r }: { r: any }) {
         <div className="space-y-4">
           {groups.map(g => (
             <div key={g.title}>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">{g.title}</p>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{g.title}</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                 {g.measured.map(({ f, v }) => (
                   <div key={f.key} className="rounded-xl bg-slate-50 px-3 py-2">
-                    <div className="text-[10px] text-slate-400 font-bold">{f.label}</div>
+                    <div className="text-xs text-slate-400 font-bold">{f.label}</div>
                     <div className="text-sm font-bold text-slate-700">{v}</div>
                   </div>
                 ))}
@@ -169,7 +169,7 @@ function ReadingCard({ r }: { r: any }) {
       ) : <p className="text-xs text-slate-400">لا قياسات في هذه القراءة</p>}
       {r.additionalNotes && (
         <div className="mt-4 border-t border-slate-100 pt-3">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">ملاحظات إضافية</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">ملاحظات إضافية</p>
           <p className="text-xs text-slate-600">{r.additionalNotes}</p>
         </div>
       )}
@@ -253,7 +253,7 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
         <div className="flex items-center justify-between gap-3 p-5 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5 text-sky-500" />
-            <h3 className="text-base font-black text-slate-800">الصحة الفنية للجهاز</h3>
+            <h3 className="text-base font-bold text-slate-800">الصحة الفنية للجهاز</h3>
             <span className="text-xs font-bold text-slate-400">({rows.length} قراءة)</span>
           </div>
           <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
@@ -287,7 +287,7 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
                   className="w-full flex items-center justify-between gap-3 rounded-xl border border-slate-100 hover:border-sky-200 hover:bg-sky-50/40 px-4 py-3 text-right transition-colors">
                   <div className="flex items-center gap-2 flex-wrap">
                     <PhaseBadge phase={r.phase} />
-                    {taskLabel(r) && <span className="text-[10px] font-bold rounded-full border border-sky-200 bg-sky-50 text-sky-700 px-2 py-0.5">{taskLabel(r)}</span>}
+                    {taskLabel(r) && <span className="text-xs font-bold rounded-full border border-sky-200 bg-sky-50 text-sky-700 px-2 py-0.5">{taskLabel(r)}</span>}
                     <span className="text-xs text-slate-500">{formatDate(r.createdAt)}</span>
                   </div>
                   {r.membraneEfficiency != null && <span className="text-xs font-bold text-slate-700">كفاءة {r.membraneEfficiency}%</span>}
@@ -325,7 +325,7 @@ export function TechnicalHealthSection({ deviceId }: { deviceId: number }) {
       <header className="flex items-center justify-between gap-3 p-5 border-b border-slate-100 flex-wrap">
         <div className="flex items-center gap-2">
           <Activity className="w-5 h-5 text-sky-500" />
-          <h2 className="text-base font-black text-slate-800">الصحة الفنية للجهاز</h2>
+          <h2 className="text-lg font-bold text-slate-800">الصحة الفنية للجهاز</h2>
           <span className="text-xs font-bold text-slate-400">({rows.length} قراءة)</span>
         </div>
         {rows.length > 0 && (
@@ -350,7 +350,7 @@ export function TechnicalHealthSection({ deviceId }: { deviceId: number }) {
             <div className="flex items-center gap-4 flex-wrap">
               {latest?.membraneEfficiency != null && (
                 <div className="rounded-2xl border border-slate-100 px-4 py-3">
-                  <div className="text-[10px] text-slate-400 font-bold mb-0.5">كفاءة الميمبرين الحالية</div>
+                  <div className="text-xs text-slate-400 font-bold mb-0.5">كفاءة الميمبرين الحالية</div>
                   <div className="text-2xl font-black text-sky-600 leading-none">{latest.membraneEfficiency}<span className="text-sm">%</span></div>
                 </div>
               )}
@@ -376,7 +376,7 @@ export function TechnicalHealthSection({ deviceId }: { deviceId: number }) {
                   </div>
                   <div className="flex items-center gap-2">
                     {r.membraneEfficiency != null && <span className="text-xs font-bold text-slate-700">كفاءة {r.membraneEfficiency}%</span>}
-                    <span className="text-[11px] text-sky-600 font-bold">تفاصيل</span>
+                    <span className="text-xs text-sky-600 font-bold">تفاصيل</span>
                   </div>
                 </button>
               ))}

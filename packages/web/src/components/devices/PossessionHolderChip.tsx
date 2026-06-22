@@ -57,7 +57,7 @@ export function PossessionHolderChip({
         <span>{cfg.label}{holderName ? ` — ${holderName}` : ''}</span>
       </span>
       {showReason && reasonLabel && (
-        <span className="text-[10px] text-slate-400 font-medium px-1">({reasonLabel})</span>
+        <span className="text-xs text-slate-400 font-medium px-1">({reasonLabel})</span>
       )}
     </span>
   );

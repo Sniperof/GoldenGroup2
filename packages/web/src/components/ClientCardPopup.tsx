@@ -193,14 +193,14 @@ export default function ClientCardPopup({ clientId, onClose }: Props) {
                                                     <div className="flex items-center gap-1.5 min-w-0">
                                                         <span className="text-sm font-medium text-slate-800" dir="ltr">{contact.number}</span>
                                                         {contact.isPrimary && (
-                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">رئيسي</span>
+                                                            <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">رئيسي</span>
                                                         )}
                                                     </div>
                                                     <div className="flex items-center gap-1 shrink-0">
                                                         {contact.hasWhatsApp && (
-                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">واتساب</span>
+                                                            <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">واتساب</span>
                                                         )}
-                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${CONTACT_STATUS_COLORS[contact.status] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${CONTACT_STATUS_COLORS[contact.status] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                                                             {CONTACT_STATUS_LABELS[contact.status] || contact.status}
                                                         </span>
                                                     </div>

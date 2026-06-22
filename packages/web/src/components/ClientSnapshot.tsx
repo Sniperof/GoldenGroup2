@@ -108,16 +108,16 @@ export default function ClientSnapshot({ data }: { data: ClientSnapshotData }) {
                 />
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-base font-black text-slate-800">
+                        <h3 className="text-base font-bold text-slate-800">
                             {name}
                             {data.nickname && <span className="text-slate-400 font-medium"> ({data.nickname})</span>}
                         </h3>
                         {badgeCls && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeCls}`}>{classification}</span>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeCls}`}>{classification}</span>
                         )}
                     </div>
                     {data.sourceChannel && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded mt-1">
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded mt-1">
                             <Globe className="w-2.5 h-2.5" /> {data.sourceChannel}
                         </span>
                     )}
@@ -125,7 +125,7 @@ export default function ClientSnapshot({ data }: { data: ClientSnapshotData }) {
             </div>
 
             {/* ب) التواصل */}
-            <div className="py-4 border-t border-gray-100 space-y-2">
+            <div className="py-4 border-t border-slate-100 space-y-2">
                 <a href={`tel:${data.primaryMobile}`} className="flex items-center gap-2 text-sm font-bold text-sky-600">
                     <Phone className="w-4 h-4 text-sky-500" /><span dir="ltr">{data.primaryMobile ?? '—'}</span>
                 </a>
@@ -138,14 +138,14 @@ export default function ClientSnapshot({ data }: { data: ClientSnapshotData }) {
                             {ct.label && <span className="text-slate-500 text-xs">{ct.label}:</span>}
                             <a href={`tel:${ct.number}`} className="font-semibold text-slate-700" dir="ltr">{ct.number}</a>
                             {ct.hasWhatsApp && <MessageCircle className="w-3.5 h-3.5 text-green-500" />}
-                            {inactive && <span className="text-[10px] text-rose-400">(غير نشط)</span>}
+                            {inactive && <span className="text-xs text-rose-400">(غير نشط)</span>}
                         </div>
                     );
                 })}
             </div>
 
             {/* ج) العنوان */}
-            <div className="py-4 border-t border-gray-100 space-y-2">
+            <div className="py-4 border-t border-slate-100 space-y-2">
                 <div className="flex items-start gap-2">
                     <MapPin className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" />
                     {hierarchy.length > 0 ? (
@@ -166,7 +166,7 @@ export default function ClientSnapshot({ data }: { data: ClientSnapshotData }) {
             </div>
 
             {/* د) المعلومات الشخصية */}
-            <div className="py-4 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="py-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-2">
                 <Row label="المهنة"><span className="inline-flex items-center gap-1"><Briefcase className="w-3 h-3 text-slate-400" />{data.occupation || NA}</span></Row>
                 <Row label="مهنة الزوج / الزوجة"><span className="inline-flex items-center gap-1"><Briefcase className="w-3 h-3 text-slate-400" />{data.spouseOccupation || NA}</span></Row>
                 {showCommitted && (
@@ -179,7 +179,7 @@ export default function ClientSnapshot({ data }: { data: ClientSnapshotData }) {
             </div>
 
             {/* ه) الوسطاء */}
-            <div className="py-4 border-t border-gray-100">
+            <div className="py-4 border-t border-slate-100">
                 {(() => {
                     const names = (data.referrers ?? []).map((r) => r.name).filter(Boolean) as string[];
                     const count = data.referrersCount ?? names.length;
@@ -199,14 +199,14 @@ export default function ClientSnapshot({ data }: { data: ClientSnapshotData }) {
 
             {/* و) الملاحظات */}
             {data.notes && (
-                <div className="py-4 border-t border-gray-100">
+                <div className="py-4 border-t border-slate-100">
                     <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><FileText className="w-3 h-3" /> ملاحظات</p>
                     <p className="text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-2">{data.notes}</p>
                 </div>
             )}
 
             {/* ز) المسؤول/ين */}
-            <div className="py-4 border-t border-gray-100">
+            <div className="py-4 border-t border-slate-100">
                 {assignees.length > 0 ? (
                     <div className="space-y-1">
                         <p className="text-xs text-slate-400 flex items-center gap-1 mb-1"><Users className="w-3 h-3" /> المسؤول/ون</p>

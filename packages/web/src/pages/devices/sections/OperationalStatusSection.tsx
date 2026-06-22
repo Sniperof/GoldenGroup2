@@ -36,7 +36,7 @@ function LifecycleValue({ value, reason }: { value?: string | null; reason: stri
   return (
     <div className="inline-flex flex-col">
       <span className="text-sm font-bold text-amber-700">غير مثبت بعد</span>
-      <span className="text-[11px] text-slate-400">{reason}</span>
+      <span className="text-xs text-slate-400">{reason}</span>
     </div>
   );
 }
@@ -249,19 +249,19 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
       >
         <div className="grid grid-cols-2 gap-5 md:grid-cols-4">
           <div>
-            <div className="mb-1 text-[11px] font-bold text-slate-400">الحالة</div>
+            <div className="mb-1 text-xs font-bold text-slate-400">الحالة</div>
             <DeviceStatusBadge status={device?.status} />
           </div>
           <div>
-            <div className="mb-1 text-[11px] font-bold text-slate-400">تاريخ التسليم</div>
+            <div className="mb-1 text-xs font-bold text-slate-400">تاريخ التسليم</div>
             <LifecycleValue value={device?.deliveryDate} reason="يثبت عند إغلاق مهمة التسليم بنجاح." />
           </div>
           <div>
-            <div className="mb-1 text-[11px] font-bold text-slate-400">تاريخ التركيب</div>
+            <div className="mb-1 text-xs font-bold text-slate-400">تاريخ التركيب</div>
             <LifecycleValue value={device?.installationDate} reason="يثبت عند إغلاق مهمة التركيب بنجاح." />
           </div>
           <div>
-            <div className="mb-1 text-[11px] font-bold text-slate-400">تاريخ التشغيل</div>
+            <div className="mb-1 text-xs font-bold text-slate-400">تاريخ التشغيل</div>
             <LifecycleValue value={device?.activatedAt} reason="يثبت عند انتقال الجهاز إلى حالة active." />
           </div>
         </div>
@@ -273,7 +273,7 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <div className="flex items-center gap-2">
                 <Wrench className="h-5 w-5 text-sky-600" />
-                <h2 className="text-base font-black text-slate-900">إنشاء مهمة تركيب</h2>
+                <h2 className="text-lg font-bold text-slate-800">إنشاء مهمة تركيب</h2>
               </div>
               <IconButton icon={X} label="إغلاق" onClick={() => setShowInstallationModal(false)} />
             </div>
@@ -343,7 +343,7 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <div className="flex items-center gap-2">
                 <Zap className="h-5 w-5 text-sky-600" />
-                <h2 className="text-base font-black text-slate-900">إنشاء مهمة تشغيل</h2>
+                <h2 className="text-lg font-bold text-slate-800">إنشاء مهمة تشغيل</h2>
               </div>
               <IconButton icon={X} label="إغلاق" onClick={() => setShowActivationModal(false)} />
             </div>

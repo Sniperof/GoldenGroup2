@@ -117,7 +117,7 @@ function SectionCard({ num, title, subtitle, icon: Icon, colorKey, children, del
           {num}
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
             {Icon && <Icon className={`w-4 h-4 ${c.icon}`} />}
             {title}
           </h3>
@@ -521,7 +521,7 @@ export default function ManualApplicationEntry() {
               <Briefcase className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-800">إعدادات توجيه الطلب</h3>
+              <h3 className="text-base font-bold text-slate-800">إعدادات توجيه الطلب</h3>
               <p className="text-xs text-slate-400 mt-0.5">ربط الطلب بشاغر ومصدر التقديم</p>
             </div>
           </div>

@@ -185,12 +185,12 @@ function ReferrerCard({ referrer }: { referrer: ClientReferrerItem }) {
 
 function SectionShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-      <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+      <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-3">
         <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
           <User className="w-4 h-4 text-indigo-600" />
         </div>
-        <h2 className="text-sm font-bold text-slate-700">بيانات الزبون</h2>
+        <h2 className="text-lg font-bold text-slate-800">بيانات الزبون</h2>
       </div>
       <div className="p-5">{children}</div>
     </div>

@@ -61,40 +61,40 @@ function colorFor(eventType: string): string {
   if (eventType === 'promoted_to_task' || eventType === 'merged_into_existing_task') return 'bg-green-100 text-green-700';
   if (eventType.includes('flag_set') || eventType === 'escalated_to_audit_admin') return 'bg-yellow-100 text-yellow-700';
   if (eventType === 'problem_audit_admin_override') return 'bg-purple-100 text-purple-700';
-  return 'bg-gray-100 text-gray-700';
+  return 'bg-slate-100 text-slate-700';
 }
 
 export default function AuditLogTimeline({ events }: { events: AuditEvent[] }) {
   if (events.length === 0) {
-    return <div className="text-sm text-gray-500 py-4">لا توجد أحداث مسجَّلة بعد.</div>;
+    return <div className="text-sm text-slate-500 py-4">لا توجد أحداث مسجَّلة بعد.</div>;
   }
   return (
-    <ol className="relative border-r-2 border-gray-200 mr-2 space-y-3" dir="rtl">
+    <ol className="relative border-r-2 border-slate-200 mr-2 space-y-3" dir="rtl">
       {events.map((ev) => (
         <li key={ev.id} className="mr-4 relative">
           <span className={`absolute -right-7 flex items-center justify-center w-6 h-6 rounded-full ring-4 ring-white ${colorFor(ev.eventType)}`}>
             {iconFor(ev.eventType)}
           </span>
-          <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+          <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
             <div className="flex items-center justify-between mb-1">
-              <span className="font-medium text-sm text-gray-800">
+              <span className="font-medium text-sm text-slate-800">
                 {EVENT_LABELS[ev.eventType] ?? ev.eventType}
               </span>
-              <time className="text-xs text-gray-400">
+              <time className="text-xs text-slate-400">
                 {new Date(ev.createdAt).toLocaleString('ar-SY')}
               </time>
             </div>
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span className="px-1.5 py-0.5 bg-gray-100 rounded">{ev.actorRole}</span>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="px-1.5 py-0.5 bg-slate-100 rounded">{ev.actorRole}</span>
               {ev.actorUserId != null && <span>المستخدم #{ev.actorUserId}</span>}
             </div>
-            {ev.note && <p className="text-sm text-gray-600 mt-1.5">{ev.note}</p>}
+            {ev.note && <p className="text-sm text-slate-600 mt-1.5">{ev.note}</p>}
             {ev.eventPayload && Object.keys(ev.eventPayload).length > 0 && (
               <details className="mt-1.5">
-                <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
+                <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-600">
                   التفاصيل
                 </summary>
-                <pre className="text-xs bg-gray-50 p-2 rounded mt-1 overflow-auto max-h-40">
+                <pre className="text-xs bg-slate-50 p-2 rounded mt-1 overflow-auto max-h-40">
                   {JSON.stringify(ev.eventPayload, null, 2)}
                 </pre>
               </details>

@@ -55,7 +55,7 @@ export function ProblemsHistorySection({ deviceId }: { deviceId: number }) {
       <header className="flex items-center justify-between gap-3 p-5 border-b border-slate-100">
         <div className="flex items-center gap-2">
           <Wrench className="w-5 h-5 text-rose-500" />
-          <h2 className="text-base font-black text-slate-800">سجل أعطال الجهاز</h2>
+          <h2 className="text-lg font-bold text-slate-800">سجل أعطال الجهاز</h2>
           <span className="text-xs font-bold text-slate-400">({rows.length})</span>
         </div>
       </header>
@@ -103,7 +103,7 @@ export function ProblemsHistorySection({ deviceId }: { deviceId: number }) {
                         {p.details ?? '—'}
                       </td>
                       <td className="py-2 px-2">
-                        <span className={`inline-flex items-center text-[10px] font-bold rounded-full border px-2 py-0.5 ${meta.cls}`}>
+                        <span className={`inline-flex items-center text-xs font-bold rounded-full border px-2 py-0.5 ${meta.cls}`}>
                           {meta.label}
                         </span>
                       </td>

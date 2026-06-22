@@ -76,7 +76,7 @@ export default function ReferralSheetModal({ visitId, open, onClose, onSaved }: 
         <header className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50">
           <div className="flex items-center gap-2">
             <ListPlus className="w-4 h-4 text-sky-700" />
-            <h2 className="text-sm font-bold text-slate-800">
+            <h2 className="text-lg font-bold text-slate-800">
               {existingSheetId == null ? 'إضافة لائحة جديدة' : 'تعديل عدد اللائحة'}
             </h2>
           </div>
@@ -90,7 +90,7 @@ export default function ReferralSheetModal({ visitId, open, onClose, onSaved }: 
             </div>
           )}
 
-          <p className="text-[11px] text-slate-500">
+          <p className="text-xs text-slate-500">
             اللائحة اختيارية — يُسمح بإكمال الزيارة بدونها. عدد الأسماء وعد من الفريق
             يُعبَّأ لاحقاً في شاشة سجلات الأسماء المنفصلة.
           </p>

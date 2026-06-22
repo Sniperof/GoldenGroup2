@@ -242,7 +242,7 @@ export default function SmartTable<T>({
                         <Icon className="w-4 h-4 text-sky-600" />
                     </div>
                     <div>
-                        <h2 className="text-base font-bold text-slate-800 leading-tight">{title}</h2>
+                        <h2 className="text-lg font-bold text-slate-800 leading-tight">{title}</h2>
                         <p className="text-xs text-slate-400 mt-0.5">
                             {hasActiveFilters
                                 ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
@@ -256,7 +256,7 @@ export default function SmartTable<T>({
                     {hasActiveFilters && (
                         <button
                             onClick={resetFilters}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-slate-500 hover:bg-gray-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
                         >
                             <RotateCcw className="w-3 h-3" />
                             مسح الفلاتر
@@ -264,7 +264,7 @@ export default function SmartTable<T>({
                     )}
                     <button
                         onClick={() => exportCSV(columns, sorted, title)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-slate-500 hover:bg-gray-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
                     >
                         <Download className="w-3 h-3" />
                         تصدير CSV
@@ -340,7 +340,7 @@ export default function SmartTable<T>({
                     style={{ minWidth: `${tableMinWidth}px` }}
                 >
                     {/* sticky thead — sticks to the top of the viewport as the page scrolls */}
-                    <thead className="sticky top-0 z-20 bg-gray-50 border-b border-gray-200 shadow-[0_1px_0_0_#e2e8f0]">
+                    <thead className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 shadow-[0_1px_0_0_#e2e8f0]">
                         <tr>
                             {bulkActions && (
                                 <th className="w-11 px-4 py-3">
@@ -348,7 +348,7 @@ export default function SmartTable<T>({
                                         type="checkbox"
                                         checked={allSelected}
                                         onChange={toggleAll}
-                                        className="w-4 h-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer accent-sky-600"
+                                        className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer accent-sky-600"
                                     />
                                 </th>
                             )}
@@ -357,14 +357,14 @@ export default function SmartTable<T>({
                                     key={col.key}
                                     className={`text-right px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap select-none
                                         ${col.width ?? ''}
-                                        ${col.sortable ? 'cursor-pointer hover:text-sky-600 hover:bg-gray-100 transition-colors' : ''}`}
+                                        ${col.sortable ? 'cursor-pointer hover:text-sky-600 hover:bg-slate-100 transition-colors' : ''}`}
                                     style={col.minWidth ? { minWidth: col.minWidth } : undefined}
                                     onClick={() => col.sortable && handleSort(col.key)}
                                 >
                                     <div className="flex items-center gap-1">
                                         {col.label}
                                         {col.sortable && (
-                                            <span className="flex-shrink-0 text-gray-400">
+                                            <span className="flex-shrink-0 text-slate-400">
                                                 {sortKey === col.key && sortDir === 'asc'  ? <ChevronUp   className="w-3.5 h-3.5 text-sky-500" /> :
                                                  sortKey === col.key && sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 text-sky-500" /> :
                                                                                              <ChevronsUpDown className="w-3 h-3 opacity-40" />}
@@ -381,7 +381,7 @@ export default function SmartTable<T>({
                         </tr>
                     </thead>
 
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-slate-100">
 
                         {/* ── EMPTY STATE ── */}
                         {paginatedData.length === 0 && (
@@ -433,7 +433,7 @@ export default function SmartTable<T>({
                                                 type="checkbox"
                                                 checked={isSelected}
                                                 onChange={() => toggleOne(id)}
-                                                className="w-4 h-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer accent-sky-600"
+                                                className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer accent-sky-600"
                                             />
                                         </td>
                                     )}
@@ -472,7 +472,7 @@ export default function SmartTable<T>({
             </div>
 
             {/* ── PAGINATION FOOTER ── */}
-            <div className="border-t border-slate-100 bg-gray-50/60 px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
 
                 {/* Record info + page size selector */}
                 <div className="flex items-center gap-3 text-xs text-slate-500">
@@ -496,7 +496,7 @@ export default function SmartTable<T>({
 
                 {/* Page navigation */}
                 {totalPages > 1 && (
-                    <div className="flex items-center gap-1 bg-white border border-gray-200 p-1 rounded-xl">
+                    <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl">
                         <button
                             disabled={currentPage === 1}
                             onClick={() => setCurrentPage(1)}

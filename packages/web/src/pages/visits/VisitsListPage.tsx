@@ -245,12 +245,12 @@ const TIER_META: Record<number, { label: string; bg: string; text: string; borde
 function TierBadge({ row }: { row: VisitRow }) {
   const tier = maxTier(row);
   if (tier === 0) {
-    return <span className="text-[11px] font-bold text-slate-400">—</span>;
+    return <span className="text-xs font-bold text-slate-400">—</span>;
   }
   const meta = TIER_META[tier];
   const Icon = meta.icon;
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-black ${meta.bg} ${meta.text} ${meta.border}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-black ${meta.bg} ${meta.text} ${meta.border}`}>
       <Icon className="h-3 w-3" />
       {meta.label}
     </span>
@@ -268,7 +268,7 @@ function HoursOverdueCell({ row }: { row: VisitRow }) {
   return (
     <div className={`flex flex-col min-w-[110px] ${cls}`}>
       <span className="font-black text-sm">{hrs}س</span>
-      <span className="text-[10px] font-bold opacity-80">منذ آخر تحديث</span>
+      <span className="text-xs font-bold opacity-80">منذ آخر تحديث</span>
     </div>
   );
 }
@@ -279,7 +279,7 @@ function MissingCell({ row }: { row: VisitRow }) {
   const tasksOK = total > 0 && docs >= total;
   const surveyOK = row.hasSurvey;
   return (
-    <div className="min-w-[190px] space-y-1 text-[11px]">
+    <div className="min-w-[190px] space-y-1 text-xs">
       <div className={`flex items-center gap-1.5 font-bold ${tasksOK ? 'text-emerald-700' : 'text-rose-700'}`}>
         {tasksOK ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
         نتائج المهام {docs}/{total || 0}
@@ -356,7 +356,7 @@ function ClientMiniCell({ row, showOwnership = false }: { row: VisitRow; showOwn
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="font-black text-slate-800">{getClientName(row)}</span>
           {classification && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-bold text-slate-600">
               {classification}
             </span>
           )}
@@ -364,7 +364,7 @@ function ClientMiniCell({ row, showOwnership = false }: { row: VisitRow; showOwn
         <div className="text-xs text-slate-500" dir="ltr">{getClientMobile(row)}</div>
         <div className="max-w-[260px] truncate text-xs text-slate-500">{getAddressShort(row)}</div>
         {showOwnership && row.ownership?.ownerLabel && (
-          <div className="text-[11px] font-bold text-slate-400">المسؤول: {row.ownership.ownerLabel}</div>
+          <div className="text-xs font-bold text-slate-400">المسؤول: {row.ownership.ownerLabel}</div>
         )}
       </div>
     </div>
@@ -394,14 +394,14 @@ function TeamCell({ row }: { row: VisitRow }) {
   return (
     <div className="flex min-w-[180px] flex-col gap-1">
       {teamName && (
-        <span className="inline-flex items-center gap-1 w-fit rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-black text-indigo-700">
+        <span className="inline-flex items-center gap-1 w-fit rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-black text-indigo-700">
           <UsersRound className="h-3 w-3" />
           {teamName}
           {team?.reassigned && <span className="text-amber-600">·معاد</span>}
         </span>
       )}
       {labels.map((label) => (
-        <span key={label} className="w-fit rounded bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+        <span key={label} className="w-fit rounded bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
           {label}
         </span>
       ))}
@@ -417,11 +417,11 @@ function TasksCell({ row }: { row: VisitRow }) {
   return (
     <div className="flex min-w-[190px] flex-wrap gap-1">
       {unique.map((taskType) => (
-        <span key={taskType} className="rounded-full border border-violet-100 bg-violet-50 px-2 py-0.5 text-[11px] font-bold text-violet-700">
+        <span key={taskType} className="rounded-full border border-violet-100 bg-violet-50 px-2 py-0.5 text-xs font-bold text-violet-700">
           {taskTypeLabel(taskType)}
         </span>
       ))}
-      {extra > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">+{extra}</span>}
+      {extra > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">+{extra}</span>}
     </div>
   );
 }
@@ -436,7 +436,7 @@ function DocumentationCell({ row }: { row: VisitRow }) {
       }`}>
         {complete ? 'مكتمل التوثيق' : 'ناقص توثيق'}
       </span>
-      <div className="text-[11px] text-slate-500">
+      <div className="text-xs text-slate-500">
         المهام {row.documentedTaskCount}/{row.taskCount || 0} · الاستبيان {row.hasSurvey ? (row.surveySkipped ? 'متخطى' : 'موجود') : 'ناقص'}
       </div>
     </div>
@@ -731,8 +731,8 @@ export default function VisitsListPage() {
             <div className="flex flex-col gap-1 min-w-[210px]">
               <span className="font-black text-slate-800">{row.arabicLabel}</span>
               <div className="flex items-center gap-1.5">
-                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${fam.cls}`}>{fam.label}</span>
-                <span className="font-mono text-[10px] text-slate-400">{row.taskType}</span>
+                <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${fam.cls}`}>{fam.label}</span>
+                <span className="font-mono text-xs text-slate-400">{row.taskType}</span>
               </div>
             </div>
           );
@@ -764,7 +764,7 @@ export default function VisitsListPage() {
               <div className="flex items-baseline gap-1.5">
                 <span className={`font-black text-sm ${row.documented > 0 ? 'text-emerald-700' : 'text-slate-300'}`}>{row.documented}</span>
                 {row.totalAttempts > 0 && (
-                  <span className="text-[10px] font-bold text-emerald-600">({pct}%)</span>
+                  <span className="text-xs font-bold text-emerald-600">({pct}%)</span>
                 )}
               </div>
               <Bar value={row.documented} max={tasksMaxes.documented} color="bg-emerald-400" />
@@ -782,7 +782,7 @@ export default function VisitsListPage() {
           const v = row.notCompleted + row.cancelled;
           return (
             <span className={`font-bold text-sm ${v > 0 ? 'text-rose-700' : 'text-slate-300'}`}>
-              {v}{row.cancelled > 0 && <span className="text-[10px] text-slate-400"> · ملغاة {row.cancelled}</span>}
+              {v}{row.cancelled > 0 && <span className="text-xs text-slate-400"> · ملغاة {row.cancelled}</span>}
             </span>
           );
         },
@@ -804,13 +804,13 @@ export default function VisitsListPage() {
                     <ShoppingCart className="h-3.5 w-3.5" />
                     {accepted}
                   </span>
-                  <span className="text-[11px] font-bold text-emerald-600">
+                  <span className="text-xs font-bold text-emerald-600">
                     عرض مقبول{presented > 0 ? ` من ${presented} (${pct}%)` : ''}
                   </span>
                 </div>
                 <Bar value={accepted} max={tasksMaxes.demoOffersAccepted} color="bg-emerald-400" />
                 {(row.demoOffersRejected > 0 || row.demoOffersExtension > 0 || row.demoOffersPending > 0) && (
-                  <div className="flex items-center gap-1.5 mt-1 text-[10px]">
+                  <div className="flex items-center gap-1.5 mt-1 text-xs">
                     {row.demoOffersRejected > 0  && <span className="text-rose-600 font-bold" title="مرفوضة">✗{row.demoOffersRejected}</span>}
                     {row.demoOffersExtension > 0 && <span className="text-amber-600 font-bold" title="بمهلة">⏳{row.demoOffersExtension}</span>}
                     {row.demoOffersPending > 0   && <span className="text-slate-500 font-bold" title="بانتظار الرد">●{row.demoOffersPending}</span>}
@@ -820,7 +820,7 @@ export default function VisitsListPage() {
             );
           }
           return (
-            <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 italic">
+            <span className="inline-flex items-center gap-1 text-xs text-slate-400 italic">
               <Eye className="h-3 w-3" /> قيد التطوير
             </span>
           );
@@ -1011,7 +1011,7 @@ export default function VisitsListPage() {
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="font-black text-slate-800">{getClientName(row)}</span>
                     {classification && (
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{classification}</span>
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-bold text-slate-600">{classification}</span>
                     )}
                   </div>
                   {mobile && mobile !== '—' && (
@@ -1048,7 +1048,7 @@ export default function VisitsListPage() {
                     target="_blank"
                     rel="noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-600 hover:underline w-fit"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 hover:underline w-fit"
                   >
                     <MapPin className="h-3 w-3" />
                     افتح على الخريطة
@@ -1074,7 +1074,7 @@ export default function VisitsListPage() {
             return (
               <div className="flex items-start gap-1.5 max-w-[240px]">
                 <NotebookPen className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
-                <span className="text-[11px] text-slate-600 line-clamp-2">{notes}</span>
+                <span className="text-xs text-slate-600 line-clamp-2">{notes}</span>
               </div>
             );
           },
@@ -1189,7 +1189,7 @@ export default function VisitsListPage() {
             <CalendarDays className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-800">الزيارات</h1>
+            <h1 className="text-2xl font-bold text-slate-800">الزيارات</h1>
             <p className="text-sm text-slate-500">جدول يومي مركزي للزيارات كوعاء لكل المهام التشغيلية.</p>
           </div>
         </div>
@@ -1288,7 +1288,7 @@ export default function VisitsListPage() {
               </span>
               <div>
                 <div className="text-lg font-black text-slate-800">{item.value}</div>
-                <div className="text-[11px] font-bold text-slate-500">{item.label}</div>
+                <div className="text-xs font-bold text-slate-500">{item.label}</div>
               </div>
             </div>
           </div>
@@ -1433,7 +1433,7 @@ export default function VisitsListPage() {
                   : 'border-slate-200 bg-white text-slate-700'
               }`}
             />
-            <span className="text-[11px] text-slate-400 mr-auto">
+            <span className="text-xs text-slate-400 mr-auto">
               {activePreset === 'custom' ? 'فترة مخصّصة' : 'تحليل أداء أنواع المهام'}
             </span>
           </section>

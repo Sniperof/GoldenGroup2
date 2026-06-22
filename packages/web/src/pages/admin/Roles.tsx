@@ -46,7 +46,7 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
-          <h2 className="text-base font-bold text-slate-800">{isEdit ? 'تعديل الدور' : 'إنشاء دور جديد'}</h2>
+          <h2 className="text-lg font-bold text-slate-800">{isEdit ? 'تعديل الدور' : 'إنشاء دور جديد'}</h2>
           <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
         <div className="p-5 space-y-4">
@@ -57,7 +57,7 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
               <input value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''))}
                 placeholder="مثال: branch_manager"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
-              <p className="text-[10px] text-slate-400 mt-1">حروف إنجليزية صغيرة وأرقام وشرطة سفلية فقط</p>
+              <p className="text-xs text-slate-400 mt-1">حروف إنجليزية صغيرة وأرقام وشرطة سفلية فقط</p>
             </div>
           )}
           <div>
@@ -88,7 +88,7 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
                 ]}
               />
             </div>
-            <p className="mt-1.5 text-[11px] text-slate-500 leading-5">
+            <p className="mt-1.5 text-xs text-slate-500 leading-5">
               تحدد هذه الخانة موقع الدور داخل الفريق. ولظهور الموظف في جدولة الفرق يجب أن يملك هذا الدور أيضاً صلاحية
               <span className="font-semibold text-slate-700"> الظهور في جدولة الفرق</span>.
             </p>
@@ -182,7 +182,7 @@ function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void 
       <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-bold text-slate-800">المهام الوظيفية</h3>
+            <h3 className="text-base font-bold text-slate-800">المهام الوظيفية</h3>
             <p className="text-xs text-slate-400 mt-0.5">{role.displayName}</p>
           </div>
           <IconButton icon={X} label="إغلاق" onClick={onClose} />
@@ -303,7 +303,7 @@ export function UserModal({ user, roles, onClose }: { user?: HrUser | null; role
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
-          <h2 className="text-base font-bold text-slate-800">{isEdit ? 'تعديل بيانات المستخدم' : 'إضافة مستخدم جديد'}</h2>
+          <h2 className="text-lg font-bold text-slate-800">{isEdit ? 'تعديل بيانات المستخدم' : 'إضافة مستخدم جديد'}</h2>
           <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </div>
         <div className="p-5 space-y-4">
@@ -345,7 +345,7 @@ export function UserModal({ user, roles, onClose }: { user?: HrUser | null; role
                   <ShieldCheck className="w-3.5 h-3.5" />
                   {user?.roleDisplayName ?? 'دور نظامي محمي'}
                 </div>
-                <p className="mt-1 text-[11px] text-amber-700/80">
+                <p className="mt-1 text-xs text-amber-700/80">
                   هذا دور نظامي مخفي للقراءة فقط ولا يظهر ضمن قائمة الإسناد العادية.
                 </p>
               </div>
@@ -413,7 +413,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
         {/* Header */}
         <div className="flex items-start justify-between p-5 border-b border-slate-100">
           <div>
-            <h2 className="text-base font-bold text-slate-800">المستخدمون بهذا الدور</h2>
+            <h2 className="text-lg font-bold text-slate-800">المستخدمون بهذا الدور</h2>
             <p className="text-xs text-slate-500 mt-0.5">
               <span className="inline-flex items-center gap-1 bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2 py-0.5 font-medium">
                 <ShieldCheck className="w-3 h-3" />{role.displayName}
@@ -438,7 +438,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
                 options={[{ value: 'all', label: 'كل الفروع' }, ...allBranches.map(b => ({ value: String(b.id), label: b.name }))]}
               />
             </div>
-            <p className="text-[10px] text-slate-400">الفروع من إسنادات الفروع فقط — ليس من الدور</p>
+            <p className="text-xs text-slate-400">الفروع من إسنادات الفروع فقط — ليس من الدور</p>
           </div>
         )}
 
@@ -478,7 +478,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-slate-800 text-sm">{user.name}</span>
-                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${
                             user.isActive
                               ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
                               : 'bg-red-50 text-red-500 border-red-200'
@@ -486,14 +486,14 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
                             {user.isActive ? 'نشط' : 'موقوف'}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-400 font-mono mt-0.5">{user.username}</p>
+                        <p className="text-xs text-slate-400 font-mono mt-0.5">{user.username}</p>
                       </div>
                     </div>
                   </div>
 
                   {/* Branch assignments */}
                   <div className="mt-3 pt-3 border-t border-slate-50">
-                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
                       الفروع المسموحة (من إسنادات الفروع)
                     </p>
                     {user.branchAssignments.length === 0 ? (
@@ -503,7 +503,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
                         {user.branchAssignments.map(b => (
                           <span
                             key={b.branchId}
-                            className={`inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2.5 py-1 border ${
+                            className={`inline-flex items-center gap-1 text-xs font-medium rounded-full px-2.5 py-1 border ${
                               b.status === 'active'
                                 ? 'bg-slate-50 text-slate-700 border-slate-200'
                                 : 'bg-slate-50 text-slate-400 border-slate-200 opacity-60'
@@ -530,7 +530,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
 
         {/* Footer note */}
         <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60">
-          <p className="text-[10px] text-slate-400">
+          <p className="text-xs text-slate-400">
             الفروع الظاهرة مصدرها <code className="bg-slate-100 px-1 rounded">user_branch_assignments</code> وليس الدور.
             الدور يحدد الصلاحيات فقط، والفروع تحدد أين تطبق.
           </p>
@@ -665,7 +665,7 @@ export function UserBranchAssignmentsModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <div>
-            <h2 className="text-base font-bold text-slate-800">الفروع المسموحة</h2>
+            <h2 className="text-lg font-bold text-slate-800">الفروع المسموحة</h2>
             <p className="text-xs text-slate-500 mt-1">
               {user.name} ({user.username}) - الدور يحدد ماذا يستطيع المستخدم فعله، والفروع تحدد أين يستطيع فعله.
             </p>
@@ -707,7 +707,7 @@ export function UserBranchAssignmentsModal({
               </button>
             </div>
             {readOnly && (
-              <p className="text-[11px] text-slate-500 mt-3">تملك صلاحية العرض فقط. إدارة الفروع المسموحة تتطلب permission مستقلة عن إدارة الأدوار.</p>
+              <p className="text-xs text-slate-500 mt-3">تملك صلاحية العرض فقط. إدارة الفروع المسموحة تتطلب permission مستقلة عن إدارة الأدوار.</p>
             )}
           </div>
 
@@ -732,16 +732,16 @@ export function UserBranchAssignmentsModal({
                           {assignment.branchName}
                         </div>
                         {assignment.isPrimary && (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
                             <Star className="w-3 h-3" />
                             الفرع الأساسي
                           </span>
                         )}
-                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${assignment.status === 'active' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
+                        <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${assignment.status === 'active' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
                           {assignment.status === 'active' ? 'فعال' : 'معطل'}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-1">
+                      <p className="text-xs text-slate-500 mt-1">
                         الفرع منفصل عن الدور. تغيير هذه القائمة لا يغير role المستخدم ولا ينشئ clones.
                       </p>
                     </div>
@@ -835,15 +835,15 @@ function RolesTab() {
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-bold text-slate-800 text-sm">{role.displayName}</h3>
+                    <h3 className="font-bold text-slate-800 text-base">{role.displayName}</h3>
                     {role.isSystem && (
-                      <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-2 py-0.5 font-medium">نظام</span>
+                      <span className="text-xs bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-2 py-0.5 font-medium">نظام</span>
                     )}
-                    <span className={`text-[10px] rounded-full px-2 py-0.5 font-medium border ${role.isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium border ${role.isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
                       {role.isActive ? 'نشط' : 'معطّل'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5 font-mono">{role.name}</p>
+                  <p className="text-xs text-slate-400 mt-0.5 font-mono">{role.name}</p>
                   {role.description && <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{role.description}</p>}
                 </div>
                 {!role.isSystem && !role.isProtected && (
@@ -954,7 +954,7 @@ export default function Roles() {
             <ShieldCheck className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">الأدوار والصلاحيات</h1>
+            <h1 className="text-2xl font-bold text-slate-800">الأدوار والصلاحيات</h1>
             <p className="text-xs text-slate-500">إدارة أدوار النظام وصلاحياتها، وإسناد المستخدمين إلى الأدوار والفروع</p>
           </div>
         </div>
@@ -971,7 +971,7 @@ export default function Roles() {
               <Users className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-800">إسناد حساب نظام لموظف</h2>
+              <h2 className="text-lg font-bold text-slate-800">إسناد حساب نظام لموظف</h2>
               <p className="text-sm text-slate-500 mt-1 leading-relaxed">
                 لإعطاء موظف صلاحية تسجيل الدخول، افتح ملف الموظف وحدد له حساباً ودوراً إدارياً من هناك.
               </p>

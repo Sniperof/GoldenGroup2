@@ -424,7 +424,7 @@ export default function Interviews() {
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-bold text-slate-800">جدولة مقابلة جديدة</h3>
+                <h3 className="text-base font-bold text-slate-800">جدولة مقابلة جديدة</h3>
                 <IconButton icon={X} label="إغلاق" size="sm" onClick={resetScheduleModal} />
               </div>
               {formError && (
@@ -584,7 +584,7 @@ export default function Interviews() {
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-bold text-slate-800">تسجيل نتيجة المقابلة</h3>
+                <h3 className="text-base font-bold text-slate-800">تسجيل نتيجة المقابلة</h3>
                 <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setResultModal(null)} />
               </div>
               <div className="space-y-4">

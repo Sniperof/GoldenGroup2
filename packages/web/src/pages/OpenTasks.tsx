@@ -201,7 +201,7 @@ export default function OpenTasks() {
                         </span>
                       )}
                       {task.clientSnapshot?.rating && (
-                        <span className="mr-2 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
+                        <span className="mr-2 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
                           {task.clientSnapshot.rating}
                         </span>
                       )}
@@ -234,17 +234,17 @@ export default function OpenTasks() {
                       {task.teamSnapshot ? (
                         <div className="flex flex-wrap gap-1">
                           {task.teamSnapshot.supervisor && (
-                            <span className="rounded bg-purple-50 px-1.5 py-0.5 text-[10px] text-purple-700">
+                            <span className="rounded bg-purple-50 px-1.5 py-0.5 text-xs text-purple-700">
                               م:{task.teamSnapshot.supervisor.name}
                             </span>
                           )}
                           {task.teamSnapshot.technician && (
-                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">
+                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700">
                               ف:{task.teamSnapshot.technician.name}
                             </span>
                           )}
                           {task.teamSnapshot.trainee && (
-                            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
+                            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
                               م.ت:{task.teamSnapshot.trainee.name}
                             </span>
                           )}

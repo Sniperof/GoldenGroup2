@@ -21,7 +21,7 @@ function confidenceBadge(c: 'high' | 'medium' | 'low') {
   const m = {
     high: 'bg-green-100 text-green-700 border-green-300',
     medium: 'bg-yellow-100 text-yellow-700 border-yellow-300',
-    low: 'bg-gray-100 text-gray-600 border-gray-300',
+    low: 'bg-slate-100 text-slate-600 border-slate-300',
   };
   const l = { high: 'تَطابق عالٍ', medium: 'تَطابق متوسط', low: 'تَطابق ضعيف' };
   return (
@@ -61,7 +61,7 @@ export default function SuggestedMatchesPanel({
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+      <div className="flex items-center gap-2 text-sm text-slate-500 py-4">
         <Search className="h-4 w-4 animate-pulse" />
         جاري البحث عن مُطابقات...
       </div>
@@ -72,30 +72,30 @@ export default function SuggestedMatchesPanel({
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-medium text-gray-700 flex items-center gap-1">
+      <h3 className="text-base font-bold text-slate-800 flex items-center gap-1">
         <Search className="h-4 w-4" />
         مُطابقات مُقترَحة
       </h3>
       {allEmpty && (
-        <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded">
+        <p className="text-sm text-slate-500 bg-slate-50 p-3 rounded">
           لا توجد مُطابقات قريبة. يُمكن إنشاء Candidate جديد أو ربط يدوي.
         </p>
       )}
 
       {clients.length > 0 && (
         <section>
-          <h4 className="text-xs font-medium text-gray-500 mb-1">عملاء مُقترَحون</h4>
+          <h4 className="text-xs font-medium text-slate-500 mb-1">عملاء مُقترَحون</h4>
           <ul className="space-y-1">
             {clients.map((m) => (
               <li
                 key={`client-${m.id}`}
-                className="flex items-center justify-between bg-white border border-gray-200 rounded p-2 hover:bg-blue-50"
+                className="flex items-center justify-between bg-white border border-slate-200 rounded p-2 hover:bg-blue-50"
               >
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4 text-blue-600" />
                   <div>
                     <div className="text-sm font-medium">{m.name}</div>
-                    <div className="text-xs text-gray-500">{m.phone ?? '—'}</div>
+                    <div className="text-xs text-slate-500">{m.phone ?? '—'}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -124,18 +124,18 @@ export default function SuggestedMatchesPanel({
 
       {candidates.length > 0 && (
         <section>
-          <h4 className="text-xs font-medium text-gray-500 mb-1">مرشّحون مُقترَحون</h4>
+          <h4 className="text-xs font-medium text-slate-500 mb-1">مرشّحون مُقترَحون</h4>
           <ul className="space-y-1">
             {candidates.map((m) => (
               <li
                 key={`candidate-${m.id}`}
-                className="flex items-center justify-between bg-white border border-gray-200 rounded p-2 hover:bg-yellow-50"
+                className="flex items-center justify-between bg-white border border-slate-200 rounded p-2 hover:bg-yellow-50"
               >
                 <div className="flex items-center gap-2">
                   <UserPlus className="h-4 w-4 text-yellow-600" />
                   <div>
                     <div className="text-sm font-medium">{m.name}</div>
-                    <div className="text-xs text-gray-500">{m.phone ?? '—'}</div>
+                    <div className="text-xs text-slate-500">{m.phone ?? '—'}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

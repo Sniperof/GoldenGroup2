@@ -289,23 +289,23 @@ export default function PlanOverview() {
             {/* Header */}
             <div className="flex items-end justify-between mb-6">
                 <div>
-                    <h1 className="text-xl font-bold text-slate-900 mb-1">ملخص الخطة</h1>
+                    <h1 className="text-2xl font-bold text-slate-800 mb-1">ملخص الخطة</h1>
                     <p className="text-slate-500 text-sm">نظرة شاملة على جداول العمل اليومية — من يذهب إلى أين.</p>
                 </div>
             </div>
 
             {/* Date Navigator */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6 flex items-center justify-center gap-4">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex items-center justify-center gap-4">
                 <button
                     onClick={() => setDate(d => shiftDate(d, -1))}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-slate-700 hover:bg-gray-50 hover:border-gray-300 text-sm transition-all active:scale-95 z-10"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 text-sm transition-all active:scale-95 z-10"
                 >
                     <ChevronRight className="w-4 h-4" />
                     <span>اليوم السابق</span>
                 </button>
 
                 <div
-                    className="flex items-center gap-3 px-6 py-2 rounded-xl bg-gray-50 border border-gray-200 relative group/cal cursor-pointer hover:bg-white hover:border-sky-300 transition-all shadow-sm"
+                    className="flex items-center gap-3 px-6 py-2 rounded-xl bg-slate-50 border border-slate-200 relative group/cal cursor-pointer hover:bg-white hover:border-sky-300 transition-all shadow-sm"
                     onClick={(e) => {
                         const input = e.currentTarget.querySelector('input');
                         if (input) input.showPicker();
@@ -314,7 +314,7 @@ export default function PlanOverview() {
                     <Calendar className="w-5 h-5 text-sky-600 group-hover/cal:scale-110 transition-transform" />
                     <div className="text-center pointer-events-none">
                         <p className="text-slate-900 font-bold">{formatDateArabic(date)}</p>
-                        {isPlanningDate && <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full">خطة الغد</span>}
+                        {isPlanningDate && <span className="text-xs font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full">خطة الغد</span>}
                     </div>
                     {/* Native Date Input Overlay */}
                     <input
@@ -330,7 +330,7 @@ export default function PlanOverview() {
 
                 <button
                     onClick={() => setDate(d => shiftDate(d, 1))}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-slate-700 hover:bg-gray-50 hover:border-gray-300 text-sm transition-all active:scale-95 z-10"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 text-sm transition-all active:scale-95 z-10"
                 >
                     <span>اليوم التالي</span>
                     <ChevronLeft className="w-4 h-4" />
@@ -339,7 +339,7 @@ export default function PlanOverview() {
 
             {/* Summary Stats */}
             <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-center gap-3">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-sky-50 flex items-center justify-center">
                         <Users className="w-5 h-5 text-sky-600" />
                     </div>
@@ -348,7 +348,7 @@ export default function PlanOverview() {
                         <p className="text-xs text-slate-500">إجمالي الفرق</p>
                     </div>
                 </div>
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-center gap-3">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
                         <RouteIcon className="w-5 h-5 text-emerald-600" />
                     </div>
@@ -357,8 +357,8 @@ export default function PlanOverview() {
                         <p className="text-xs text-slate-500">فرق تم تعيين مسار لها</p>
                     </div>
                 </div>
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${unassignedTeams > 0 ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${unassignedTeams > 0 ? 'bg-amber-50' : 'bg-slate-50'}`}>
                         <AlertTriangle className={`w-5 h-5 ${unassignedTeams > 0 ? 'text-amber-500' : 'text-slate-400'}`} />
                     </div>
                     <div>
@@ -370,7 +370,7 @@ export default function PlanOverview() {
 
             {/* Team Cards Grid */}
             {teamCards.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 py-16 text-center">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 py-16 text-center">
                     <ClipboardList className="w-12 h-12 mx-auto mb-4 text-slate-400" />
                     <p className="text-slate-700 text-lg font-medium mb-2">لا يوجد جدول لهذا التاريخ</p>
                     <p className="text-slate-500 text-sm mb-6">انتقل إلى "جدولة الفرق" لإنشاء جدول يومي أولاً.</p>
@@ -407,13 +407,13 @@ export default function PlanOverview() {
                                         label: card.label,
                                     });
                                 }}
-                                className={`bg-white rounded-xl shadow-sm overflow-hidden border cursor-pointer hover:border-gray-300 transition-colors ${hasAssignment
-                                    ? 'border-gray-200'
+                                className={`bg-white rounded-xl shadow-sm overflow-hidden border cursor-pointer hover:border-slate-300 transition-colors ${hasAssignment
+                                    ? 'border-slate-200'
                                     : 'border-amber-300'
                                     }`}
                             >
                                 {/* Card Header */}
-                                <div className={`p-4 border-b border-gray-200 flex items-center justify-between ${card.type === 'solo' ? 'bg-orange-50' : 'bg-gray-50'
+                                <div className={`p-4 border-b border-slate-200 flex items-center justify-between ${card.type === 'solo' ? 'bg-orange-50' : 'bg-slate-50'
                                     }`}>
                                     <div className="flex items-center gap-3">
                                         <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${card.type === 'solo' ? 'bg-orange-100 text-orange-600' : 'bg-sky-50 text-sky-600'
@@ -422,7 +422,7 @@ export default function PlanOverview() {
                                         </div>
                                         <div>
                                             <p className="text-slate-900 font-bold text-sm">{card.label}</p>
-                                            <p className="text-[10px] text-slate-500 uppercase tracking-wider">
+                                            <p className="text-xs text-slate-500 uppercase tracking-wider">
                                                 {card.type === 'solo' ? 'فريق طوارئ' : 'فريق قياسي'}
                                             </p>
                                         </div>
@@ -443,7 +443,7 @@ export default function PlanOverview() {
                                                         label: card.label,
                                                     });
                                                 }}
-                                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[11px] font-bold transition-colors"
+                                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-xs font-bold transition-colors"
                                             >
                                                 <Eye className="w-3 h-3" />
                                                 <span>أهداف الاتصال</span>
@@ -453,23 +453,23 @@ export default function PlanOverview() {
                                 </div>
 
                                 {/* Staff Section */}
-                                <div className="p-4 border-b border-gray-100">
+                                <div className="p-4 border-b border-slate-100">
                                     <div className="flex items-center gap-3">
                                         {card.supervisor && (
-                                            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200">
+                                            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200">
                                                 <img src={card.supervisor.avatar} alt="" className="w-7 h-7 rounded-full ring-2 ring-sky-200" />
                                                 <div>
                                                     <p className="text-xs text-slate-800 font-medium leading-tight">{card.supervisor.name}</p>
-                                                    <p className="text-[10px] text-sky-600">مشرف</p>
+                                                    <p className="text-xs text-sky-600">مشرف</p>
                                                 </div>
                                             </div>
                                         )}
                                         {card.technician && (
-                                            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200">
+                                            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200">
                                                 <img src={card.technician.avatar} alt="" className="w-7 h-7 rounded-full ring-2 ring-emerald-200" />
                                                 <div>
                                                     <p className="text-xs text-slate-800 font-medium leading-tight">{card.technician.name}</p>
-                                                    <p className="text-[10px] text-emerald-600">فني</p>
+                                                    <p className="text-xs text-emerald-600">فني</p>
                                                 </div>
                                             </div>
                                         )}
@@ -484,13 +484,13 @@ export default function PlanOverview() {
                                     {hasAssignment ? (
                                         <div className="space-y-2.5">
                                             {routeDetails.map((rd, ri) => (
-                                                <div key={ri} className="rounded-lg bg-gray-50 border border-gray-200 p-3 space-y-2">
+                                                <div key={ri} className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
                                                     <div className="flex items-center justify-between">
                                                         <div className="flex items-center gap-2">
                                                             <RouteIcon className="w-4 h-4 text-sky-600" />
                                                             <span className="text-slate-900 font-bold text-sm">{rd.routeName}</span>
                                                         </div>
-                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 ${rd.direction === 'forward'
+                                                        <span className={`px-2 py-0.5 rounded text-xs font-bold flex items-center gap-1 ${rd.direction === 'forward'
                                                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                                             : 'bg-orange-50 text-orange-700 border border-orange-200'
                                                             }`}>
@@ -503,10 +503,10 @@ export default function PlanOverview() {
                                                     </div>
                                                     <div className="flex items-center gap-2 text-xs">
                                                         <span className="text-slate-500">من:</span>
-                                                        <span className="text-slate-800 font-medium bg-white px-2 py-0.5 rounded border border-gray-200">{rd.startName}</span>
+                                                        <span className="text-slate-800 font-medium bg-white px-2 py-0.5 rounded border border-slate-200">{rd.startName}</span>
                                                         <ArrowLeft className="w-3 h-3 text-slate-400" />
                                                         <span className="text-slate-500">إلى:</span>
-                                                        <span className="text-slate-800 font-medium bg-white px-2 py-0.5 rounded border border-gray-200">{rd.endName}</span>
+                                                        <span className="text-slate-800 font-medium bg-white px-2 py-0.5 rounded border border-slate-200">{rd.endName}</span>
                                                         <span className="text-slate-500 mr-auto">({rd.stationCount} محطة)</span>
                                                     </div>
                                                 </div>
@@ -519,7 +519,7 @@ export default function PlanOverview() {
                                             )}
                                             <button
                                                 onClick={() => navigate('/planning/assign')}
-                                                className="w-full mt-1 py-2 rounded-lg border border-gray-200 text-slate-700 hover:bg-gray-50 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
+                                                className="w-full mt-1 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
                                             >
                                                 <RouteIcon className="w-3.5 h-3.5" />
                                                 <span>تعديل التعيين</span>
@@ -553,7 +553,7 @@ export default function PlanOverview() {
                 <div className="mt-8">
                     <div className="flex items-center gap-2 mb-4">
                         <Layers className="w-5 h-5 text-violet-600" />
-                        <h2 className="text-base font-bold text-slate-800">نطاق العمل العام</h2>
+                        <h2 className="text-lg font-bold text-slate-800">نطاق العمل العام</h2>
                         <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">جميع أنواع المهام</span>
                     </div>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -584,17 +584,17 @@ export default function PlanOverview() {
                                         <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-emerald-50 border border-emerald-100">
                                             <Megaphone className="w-4 h-4 text-emerald-600" />
                                             <span className="text-lg font-black text-emerald-700">{counts.marketing}</span>
-                                            <span className="text-[10px] text-emerald-600 font-medium">تسويق</span>
+                                            <span className="text-xs text-emerald-600 font-medium">تسويق</span>
                                         </div>
                                         <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-red-50 border border-red-100">
                                             <AlertTriangle className="w-4 h-4 text-red-500" />
                                             <span className="text-lg font-black text-red-600">{counts.emergency}</span>
-                                            <span className="text-[10px] text-red-500 font-medium">طوارئ</span>
+                                            <span className="text-xs text-red-500 font-medium">طوارئ</span>
                                         </div>
                                         <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-blue-50 border border-blue-100">
                                             <Wrench className="w-4 h-4 text-blue-500" />
                                             <span className="text-lg font-black text-blue-600">{counts.service + counts.other}</span>
-                                            <span className="text-[10px] text-blue-500 font-medium">خدمة/أخرى</span>
+                                            <span className="text-xs text-blue-500 font-medium">خدمة/أخرى</span>
                                         </div>
                                     </div>
                                     {/* Company-owned task indicator */}

@@ -941,7 +941,7 @@ export default function EmployeeFormModal({
             minSelectableLevel={3}
           />
           {!(form.geoSelection.subId || form.geoSelection.neighborhoodId) && (
-            <p className="mt-2 text-[11px] text-amber-600 font-medium flex items-center gap-1.5">
+            <p className="mt-2 text-xs text-amber-600 font-medium flex items-center gap-1.5">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               يجب اختيار ناحية أو حي على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
             </p>
@@ -1001,7 +1001,7 @@ export default function EmployeeFormModal({
 
                     {/* Mobile: +963 badge */}
                     {contact.type === 'mobile' && (
-                      <span className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">
+                      <span className="bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">
                         +963
                       </span>
                     )}
@@ -1015,7 +1015,7 @@ export default function EmployeeFormModal({
                         placeholder="011"
                         dir="ltr"
                         maxLength={3}
-                        className="bg-white border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono text-slate-800 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none w-[60px] text-center"
+                        className="bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs font-mono text-slate-800 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none w-[60px] text-center"
                       />
                     )}
 
@@ -1033,7 +1033,7 @@ export default function EmployeeFormModal({
                         : 'الرقم...'
                       }
                       dir="ltr"
-                      className={`flex-1 border rounded-lg px-3 py-2 text-sm font-mono placeholder:text-gray-300 focus:outline-none bg-white ${hasInvalidNumber ? 'border-red-300 text-red-700 focus:border-red-400' : 'border-gray-200 text-slate-800 focus:border-sky-500'}`}
+                      className={`flex-1 border rounded-lg px-3 py-2 text-sm font-mono placeholder:text-slate-300 focus:outline-none bg-white ${hasInvalidNumber ? 'border-red-300 text-red-700 focus:border-red-400' : 'border-slate-200 text-slate-800 focus:border-sky-500'}`}
                     />
 
                     {/* Delete */}
@@ -1041,7 +1041,7 @@ export default function EmployeeFormModal({
                       type="button"
                       onClick={() => removeContact(contact.id)}
                       title="حذف الرقم"
-                      className="w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 text-gray-300 hover:text-rose-500 hover:bg-rose-50 border-transparent hover:border-rose-100"
+                      className="w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 text-slate-300 hover:text-rose-500 hover:bg-rose-50 border-transparent hover:border-rose-100"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -1054,7 +1054,7 @@ export default function EmployeeFormModal({
                       value={contact.label}
                       onChange={(e) => updateContact(contact.id, { label: e.target.value })}
                       placeholder="العلاقة (شخصي، أخ، عمل...)"
-                      className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none"
+                      className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none"
                     />
 
                     <Select<ContactStatus>
@@ -1077,14 +1077,14 @@ export default function EmployeeFormModal({
                       className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${
                         contact.hasWhatsApp
                           ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
-                          : 'bg-white border-gray-200 text-gray-300 hover:text-gray-400'
+                          : 'bg-white border-slate-200 text-slate-300 hover:text-slate-400'
                       }`}
                     >
                       <MessageCircle className="h-3.5 w-3.5" />
                     </button>
                   </div>
                   {hasInvalidNumber && (
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg border w-fit bg-red-100 text-red-700 border-red-200">
+                    <div className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border w-fit bg-red-100 text-red-700 border-red-200">
                       <AlertCircle className="w-3 h-3 shrink-0" />
                       رقم موبايل غير مطابق للصيغة 09XXXXXXXX
                     </div>
@@ -1098,7 +1098,7 @@ export default function EmployeeFormModal({
           <button
             type="button"
             onClick={addContact}
-            className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-gray-200 text-slate-500 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50 transition-all text-sm font-medium"
+            className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50 transition-all text-sm font-medium"
           >
             <Plus className="h-4 w-4" />
             إضافة رقم
@@ -1425,7 +1425,7 @@ export default function EmployeeFormModal({
                 onChange={(e) => setEmployeeIdInput(e.target.value)}
                 onBlur={handleEmployeeBlur}
                 placeholder="أدخل الرقم الوظيفي..."
-                className="w-1/2 p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+                className="w-1/2 p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
               />
               <Button type="button" variant="secondary" size="sm" onClick={handleEmployeeBlur} className="bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100">
                 اعتماد
@@ -1456,7 +1456,7 @@ export default function EmployeeFormModal({
               onChange={(e) => handleClientSearch(e.target.value)}
               onFocus={(e) => handleClientSearch(e.target.value)}
               placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-              className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+              className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
             />
             {clientSuggestions.length > 0 && (
               <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
@@ -1491,7 +1491,7 @@ export default function EmployeeFormModal({
               <input
                 value={form.referrerName || autoName || ''}
                 readOnly
-                className="flex-1 p-2.5 rounded-xl border border-gray-200 bg-slate-50 text-slate-500 font-bold cursor-not-allowed text-sm focus:outline-none"
+                className="flex-1 p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-not-allowed text-sm focus:outline-none"
               />
               <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-400">
                 <Lock className="h-3.5 w-3.5" /> محدد تلقائياً
@@ -1508,7 +1508,7 @@ export default function EmployeeFormModal({
               value={form.referrerName}
               onChange={(e) => setForm((c) => ({ ...c, referrerName: e.target.value }))}
               placeholder="اسم الوسيط..."
-              className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+              className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
             />
           </div>
         )}
@@ -1521,7 +1521,7 @@ export default function EmployeeFormModal({
             value={form.referralNotes}
             onChange={(e) => setForm((c) => ({ ...c, referralNotes: e.target.value }))}
             placeholder="أي ملاحظات تخص الوسيط أو طريقة التواصل..."
-            className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none resize-none"
+            className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none resize-none"
           />
         </div>
       </div>
@@ -1551,7 +1551,7 @@ export default function EmployeeFormModal({
           <div className="border-b border-slate-200 bg-white px-6 py-5">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">{title}</h2>
+                <h2 className="text-lg font-bold text-slate-800">{title}</h2>
                 {description && (
                   <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">{description}</p>
                 )}
@@ -1680,7 +1680,7 @@ export default function EmployeeFormModal({
                     </div>
                     <div>
                       <div className="text-xs font-semibold text-slate-400">الخطوة {currentStepIdx + 1} من {STEPS.length}</div>
-                      <h3 className="text-base font-bold text-slate-900">{currentStep.title}</h3>
+                      <h3 className="text-base font-bold text-slate-800">{currentStep.title}</h3>
                     </div>
                   </header>
                   <div className="p-6">{renderStepBody()}</div>

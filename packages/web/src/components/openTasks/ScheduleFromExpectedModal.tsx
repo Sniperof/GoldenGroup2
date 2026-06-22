@@ -64,7 +64,7 @@ export default function ScheduleFromExpectedModal({
         <header className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50">
           <div className="flex items-center gap-2">
             <CalendarClock className="w-4 h-4 text-indigo-700" />
-            <h2 className="text-sm font-bold text-slate-800">حجز زيارة من الموعد المتوقع</h2>
+            <h2 className="text-lg font-bold text-slate-800">حجز زيارة من الموعد المتوقع</h2>
           </div>
           <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </header>
@@ -76,7 +76,7 @@ export default function ScheduleFromExpectedModal({
             </div>
           )}
 
-          <p className="text-[11px] text-slate-500">
+          <p className="text-xs text-slate-500">
             يُنشئ هذا المسار زيارة من المهمة دون مكالمة جديدة — العقد تم في المكالمة السابقة (DEC-004 D22).
             لا يُسمح إلا للمهام بحالة needs_follow_up وعليها expected_date.
           </p>
@@ -91,7 +91,7 @@ export default function ScheduleFromExpectedModal({
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">التاريخ</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1">التاريخ</label>
               <input
                 type="date"
                 value={overrideDate}
@@ -111,7 +111,7 @@ export default function ScheduleFromExpectedModal({
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-600 mb-1">ملاحظات (اختيارية)</label>
+            <label className="block text-xs font-bold text-slate-600 mb-1">ملاحظات (اختيارية)</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}

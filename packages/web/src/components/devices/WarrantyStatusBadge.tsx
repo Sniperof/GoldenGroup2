@@ -7,7 +7,7 @@ const STATUS_MAP: Record<WarrantyStatus, { cls: string; label: string }> = {
   pending:   { cls: 'bg-slate-100 text-slate-600',     label: 'قبل التفعيل' },
   active:    { cls: 'bg-emerald-100 text-emerald-700', label: 'سارية' },
   cancelled: { cls: 'bg-rose-100 text-rose-700',       label: 'ملغاة' },
-  expired:   { cls: 'bg-gray-100 text-gray-500',       label: 'منتهية' },
+  expired:   { cls: 'bg-slate-100 text-slate-500',       label: 'منتهية' },
 };
 
 const REASON_LABEL: Record<WarrantyCancellationReason, string> = {

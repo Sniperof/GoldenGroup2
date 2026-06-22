@@ -176,10 +176,10 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" dir="rtl">
       <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-auto">
-        <header className="flex items-center justify-between p-4 border-b border-gray-200">
+        <header className="flex items-center justify-between p-4 border-b border-slate-200">
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-gray-800">{cfg.title}</h2>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cfg.badgeClass}`}>
+            <h2 className="text-lg font-bold text-slate-800">{cfg.title}</h2>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${cfg.badgeClass}`}>
               {cfg.badge}
             </span>
           </div>
@@ -202,7 +202,7 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
 
           {cfg.requiresOutcome && cfg.outcomes && (
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
+              <label className="block text-sm font-medium text-slate-700">
                 السبب <span className="text-red-500">*</span>
               </label>
               <div className="space-y-1.5">
@@ -212,7 +212,7 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
                     className={`block p-2.5 rounded border cursor-pointer ${
                       outcome === o.value
                         ? 'bg-blue-50 border-blue-400 ring-1 ring-blue-400'
-                        : 'bg-white border-gray-200 hover:bg-gray-50'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
                     }`}
                   >
                     <div className="flex items-start gap-2">
@@ -225,9 +225,9 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
                         className="mt-1"
                       />
                       <div className="flex-1">
-                        <div className="text-sm font-medium text-gray-800">{o.label}</div>
+                        <div className="text-sm font-medium text-slate-800">{o.label}</div>
                         {o.description && (
-                          <div className="text-xs text-gray-500 mt-0.5">{o.description}</div>
+                          <div className="text-xs text-slate-500 mt-0.5">{o.description}</div>
                         )}
                       </div>
                     </div>
@@ -238,7 +238,7 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-slate-700 mb-1">
               {cfg.noteLabel} {cfg.noteRequired && <span className="text-red-500">*</span>}
             </label>
             <textarea
@@ -246,20 +246,20 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
               onChange={(e) => setNote(e.target.value)}
               rows={3}
               placeholder={cfg.notePlaceholder}
-              className="w-full text-sm border border-gray-300 rounded p-2 focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+              className="w-full text-sm border border-slate-300 rounded p-2 focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
             />
           </div>
 
           {cfg.showExpectedCallback && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                موعد الردّ المُتَوقَّع <span className="text-xs text-gray-400">(اختياري)</span>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                موعد الردّ المُتَوقَّع <span className="text-xs text-slate-400">(اختياري)</span>
               </label>
               <input
                 type="datetime-local"
                 value={expectedCallback}
                 onChange={(e) => setExpectedCallback(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded p-2"
+                className="w-full text-sm border border-slate-300 rounded p-2"
               />
             </div>
           )}

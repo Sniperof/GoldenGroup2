@@ -31,7 +31,7 @@ const PRIORITY_META = [
 ];
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">{children}</p>;
+  return <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5">{children}</p>;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ export default function CostsForm({
   return (
     <Card padding="none" className="overflow-hidden" dir="rtl">
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between">
-        <h3 className="font-bold text-slate-800 text-sm">تكاليف الصيانة والقرار النهائي</h3>
+        <h3 className="font-bold text-slate-800 text-base">تكاليف الصيانة والقرار النهائي</h3>
         {(initialData || saved) && (
           <Badge variant="success" size="sm">محفوظة ✓</Badge>
         )}
@@ -272,7 +272,7 @@ export default function CostsForm({
                   <div className="text-sm font-black">
                     {DERIVED_LABELS[derivedOutcome.outcome] ?? derivedOutcome.outcome}
                   </div>
-                  <div className="text-[10px] opacity-80 mt-0.5">
+                  <div className="text-xs opacity-80 mt-0.5">
                     {Object.entries(derivedOutcome.counts).map(([k, n]) => `${k}: ${n}`).join(' • ') || '—'}
                   </div>
                 </div>
@@ -283,7 +283,7 @@ export default function CostsForm({
                 لا توجد أعطال على هذه المهمة بعد.
               </div>
             )}
-            <p className="text-[10px] text-slate-500 mt-2">
+            <p className="text-xs text-slate-500 mt-2">
               النتيجة محسوبة آلياً من لائحة الأعطال (§٠.١٩.ح). لا يَتمّ اختيار قرار يدوي على المَسار الجديد.
             </p>
           </div>
@@ -337,7 +337,7 @@ export default function CostsForm({
                   {PRIORITY_META.map(p => (
                     <button key={p.value} type="button" disabled={readOnly}
                       onClick={() => setFollowUpPriority(p.value)}
-                      className={`flex-1 py-1.5 rounded-lg border-2 text-[10px] font-bold transition-all ${followUpPriority === p.value ? `${p.cls} border-current` : 'bg-white border-slate-200 text-slate-500'}`}>
+                      className={`flex-1 py-1.5 rounded-lg border-2 text-xs font-bold transition-all ${followUpPriority === p.value ? `${p.cls} border-current` : 'bg-white border-slate-200 text-slate-500'}`}>
                       {p.label}
                     </button>
                   ))}
@@ -409,7 +409,7 @@ export default function CostsForm({
           )}
           <div className="flex items-center justify-between px-4 py-4 bg-emerald-50 border-t-2 border-emerald-200">
             <span className="text-sm font-black text-emerald-800">الإجمالي الواجب دفعه</span>
-            <span className="text-xl font-black text-emerald-700">{grandTotal.toLocaleString('ar-SY')} ل.س</span>
+            <span className="text-lg font-black text-emerald-700">{grandTotal.toLocaleString('ar-SY')} ل.س</span>
           </div>
         </div>
 
@@ -484,7 +484,7 @@ export default function CostsForm({
 
                 {/* جدول الأقساط */}
                 <div>
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
                     جدول الأقساط
                     {hasFirstPayment && totalFirstPaymentSyp > 0 && (
                       <span className="mr-2 font-normal normal-case text-slate-500">
@@ -510,7 +510,7 @@ export default function CostsForm({
         <div className="space-y-1">
           <label className="block text-xs font-bold text-slate-600">
             موظف التسكير
-            <span className="font-normal text-slate-400 mr-1 text-[10px]">(الموظف الذي استلم الدفعة وأغلق المهمة)</span>
+            <span className="font-normal text-slate-400 mr-1 text-xs">(الموظف الذي استلم الدفعة وأغلق المهمة)</span>
           </label>
           <Select
             value={closingEmployeeId}

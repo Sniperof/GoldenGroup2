@@ -96,7 +96,7 @@ export default function ContactControlCard({ client, onChange }: Props) {
     <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
       <div className="flex items-center gap-2">
         <ShieldOff className="w-4 h-4 text-slate-600" />
-        <h3 className="text-sm font-bold text-slate-800">حالة التواصل</h3>
+        <h3 className="text-base font-bold text-slate-800">حالة التواصل</h3>
       </div>
 
       {error && (
@@ -113,7 +113,7 @@ export default function ContactControlCard({ client, onChange }: Props) {
               <Ban className="w-3.5 h-3.5" />
               عدم التواصل (حظر دائم)
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-xs text-slate-500">
               عند تفعيله، يُحجب الزبون من كل قوائم التواصل بشكل دائم.
             </p>
           </div>
@@ -155,7 +155,7 @@ export default function ContactControlCard({ client, onChange }: Props) {
                 فك التهدئة (مدير الفرع)
               </Button>
             ) : (
-              <div className="text-[11px] text-slate-500 inline-flex items-center gap-1">
+              <div className="text-xs text-slate-500 inline-flex items-center gap-1">
                 <Lock className="w-3 h-3" /> فك التهدئة محصور بصلاحية مدير الفرع.
               </div>
             )}

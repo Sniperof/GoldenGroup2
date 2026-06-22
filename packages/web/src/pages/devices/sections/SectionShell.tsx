@@ -19,7 +19,7 @@ export function SectionShell({ id, title, subtitle, actions, children }: Props) 
     >
       <header className="flex items-start justify-between gap-3 px-6 pt-5 pb-3 border-b border-slate-50">
         <div>
-          <h3 className="text-base font-black text-slate-800">{title}</h3>
+          <h3 className="text-base font-bold text-slate-800">{title}</h3>
           {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
         </div>
         {actions && <div className="shrink-0 flex items-center gap-2">{actions}</div>}

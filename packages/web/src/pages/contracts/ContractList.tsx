@@ -15,7 +15,7 @@ import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 /* ------------------------------------------------------------------ */
 
 const statusConfig: Record<string, { label: string; style: string }> = {
-    draft: { label: 'مسودة', style: 'bg-gray-50 text-slate-600 border-gray-200' },
+    draft: { label: 'مسودة', style: 'bg-slate-50 text-slate-600 border-slate-200' },
     active: { label: 'فعال', style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     completed: { label: 'مكتمل', style: 'bg-blue-50 text-blue-700 border-blue-200' },
     cancelled: { label: 'ملغي', style: 'bg-red-50 text-red-600 border-red-200' },
@@ -91,7 +91,7 @@ export default function ContractList() {
             render: (c) => (
                 <div>
                     <span className="text-sm text-slate-700">{c.deviceModelName}</span>
-                    <span className="text-[10px] text-slate-400 mr-1.5 font-mono">{c.serialNumber}</span>
+                    <span className="text-xs text-slate-400 mr-1.5 font-mono">{c.serialNumber}</span>
                 </div>
             ),
         },
@@ -100,7 +100,7 @@ export default function ContractList() {
             render: (c) => (
                 <div className="text-left" dir="ltr">
                     <span className="text-sm font-bold text-slate-800">{formatPrice(c.finalPrice)}</span>
-                    <span className={`mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${c.paymentType === 'cash' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                    <span className={`mr-1.5 px-1.5 py-0.5 rounded text-xs font-medium ${c.paymentType === 'cash' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
                         {paymentLabels[c.paymentType]}
                     </span>
                 </div>
@@ -180,7 +180,7 @@ export default function ContractList() {
                                     onClick={() => navigate('/contracts/new')}
                                     disabled={mustPickBranch}
                                     title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة عقد' : undefined}
-                                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-colors shadow-sm disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-colors shadow-sm disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
                                 >
                                     <Plus className="w-3.5 h-3.5" />
                                     <span>{mustPickBranch ? 'اختر فرعاً لإضافة عقد' : 'عقد جديد'}</span>

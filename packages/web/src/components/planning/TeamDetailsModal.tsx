@@ -57,9 +57,9 @@ export default function TeamDetailsModal({
                     exit={{ opacity: 0, scale: 0.95, y: 20 }}
                     className="relative w-full max-w-4xl max-h-[90vh] bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden"
                 >
-                    <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-gray-50/50">
+                    <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-slate-50/50">
                         <div>
-                            <h2 className="text-xl font-bold text-slate-800">{teamLabel}</h2>
+                            <h2 className="text-lg font-bold text-slate-800">{teamLabel}</h2>
                             <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
                                 <Briefcase className="w-4 h-4 text-emerald-500" />
                                 <span>إجمالي الزبائن المستهدفين: {totalCustomers}</span>
@@ -72,21 +72,21 @@ export default function TeamDetailsModal({
                         {totalCustomers === 0 ? (
                             <div className="text-center py-12">
                                 <MapPin className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                                <h3 className="text-lg font-bold text-slate-700">لا يوجد زبائن في مسار هذا الفريق</h3>
+                                <h3 className="text-base font-bold text-slate-800">لا يوجد زبائن في مسار هذا الفريق</h3>
                                 <p className="text-slate-500 mt-2">يرجى التأكد من تعيين مسار صحيح أو إضافة زبائن للمناطق المستهدفة.</p>
                             </div>
                         ) : (
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center">
-                                    <h3 className="text-sm font-bold text-slate-700">قائمة الزبائن المستهدفين</h3>
+                                    <h3 className="text-base font-bold text-slate-800">قائمة الزبائن المستهدفين</h3>
                                     <Button onClick={handleGenerateClick} icon={PhoneCall}>
                                         توليد/تحديث قائمة الاتصال
                                     </Button>
                                 </div>
 
-                                <div className="bg-white border text-sm border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                                <div className="bg-white border text-sm border-slate-200 rounded-xl overflow-hidden shadow-sm">
                                     <table className="w-full text-right">
-                                        <thead className="bg-gray-50 border-b border-gray-200">
+                                        <thead className="bg-slate-50 border-b border-slate-200">
                                             <tr>
                                                 <th className="px-4 py-3 font-semibold text-slate-600">الاسم</th>
                                                 <th className="px-4 py-3 font-semibold text-slate-600">النوع</th>
@@ -94,7 +94,7 @@ export default function TeamDetailsModal({
                                                 <th className="px-4 py-3 font-semibold text-slate-600">العنوان</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-gray-100">
+                                        <tbody className="divide-y divide-slate-100">
                                             {candidates.map((candidate) => (
                                                 <tr key={`cand-${candidate.id}`} className="hover:bg-slate-50/50 transition-colors">
                                                     <td className="px-4 py-3 text-slate-800 font-medium">
@@ -128,7 +128,7 @@ export default function TeamDetailsModal({
                         )}
                     </div>
 
-                    <div className="p-4 border-t border-gray-100 bg-white flex justify-end">
+                    <div className="p-4 border-t border-slate-100 bg-white flex justify-end">
                         <Button variant="secondary" onClick={onClose}>إغلاق</Button>
                     </div>
                 </motion.div>

@@ -280,7 +280,7 @@ export default function Vacancies() {
     <motion.div key="s1" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.22 }} className="space-y-4 pb-2">
       {/* Identity */}
       <div className="bg-gradient-to-br from-sky-50 to-indigo-50 border border-sky-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-sky-600 uppercase tracking-widest flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5" /> هوية الوظيفة</p>
+        <p className="text-xs font-bold text-sky-600 uppercase tracking-widest flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5" /> هوية الوظيفة</p>
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1.5">عنوان الوظيفة <span className="text-red-400">*</span></label>
           <Select
@@ -342,7 +342,7 @@ export default function Vacancies() {
 
       {/* Location */}
       <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> العنوان</p>
+        <p className="text-xs font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> العنوان</p>
         <GeoSmartSearch
           label="العنوان"
           geoUnits={geoUnits}
@@ -353,7 +353,7 @@ export default function Vacancies() {
           minSelectableLevel={3}
         />
         {!geoSelection.subId && !geoSelection.neighborhoodId && (
-          <p className="text-[11px] text-amber-600 font-medium">
+          <p className="text-xs text-amber-600 font-medium">
             يجب اختيار ناحية أو حي على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
           </p>
         )}
@@ -366,9 +366,9 @@ export default function Vacancies() {
       {/* Contact Methods */}
       <div className="bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-100 rounded-2xl p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] font-bold text-violet-700 uppercase tracking-widest flex items-center gap-1.5"><PhoneCall className="w-3.5 h-3.5" /> وسائل التواصل للنشر</p>
+          <p className="text-xs font-bold text-violet-700 uppercase tracking-widest flex items-center gap-1.5"><PhoneCall className="w-3.5 h-3.5" /> وسائل التواصل للنشر</p>
           {(formData.contactMethods || []).length > 0 && (
-            <span className="text-[10px] bg-violet-500 text-white px-2 py-0.5 rounded-full font-bold">{(formData.contactMethods || []).length} مختارة</span>
+            <span className="text-xs bg-violet-500 text-white px-2 py-0.5 rounded-full font-bold">{(formData.contactMethods || []).length} مختارة</span>
           )}
         </div>
         {branchContacts.length > 0 ? (
@@ -383,12 +383,12 @@ export default function Vacancies() {
                     {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
                   </div>
                   <span className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold shrink-0 ${CONTACT_COLORS[contact.type]}`}>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold shrink-0 ${CONTACT_COLORS[contact.type]}`}>
                       <Icon className="w-3 h-3" /> {CONTACT_LABELS[contact.type]}
                     </span>
                     <span className="font-mono text-xs text-slate-700 truncate" dir="ltr">{contact.value}</span>
-                    {contact.label && <span className="text-[10px] text-slate-400 truncate">— {contact.label}</span>}
-                    <span className={`mr-auto shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${contact.department === 'hr' ? 'bg-violet-100 text-violet-600' : contact.department === 'customer_service' ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500'}`}>
+                    {contact.label && <span className="text-xs text-slate-400 truncate">— {contact.label}</span>}
+                    <span className={`mr-auto shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${contact.department === 'hr' ? 'bg-violet-100 text-violet-600' : contact.department === 'customer_service' ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500'}`}>
                       {contact.department === 'hr' ? 'HR' : contact.department === 'customer_service' ? 'خدمة عملاء' : contact.department === 'management' ? 'إدارة' : 'أخرى'}
                     </span>
                   </span>
@@ -410,7 +410,7 @@ export default function Vacancies() {
     <motion.div key="s2" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.22 }} className="space-y-4 pb-2">
       {/* Profile */}
       <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-amber-700 uppercase tracking-widest flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> الملف الشخصي</p>
+        <p className="text-xs font-bold text-amber-700 uppercase tracking-widest flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> الملف الشخصي</p>
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">الجنس</label>
@@ -450,7 +450,7 @@ export default function Vacancies() {
 
       {/* Education */}
       <div className="bg-gradient-to-br from-sky-50 to-cyan-50 border border-sky-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-sky-700 uppercase tracking-widest flex items-center gap-1.5"><GraduationCap className="w-3.5 h-3.5" /> المؤهل والخبرة</p>
+        <p className="text-xs font-bold text-sky-700 uppercase tracking-widest flex items-center gap-1.5"><GraduationCap className="w-3.5 h-3.5" /> المؤهل والخبرة</p>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">الشهادة العلمية</label>
@@ -486,7 +486,7 @@ export default function Vacancies() {
 
       {/* Skills */}
       <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><ClipboardList className="w-3.5 h-3.5" /> المهام والمهارات</p>
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><ClipboardList className="w-3.5 h-3.5" /> المهام والمهارات</p>
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1.5">المهارات المطلوبة</label>
           <textarea value={formData.requiredSkills || ''} onChange={e => setField('requiredSkills', e.target.value || null)} rows={2} placeholder="مثال: Excel، خدمة العملاء، اللغة الإنجليزية..." disabled={isFieldLocked('partial')} className={inputCls(isFieldLocked('partial'))} />
@@ -506,7 +506,7 @@ export default function Vacancies() {
   const Step3 = (
     <motion.div key="s3" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.22 }} className="space-y-4 pb-2">
       <div className="bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-widest flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" /> الإطار الزمني</p>
+        <p className="text-xs font-bold text-indigo-700 uppercase tracking-widest flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" /> الإطار الزمني</p>
         <div className="grid grid-cols-2 gap-5">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">تاريخ البداية <span className="text-red-400">*</span></label>
@@ -524,17 +524,17 @@ export default function Vacancies() {
         )}
       </div>
       <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> عدد الشواغر</p>
+        <p className="text-xs font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> عدد الشواغر</p>
         <div className="flex items-center gap-4">
-          <button type="button" onClick={() => setField('vacancyCount', Math.max(1, (formData.vacancyCount || 1) - 1))} disabled={isFieldLocked('full') || (formData.vacancyCount || 1) <= 1} className="w-10 h-10 rounded-xl bg-white border-2 border-slate-200 text-slate-600 text-xl font-bold hover:border-emerald-400 hover:text-emerald-600 transition-all disabled:opacity-40 flex items-center justify-center">−</button>
+          <button type="button" onClick={() => setField('vacancyCount', Math.max(1, (formData.vacancyCount || 1) - 1))} disabled={isFieldLocked('full') || (formData.vacancyCount || 1) <= 1} className="w-10 h-10 rounded-xl bg-white border-2 border-slate-200 text-slate-600 text-lg font-bold hover:border-emerald-400 hover:text-emerald-600 transition-all disabled:opacity-40 flex items-center justify-center">−</button>
           <input type="number" min={1} value={formData.vacancyCount ?? 1} onChange={e => setField('vacancyCount', parseInt(e.target.value) || 1)} disabled={isFieldLocked('full')} className="w-20 text-center text-2xl font-bold text-emerald-700 bg-white border-2 border-emerald-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 focus:outline-none" />
-          <button type="button" onClick={() => setField('vacancyCount', (formData.vacancyCount || 1) + 1)} disabled={isFieldLocked('full')} className="w-10 h-10 rounded-xl bg-white border-2 border-slate-200 text-slate-600 text-xl font-bold hover:border-emerald-400 hover:text-emerald-600 transition-all disabled:opacity-40 flex items-center justify-center">+</button>
+          <button type="button" onClick={() => setField('vacancyCount', (formData.vacancyCount || 1) + 1)} disabled={isFieldLocked('full')} className="w-10 h-10 rounded-xl bg-white border-2 border-slate-200 text-slate-600 text-lg font-bold hover:border-emerald-400 hover:text-emerald-600 transition-all disabled:opacity-40 flex items-center justify-center">+</button>
           <span className="text-sm text-slate-500 font-medium">شاغر وظيفي</span>
         </div>
       </div>
       {/* Summary */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5">
-        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">ملخص الشاغر</p>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">ملخص الشاغر</p>
         <div className="grid grid-cols-2 gap-y-3">
           {[
             { l: 'المسمى الوظيفي', v: formData.title || '—' },
@@ -548,7 +548,7 @@ export default function Vacancies() {
             { l: 'هل يمتلك سيارة', v: formData.hasCarRequired ? 'مطلوب' : 'غير مطلوب' },
           ].map(({ l, v }) => (
             <div key={l}>
-              <p className="text-[10px] text-slate-400">{l}</p>
+              <p className="text-xs text-slate-400">{l}</p>
               <p className="text-xs font-semibold text-slate-700">{v}</p>
             </div>
           ))}
@@ -564,7 +564,7 @@ export default function Vacancies() {
       {Step2}
       {/* Dates */}
       <div className="bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 rounded-2xl p-5 space-y-4">
-        <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-widest flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" /> التوقيت والعدد</p>
+        <p className="text-xs font-bold text-indigo-700 uppercase tracking-widest flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" /> التوقيت والعدد</p>
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">تاريخ البداية <span className="text-red-400">*</span></label>
@@ -752,7 +752,7 @@ export default function Vacancies() {
               <div className="px-7 pt-6 pb-0 shrink-0">
                 <div className="flex items-start justify-between mb-5">
                   <div>
-                    <h2 className="text-xl font-bold text-slate-800">{editingVacancy ? 'تعديل الشاغر الوظيفي' : 'إنشاء شاغر وظيفي جديد'}</h2>
+                    <h2 className="text-lg font-bold text-slate-800">{editingVacancy ? 'تعديل الشاغر الوظيفي' : 'إنشاء شاغر وظيفي جديد'}</h2>
                     <p className="text-xs text-slate-400 mt-0.5">{editingVacancy ? `شاغر: ${editingVacancy.title}` : 'أكمل الخطوات الثلاث لإضافة الشاغر'}</p>
                   </div>
                   <IconButton icon={X} label="إغلاق" onClick={() => setShowModal(false)} />
@@ -770,7 +770,7 @@ export default function Vacancies() {
                             <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold transition-all duration-300 ${done ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : active ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30' : 'bg-slate-100 text-slate-400'}`}>
                               {done ? <CheckCircle className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
                             </div>
-                            <span className={`text-[10px] font-semibold mt-1 ${active ? 'text-sky-600' : done ? 'text-emerald-600' : 'text-slate-400'}`}>{label}</span>
+                            <span className={`text-xs font-semibold mt-1 ${active ? 'text-sky-600' : done ? 'text-emerald-600' : 'text-slate-400'}`}>{label}</span>
                           </div>
                           {idx < 2 && <div className={`h-0.5 flex-1 mx-1 mb-4 rounded-full transition-all duration-500 ${wizardStep > n ? 'bg-emerald-400' : 'bg-slate-200'}`} />}
                         </div>

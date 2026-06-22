@@ -218,7 +218,7 @@ export default function TrainingCourseDetail() {
           <div>
             <div className="flex items-center gap-3 mb-1">
               <GraduationCap className="w-6 h-6 text-sky-500" />
-              <h1 className="text-xl font-bold text-slate-800">{course.trainingName}</h1>
+              <h1 className="text-2xl font-bold text-slate-800">{course.trainingName}</h1>
               <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${STATUS_COLORS[course.trainingStatus]}`}>
                 {STATUS_LABELS[course.trainingStatus]}
               </span>
@@ -309,7 +309,7 @@ export default function TrainingCourseDetail() {
         {showEndDateModal && (
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-lg font-bold text-slate-800">تعديل الدورة التدريبية</h3>
+              <h3 className="text-base font-bold text-slate-800">تعديل الدورة التدريبية</h3>
               <button onClick={() => setShowEndDateModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
                 <XCircle className="w-4 h-4" />
               </button>
@@ -354,7 +354,7 @@ export default function TrainingCourseDetail() {
       {/* Attendance Grid */}
       {(isStarted || isCompleted) && course.trainees.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-          <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
             <Calendar className="w-5 h-5 text-sky-500" />
             سجل الحضور
           </h2>
@@ -408,7 +408,7 @@ export default function TrainingCourseDetail() {
           {isStarted && (
             <PermissionGate permission="jobs.training.record_attendance">
             <div className="mt-5 border-t border-slate-100 pt-5">
-              <h3 className="text-sm font-semibold text-slate-700 mb-3">تسجيل حضور يوم:</h3>
+              <h3 className="text-base font-bold text-slate-800 mb-3">تسجيل حضور يوم:</h3>
               <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <input
                   type="date"
@@ -473,7 +473,7 @@ export default function TrainingCourseDetail() {
       {/* Results Section */}
       {isCompleted && course.trainees.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-          <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
             <Award className="w-5 h-5 text-sky-500" />
             النتائج
           </h2>
@@ -529,7 +529,7 @@ export default function TrainingCourseDetail() {
       {/* Trainees list (for Scheduled courses) */}
       {isScheduled && course.trainees.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-          <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
             <UserPlus className="w-5 h-5 text-sky-500" />
             المتدربون المسجلون ({course.trainees.length})
           </h2>

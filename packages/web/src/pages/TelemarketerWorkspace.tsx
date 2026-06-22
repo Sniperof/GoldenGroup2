@@ -233,7 +233,7 @@ const OwnershipBadge = ({ ownership }: { ownership?: CustomerOwnership | null })
     const label = ownership?.ownerLabel || 'الشركة العامة';
     const isPersonal = (ownership?.ownerType ?? '').startsWith('personal');
     return (
-        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${
+        <span className={`text-xs px-1.5 py-0.5 rounded font-bold border ${
             isPersonal
                 ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
                 : 'bg-slate-50 text-slate-600 border-slate-200'
@@ -991,9 +991,9 @@ export default function TelemarketerWorkspace() {
                         <p className="text-sm font-bold text-slate-800 flex items-center justify-between">
                             <span>
                                 {isTextMsg ? 'رسالة مُرسَلة' : 'محاولة تواصل'}{' '}
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] mr-1 ${getOutcomeDisplay(log.outcome).bg} ${getOutcomeDisplay(log.outcome).color}`}>{getOutcomeDisplay(log.outcome).label}</span>
+                                <span className={`px-1.5 py-0.5 rounded text-xs mr-1 ${getOutcomeDisplay(log.outcome).bg} ${getOutcomeDisplay(log.outcome).color}`}>{getOutcomeDisplay(log.outcome).label}</span>
                                 {isTextMsg && (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-300 bg-amber-100 text-amber-700 font-bold mr-1">منتظر رد</span>
+                                    <span className="text-xs px-1.5 py-0.5 rounded border border-amber-300 bg-amber-100 text-amber-700 font-bold mr-1">منتظر رد</span>
                                 )}
                             </span>
                             <span className="text-xs text-slate-500 font-bold bg-slate-100 rounded px-2 py-0.5" dir="ltr">المحاولة {index + 1}</span>
@@ -1081,12 +1081,12 @@ export default function TelemarketerWorkspace() {
     return (
         <div className="h-full flex flex-col overflow-hidden bg-slate-100" dir="rtl">
             {/* TOP BAR */}
-            <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm z-10 shrink-0">
+            <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-10 shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-xl bg-violet-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
                         <Headset className="w-5 h-5 text-white" />
                     </div>
-                    <h1 className="text-base font-bold text-slate-800">إدارة المواعيد <span className="text-slate-400 font-normal text-sm">| Telemarketing</span></h1>
+                    <h1 className="text-2xl font-bold text-slate-800">إدارة المواعيد <span className="text-slate-400 font-bold text-sm">| Telemarketing</span></h1>
                 </div>
                 <div className="flex items-center gap-2" dir="rtl">
                     <button type="button" onClick={() => changeDateBy(-1)} className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200">
@@ -1105,9 +1105,9 @@ export default function TelemarketerWorkspace() {
             <div className="flex-1 flex overflow-hidden p-3 gap-3">
 
                 {/* COLUMN 1: Customer queue (20%) */}
-                <div className="w-1/5 min-w-[280px] bg-white border border-gray-200 rounded-xl flex flex-col shadow-sm overflow-hidden">
+                <div className="w-1/5 min-w-[280px] bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm overflow-hidden">
                     {/* Team Selector */}
-                    <div className="p-3 border-b border-gray-100 bg-slate-50">
+                    <div className="p-3 border-b border-slate-100 bg-slate-50">
                         <label className="text-xs font-bold text-slate-500 mb-1.5 block">اختر أحد الفرق النشطة</label>
                         <Select<string>
                             value={selectedTeamKey}
@@ -1121,14 +1121,14 @@ export default function TelemarketerWorkspace() {
                     </div>
 
                     {/* CT lifecycle filter tabs */}
-                    <div className="px-2 py-2 border-b border-gray-100 flex flex-wrap gap-1">
+                    <div className="px-2 py-2 border-b border-slate-100 flex flex-wrap gap-1">
                         {(Object.keys(statusFilterConfig) as StatusFilter[]).map(filter => {
                             const config = statusFilterConfig[filter];
                             const count = filter === 'all' ? customerGroups.length : counts[filter as keyof typeof counts] ?? 0;
                             const isActive = statusFilter === filter;
                             return (
                                 <button key={filter} onClick={() => setStatusFilter(filter)}
-                                    className={`px-2 py-1 rounded-md text-[11px] font-bold transition-all ${isActive ? `${config.activeBg} ${config.activeText} shadow-sm` : `${config.inactiveBg} ${config.inactiveText} hover:opacity-80`}`}>
+                                    className={`px-2 py-1 rounded-md text-xs font-bold transition-all ${isActive ? `${config.activeBg} ${config.activeText} shadow-sm` : `${config.inactiveBg} ${config.inactiveText} hover:opacity-80`}`}>
                                     {config.label} ({count})
                                 </button>
                             );
@@ -1136,17 +1136,17 @@ export default function TelemarketerWorkspace() {
                     </div>
 
                     {/* Search */}
-                    <div className="px-2 py-2 border-b border-gray-100">
+                    <div className="px-2 py-2 border-b border-slate-100">
                         <div className="relative">
                             <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                             <input type="text" placeholder="بحث بالاسم أو الرقم..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                                className="w-full pr-8 pl-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:border-violet-400 focus:outline-none bg-white" />
+                                className="w-full pr-8 pl-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:border-violet-400 focus:outline-none bg-white" />
                         </div>
                     </div>
 
                     {/* Queue header */}
-                    <div className="sticky top-0 z-10 px-4 py-2.5 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
-                        <h2 className="text-sm font-black text-slate-700">قائمة الزبائن</h2>
+                    <div className="sticky top-0 z-10 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+                        <h2 className="text-lg font-bold text-slate-800">قائمة الزبائن</h2>
                         <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
                     </div>
 
@@ -1169,20 +1169,20 @@ export default function TelemarketerWorkspace() {
                             // Badge for CT lifecycle stage
                             const ctBadge = (() => {
                                 if (isBooked) return (
-                                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                                    <span className="text-xs text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
                                         <CheckCircle2 className="w-3 h-3" /> محجوز{cgAppt ? ` ${cgAppt.timeSlot}` : ''}
                                     </span>
                                 );
                                 if (ctClosed) {
                                     const isManual = cg.callOutcome === 'manual_close';
                                     return (
-                                        <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                        <span className="text-xs text-slate-500 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
                                             {isManual ? 'مغلقة يدوياً' : 'مغلقة'}
                                         </span>
                                     );
                                 }
                                 if (ctStage === 'contacted') return (
-                                    <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1">
+                                    <span className="text-xs text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1">
                                         <History className="w-3 h-3" /> تم التواصل ({cgLogs.length})
                                     </span>
                                 );
@@ -1196,7 +1196,7 @@ export default function TelemarketerWorkspace() {
                                         : isBooked ? 'bg-emerald-50 border-emerald-200'
                                             : ctClosed ? 'bg-slate-50 border-slate-200'
                                                 : ctStage === 'contacted' ? 'bg-amber-50/40 border-amber-100'
-                                                    : 'bg-white border-gray-100 hover:border-violet-200 hover:bg-slate-50 hover:shadow-sm'}`}>
+                                                    : 'bg-white border-slate-100 hover:border-violet-200 hover:bg-slate-50 hover:shadow-sm'}`}>
                                     <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shrink-0 border-2 overflow-hidden relative shadow-sm ${
                                         isBooked ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
                                         : ctClosed ? 'bg-slate-100 text-slate-500 border-slate-300'
@@ -1219,11 +1219,11 @@ export default function TelemarketerWorkspace() {
                                                     : <Phone className={`w-4 h-4 shrink-0 ${ctStage === 'contacted' ? 'text-amber-400' : 'text-slate-400'}`} />}
                                         </div>
                                         <div className="flex items-center justify-between mt-1 gap-1 flex-wrap">
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${cg.entityType === 'client' ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                                            <span className={`text-xs px-1.5 py-0.5 rounded font-bold border ${cg.entityType === 'client' ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
                                                 {cg.entityType === 'client' ? 'زبون' : 'مقترح'}
                                             </span>
                                             {cg.openTasks.length > 0 && (
-                                                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold border bg-purple-50 text-purple-700 border-purple-100 flex items-center gap-0.5">
+                                                <span className="text-xs px-1.5 py-0.5 rounded font-bold border bg-purple-50 text-purple-700 border-purple-100 flex items-center gap-0.5">
                                                     <Layers className="w-2.5 h-2.5" />{cg.openTasks.length}
                                                 </span>
                                             )}
@@ -1231,7 +1231,7 @@ export default function TelemarketerWorkspace() {
                                                 <OwnershipBadge ownership={cg.primaryItem.ownership} />
                                             ) : null}
                                             {otherTeamsCount > 0 && (
-                                                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold border bg-cyan-50 text-cyan-700 border-cyan-200">
+                                                <span className="text-xs px-1.5 py-0.5 rounded font-bold border bg-cyan-50 text-cyan-700 border-cyan-200">
                                                     +{otherTeamsCount} فرق
                                                 </span>
                                             )}
@@ -1245,14 +1245,14 @@ export default function TelemarketerWorkspace() {
                 </div>
 
                 {/* COLUMN 2: Customer detail (55%) */}
-                <div className="flex-1 min-w-0 bg-white border border-gray-200 rounded-xl flex flex-col shadow-sm overflow-hidden relative">
+                <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm overflow-hidden relative">
                     {selectedCustomer && entityDetails ? (
                         <>
                             {/* Client snapshot */}
-                            <div className="px-6 py-5 border-b border-gray-100 bg-white shrink-0">
+                            <div className="px-6 py-5 border-b border-slate-100 bg-white shrink-0">
                                 <div className="flex items-start justify-between gap-5">
                                     <div className="flex items-start gap-4 min-w-0">
-                                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-black shrink-0 border shadow-sm ${
+                                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-lg font-black shrink-0 border shadow-sm ${
                                             selectedCustomer.entityType === 'client'
                                                 ? 'bg-sky-50 text-sky-800 border-sky-100'
                                                 : 'bg-amber-50 text-amber-800 border-amber-100'
@@ -1261,13 +1261,13 @@ export default function TelemarketerWorkspace() {
                                         </div>
                                         <div className="min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
-                                                <h2 className="text-3xl font-black text-slate-950 leading-tight">{selectedCustomer.name}</h2>
+                                                <h2 className="text-lg font-bold text-slate-800 leading-tight">{selectedCustomer.name}</h2>
                                                 {selectedSnapshotMeta.nickname && (
                                                     <span className="text-sm font-bold text-slate-400">({selectedSnapshotMeta.nickname})</span>
                                                 )}
                                             </div>
                                             <div className="mt-2 flex items-center gap-2 flex-wrap">
-                                                <span className={`px-2 py-0.5 rounded-md text-[11px] font-black border ${
+                                                <span className={`px-2 py-0.5 rounded-md text-xs font-black border ${
                                                     selectedCustomer.entityType === 'client'
                                                         ? 'bg-sky-50 text-sky-700 border-sky-200'
                                                         : 'bg-amber-50 text-amber-700 border-amber-200'
@@ -1275,7 +1275,7 @@ export default function TelemarketerWorkspace() {
                                                     {selectedSnapshotMeta.classification}
                                                 </span>
                                                 {selectedSnapshotMeta.rating && selectedSnapshotMeta.classification === 'OP' && (
-                                                    <span className="px-2 py-0.5 rounded-md text-[11px] font-black border bg-emerald-50 text-emerald-700 border-emerald-200">
+                                                    <span className="px-2 py-0.5 rounded-md text-xs font-black border bg-emerald-50 text-emerald-700 border-emerald-200">
                                                         {selectedSnapshotMeta.rating}
                                                     </span>
                                                 )}
@@ -1283,12 +1283,12 @@ export default function TelemarketerWorkspace() {
                                                     <OwnershipBadge ownership={selectedCustomer.primaryItem.ownership} />
                                                 ) : null}
                                                 {selectedSnapshotMeta.branchName && (
-                                                    <span className="px-2 py-0.5 rounded-md text-[11px] font-bold border bg-slate-50 text-slate-600 border-slate-200">
+                                                    <span className="px-2 py-0.5 rounded-md text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">
                                                         {selectedSnapshotMeta.branchName}
                                                     </span>
                                                 )}
                                                 {selectedCustomer.lockedByHrUserName && (
-                                                    <span className="px-2 py-0.5 rounded-md text-[11px] font-bold border bg-amber-50 text-amber-700 border-amber-200">
+                                                    <span className="px-2 py-0.5 rounded-md text-xs font-bold border bg-amber-50 text-amber-700 border-amber-200">
                                                         قيد المتابعة: {selectedCustomer.lockedByHrUserName}
                                                     </span>
                                                 )}
@@ -1310,25 +1310,25 @@ export default function TelemarketerWorkspace() {
                                 <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-2">
                                     {selectedSnapshotMeta.occupation && (
                                         <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                            <p className="text-[10px] font-bold text-slate-400 mb-1">المهنة</p>
+                                            <p className="text-xs font-bold text-slate-400 mb-1">المهنة</p>
                                             <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.occupation}</p>
                                         </div>
                                     )}
                                     {selectedSnapshotMeta.spouseOccupation && (
                                         <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                            <p className="text-[10px] font-bold text-slate-400 mb-1">مهنة الزوج/الزوجة</p>
+                                            <p className="text-xs font-bold text-slate-400 mb-1">مهنة الزوج/الزوجة</p>
                                             <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.spouseOccupation}</p>
                                         </div>
                                     )}
                                     {selectedSnapshotMeta.sourceChannel && (
                                         <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                            <p className="text-[10px] font-bold text-slate-400 mb-1">مصدر الزبون</p>
+                                            <p className="text-xs font-bold text-slate-400 mb-1">مصدر الزبون</p>
                                             <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.sourceChannel}</p>
                                         </div>
                                     )}
                                     {selectedSnapshotMeta.referrersCount > 0 && (
                                         <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                            <p className="text-[10px] font-bold text-slate-400 mb-1">الوسيط</p>
+                                            <p className="text-xs font-bold text-slate-400 mb-1">الوسيط</p>
                                             <p className="text-sm font-black text-slate-800 truncate">
                                                 {selectedSnapshotMeta.referrerName || `${selectedSnapshotMeta.referrersCount} وسيط`}
                                                 {selectedSnapshotMeta.referrerName && selectedSnapshotMeta.referrersCount > 1 ? ` +${selectedSnapshotMeta.referrersCount - 1}` : ''}
@@ -1342,7 +1342,7 @@ export default function TelemarketerWorkspace() {
                                         <div className="flex items-start gap-2">
                                             <MapPin className="w-4 h-4 text-sky-500 mt-0.5 shrink-0" />
                                             <div className="min-w-0">
-                                                <p className="text-[11px] text-slate-400 font-black mb-1">العنوان المعتمد للتواصل</p>
+                                                <p className="text-xs text-slate-400 font-black mb-1">العنوان المعتمد للتواصل</p>
                                                 <p className="text-sm text-slate-900 font-black leading-relaxed">{selectedAddressLabel}</p>
                                                 {selectedSnapshotMeta.detailedAddress && (
                                                     <p className="text-xs text-slate-500 font-semibold mt-1 leading-relaxed">{selectedSnapshotMeta.detailedAddress}</p>
@@ -1353,9 +1353,9 @@ export default function TelemarketerWorkspace() {
 
                                     <div className="rounded-lg border border-slate-100 bg-white px-4 py-3 shadow-sm">
                                         <div className="flex items-center justify-between gap-3 mb-2">
-                                            <p className="text-[11px] text-slate-400 font-black">أرقام إضافية</p>
+                                            <p className="text-xs text-slate-400 font-black">أرقام إضافية</p>
                                             {selectedOtherTargets.length > 0 && (
-                                                <span className="text-[10px] px-2 py-0.5 rounded-md border border-cyan-100 bg-cyan-50 text-cyan-700 font-black">
+                                                <span className="text-xs px-2 py-0.5 rounded-md border border-cyan-100 bg-cyan-50 text-cyan-700 font-black">
                                                     {selectedOtherTargets.length} جهة أخرى اليوم
                                                 </span>
                                             )}
@@ -1370,7 +1370,7 @@ export default function TelemarketerWorkspace() {
                                                     >
                                                         <Phone className="w-3.5 h-3.5" />
                                                         <span dir="ltr">{contact.number}</span>
-                                                        {contact.label && <span className="text-[10px] text-slate-500">{contact.label}</span>}
+                                                        {contact.label && <span className="text-xs text-slate-500">{contact.label}</span>}
                                                         {contact.hasWhatsApp && <MessageSquare className="w-3.5 h-3.5 text-green-500" />}
                                                     </a>
                                                 ))}
@@ -1382,16 +1382,16 @@ export default function TelemarketerWorkspace() {
                                 </div>
 
                                 {(selectedCustomer.openTasks.length > 0 || selectedSnapshotMeta.notes) && (
-                                    <div className="mt-4 flex flex-wrap items-start gap-2 border-t border-gray-100 pt-3">
+                                    <div className="mt-4 flex flex-wrap items-start gap-2 border-t border-slate-100 pt-3">
                                         {selectedCustomer.openTasks.map(ot => (
-                                            <span key={ot.taskListItemId} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border bg-violet-50 border-violet-100 text-violet-700 font-black">
+                                            <span key={ot.taskListItemId} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border bg-violet-50 border-violet-100 text-violet-700 font-black">
                                                 <Layers className="w-3 h-3" />
                                                 {(OPEN_TASK_TYPE_LABELS as Record<string, string>)[ot.openTaskType as OpenTaskType] || ot.openTaskType}
                                                 {ot.openTaskReason && <span className="text-violet-400">{(OPEN_TASK_REASON_LABELS as Record<string, string>)[ot.openTaskReason as OpenTaskReason] || ot.openTaskReason}</span>}
                                             </span>
                                         ))}
                                         {selectedSnapshotMeta.notes && (
-                                            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border bg-slate-50 border-slate-200 text-slate-600 font-bold max-w-full">
+                                            <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border bg-slate-50 border-slate-200 text-slate-600 font-bold max-w-full">
                                                 <FileText className="w-3 h-3 shrink-0" />
                                                 <span className="truncate">{selectedSnapshotMeta.notes}</span>
                                             </span>
@@ -1404,7 +1404,7 @@ export default function TelemarketerWorkspace() {
                             <div className="px-6 flex gap-1 border-b border-[#E3E7EC] shrink-0 bg-white z-10">
                                 {[{ id: 'journey', label: 'سجل الاتصالات', icon: Activity }, { id: 'contracts', label: 'العقود', icon: FileText }, { id: 'visits', label: 'الزيارات', icon: Wrench }, { id: 'openTasks', label: 'المهام المفتوحة', icon: Layers }].map(tab => (
                                     <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
-                                        className={`relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors ${activeTab === tab.id
+                                        className={`relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-base font-bold transition-colors ${activeTab === tab.id
                                             ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
                                             : 'text-slate-500 hover:text-slate-800'}`}>
                                         <tab.icon className="w-4 h-4" /> {tab.label}
@@ -1419,7 +1419,7 @@ export default function TelemarketerWorkspace() {
                                         <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-slate-200" style={{ transform: 'translateX(-50%)' }} />
                                         <div className="space-y-6 max-w-2xl mx-auto relative z-10">
                                             {journeyEvents.length === 0 ? (
-                                                <div className="text-center bg-white border border-dashed border-gray-300 rounded-xl p-8">
+                                                <div className="text-center bg-white border border-dashed border-slate-300 rounded-xl p-8">
                                                     <History className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                                                     <p className="text-sm font-bold text-slate-500">لا توجد أنشطة مسجلة لهذا الزبون بعد</p>
                                                 </div>
@@ -1433,7 +1433,7 @@ export default function TelemarketerWorkspace() {
                                                             </div>
                                                         </div>
                                                         <div className="w-5/12">
-                                                            <div className={`bg-white border text-right border-gray-200 p-4 rounded-xl shadow-sm`}>
+                                                            <div className={`bg-white border text-right border-slate-200 p-4 rounded-xl shadow-sm`}>
                                                                 <div className="flex items-center justify-between mb-2">
                                                                     <span className="text-xs text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200" dir="ltr">
                                                                         {new Date(item.date).toLocaleString('ar-SY', { dateStyle: 'short', timeStyle: 'short' })}
@@ -1454,34 +1454,34 @@ export default function TelemarketerWorkspace() {
                                     <div className="space-y-4">
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
-                                                <h3 className="text-lg font-black text-slate-800">جدول المهام المفتوحة</h3>
+                                                <h3 className="text-base font-bold text-slate-800">جدول المهام المفتوحة</h3>
                                                 <p className="text-xs text-slate-500 mt-1">{selectedCustomer?.openTasks.length || 0} مهمة مرتبطة بهذا الزبون</p>
                                             </div>
                                             {openTaskDetailsLoading && <span className="text-xs font-bold text-violet-600 bg-violet-50 border border-violet-100 px-2.5 py-1 rounded-lg">جارٍ التحميل...</span>}
                                         </div>
 
                                         {openTaskRows.length === 0 ? (
-                                            <div className="text-center bg-white border border-dashed border-gray-300 rounded-xl p-8">
+                                            <div className="text-center bg-white border border-dashed border-slate-300 rounded-xl p-8">
                                                 <Layers className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                                                 <p className="text-sm font-bold text-slate-500">لا توجد مهام مفتوحة لهذا الزبون</p>
                                             </div>
                                         ) : (
-                                            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                                            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                                                 <table className="w-full text-right">
-                                                    <thead className="bg-slate-50 border-b border-gray-100">
+                                                    <thead className="bg-slate-50 border-b border-slate-100">
                                                         <tr>
-                                                            <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wide">نوع المهمة</th>
-                                                            <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wide">العقد</th>
-                                                            <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wide">السبب</th>
-                                                            <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wide">الأولوية</th>
-                                                            <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wide text-center">إجراء</th>
+                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">نوع المهمة</th>
+                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">العقد</th>
+                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">السبب</th>
+                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">الأولوية</th>
+                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide text-center">إجراء</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {openTaskRows.map(row => {
                                                             const detailPath = getOpenTaskDetailPath(row.taskType, row.id);
                                                             return (
-                                                                <tr key={row.key} className="border-b border-gray-100 last:border-b-0 hover:bg-violet-50/40 transition-colors">
+                                                                <tr key={row.key} className="border-b border-slate-100 last:border-b-0 hover:bg-violet-50/40 transition-colors">
                                                                     <td className="px-4 py-3 text-sm font-bold text-slate-800">{row.taskTypeLabel}</td>
                                                                     <td className="px-4 py-3 text-sm text-slate-600">{row.contractLabel}</td>
                                                                     <td className="px-4 py-3 text-sm text-slate-600">{row.reasonLabel}</td>
@@ -1518,7 +1518,7 @@ export default function TelemarketerWorkspace() {
                             )}
 
                             {/* Action bar */}
-                            <div className="p-2 bg-white border-t border-gray-200 flex gap-2 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-20">
+                            <div className="p-2 bg-white border-t border-slate-200 flex gap-2 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-20">
                                 <button
                                     onClick={async () => {
                                         if (!(await claimSelectedContactTarget())) return;
@@ -1538,8 +1538,8 @@ export default function TelemarketerWorkspace() {
                                         <Send className={`w-3.5 h-3.5 ${isCtClosedForSelected || isLockedByOtherForSelected ? 'text-slate-400' : 'text-white'}`} />
                                     </div>
                                     <div className="text-right overflow-hidden">
-                                        <p className={`font-black text-[11px] leading-tight truncate ${isCtClosedForSelected ? 'text-slate-500' : 'text-white'}`}>{isCtClosedForSelected ? 'جهة الاتصال مغلقة' : 'تسجيل نتيجة التواصل'}</p>
-                                        <p className={`text-[8px] font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
+                                        <p className={`font-black text-xs leading-tight truncate ${isCtClosedForSelected ? 'text-slate-500' : 'text-white'}`}>{isCtClosedForSelected ? 'جهة الاتصال مغلقة' : 'تسجيل نتيجة التواصل'}</p>
+                                        <p className={`text-[9px] font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
                                     </div>
                                 </button>
 
@@ -1548,7 +1548,7 @@ export default function TelemarketerWorkspace() {
                                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 shrink-0">
                                         <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                         <div className="text-right">
-                                            <p className="font-black text-[10px] text-emerald-700 leading-tight">موعد مؤكد</p>
+                                            <p className="font-black text-xs text-emerald-700 leading-tight">موعد مؤكد</p>
                                             <p className="text-[9px] font-bold text-emerald-500" dir="ltr">{selectedAppointment.date} {selectedAppointment.timeSlot}</p>
                                         </div>
                                     </div>
@@ -1558,7 +1558,7 @@ export default function TelemarketerWorkspace() {
                                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 shrink-0">
                                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                                         <div className="text-right">
-                                            <p className="font-black text-[10px] leading-tight">محجوزة</p>
+                                            <p className="font-black text-xs leading-tight">محجوزة</p>
                                             <p className="text-[9px] font-bold">{selectedCustomer.lockedByHrUserName || 'تيلماركتر آخر'}</p>
                                         </div>
                                     </div>
@@ -1600,7 +1600,7 @@ export default function TelemarketerWorkspace() {
                                     <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
                                         <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
                                             <div>
-                                                <h3 className="font-bold text-slate-900">إغلاق جهة الاتصال</h3>
+                                                <h3 className="font-bold text-slate-800">إغلاق جهة الاتصال</h3>
                                                 <p className="text-xs text-slate-500 mt-0.5">تعود المهمة إلى مرحلة قيد الانتظار</p>
                                             </div>
                                             <IconButton icon={X} label="إغلاق" size="sm" onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} />
@@ -1644,31 +1644,31 @@ export default function TelemarketerWorkspace() {
 
                 {/* COLUMN 3: Team situational awareness (25%) */}
                 <div className="w-1/4 min-w-[300px] flex flex-col gap-3 relative shrink-0">
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm shrink-0">
-                        <h3 className="text-sm font-black text-slate-800 mb-3 flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-500" /> مؤشر أداء التيلماركتر</h3>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm shrink-0">
+                        <h3 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-500" /> مؤشر أداء التيلماركتر</h3>
                         <div className="grid grid-cols-3 gap-2 text-center">
                             <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100 shadow-sm flex flex-col justify-between">
-                                <p className="text-[10px] font-bold text-emerald-700 mb-1 leading-tight line-clamp-2">زيارات مجدولة</p>
-                                <p className="text-xl font-black text-emerald-700">{totalScheduled}</p>
+                                <p className="text-xs font-bold text-emerald-700 mb-1 leading-tight line-clamp-2">زيارات مجدولة</p>
+                                <p className="text-lg font-black text-emerald-700">{totalScheduled}</p>
                             </div>
                             <div className="bg-violet-50 rounded-xl p-3 border border-violet-100 shadow-sm flex flex-col justify-between">
-                                <p className="text-[10px] font-bold text-violet-700 mb-1 leading-tight line-clamp-2">جهات مغلقة</p>
-                                <p className="text-xl font-black text-violet-700">{closedCount}</p>
+                                <p className="text-xs font-bold text-violet-700 mb-1 leading-tight line-clamp-2">جهات مغلقة</p>
+                                <p className="text-lg font-black text-violet-700">{closedCount}</p>
                             </div>
                             <div className="bg-sky-50 rounded-xl p-3 border border-sky-100 shadow-sm flex flex-col justify-between">
-                                <p className="text-[10px] font-bold text-sky-700 mb-1 leading-tight line-clamp-2">نسبة نجاح الحجز</p>
-                                <p className="text-xl font-black text-sky-700">{bookingRate}%</p>
+                                <p className="text-xs font-bold text-sky-700 mb-1 leading-tight line-clamp-2">نسبة نجاح الحجز</p>
+                                <p className="text-lg font-black text-sky-700">{bookingRate}%</p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm shrink-0">
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm shrink-0">
                         <div className="flex items-center justify-between gap-2 mb-3">
-                            <h3 className="text-sm font-black text-slate-800 flex items-center gap-1.5">
+                            <h3 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
                                 <Layers className="w-4 h-4 text-cyan-600" />
                                 الوعي عبر الفرق
                             </h3>
-                            {crossTeamLoading && <span className="text-[10px] font-bold text-cyan-600">تحميل...</span>}
+                            {crossTeamLoading && <span className="text-xs font-bold text-cyan-600">تحميل...</span>}
                         </div>
                         {!selectedCustomer ? (
                             <p className="text-xs text-slate-400 font-bold">اختر زبونا لعرض جهات اليوم.</p>
@@ -1686,18 +1686,18 @@ export default function TelemarketerWorkspace() {
                                         <div key={target.id} className="rounded-lg border border-cyan-100 bg-cyan-50/50 px-3 py-2">
                                             <div className="flex items-center justify-between gap-2">
                                                 <span className="text-xs font-black text-slate-800 truncate">{target.teamKey || 'فريق غير محدد'}</span>
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${isClosed ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                                <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${isClosed ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
                                                     {isClosed ? 'مغلقة' : target.status}
                                                 </span>
                                             </div>
-                                            <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] font-bold text-slate-500">
+                                            <div className="mt-1 grid grid-cols-2 gap-1 text-xs font-bold text-slate-500">
                                                 <span className="truncate">الموقع: {target.workLocationName || '-'}</span>
                                                 <span className="truncate">المهام: {target.taskCount}</span>
                                                 <span className="truncate">آخر نتيجة: {outcomeLabel}</span>
                                                 <span className="truncate">القفل: {target.lockedByHrUserName || '-'}</span>
                                             </div>
                                             {target.latestVisitId && (
-                                                <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-700">
+                                                <div className="mt-1 flex items-center gap-1 text-xs font-bold text-emerald-700">
                                                     <Calendar className="w-3 h-3" />
                                                     زيارة {target.visitDate || ''} {target.visitTime || ''}
                                                 </div>
@@ -1709,7 +1709,7 @@ export default function TelemarketerWorkspace() {
                         )}
                     </div>
 
-                    <div className="flex-1 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col relative w-full h-full">
+                    <div className="flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm flex flex-col relative w-full h-full">
                         <div className="absolute inset-0">
                             <TeamAgendaPanel appointments={teamAppointments} date={appointmentDate} />
                         </div>
@@ -1777,7 +1777,7 @@ export default function TelemarketerWorkspace() {
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                         {contact.isPrimary && (
-                                            <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold border border-emerald-200">أساسي</span>
+                                            <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold border border-emerald-200">أساسي</span>
                                         )}
                                         <Send className="w-3.5 h-3.5 text-slate-300 group-hover:text-violet-500 transition-colors" />
                                     </div>

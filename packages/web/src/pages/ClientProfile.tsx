@@ -101,7 +101,7 @@ function formatWesternNumber(value?: string | number | null): string {
 function InfoItem({ label, value, dir }: { label: string; value?: string | number | null; dir?: 'rtl' | 'ltr' }) {
     return (
         <div className="min-w-0 rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5">
-            <p className="text-[11px] font-bold text-slate-400">{label}</p>
+            <p className="text-xs font-bold text-slate-400">{label}</p>
             <p className="mt-1 break-words text-sm font-bold leading-6 text-slate-800" dir={dir}>
                 {valueOrEmpty(value)}
             </p>
@@ -115,7 +115,7 @@ function OwnershipItem({ client }: { client: Client }) {
 
     return (
         <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
-            <p className="text-[11px] font-bold text-slate-400">الملكية / الإسناد</p>
+            <p className="text-xs font-bold text-slate-400">الملكية / الإسناد</p>
             {assignments.length > 1 ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                     {assignments.map((assignment) => (
@@ -137,7 +137,7 @@ function OwnershipItem({ client }: { client: Client }) {
 function HeaderMetaItem({ label, value }: { label: string; value?: string | number | null }) {
     return (
         <div className="min-w-[8rem] rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-            <p className="text-[11px] font-bold text-slate-400">{label}</p>
+            <p className="text-xs font-bold text-slate-400">{label}</p>
             <p className="mt-0.5 break-words text-sm font-black text-slate-800">{valueOrEmpty(value)}</p>
         </div>
     );
@@ -150,7 +150,7 @@ function InfoGroup({ title, icon: Icon, children }: { title: string; icon: any; 
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
                     <Icon className="h-4 w-4" />
                 </div>
-                <h3 className="text-sm font-black text-slate-800">{title}</h3>
+                <h3 className="text-base font-bold text-slate-800">{title}</h3>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{children}</div>
         </section>
@@ -189,7 +189,7 @@ function ProfileHeaderSection({ client, geoUnits }: { client: Client; geoUnits: 
                             />
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <h1 className="break-words text-2xl font-black leading-9 text-slate-900 sm:text-3xl">
+                                    <h1 className="break-words text-2xl font-bold leading-9 text-slate-800 sm:text-2xl">
                                         {displayName}
                                     </h1>
                                     {client.nickname && (
@@ -246,8 +246,8 @@ function ProfileHeaderSection({ client, geoUnits }: { client: Client; geoUnits: 
                                         <MapPin className="h-5 w-5" />
                                     </div>
                                     <div>
-                                        <p className="text-[11px] font-black uppercase tracking-wide text-sky-500">موقع الزبون</p>
-                                        <h3 className="text-base font-black text-slate-900">العنوان والموقع على الخريطة</h3>
+                                        <p className="text-xs font-black uppercase tracking-wide text-sky-500">موقع الزبون</p>
+                                        <h3 className="text-base font-bold text-slate-800">العنوان والموقع على الخريطة</h3>
                                     </div>
                                 </div>
                                 {locationPath.length > 0 ? (
@@ -267,13 +267,13 @@ function ProfileHeaderSection({ client, geoUnits }: { client: Client; geoUnits: 
 
                         <div className="mb-4 space-y-3">
                             <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
-                                <p className="text-[11px] font-bold text-slate-400">المسار الجغرافي</p>
+                                <p className="text-xs font-bold text-slate-400">المسار الجغرافي</p>
                                 <p className="mt-1 break-words text-sm font-black leading-6 text-slate-800">
                                     {locationText || EMPTY_VALUE}
                                 </p>
                             </div>
                             <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
-                                <p className="text-[11px] font-bold text-slate-400">العنوان التفصيلي</p>
+                                <p className="text-xs font-bold text-slate-400">العنوان التفصيلي</p>
                                 <p className="mt-1 break-words text-sm font-bold leading-6 text-slate-800">
                                     {valueOrEmpty(client.detailedAddress)}
                                 </p>
@@ -414,7 +414,7 @@ export default function ClientProfile() {
     return (
         <div className="h-full flex flex-col overflow-hidden bg-slate-50" style={{ direction: 'rtl' }}>
             {/* Header / Breadcrumbs - Corrected path text */}
-            <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-3 shadow-sm sm:px-6 lg:px-8">
+            <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-6 lg:px-8">
                 <div className="mx-auto flex max-w-7xl items-center gap-2 text-sm">
                     <button onClick={() => navigate('/clients')} className="flex items-center gap-2 font-bold text-slate-500 transition-colors hover:text-sky-600">
                         <ArrowLeft className="h-4 w-4" />
@@ -430,7 +430,7 @@ export default function ClientProfile() {
                 <ProfileHeaderSection client={client} geoUnits={allGeoUnits} />
 
                 <main className="min-w-0 bg-slate-50">
-                    <div className="sticky top-0 z-20 border-b border-gray-100 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-6 lg:px-8">
+                    <div className="sticky top-0 z-20 border-b border-slate-100 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-6 lg:px-8">
                         <div className="mx-auto max-w-7xl overflow-x-auto no-scrollbar">
                             <div className="flex w-max min-w-full items-center gap-1 border-b border-[#E3E7EC]">
                             {[
@@ -448,7 +448,7 @@ export default function ClientProfile() {
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id as any)}
-                                    className={`relative inline-flex shrink-0 items-center justify-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold whitespace-nowrap transition-colors ${safeActiveTab === tab.id
+                                    className={`relative inline-flex shrink-0 items-center justify-center gap-1.5 px-3.5 py-2.5 text-base font-bold whitespace-nowrap transition-colors ${safeActiveTab === tab.id
                                         ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
                                         : 'text-slate-500 hover:text-slate-800'
                                         }`}
@@ -495,7 +495,7 @@ export default function ClientProfile() {
                                 )}
                                 {safeActiveTab === 'calllog' && (
                                     <div className="space-y-4 max-w-5xl">
-                                        <h3 className="text-lg font-black text-slate-800">سجل الاتصال الكامل</h3>
+                                        <h3 className="text-base font-bold text-slate-800">سجل الاتصال الكامل</h3>
                                         <CustomerCallLog customerId={client.id} refreshKey={callLogRefreshKey} canEdit={canEditCallLog} />
                                     </div>
                                 )}
@@ -525,11 +525,11 @@ function OverviewTab({ client, onClientChanged, canEditContactControl }: { clien
 
             {client.notes ? (
                 <section>
-                    <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
                         <Plus className="w-5 h-5 text-sky-500" />
                         ملاحظات الزبون
                     </h3>
-                    <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm prose prose-sm max-w-none prose-slate">
+                    <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm prose prose-sm max-w-none prose-slate">
                         <div
                             className="rich-notes text-slate-600 leading-relaxed"
                             dangerouslySetInnerHTML={{ __html: client.notes }}
@@ -635,7 +635,7 @@ function ContactsTab({
     return (
         <div className="space-y-6 max-w-5xl">
             <div className="flex items-center justify-between">
-                <h3 className="text-lg font-black text-slate-800">جهات الاتصال الخاصة بالزبون</h3>
+                <h3 className="text-base font-bold text-slate-800">جهات الاتصال الخاصة بالزبون</h3>
             </div>
 
             <div className="grid grid-cols-1 gap-6">
@@ -647,41 +647,41 @@ function ContactsTab({
                     const recentLogs = contactLogs.slice(0, 3);
 
                     return (
-                        <div key={c.id || i} className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden flex flex-col xl:flex-row shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-300 group">
+                        <div key={c.id || i} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col xl:flex-row shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-300 group">
 
                             {/* === Left Side: Number Info === */}
-                            <div className="p-8 bg-gradient-to-br from-slate-50 to-white border-b xl:border-b-0 xl:border-l border-gray-100 xl:w-[400px] flex flex-col justify-between relative overflow-hidden">
+                            <div className="p-8 bg-gradient-to-br from-slate-50 to-white border-b xl:border-b-0 xl:border-l border-slate-100 xl:w-[400px] flex flex-col justify-between relative overflow-hidden">
                                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-sky-400/10 rounded-full blur-3xl pointer-events-none group-hover:bg-sky-400/20 transition-all duration-500" />
 
                                 <div className="relative">
                                     <div className="flex items-center gap-3 mb-6">
-                                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border ${c.isPrimary ? 'bg-sky-500 border-sky-600 text-white' : 'bg-white border-gray-200 text-slate-400'}`}>
+                                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm border ${c.isPrimary ? 'bg-sky-500 border-sky-600 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
                                             <Phone className="w-5 h-5" />
                                         </div>
                                         <div className="flex-1 flex items-center justify-between">
                                             <span className="text-sm font-bold text-slate-700">{c.label || 'جهة اتصال'}</span>
                                             {c.isPrimary && (
-                                                <span className="px-2.5 py-1 bg-sky-50 text-sky-600 rounded-lg text-[10px] font-black tracking-wide border border-sky-100">أساسي</span>
+                                                <span className="px-2.5 py-1 bg-sky-50 text-sky-600 rounded-lg text-xs font-black tracking-wide border border-sky-100">أساسي</span>
                                             )}
                                         </div>
                                     </div>
 
                                     <div className="mb-6">
-                                        <p className="text-3xl font-black text-slate-800 font-mono tracking-widest drop-shadow-sm" dir="ltr">
+                                        <p className="text-2xl font-black text-slate-800 font-mono tracking-widest drop-shadow-sm" dir="ltr">
                                             {c.number}
                                         </p>
                                     </div>
 
                                     <div className="flex flex-wrap gap-2">
-                                        <span className="flex items-center gap-1.5 text-[11px] bg-white border border-gray-200 text-slate-600 px-3 py-1.5 rounded-xl font-bold shadow-sm">
+                                        <span className="flex items-center gap-1.5 text-xs bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-xl font-bold shadow-sm">
                                             {c.type === 'mobile' ? 'موبايل' : 'هاتف أرضي'}
                                         </span>
                                         {c.hasWhatsApp && (
-                                            <span className="flex items-center gap-1.5 text-[11px] bg-[#25D366]/10 border border-[#25D366]/20 text-[#128C7E] px-3 py-1.5 rounded-xl font-bold shadow-sm">
+                                            <span className="flex items-center gap-1.5 text-xs bg-[#25D366]/10 border border-[#25D366]/20 text-[#128C7E] px-3 py-1.5 rounded-xl font-bold shadow-sm">
                                                 <MessageCircle className="w-3.5 h-3.5" /> واتساب متوفر
                                             </span>
                                         )}
-                                    <span className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-xl font-bold shadow-sm border ${
+                                    <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-bold shadow-sm border ${
                                         c.status === 'active' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
                                         c.status === 'preferred' ? 'bg-sky-50 border-sky-100 text-sky-600' :
                                         c.status === 'out-of-coverage' ? 'bg-orange-50 border-orange-100 text-orange-600' :
@@ -850,7 +850,7 @@ function VisitsTab({ client }: { client: Client }) {
     return (
         <div className="space-y-6 max-w-5xl h-full flex flex-col">
             <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-black text-slate-800">سجل الزيارات والمهام</h3>
+                <h3 className="text-base font-bold text-slate-800">سجل الزيارات والمهام</h3>
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setEmergencyModalOpen(true)}
@@ -888,7 +888,7 @@ function VisitsTab({ client }: { client: Client }) {
             ) : (
                 <div className="space-y-6">
                     {tasks.length === 0 ? (
-                        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-12 text-center flex-1 flex flex-col items-center justify-center">
+                        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-12 text-center flex-1 flex flex-col items-center justify-center">
                             <Navigation className="w-10 h-10 text-slate-300 mb-4" />
                             <h4 className="text-lg text-slate-600 font-black mb-2">لا توجد مهام مسجلة</h4>
                             <p className="text-sm text-slate-400 max-w-sm mx-auto leading-relaxed">اضغط "إضافة عرض جهاز" لإنشاء مهمة جديدة.</p>
@@ -898,7 +898,7 @@ function VisitsTab({ client }: { client: Client }) {
                             {tasks.map((task) => {
                                 const preOffers = task.preOffers ?? task.preoffers ?? [];
                                 return (
-                                    <div key={task.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                                    <div key={task.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
                                         <div className="flex items-center justify-between mb-3">
                                             <div className="flex items-center gap-2">
                                                 <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
@@ -938,13 +938,13 @@ function VisitsTab({ client }: { client: Client }) {
                             <span className="text-xs text-slate-400">{visits.length} زيارة</span>
                         </div>
                         {visits.length === 0 ? (
-                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center text-sm text-slate-400">
+                            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 text-center text-sm text-slate-400">
                                 لا توجد زيارات مسجلة لهذا الزبون حتى الآن.
                             </div>
                         ) : (
                             <div className="space-y-3">
                                 {visits.map((visit) => (
-                                    <div key={visit.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                                    <div key={visit.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
                                                 <div className="text-sm font-bold text-slate-800">زيارة #{visit.id}</div>
@@ -1081,14 +1081,14 @@ function NetworkTab({ client }: { client: Client }) {
                         <Share2 className="w-5 h-5 text-indigo-500" />
                     </div>
                     <div>
-                        <h3 className="text-lg font-black text-slate-800">وسطاء الزبون</h3>
+                        <h3 className="text-base font-bold text-slate-800">وسطاء الزبون</h3>
                         <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الوسطاء: {incoming.length}</p>
                     </div>
                 </div>
-                <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
                     {incoming.length > 0 ? (
                         <>
-                            <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-gray-100 text-xs font-black text-slate-500">
+                            <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-500">
                                 <span className="col-span-1">#</span>
                                 <span className="col-span-2">اسم الوسيط</span>
                                 <span className="col-span-2">الاسم المقترح</span>
@@ -1098,7 +1098,7 @@ function NetworkTab({ client }: { client: Client }) {
                                 <span className="col-span-1">رابط</span>
                             </div>
                             {incoming.map((ref: any, i: number) => (
-                                <div key={i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-50 hover:bg-slate-50/50 items-center text-sm">
+                                <div key={i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-50 hover:bg-slate-50/50 items-center text-sm">
                                     <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
                                     <span className="col-span-2 font-bold text-slate-800">{ref.name}</span>
                                     <span className="col-span-2 font-bold text-slate-700">{ref.candidateName || '--'}</span>
@@ -1137,14 +1137,14 @@ function NetworkTab({ client }: { client: Client }) {
                         <Users className="w-5 h-5 text-emerald-500" />
                     </div>
                     <div>
-                        <h3 className="text-lg font-black text-slate-800">الأسماء المقترحة</h3>
+                        <h3 className="text-base font-bold text-slate-800">الأسماء المقترحة</h3>
                         <p className="text-xs text-slate-400 font-medium mt-0.5">عدد الأسماء: {outgoing.length}</p>
                     </div>
                 </div>
-                <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
                     {outgoing.length > 0 ? (
                         <>
-                            <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-gray-100 text-xs font-black text-slate-500">
+                            <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-500">
                                 <span className="col-span-1">#</span>
                                 <span className="col-span-3">الاسم</span>
                                 <span className="col-span-2">الرقم</span>
@@ -1153,7 +1153,7 @@ function NetworkTab({ client }: { client: Client }) {
                                 <span className="col-span-2">رابط</span>
                             </div>
                             {outgoing.map((ref: any, i: number) => (
-                                <div key={ref.id ?? i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-50 hover:bg-slate-50/50 items-center text-sm">
+                                <div key={ref.id ?? i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-50 hover:bg-slate-50/50 items-center text-sm">
                                     <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
                                     <span className="col-span-3 font-bold text-slate-800">{ref.name}</span>
                                     <span className="col-span-2 font-mono text-slate-500" dir="ltr">{ref.mobile || '--'}</span>

@@ -95,37 +95,37 @@ export function LinkedContractSection({ contract }: Props) {
     >
       <div className="grid grid-cols-2 md:grid-cols-4 gap-5 text-sm">
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-1">الحالة</div>
+          <div className="text-xs text-slate-400 font-bold mb-1">الحالة</div>
           <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${st.cls}`}>{st.label}</span>
         </div>
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-1">تاريخ العقد</div>
+          <div className="text-xs text-slate-400 font-bold mb-1">تاريخ العقد</div>
           <div className="font-semibold text-slate-700">{fmt(contract.contractDate)}</div>
         </div>
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-1">طريقة الدفع</div>
+          <div className="text-xs text-slate-400 font-bold mb-1">طريقة الدفع</div>
           <div className="font-semibold text-slate-700">{contract.paymentType === 'cash' ? 'دفعة واحدة' : 'أقساط'}</div>
         </div>
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-1">القيمة النهائية</div>
+          <div className="text-xs text-slate-400 font-bold mb-1">القيمة النهائية</div>
           <div className="font-semibold text-slate-700">
             {Number(contract.finalPrice || 0).toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س
           </div>
         </div>
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-1">موظف الإغلاق</div>
+          <div className="text-xs text-slate-400 font-bold mb-1">موظف الإغلاق</div>
           <div className="font-semibold text-slate-700">{contract.closingEmployeeName ?? '—'}</div>
         </div>
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-1">صاحب البيعة</div>
+          <div className="text-xs text-slate-400 font-bold mb-1">صاحب البيعة</div>
           <div className="font-semibold text-slate-700">{contract.saleOwnerId ?? '—'}</div>
         </div>
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-1">مصدر البيع</div>
+          <div className="text-xs text-slate-400 font-bold mb-1">مصدر البيع</div>
           <div className="font-semibold text-slate-700">{contract.saleSource ?? '—'}</div>
         </div>
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-1">نوع البيع</div>
+          <div className="text-xs text-slate-400 font-bold mb-1">نوع البيع</div>
           <div className="font-semibold text-slate-700">{contract.saleSubtype ?? '—'}</div>
         </div>
       </div>

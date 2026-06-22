@@ -36,7 +36,7 @@ export default function TaskCard({ task, onView }: TaskCardProps) {
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden border-r-4 ${config.color} hover:shadow-md transition-all`}>
+            className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden border-r-4 ${config.color} hover:shadow-md transition-all`}>
             <div className="p-4 flex items-center gap-4">
                 {/* Type Icon */}
                 <div className={`w-12 h-12 rounded-lg ${config.bg} flex items-center justify-center text-2xl flex-shrink-0`}>
@@ -46,7 +46,7 @@ export default function TaskCard({ task, onView }: TaskCardProps) {
                 {/* Content */}
                 <div className="flex-1 min-w-0">
                     {/* Line 1: Customer Name */}
-                    <h3 className="text-slate-900 font-bold text-base mb-0.5 truncate">{task.customerName}</h3>
+                    <h3 className="text-slate-800 font-bold text-base mb-0.5 truncate">{task.customerName}</h3>
 
                     {/* Line 2: Context */}
                     <p className="text-slate-600 text-sm mb-1.5 truncate">{task.context}</p>
@@ -65,12 +65,12 @@ export default function TaskCard({ task, onView }: TaskCardProps) {
                 {/* Right Side: Status or Action */}
                 <div className="flex items-center gap-2 flex-shrink-0">
                     {task.status === 'completed' ? (
-                        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 ${statusInfo.color}`}>
+                        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 ${statusInfo.color}`}>
                             <StatusIcon className="w-4 h-4" />
                             <span className="text-xs font-medium">{statusInfo.label}</span>
                         </div>
                     ) : task.status === 'in-progress' ? (
-                        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 ${statusInfo.color}`}>
+                        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 ${statusInfo.color}`}>
                             <StatusIcon className="w-4 h-4" />
                             <span className="text-xs font-medium">{statusInfo.label}</span>
                         </div>

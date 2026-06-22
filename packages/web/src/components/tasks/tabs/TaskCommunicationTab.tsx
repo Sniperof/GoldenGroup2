@@ -123,10 +123,10 @@ export default function TaskCommunicationTab({ calls, activity, attempts = [], o
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-bold text-slate-800">المحاولة {idx + 1}</span>
-                      {at.arabicLabel && <span className="text-[11px] text-slate-400">· {at.arabicLabel}</span>}
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${vs.cls}`}>{vs.label}</span>
+                      {at.arabicLabel && <span className="text-xs text-slate-400">· {at.arabicLabel}</span>}
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${vs.cls}`}>{vs.label}</span>
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1 flex-wrap">
+                    <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
                       {at.scheduledDate && (
                         <span className="inline-flex items-center gap-1">
                           <CalendarClock className="w-3 h-3" />
@@ -143,7 +143,7 @@ export default function TaskCommunicationTab({ calls, activity, attempts = [], o
                         </span>
                       )}
                     </div>
-                    {at.closingNotes && <p className="text-[11px] text-slate-400 mt-1 truncate">{at.closingNotes}</p>}
+                    {at.closingNotes && <p className="text-xs text-slate-400 mt-1 truncate">{at.closingNotes}</p>}
                   </div>
                   <ChevronLeft className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 shrink-0" />
                 </Link>
@@ -178,19 +178,19 @@ export default function TaskCommunicationTab({ calls, activity, attempts = [], o
                         : <Phone className="w-3.5 h-3.5 text-sky-500 shrink-0" />}
                       <span className="text-sm font-bold text-slate-800">{meta.label}</span>
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                    <span className="text-xs text-slate-400 font-mono whitespace-nowrap">
                       {formatDateTime(call.callDate ?? call.createdAt)}
                     </span>
                   </div>
                   {/* Meta tags */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     {call.contactLabel && (
-                      <span className="text-[10px] bg-sky-50 text-sky-600 border border-sky-100 px-2 py-0.5 rounded font-bold">
+                      <span className="text-xs bg-sky-50 text-sky-600 border border-sky-100 px-2 py-0.5 rounded font-bold">
                         {call.contactLabel}
                       </span>
                     )}
                     {call.communicationChannel && (
-                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
+                      <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
                         {call.communicationChannel === 'cellular_call'  ? 'مكالمة هاتفية'
                         : call.communicationChannel === 'cellular_text'  ? 'رسالة نصية'
                         : call.communicationChannel === 'whatsapp_call'  ? 'واتساب صوتي'
@@ -199,7 +199,7 @@ export default function TaskCommunicationTab({ calls, activity, attempts = [], o
                       </span>
                     )}
                     {call.telemarketerName && (
-                      <span className="text-[10px] bg-violet-50 text-violet-600 border border-violet-100 px-2 py-0.5 rounded font-bold">
+                      <span className="text-xs bg-violet-50 text-violet-600 border border-violet-100 px-2 py-0.5 rounded font-bold">
                         {call.telemarketerName}
                       </span>
                     )}
@@ -207,12 +207,12 @@ export default function TaskCommunicationTab({ calls, activity, attempts = [], o
                   {/* Sibling tasks — other tasks covered by the same CT in this call */}
                   {siblings.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
-                      <span className="flex items-center gap-1 text-[10px] text-violet-600 font-bold shrink-0">
+                      <span className="flex items-center gap-1 text-xs text-violet-600 font-bold shrink-0">
                         <Layers className="w-3 h-3" />
                         شملت أيضاً:
                       </span>
                       {siblings.map((s: any) => (
-                        <span key={s.taskId} className="text-[10px] bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded font-bold">
+                        <span key={s.taskId} className="text-xs bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded font-bold">
                           {s.arabicLabel}
                         </span>
                       ))}

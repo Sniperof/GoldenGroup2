@@ -892,7 +892,7 @@ export default function EmployeeDetail() {
               {/* Identity */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-2xl font-bold text-slate-900 leading-tight">{detail.name}</h1>
+                  <h1 className="text-2xl font-bold text-slate-800 leading-tight">{detail.name}</h1>
                   <span className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${statusMeta.className}`}>
                     {statusMeta.label}
                   </span>
@@ -992,7 +992,7 @@ export default function EmployeeDetail() {
                     key={tab.key}
                     type="button"
                     onClick={() => setActiveTab(tab.key)}
-                    className={`relative flex items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors whitespace-nowrap ${
+                    className={`relative flex items-center gap-1.5 px-3.5 py-2.5 text-base font-bold transition-colors whitespace-nowrap ${
                       isActive
                         ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
                         : 'text-slate-500 hover:text-slate-800'

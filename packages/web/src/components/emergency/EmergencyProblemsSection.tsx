@@ -72,13 +72,13 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  reported: 'bg-gray-100 text-gray-700 border-gray-300',
+  reported: 'bg-slate-100 text-slate-700 border-slate-300',
   confirmed: 'bg-blue-100 text-blue-700 border-blue-300',
   resolved_at_intake: 'bg-green-100 text-green-700 border-green-300',
   resolved: 'bg-emerald-100 text-emerald-700 border-emerald-300',
   deferred: 'bg-yellow-100 text-yellow-700 border-yellow-300',
   unresolvable_field: 'bg-red-100 text-red-700 border-red-300',
-  cancelled: 'bg-gray-100 text-gray-500 border-gray-200',
+  cancelled: 'bg-slate-100 text-slate-500 border-slate-200',
 };
 
 const PHASE_LABELS: Record<string, string> = {
@@ -255,7 +255,7 @@ export default function EmergencyProblemsSection({
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-rose-600" />
-          <h3 className="font-bold text-slate-800 text-sm">إجراء الصيانة</h3>
+          <h3 className="font-bold text-slate-800 text-base">إجراء الصيانة</h3>
           <Badge size="sm">
             {active.length} {active.length === 1 ? 'عطل' : 'أعطال'}
           </Badge>
@@ -367,18 +367,18 @@ export default function EmergencyProblemsSection({
                       <div className="flex-1 min-w-0">
                         {/* Title row */}
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                          <span className="text-[10px] font-mono text-slate-400">#{p.id}</span>
+                          <span className="text-xs font-mono text-slate-400">#{p.id}</span>
                           <span className="text-sm font-bold text-slate-800">{typeLabel}</span>
-                          <span className={`text-[10px] font-bold rounded-full border px-2 py-0.5 ${STATUS_COLORS[p.status]}`}>
+                          <span className={`text-xs font-bold rounded-full border px-2 py-0.5 ${STATUS_COLORS[p.status]}`}>
                             {STATUS_LABELS[p.status]}
                           </span>
                           {isFieldDiscovery && (
-                            <span className="text-[10px] font-bold rounded-full border px-2 py-0.5 bg-violet-50 text-violet-700 border-violet-200 inline-flex items-center gap-1">
+                            <span className="text-xs font-bold rounded-full border px-2 py-0.5 bg-violet-50 text-violet-700 border-violet-200 inline-flex items-center gap-1">
                               <AlertCircle className="h-3 w-3" /> ميدانياً
                             </span>
                           )}
                           {!isFieldDiscovery && PHASE_LABELS[p.addedDuringPhase] && (
-                            <span className="text-[10px] font-bold rounded-full border px-2 py-0.5 bg-slate-100 text-slate-600 border-slate-200">
+                            <span className="text-xs font-bold rounded-full border px-2 py-0.5 bg-slate-100 text-slate-600 border-slate-200">
                               من {PHASE_LABELS[p.addedDuringPhase]}
                             </span>
                           )}
@@ -459,7 +459,7 @@ export default function EmergencyProblemsSection({
 
                     {/* Saved no_resolve_reason badge */}
                     {(p.status === 'deferred' || p.status === 'unresolvable_field') && p.noResolveReason && (
-                      <div className="mt-2 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 inline-block">
+                      <div className="mt-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 inline-block">
                         السَّبب: {NO_RESOLVE_REASON_LABEL[p.noResolveReason] ?? p.noResolveReason}
                       </div>
                     )}
@@ -472,7 +472,7 @@ export default function EmergencyProblemsSection({
                           <label className="text-xs text-slate-500 flex items-center gap-1">
                             الفني الذي أَصلَح
                             {defaultTechnicianName && (
-                              <span className="text-[10px] text-emerald-700 font-bold">
+                              <span className="text-xs text-emerald-700 font-bold">
                                 (افتراضي من الفريق: {defaultTechnicianName})
                               </span>
                             )}
@@ -578,7 +578,7 @@ function ProblemsTable(props: ProblemsTableProps) {
                     {p.details && <div className="text-xs text-slate-500 line-clamp-1">{p.details}</div>}
                   </td>
                   <td className="px-3 py-2 border-b border-slate-100">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${sCls}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${sCls}`}>
                       {STATUS_LABELS[p.status]}
                     </span>
                   </td>
@@ -594,17 +594,17 @@ function ProblemsTable(props: ProblemsTableProps) {
                     {!readOnly && !isResolved && (
                       <div className="flex gap-1 justify-center flex-wrap">
                         {(p.status === 'reported' || p.status === 'confirmed' || p.status === 'deferred') && (
-                          <Button size="sm" onClick={() => startResolve(p.id)} disabled={busy} className="bg-emerald-600 hover:bg-emerald-700 px-2 text-[10px] h-7">
+                          <Button size="sm" onClick={() => startResolve(p.id)} disabled={busy} className="bg-emerald-600 hover:bg-emerald-700 px-2 text-xs h-7">
                             حُلَّ
                           </Button>
                         )}
                         {(p.status === 'reported' || p.status === 'confirmed') && (
-                          <Button variant="secondary" size="sm" onClick={() => startDefer(p.id, 'deferred')} disabled={busy} className="border-amber-300 text-amber-700 hover:bg-amber-50 px-2 text-[10px] h-7">
+                          <Button variant="secondary" size="sm" onClick={() => startDefer(p.id, 'deferred')} disabled={busy} className="border-amber-300 text-amber-700 hover:bg-amber-50 px-2 text-xs h-7">
                             تأجيل
                           </Button>
                         )}
                         {(p.status === 'reported' || p.status === 'confirmed') && (
-                          <Button variant="secondary" size="sm" onClick={() => startDefer(p.id, 'unresolvable_field')} disabled={busy} className="border-red-300 text-red-700 hover:bg-red-50 px-2 text-[10px] h-7">
+                          <Button variant="secondary" size="sm" onClick={() => startDefer(p.id, 'unresolvable_field')} disabled={busy} className="border-red-300 text-red-700 hover:bg-red-50 px-2 text-xs h-7">
                             غير قابل
                           </Button>
                         )}

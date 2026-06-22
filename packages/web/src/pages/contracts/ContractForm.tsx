@@ -127,11 +127,11 @@ function Section({ title, icon: Icon, children, defaultOpen = true, badge, statu
     };
 
     return (
-        <div className={`bg-white rounded-xl border shadow-sm ${status ? statusColors[status] : 'border-gray-200'}`}>
+        <div className={`bg-white rounded-xl border shadow-sm ${status ? statusColors[status] : 'border-slate-200'}`}>
             <button
                 type="button"
                 onClick={() => setOpen(o => !o)}
-                className="w-full flex items-center gap-3 px-5 py-4 text-right hover:bg-gray-50/50 transition-colors"
+                className="w-full flex items-center gap-3 px-5 py-4 text-right hover:bg-slate-50/50 transition-colors"
             >
                 <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${status ? iconStatusColors[status] : 'bg-sky-50 border-sky-200'}`}>
                     <Icon className={`w-4 h-4 ${status ? iconTextColors[status] : 'text-sky-600'}`} />
@@ -153,7 +153,7 @@ function Section({ title, icon: Icon, children, defaultOpen = true, badge, statu
                         onAnimationComplete={() => setIsAnimating(false)}
                         className={isAnimating ? 'overflow-hidden' : 'overflow-visible'}
                     >
-                        <div className="px-5 pb-5 space-y-4 border-t border-gray-100 pt-4">
+                        <div className="px-5 pb-5 space-y-4 border-t border-slate-100 pt-4">
                             {children}
                         </div>
                     </motion.div>
@@ -175,13 +175,13 @@ function Field({ label, children, hint, required }: { label: string; children: R
                 {required && <span className="text-red-400">*</span>}
             </label>
             {children}
-            {hint && <p className="text-[10px] text-slate-400">{hint}</p>}
+            {hint && <p className="text-xs text-slate-400">{hint}</p>}
         </div>
     );
 }
 
-const inputClass = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 placeholder:text-gray-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all";
-const selectClass = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all appearance-none cursor-pointer";
+const inputClass = "w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all";
+const selectClass = "w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all appearance-none cursor-pointer";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                             */
@@ -1372,7 +1372,7 @@ export default function ContractForm() {
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-bl from-sky-500 to-sky-600 flex items-center justify-center shadow-lg shadow-sky-500/25 mx-auto mb-4">
                             <FileText className="w-6 h-6 text-white" />
                         </div>
-                        <h1 className="text-xl font-bold text-slate-800">عقد جديد</h1>
+                        <h1 className="text-lg font-bold text-slate-800">عقد جديد</h1>
                         <p className="text-sm text-slate-400">اختر نوع عقد البيع للمتابعة</p>
                     </div>
 
@@ -1428,12 +1428,12 @@ export default function ContractForm() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={handleReset} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg border border-gray-200 text-slate-600 hover:bg-gray-50 text-sm font-medium transition-colors">
+                        <button onClick={handleReset} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors">
                             <RotateCcw className="w-4 h-4" /><span>إعادة تعيين</span>
                         </button>
                         <button onClick={handleSubmit} disabled={!isValid || saving}
                             title={!isValid ? validationIssues.join(' • ') : (isDraftMode ? 'حفظ كمسودة' : 'حفظ العقد')}
-                            className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-bold transition-colors shadow-sm disabled:shadow-none">
+                            className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-bold transition-colors shadow-sm disabled:shadow-none">
                             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}<span>{saving ? 'جاري الحفظ...' : (isDraftMode ? 'حفظ كمسودة' : 'حفظ العقد')}</span>
                         </button>
                     </div>
@@ -1446,7 +1446,7 @@ export default function ContractForm() {
                                 <p className="text-xs font-bold text-amber-800 mb-1">
                                     {isDraftMode ? 'لحفظ المسودة أكمل ما يلي:' : 'لحفظ العقد كنشط أكمل ما يلي:'}
                                 </p>
-                                <ul className="text-[11px] text-amber-700 space-y-0.5 list-disc pr-4">
+                                <ul className="text-xs text-amber-700 space-y-0.5 list-disc pr-4">
                                     {validationIssues.map((issue, i) => (
                                         <li key={i}>{issue}</li>
                                     ))}
@@ -1464,7 +1464,7 @@ export default function ContractForm() {
                     icon={ShieldCheck}
                     status={selectedCustomer ? (legalMissing && !legalResolved ? 'warning' : 'valid') : undefined}
                     badge={selectedCustomer && legalMissing && !legalResolved ? (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-200 flex items-center gap-1">
+                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3" /> بيانات ناقصة
                         </span>
                     ) : undefined}
@@ -1473,7 +1473,7 @@ export default function ContractForm() {
                     <Field label="اختر الزبون" required>
                         <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowCustomerDropdown(false); }}>
                             <div className="relative">
-                                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
                                 <input
                                     type="text"
                                     value={selectedCustomer ? selectedCustomer.name : customerSearch}
@@ -1484,13 +1484,13 @@ export default function ContractForm() {
                                 />
                             </div>
                             {showCustomerDropdown && !selectedCustomer && (
-                                <div className="absolute z-50 top-full mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
+                                <div className="absolute z-50 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
                                     {filteredCustomers.length === 0 ? (
                                         <div className="p-3 text-center text-sm text-slate-400">لا يوجد نتائج</div>
                                     ) : (
                                         filteredCustomers.map(c => (
                                             <button key={c.id} type="button"
-                                                className="w-full flex items-center gap-3 px-4 py-3 text-right hover:bg-sky-50 transition-colors border-b border-gray-50 last:border-b-0"
+                                                className="w-full flex items-center gap-3 px-4 py-3 text-right hover:bg-sky-50 transition-colors border-b border-slate-50 last:border-b-0"
                                                 onClick={async () => {
                                                     setCustomerSearch('');
                                                     setShowCustomerDropdown(false);
@@ -1508,7 +1508,7 @@ export default function ContractForm() {
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-sm font-semibold text-slate-800">{c.name}</p>
-                                                    <p className="text-[11px] text-slate-400" dir="ltr">{c.mobile}</p>
+                                                    <p className="text-xs text-slate-400" dir="ltr">{c.mobile}</p>
                                                 </div>
                                                 {(!c.fatherName || !c.nationalId) && (
                                                     <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-500 border border-amber-100">ناقص</span>
@@ -1530,7 +1530,7 @@ export default function ContractForm() {
                         const inputCls = (filled: boolean) => required && !filled
                             ? 'w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm placeholder:text-amber-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/10 focus:outline-none'
                             : inputClass;
-                        const labelCls = (filled: boolean) => `text-[11px] font-semibold ${required && !filled ? 'text-amber-700' : 'text-slate-600'}`;
+                        const labelCls = (filled: boolean) => `text-xs font-semibold ${required && !filled ? 'text-amber-700' : 'text-slate-600'}`;
                         const star = (filled: boolean) => required && !filled ? <span className="text-red-400">*</span> : null;
                         const nidFilled = nationalIdOverride.trim().length > 0;
                         const nidLengthWrong = nidFilled && !nidIsValid;
@@ -1550,7 +1550,7 @@ export default function ContractForm() {
                                             البيانات القانونية للعقد
                                         </span>
                                     </div>
-                                    <span className="text-[10px] text-slate-400">
+                                    <span className="text-xs text-slate-400">
                                         {isDraftMode
                                             ? 'مسودة — البيانات اختيارية وتُكمل عند الاعتماد'
                                             : required
@@ -1606,7 +1606,7 @@ export default function ContractForm() {
                                                 : inputCls(nidFilled)} font-mono`}
                                         />
                                         {nidLengthWrong && (
-                                            <p className="text-[10px] text-red-600">يجب أن يكون 11 رقماً بالضبط</p>
+                                            <p className="text-xs text-red-600">يجب أن يكون 11 رقماً بالضبط</p>
                                         )}
                                     </div>
 
@@ -1616,11 +1616,11 @@ export default function ContractForm() {
                                         </label>
                                         <div className="flex gap-2">
                                             <button type="button" onClick={() => setBuyerGender(buyerGender === 'male' ? '' : 'male')}
-                                                className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${buyerGender === 'male' ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-slate-500'}`}>
+                                                className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${buyerGender === 'male' ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-slate-200 text-slate-500'}`}>
                                                 ذكر
                                             </button>
                                             <button type="button" onClick={() => setBuyerGender(buyerGender === 'female' ? '' : 'female')}
-                                                className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${buyerGender === 'female' ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-slate-500'}`}>
+                                                className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${buyerGender === 'female' ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-white border-slate-200 text-slate-500'}`}>
                                                 أنثى
                                             </button>
                                         </div>
@@ -1685,7 +1685,7 @@ export default function ContractForm() {
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
                             <div className="flex items-center justify-between gap-2">
                                 <span className="text-xs font-bold text-slate-600">وسيط البيعة</span>
-                                <span className="text-[11px] text-slate-400">اختر وسيطاً واحداً فقط</span>
+                                <span className="text-xs text-slate-400">اختر وسيطاً واحداً فقط</span>
                             </div>
                             {(selectedCustomer.referrers?.length || 0) === 0 ? (
                                 <p className="text-xs text-slate-400 italic">لا يوجد وسطاء مسجّلون لهذا الزبون.</p>
@@ -1704,7 +1704,7 @@ export default function ContractForm() {
                                                     : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
                                             >
                                                 <span>{referrer.referrerName}</span>
-                                                <span className={`text-[10px] rounded-full px-1.5 py-0.5 ${isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                                <span className={`text-xs rounded-full px-1.5 py-0.5 ${isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'}`}>
                                                     {referrerTypeLabel(referrer.referrerType)}
                                                 </span>
                                             </button>
@@ -1730,9 +1730,9 @@ export default function ContractForm() {
                                                 onClick={() => setSaleType(st.value)}
                                                 className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 transition-all ${isActive
                                                     ? `${st.activeBg} ${st.activeBorder} ${st.color} shadow-sm`
-                                                    : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'}`}>
+                                                    : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}>
                                                 <st.icon className="w-4 h-4" />
-                                                <span className="text-[11px] font-bold">{st.label}</span>
+                                                <span className="text-xs font-bold">{st.label}</span>
                                                 <span className={`text-[9px] ${isActive ? 'opacity-70' : 'text-slate-400'}`}>{st.desc}</span>
                                             </button>
                                         );
@@ -1742,10 +1742,10 @@ export default function ContractForm() {
 
                             <Field label="تاريخ العقد" required>
                                 <div className="relative">
-                                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
                                     <input type="date" value={contractDate} readOnly disabled className={`${inputClass} pr-10 bg-slate-50 text-slate-500 cursor-not-allowed`} />
                                 </div>
-                                <p className="text-[10px] text-slate-400 mt-1 pr-1">يؤخذ تلقائياً من تاريخ اليوم ولا يعدل من هذه الشاشة.</p>
+                                <p className="text-xs text-slate-400 mt-1 pr-1">يؤخذ تلقائياً من تاريخ اليوم ولا يعدل من هذه الشاشة.</p>
                             </Field>
                         </div>
 
@@ -1772,13 +1772,13 @@ export default function ContractForm() {
                                                     <button type="button" onClick={() => setOldDeviceCondition('good')}
                                                         className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border-2 text-xs font-bold transition-all ${oldDeviceCondition === 'good'
                                                             ? 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm'
-                                                            : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'}`}>
+                                                            : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}>
                                                         <CheckCircle2 className="w-3.5 h-3.5" /><span>بحالة جيدة</span>
                                                     </button>
                                                     <button type="button" onClick={() => setOldDeviceCondition('damaged')}
                                                         className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border-2 text-xs font-bold transition-all ${oldDeviceCondition === 'damaged'
                                                             ? 'bg-red-50 border-red-300 text-red-700 shadow-sm'
-                                                            : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'}`}>
+                                                            : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}>
                                                         <AlertTriangle className="w-3.5 h-3.5" /><span>تالف</span>
                                                     </button>
                                                 </div>
@@ -1803,7 +1803,7 @@ export default function ContractForm() {
                                     }}
                                     className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 transition-all ${saleSource === 'device_demo_task'
                                         ? 'bg-sky-50 border-sky-300 text-sky-700 shadow-sm font-bold animate-pulse'
-                                        : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'}`}
+                                        : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
                                 >
                                     <Monitor className="w-4 h-4" />
                                     <span>مهمة عرض جهاز</span>
@@ -1855,8 +1855,8 @@ export default function ContractForm() {
                                             <div className={`w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm flex items-center gap-2 ${saleOwnerFrozen ? 'text-slate-500' : 'text-slate-700'}`}>
                                                 <User className="w-4 h-4 text-slate-400" />
                                                 <span className="flex-1">{selectedEmp?.name || fallbackLabel}</span>
-                                                {saleOwnerFrozen && <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded">مُجمَّد</span>}
-                                                {!saleOwnerFrozen && saleOwnerId && <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded">تلقائي</span>}
+                                                {saleOwnerFrozen && <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded">مُجمَّد</span>}
+                                                {!saleOwnerFrozen && saleOwnerId && <span className="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded">تلقائي</span>}
                                             </div>
                                         )}
                                     </Field>
@@ -1881,7 +1881,7 @@ export default function ContractForm() {
 
                                         {/* Step A: Task Selection */}
                                         <div className="space-y-1.5">
-                                            <label className="text-[11px] font-semibold text-sky-700">الخطوة أ: اختر مهمة العرض للزبون</label>
+                                            <label className="text-xs font-semibold text-sky-700">الخطوة أ: اختر مهمة العرض للزبون</label>
                                             {loadingTasks ? (
                                                 <div className="flex items-center gap-2 py-2 text-xs text-sky-600">
                                                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1912,7 +1912,7 @@ export default function ContractForm() {
                                         {/* Step B: Offer Selection */}
                                         {selectedTask && (
                                             <div className="space-y-1.5 border-t border-sky-100 pt-3">
-                                                <label className="text-[11px] font-semibold text-sky-700">الخطوة ب: اختر العرض المقبول لتعبئة العقد تلقائياً</label>
+                                                <label className="text-xs font-semibold text-sky-700">الخطوة ب: اختر العرض المقبول لتعبئة العقد تلقائياً</label>
                                                 {availableOffers.length === 0 ? (
                                                     <p className="text-xs text-amber-600">لا يوجد عروض مقبولة غير مرتبطة لهذه المهمة</p>
                                                 ) : (
@@ -1933,13 +1933,13 @@ export default function ContractForm() {
                                                                         <p className="text-xs font-bold text-slate-800">
                                                                             {dev ? (dev.nameAr || dev.name) : `جهاز معرّف #${o.deviceModelId}`}
                                                                         </p>
-                                                                        <p className="text-[10px] text-slate-500 mt-1">
+                                                                        <p className="text-xs text-slate-500 mt-1">
                                                                             النوع: {o.offerType === 'cash' ? 'نقدي' : 'أقساط'} | الإجمالي: {formatPrice(o.totalAmount)}
                                                                             {o.offerType === 'installment' && ` | دفعة أولى: ${formatPrice(o.firstPaymentAmount || 0)} | ${o.installmentMonths} أشهر`}
                                                                         </p>
                                                                     </div>
                                                                     {o.saleReferenceNumber && (
-                                                                        <span className="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-mono">
+                                                                        <span className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-mono">
                                                                             Ref: {o.saleReferenceNumber}
                                                                         </span>
                                                                     )}
@@ -1965,7 +1965,7 @@ export default function ContractForm() {
                             <span className="p-1.5 rounded-lg bg-sky-500 text-white animate-pulse">✨</span>
                             <div>
                                 <p className="text-xs font-bold">تم تعبئة بيانات العقد تلقائياً من العرض المقبول (البيانات قابلة للتعديل والزيادة بحرية)</p>
-                                <p className="text-[10px] text-sky-600 mt-0.5">تم استيراد مواصفات الجهاز، السعر، وجدولة الدفعات بنجاح. يمكنك تعديلها وإضافة قطع إضافية.</p>
+                                <p className="text-xs text-sky-600 mt-0.5">تم استيراد مواصفات الجهاز، السعر، وجدولة الدفعات بنجاح. يمكنك تعديلها وإضافة قطع إضافية.</p>
                             </div>
                         </div>
                         <button
@@ -1979,7 +1979,7 @@ export default function ContractForm() {
                 )}
                 <Section title="الجهاز وعنوان التركيب" icon={Monitor} badge={
                     selectedDevice && (
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-200">
+                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-600 border border-emerald-200">
                             {selectedDevice.brand}
                         </span>
                     )
@@ -1999,7 +1999,7 @@ export default function ContractForm() {
                         </Field>
                         <Field label="الرقم التسلسلي" required>
                             <div className="relative">
-                                <Hash className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                <Hash className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
                                 <input type="text" value={serialNumber} onChange={e => setSerialNumber(e.target.value)} placeholder="SN-XXXXX" className={`${inputClass} pr-10 font-mono`} dir="ltr" />
                             </div>
                         </Field>
@@ -2024,7 +2024,7 @@ export default function ContractForm() {
                                         if (!disc) return null;
                                         const discPrice = Math.round(selectedDevice.basePrice * (1 - disc.percentage / 100));
                                         return (
-                                            <p className="text-[11px] text-emerald-600 mt-1">
+                                            <p className="text-xs text-emerald-600 mt-1">
                                                 السعر بعد الحسم: <strong className="font-mono">{String(discPrice)} ل.س</strong>
                                             </p>
                                         );
@@ -2039,11 +2039,11 @@ export default function ContractForm() {
                         <div className="rounded-xl border border-slate-200 overflow-hidden">
                             <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between border-b border-slate-100">
                                 <span className="text-xs font-bold text-slate-700">بنود العقد</span>
-                                <span className="text-[10px] text-slate-400">{lineItems.length} بند</span>
+                                <span className="text-xs text-slate-400">{lineItems.length} بند</span>
                             </div>
                             {lineItems.length > 0 ? (
                                 <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 text-[11px] font-bold text-slate-500">
+                                    <thead className="bg-slate-50 text-xs font-bold text-slate-500">
                                         <tr>
                                             <th className="px-3 py-2 text-right">#</th>
                                             <th className="px-3 py-2 text-right">البيان</th>
@@ -2066,7 +2066,7 @@ export default function ContractForm() {
                                                     ) : (
                                                         <input type="number" min={1} value={item.quantity}
                                                             onChange={e => setLineItems(prev => prev.map((li, i) => i === idx ? { ...li, quantity: Math.max(1, parseInt(e.target.value) || 1) } : li))}
-                                                            className="w-14 text-sm border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400" />
+                                                            className="w-14 text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400" />
                                                     )}
                                                 </td>
                                                 <td className="px-3 py-2.5 w-28">
@@ -2075,7 +2075,7 @@ export default function ContractForm() {
                                                     ) : (
                                                         <input type="number" min={0} value={item.unitPrice}
                                                             onChange={e => setLineItems(prev => prev.map((li, i) => i === idx ? { ...li, unitPrice: Math.max(0, parseInt(e.target.value) || 0) } : li))}
-                                                            className="w-24 text-sm border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
+                                                            className="w-24 text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
                                                     )}
                                                 </td>
                                                 <td className="px-3 py-2.5 font-bold text-slate-700 font-mono text-sm">
@@ -2102,7 +2102,7 @@ export default function ContractForm() {
                                 </table>
                             ) : (
                                 <div className="flex flex-col items-center justify-center py-6 text-slate-400 bg-slate-50/50">
-                                    <span className="text-xl mb-1">🔧</span>
+                                    <span className="text-lg mb-1">🔧</span>
                                     <p className="text-xs">لا يوجد بنود مضافة حالياً. يمكنك إضافة رسوم صيانة أو ملحقات من الخيارات أدناه.</p>
                                 </div>
                             )}
@@ -2154,13 +2154,13 @@ export default function ContractForm() {
                     <div className="grid grid-cols-2 gap-4">
                         <Field label="تاريخ التسليم المتوقع">
                             <div className="relative">
-                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
                                 <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className={`${inputClass} pr-10`} />
                             </div>
                         </Field>
                         <Field label="تاريخ التركيب المتوقع">
                             <div className="relative">
-                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
                                 <input type="date" value={installationDate} onChange={e => setInstallationDate(e.target.value)} className={`${inputClass} pr-10`} />
                             </div>
                         </Field>
@@ -2169,7 +2169,7 @@ export default function ContractForm() {
                     {selectedDevice && (
                         <Field label="فترة كفالة العقد">
                             <div className="relative">
-                                <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                                <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
                                 <Select<number>
                                     value={warrantyMonths}
                                     onChange={(months) => {
@@ -2225,14 +2225,14 @@ export default function ContractForm() {
                             </label>
                             <div className="flex items-center gap-3">
                                 {mapPosition && (
-                                    <span className="text-[10px] font-mono text-slate-400" dir="ltr">
+                                    <span className="text-xs font-mono text-slate-400" dir="ltr">
                                         {mapPosition[0].toFixed(5)}, {mapPosition[1].toFixed(5)}
                                     </span>
                                 )}
                                 <button
                                     type="button"
                                     onClick={() => setShowMapPicker(prev => !prev)}
-                                    className="text-[11px] font-semibold text-sky-600 hover:text-sky-500 transition-colors"
+                                    className="text-xs font-semibold text-sky-600 hover:text-sky-500 transition-colors"
                                 >
                                     {showMapPicker ? 'إخفاء الخريطة' : 'إظهار الخريطة'}
                                 </button>
@@ -2253,7 +2253,7 @@ export default function ContractForm() {
                 {/* ═══════════════════════════════════════════════════════ */}
                 {saleSubtype === 'definitive' && (
                     <Section title="المالية" icon={BadgeDollarSign} badge={
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${paymentType === 'cash'
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${paymentType === 'cash'
                             ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
                             : 'bg-amber-50 text-amber-600 border-amber-200'}`}>
                             {paymentType === 'cash' ? 'نقدي' : 'أقساط'}
@@ -2279,7 +2279,7 @@ export default function ContractForm() {
                                 onClick={() => { setPaymentType('cash'); setInstallmentDrafts([]); setInstallmentsConfirmed(false); setPersistedInstallmentsConfirmed(false); }}
                                 className={`flex-1 flex items-center justify-center gap-2.5 px-4 py-4 rounded-xl border-2 transition-all ${paymentType === 'cash'
                                     ? 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm'
-                                    : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'} ${(hasConfirmedPayments || isOfferLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                    : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'} ${(hasConfirmedPayments || isOfferLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                 <Banknote className="w-5 h-5" /><span className="text-sm font-bold">نقدي</span>
                             </button>
                             <button type="button"
@@ -2288,12 +2288,12 @@ export default function ContractForm() {
                                 onClick={() => setPaymentType('installment')}
                                 className={`flex-1 flex items-center justify-center gap-2.5 px-4 py-4 rounded-xl border-2 transition-all ${paymentType === 'installment'
                                     ? 'bg-amber-50 border-amber-300 text-amber-700 shadow-sm'
-                                    : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'} ${(hasConfirmedPayments || isOfferLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                    : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'} ${(hasConfirmedPayments || isOfferLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                 <CreditCard className="w-5 h-5" /><span className="text-sm font-bold">أقساط</span>
                             </button>
                         </div>
                         {hasConfirmedPayments && (
-                            <p className="text-[10px] text-slate-400 text-center">
+                            <p className="text-xs text-slate-400 text-center">
                                 يوجد دفعات مؤكدة — احذفها أولاً لتغيير نوع الدفع
                             </p>
                         )}
@@ -2306,19 +2306,19 @@ export default function ContractForm() {
                                         disabled={hasConfirmedPayments || isOfferLocked}
                                         title={hasConfirmedPayments ? 'يوجد دفعات مؤكدة — احذفها أولاً' : isOfferLocked ? 'مغلق تلقائياً من العرض' : ''}
                                         onClick={() => setHasDownPayment(true)}
-                                        className={`flex-1 py-2 rounded-lg border-2 text-xs font-bold transition-all ${hasDownPayment ? 'bg-sky-50 border-sky-300 text-sky-700' : 'border-gray-200 text-slate-500'} ${(hasConfirmedPayments || isOfferLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                        className={`flex-1 py-2 rounded-lg border-2 text-xs font-bold transition-all ${hasDownPayment ? 'bg-sky-50 border-sky-300 text-sky-700' : 'border-slate-200 text-slate-500'} ${(hasConfirmedPayments || isOfferLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                         نعم
                                     </button>
                                     <button type="button"
                                         disabled={hasConfirmedPayments || isOfferLocked}
                                         title={hasConfirmedPayments ? 'يوجد دفعات مؤكدة — احذفها أولاً' : isOfferLocked ? 'مغلق تلقائياً من العرض' : ''}
                                         onClick={() => { setHasDownPayment(false); setPaymentEntries([]); setConfirmedEntries(new Set()); setEntryErrors({}); }}
-                                        className={`flex-1 py-2 rounded-lg border-2 text-xs font-bold transition-all ${!hasDownPayment ? 'bg-slate-100 border-slate-300 text-slate-700' : 'border-gray-200 text-slate-500'} ${(hasConfirmedPayments || isOfferLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                        className={`flex-1 py-2 rounded-lg border-2 text-xs font-bold transition-all ${!hasDownPayment ? 'bg-slate-100 border-slate-300 text-slate-700' : 'border-slate-200 text-slate-500'} ${(hasConfirmedPayments || isOfferLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                         لا
                                     </button>
                                 </div>
                                 {hasConfirmedPayments && (
-                                    <p className="text-[10px] text-slate-400 text-center mt-1">
+                                    <p className="text-xs text-slate-400 text-center mt-1">
                                         يوجد دفعات مؤكدة — احذفها أولاً لتغيير الإجابة
                                     </p>
                                 )}
@@ -2357,7 +2357,7 @@ export default function ContractForm() {
                                                         </span>
                                                     )}
                                                     {entry.paymentCategory === 'transfer' && entry.referenceNumber && (
-                                                        <span className="text-[10px] text-orange-600 font-mono mr-2">#{entry.referenceNumber}</span>
+                                                        <span className="text-xs text-orange-600 font-mono mr-2">#{entry.referenceNumber}</span>
                                                     )}
                                                     {entry.paymentCategory === 'barter' && (
                                                         <span className="text-xs text-slate-500 mr-2">{entry.barterName} — {String(Number(entry.barterValueSyp))} ل.س</span>
@@ -2401,7 +2401,7 @@ export default function ContractForm() {
                                                         <input type="number" min={0} value={entry.amountValue}
                                                             onChange={e => updateEntry(idx, { amountValue: e.target.value })}
                                                             placeholder={entry.currency === 'USD' ? 'المبلغ USD' : 'المبلغ ل.س'}
-                                                            className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
+                                                            className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
                                                     )}
                                                     {!isBarter(entry.method) && (
                                                         <Select<'SYP' | 'USD'>
@@ -2475,7 +2475,7 @@ export default function ContractForm() {
                                                 {entryErrors[idx] && entryErrors[idx].length > 0 && (
                                                     <div className="flex flex-col gap-1">
                                                         {entryErrors[idx].map((err, i) => (
-                                                            <span key={i} className="text-[11px] text-red-600 flex items-center gap-1">
+                                                            <span key={i} className="text-xs text-red-600 flex items-center gap-1">
                                                                 <AlertTriangle className="w-3 h-3" /> {err}
                                                             </span>
                                                         ))}
@@ -2506,7 +2506,7 @@ export default function ContractForm() {
                                             {paymentsValid && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
                                         </div>
                                         {!paymentsValid && paymentEntries.length > 0 && (
-                                            <span className="text-[10px] text-red-600">
+                                            <span className="text-xs text-red-600">
                                                 {confirmedEntries.size < paymentEntries.length
                                                     ? `يوجد ${paymentEntries.length - confirmedEntries.size} دفعة غير مؤكدة`
                                                     : 'مجموع الدفعات لا يساوي الإجمالي'}
@@ -2561,12 +2561,12 @@ export default function ContractForm() {
                                         <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between border-b border-slate-100">
                                             <span className="text-xs font-bold text-slate-700">جدول الأقساط</span>
                                             {installmentsConfirmed
-                                                ? <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">موثق</span>
-                                                : <span className="text-[10px] text-slate-400">{installmentDrafts.length} قسط</span>
+                                                ? <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">موثق</span>
+                                                : <span className="text-xs text-slate-400">{installmentDrafts.length} قسط</span>
                                             }
                                         </div>
                                         <table className="w-full text-sm">
-                                            <thead className="bg-gray-50 text-[11px] font-bold text-slate-500">
+                                            <thead className="bg-slate-50 text-xs font-bold text-slate-500">
                                                 <tr>
                                                     <th className="px-3 py-2 text-right">#</th>
                                                     <th className="px-3 py-2 text-right">تاريخ الاستحقاق</th>
@@ -2583,7 +2583,7 @@ export default function ContractForm() {
                                                                 ? <span className="text-sm text-slate-700">{inst.dueDate}</span>
                                                                 : <input type="date" value={inst.dueDate}
                                                                     onChange={e => setInstallmentDrafts(prev => prev.map((d, i) => i === idx ? { ...d, dueDate: e.target.value } : d))}
-                                                                    className="text-sm border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400" />
+                                                                    className="text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400" />
                                                             }
                                                         </td>
                                                         <td className="px-3 py-2">
@@ -2591,7 +2591,7 @@ export default function ContractForm() {
                                                                 ? <span className="text-sm font-mono font-bold text-slate-800">{formatPrice(Number(inst.amountSyp))}</span>
                                                                 : <input type="number" min={0} value={inst.amountSyp}
                                                                     onChange={e => setInstallmentDrafts(prev => prev.map((d, i) => i === idx ? { ...d, amountSyp: e.target.value } : d))}
-                                                                    className="w-28 text-sm border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
+                                                                    className="w-28 text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
                                                             }
                                                         </td>
                                                         {!installmentsConfirmed && (

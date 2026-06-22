@@ -459,18 +459,18 @@ export default function RouteAssigner() {
         <div className="h-full overflow-y-auto p-8 custom-scroll">
             <div className="flex items-end justify-between mb-6">
                 <div>
-                    <h1 className="text-xl font-bold text-slate-900 mb-1">نطاق عمل الفريق</h1>
+                    <h1 className="text-2xl font-bold text-slate-800 mb-1">نطاق عمل الفريق</h1>
                     <p className="text-slate-500 text-sm">تحديد مسارات ومناطق عمل كل فريق بدقة لليوم المحدد.</p>
                 </div>
             </div>
 
             {/* Context Bar */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6 flex items-center gap-4 flex-wrap">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex items-center gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-sky-600" />
-                    <input type="date" value={date} onChange={e => onDateChange(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none" />
+                    <input type="date" value={date} onChange={e => onDateChange(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none" />
                 </div>
-                <div className="h-8 w-px bg-gray-200" />
+                <div className="h-8 w-px bg-slate-200" />
                 <div className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-sky-600" />
                     <Select
@@ -510,9 +510,9 @@ export default function RouteAssigner() {
                 {/* Left: Route Composer */}
                 <div className="col-span-3 space-y-4">
                     {/* Add Route */}
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
                         <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-slate-900 font-bold text-sm flex items-center gap-2"><RouteIcon className="w-4 h-4 text-sky-600" />تركيب نطاق العمل</h3>
+                            <h3 className="text-slate-800 font-bold text-base flex items-center gap-2"><RouteIcon className="w-4 h-4 text-sky-600" />تركيب نطاق العمل</h3>
                             <button onClick={addRouteToComposition} disabled={!selectedTeam} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all">
                                 <Plus className="w-3.5 h-3.5" /><span>إضافة مسار</span>
                             </button>
@@ -545,8 +545,8 @@ export default function RouteAssigner() {
                             const isForward = comp.direction === 'forward';
 
                             return (
-                                <motion.div key={`comp-${idx}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                    <div className="p-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                                <motion.div key={`comp-${idx}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                    <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <div className="w-7 h-7 rounded bg-sky-50 flex items-center justify-center text-sky-600 text-xs font-bold">{idx + 1}</div>
                                             <span className="text-slate-900 font-bold text-sm">{route.name}</span>
@@ -572,7 +572,7 @@ export default function RouteAssigner() {
                                         <div className="flex justify-between mt-2">
                                             {stations.map((s, si) => (
                                                 <div key={si} className="flex flex-col items-center" title={s.name}>
-                                                    <div className={`w-2.5 h-2.5 rounded-full ${si >= comp.startIdx && si <= comp.endIdx ? 'bg-sky-500' : 'bg-gray-200'}`} />
+                                                    <div className={`w-2.5 h-2.5 rounded-full ${si >= comp.startIdx && si <= comp.endIdx ? 'bg-sky-500' : 'bg-slate-200'}`} />
                                                 </div>
                                             ))}
                                         </div>
@@ -583,8 +583,8 @@ export default function RouteAssigner() {
                     </div>
 
                     {/* Extra Zones */}
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-                        <h3 className="text-slate-900 font-bold text-sm flex items-center gap-2 mb-3"><MapPin className="w-4 h-4 text-orange-500" />مناطق إضافية</h3>
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <h3 className="text-slate-800 font-bold text-base flex items-center gap-2 mb-3"><MapPin className="w-4 h-4 text-orange-500" />مناطق إضافية</h3>
                         <div className="space-y-3 mb-3">
                             <GeoSmartSearch
                                 label="أضف حي"
@@ -606,10 +606,10 @@ export default function RouteAssigner() {
                                     <span>إضافة المنطقة</span>
                                 </button>
                                 {selectedExtraZoneUnit && (
-                                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${canAddSelectedExtraZone ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>
+                                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${canAddSelectedExtraZone ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
                                         <MapPin className="w-3 h-3" />
                                         <span>{selectedExtraZoneUnit.name}</span>
-                                        {!canAddSelectedExtraZone && <span className="text-[10px]">مضاف مسبقًا</span>}
+                                        {!canAddSelectedExtraZone && <span className="text-xs">مضاف مسبقًا</span>}
                                     </span>
                                 )}
                             </div>
@@ -631,9 +631,9 @@ export default function RouteAssigner() {
 
                 {/* Right: Final Sequence */}
                 <div className="col-span-2">
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden sticky top-0">
-                        <div className="p-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                            <h3 className="text-slate-900 font-bold text-sm flex items-center gap-2"><ListOrdered className="w-4 h-4 text-emerald-500" />محطات نطاق العمل</h3>
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden sticky top-0">
+                        <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                            <h3 className="text-slate-800 font-bold text-base flex items-center gap-2"><ListOrdered className="w-4 h-4 text-emerald-500" />محطات نطاق العمل</h3>
                             <div className="text-xs font-bold text-slate-500">عدد العملاء</div>
                         </div>
                         <div className="p-3 space-y-1 max-h-96 overflow-y-auto custom-scroll">
@@ -651,16 +651,16 @@ export default function RouteAssigner() {
                                         onDragEnd={() => setDraggedStationId(null)}
                                         onDragOver={e => e.preventDefault()}
                                         onDrop={() => handleStationDrop(z.id)}
-                                        className={`flex items-center gap-2 p-2 rounded-lg border transition-colors ${isDragging ? 'bg-sky-50 border-sky-300 shadow-sm' : 'bg-gray-50 hover:bg-sky-50 border-transparent'}`}
+                                        className={`flex items-center gap-2 p-2 rounded-lg border transition-colors ${isDragging ? 'bg-sky-50 border-sky-300 shadow-sm' : 'bg-slate-50 hover:bg-sky-50 border-transparent'}`}
                                     >
                                         <span className="w-6 h-6 rounded-full bg-sky-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
                                         <button type="button" className="text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing" aria-label="إعادة ترتيب المحطة">
                                             <GripVertical className="w-4 h-4" />
                                         </button>
                                         <span className="text-slate-800 text-sm">{z.name}</span>
-                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${colors.bg} ${colors.text} ${colors.border}`}>{levelNames[z.level]}</span>
+                                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium border ${colors.bg} ${colors.text} ${colors.border}`}>{levelNames[z.level]}</span>
                                         {stationLeadCountLabel && (
-                                            <span className="mr-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                            <span className="mr-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
                                                 <span>{stationLeadCountLabel}</span>
                                             </span>
                                         )}
@@ -675,7 +675,7 @@ export default function RouteAssigner() {
                             </div>
                         )}
                         {totalPotentialLeads !== null && (
-                            <div className="p-3 border-t border-gray-200 bg-gray-50">
+                            <div className="p-3 border-t border-slate-200 bg-slate-50">
                                 <div className="flex items-center justify-between">
                                     <span className="text-slate-500 text-sm">إجمالي العملاء المحتملين ضمن المحطات:</span>
                                     <span className="text-2xl font-bold text-emerald-600">{totalPotentialLeads}</span>

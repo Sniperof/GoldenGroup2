@@ -21,13 +21,13 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  received: 'bg-gray-100 text-gray-700',
+  received: 'bg-slate-100 text-slate-700',
   in_review: 'bg-blue-100 text-blue-700',
   awaiting_customer_info: 'bg-yellow-100 text-yellow-700',
   resolved_at_intake: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
   promoted: 'bg-purple-100 text-purple-700',
-  cancelled: 'bg-gray-100 text-gray-500',
+  cancelled: 'bg-slate-100 text-slate-500',
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -97,14 +97,14 @@ export default function ServiceRequestsListPage() {
   return (
     <div className="max-w-7xl mx-auto p-4" dir="rtl">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <ClipboardList className="h-6 w-6 text-blue-600" />
           طلبات الصيانة
         </h1>
         <div className="flex gap-2">
           <button
             onClick={load}
-            className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded flex items-center gap-1"
+            className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded flex items-center gap-1"
           >
             <RefreshCw className="h-4 w-4" />
             تَحديث
@@ -122,8 +122,8 @@ export default function ServiceRequestsListPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white border border-gray-200 rounded p-3 mb-4 flex items-center gap-3 flex-wrap">
-        <Filter className="h-4 w-4 text-gray-500" />
+      <div className="bg-white border border-slate-200 rounded p-3 mb-4 flex items-center gap-3 flex-wrap">
+        <Filter className="h-4 w-4 text-slate-500" />
         <Select
           value={filters.status ?? ''}
           onChange={(v) => {
@@ -200,9 +200,9 @@ export default function ServiceRequestsListPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-gray-200 rounded overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-gray-600">
+          <thead className="bg-slate-50 text-slate-600">
             <tr>
               <th className="text-right p-2 font-medium">المرجع</th>
               <th className="text-right p-2 font-medium">القناة</th>
@@ -217,13 +217,13 @@ export default function ServiceRequestsListPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="text-center p-6 text-gray-400">
+                <td colSpan={8} className="text-center p-6 text-slate-400">
                   <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center p-6 text-gray-500">
+                <td colSpan={8} className="text-center p-6 text-slate-500">
                   لا توجد طلبات مطابقة.
                 </td>
               </tr>
@@ -231,7 +231,7 @@ export default function ServiceRequestsListPage() {
               items.map((r) => (
                 <tr
                   key={r.id}
-                  className="border-t border-gray-100 hover:bg-blue-50 cursor-pointer"
+                  className="border-t border-slate-100 hover:bg-blue-50 cursor-pointer"
                   onClick={() => navigate(`/service-requests/${r.id}`)}
                 >
                   <td className="p-2 font-mono text-xs text-blue-700">
@@ -255,7 +255,7 @@ export default function ServiceRequestsListPage() {
                         {r.reviewedByUserId === user?.id ? 'أنا' : `#${r.reviewedByUserId}`}
                       </span>
                     ) : (
-                      <span className="text-gray-400">—</span>
+                      <span className="text-slate-400">—</span>
                     )}
                   </td>
                   <td className="p-2">
@@ -267,7 +267,7 @@ export default function ServiceRequestsListPage() {
                         <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">م</span>
                       )}
                       {r.archivedAt && (
-                        <span className="text-xs px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">أ</span>
+                        <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">أ</span>
                       )}
                     </div>
                   </td>
@@ -292,7 +292,7 @@ export default function ServiceRequestsListPage() {
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between mt-3 text-sm text-gray-600">
+      <div className="flex items-center justify-between mt-3 text-sm text-slate-600">
         <div>
           {total} طلب — يَعرض {Math.min(offset + 1, total)}–{Math.min(offset + LIMIT, total)}
         </div>

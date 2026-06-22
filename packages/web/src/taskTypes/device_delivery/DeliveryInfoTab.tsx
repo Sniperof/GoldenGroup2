@@ -75,7 +75,7 @@ export default function DeliveryInfoTab({ data }: { data: TaskDetailData }) {
                     <p className="text-sm font-semibold text-slate-800 truncate">{item.name}</p>
                   </div>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${item.badge}`}>{item.label}</span>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded border ${item.badge}`}>{item.label}</span>
               </div>
             ))}
           </div>
@@ -114,13 +114,13 @@ export default function DeliveryInfoTab({ data }: { data: TaskDetailData }) {
                   <a
                     href={`https://wa.me/${primaryMobile.replace(/\D/g, '')}`}
                     target="_blank" rel="noreferrer"
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold rounded bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100 transition-colors"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-bold rounded bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100 transition-colors"
                   >
                     <MessageCircle className="w-3 h-3" />
                     واتساب
                   </a>
                 ) : (
-                  <span className="text-[10px] text-slate-300 font-bold">لا واتساب</span>
+                  <span className="text-xs text-slate-300 font-bold">لا واتساب</span>
                 )}
               </div>
             </div>
@@ -129,7 +129,7 @@ export default function DeliveryInfoTab({ data }: { data: TaskDetailData }) {
           {/* أرقام إضافية */}
           {contacts.length > 0 && (
             <div className="border-t border-slate-100 pt-3 space-y-2">
-              <p className="text-[11px] font-bold text-slate-400 mb-1">أرقام التواصل الأخرى</p>
+              <p className="text-xs font-bold text-slate-400 mb-1">أرقام التواصل الأخرى</p>
               {contacts.map((c: any, i: number) => (
                 <div key={i} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
                   <div className="flex items-center gap-2 min-w-0">
@@ -138,7 +138,7 @@ export default function DeliveryInfoTab({ data }: { data: TaskDetailData }) {
                       {c.number}
                     </a>
                     {c.label && (
-                      <span className="text-[10px] text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-bold">
+                      <span className="text-xs text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-bold">
                         {c.label}
                       </span>
                     )}
@@ -148,13 +148,13 @@ export default function DeliveryInfoTab({ data }: { data: TaskDetailData }) {
                       <a
                         href={`https://wa.me/${c.number.replace(/\D/g, '')}`}
                         target="_blank" rel="noreferrer"
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold rounded bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100 transition-colors"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-bold rounded bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100 transition-colors"
                       >
                         <MessageCircle className="w-3 h-3" />
                         واتساب
                       </a>
                     ) : (
-                      <span className="text-[10px] text-slate-300 font-bold">لا واتساب</span>
+                      <span className="text-xs text-slate-300 font-bold">لا واتساب</span>
                     )}
                   </div>
                 </div>
@@ -180,7 +180,7 @@ export default function DeliveryInfoTab({ data }: { data: TaskDetailData }) {
             </div>
             {addr.addressText ? (
               <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
-                <p className="text-[11px] font-bold text-slate-400 mb-1">العنوان التفصيلي</p>
+                <p className="text-xs font-bold text-slate-400 mb-1">العنوان التفصيلي</p>
                 <p className="text-sm text-slate-700">{addr.addressText}</p>
               </div>
             ) : (

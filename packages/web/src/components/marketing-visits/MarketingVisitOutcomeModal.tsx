@@ -1023,7 +1023,7 @@ export default function MarketingVisitOutcomeModal({
             {wizardState.step === 0 && (
               <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
                 <div className="space-y-1">
-                  <h3 className="text-sm font-bold text-slate-800">نتيجة المهمة</h3>
+                  <h3 className="text-base font-bold text-slate-800">نتيجة المهمة</h3>
                   <p className="text-xs text-slate-500">اختر المسار المناسب قبل متابعة تفاصيل النتيجة.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -1055,7 +1055,7 @@ export default function MarketingVisitOutcomeModal({
                   })}
                 </div>
                 {isOutcomeLocked && (
-                  <p className="text-[11px] text-amber-600">
+                  <p className="text-xs text-amber-600">
                     🔒 نوع النتيجة مقفل بعد تسجيل رد الزبون. البيع يُسجل من داخل رد العرض المقبول ضمن مسار "تقديم عرض".
                   </p>
                 )}
@@ -1150,7 +1150,7 @@ export default function MarketingVisitOutcomeModal({
               <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-800">
+                    <h3 className="text-base font-bold text-slate-800">
                       {isDeviceSoldFlow ? 'الأجهزة المباعة' : 'أجهزة الزيارة — بيان العروض'}
                     </h3>
                     <p className="text-xs text-slate-500">
@@ -1248,7 +1248,7 @@ export default function MarketingVisitOutcomeModal({
             {isOfferFlow && wizardState.step === 2 && (
               <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800">ملخص العروض المقدمة</h3>
+                  <h3 className="text-base font-bold text-slate-800">ملخص العروض المقدمة</h3>
                   <p className="text-xs text-slate-500">راجع كل العروض المسجلة قبل الانتقال إلى ردود الزبون.</p>
                 </div>
 
@@ -1288,7 +1288,7 @@ export default function MarketingVisitOutcomeModal({
             {isOfferFlow && wizardState.step === 3 && (
               <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800">ردود الزبون على العروض المقدمة</h3>
+                  <h3 className="text-base font-bold text-slate-800">ردود الزبون على العروض المقدمة</h3>
                   <p className="text-xs text-slate-500">يجب تحديد رد الزبون لكل عرض قبل الوصول إلى الملخص.</p>
                 </div>
 
@@ -1428,7 +1428,7 @@ export default function MarketingVisitOutcomeModal({
             {useOfferUI && wizardState.step === 4 && (
               <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800">ملخص النتيجة النهائية</h3>
+                  <h3 className="text-base font-bold text-slate-800">ملخص النتيجة النهائية</h3>
                   <p className="text-xs text-slate-500">مراجعة سريعة قبل إرسال النتيجة الحالية إلى الواجهة الخلفية.</p>
                 </div>
 
@@ -1594,7 +1594,7 @@ export default function MarketingVisitOutcomeModal({
           <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <div>
-                <h3 className="text-sm font-bold text-slate-800">
+                <h3 className="text-base font-bold text-slate-800">
                   {offerEditor.offerId ? 'تعديل العرض' : 'إضافة عرض جديد'}
                 </h3>
                 <p className="mt-1 text-xs text-slate-500">

@@ -85,7 +85,7 @@ export default function DeviceDemoOfferTab({ data }: { data: TaskDetailData }) {
                     <p className="text-sm font-semibold text-slate-800 truncate">{item.name}</p>
                   </div>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${item.badge}`}>{item.label}</span>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded border ${item.badge}`}>{item.label}</span>
               </div>
             ))}
           </div>

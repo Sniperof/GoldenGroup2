@@ -715,8 +715,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         style={{ direction: 'rtl' }}
                     >
                         {/* Header */}
-                        <div className="bg-white border-b border-gray-100 px-4 sm:px-5 py-4 flex items-center justify-between shrink-0">
-                            <h2 className="text-lg sm:text-xl font-bold text-slate-800">
+                        <div className="bg-white border-b border-slate-100 px-4 sm:px-5 py-4 flex items-center justify-between shrink-0">
+                            <h2 className="text-lg sm:text-lg font-bold text-slate-800">
                                 {isEditMode ? 'تعديل بيانات الزبون' : 'إضافة زبون جديد'}
                             </h2>
                             <IconButton icon={X} label="إغلاق" onClick={onClose} />
@@ -731,14 +731,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         )}
 
                         {/* Tabs */}
-                        <div className="bg-gray-50 px-2 sm:px-4 pt-3 border-b border-gray-200 flex gap-1 overflow-x-auto shrink-0 scrollbar-none">
+                        <div className="bg-slate-50 px-2 sm:px-4 pt-3 border-b border-slate-200 flex gap-1 overflow-x-auto shrink-0 scrollbar-none">
                             {tabsDef.map(tab => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
                                     className={`flex items-center gap-1.5 px-2.5 sm:px-4 py-2.5 text-xs sm:text-sm font-bold rounded-t-lg transition-all relative top-[1px] whitespace-nowrap shrink-0 ${activeTab === tab.id
-                                        ? 'bg-white text-sky-600 border border-gray-200 border-b-white z-10 shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700 hover:bg-gray-100'
+                                        ? 'bg-white text-sky-600 border border-slate-200 border-b-white z-10 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
                                         }`}
                                 >
                                     <tab.icon className="w-4 h-4 shrink-0" />
@@ -774,7 +774,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                             ...branches.map(branch => ({ value: String(branch.id), label: branch.name })),
                                                         ]}
                                                     />
-                                                    <p className="text-[11px] text-slate-400">
+                                                    <p className="text-xs text-slate-400">
                                                         هذا هو الفرع التشغيلي للعميل، وليس فلتر عرض فقط.
                                                     </p>
                                                 </div>
@@ -788,7 +788,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     <button
                                                         type="button"
                                                         onClick={() => setAssignDropdownOpen(prev => !prev)}
-                                                        className="w-full flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white hover:border-sky-400 focus:outline-none focus:border-sky-500 transition-colors"
+                                                        className="w-full flex items-center justify-between border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-white hover:border-sky-400 focus:outline-none focus:border-sky-500 transition-colors"
                                                     >
                                                         <span className={assignmentUserIds.length === 0 ? 'text-slate-400' : 'text-slate-700 font-medium'}>
                                                             {assignmentUserIds.length === 0
@@ -800,7 +800,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
                                                     {/* Dropdown list */}
                                                     {assignDropdownOpen && (
-                                                        <div className="w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto divide-y divide-slate-50">
+                                                        <div className="w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-52 overflow-y-auto divide-y divide-slate-50">
                                                             {assignableHrUsers.length === 0 ? (
                                                                 <p className="px-3 py-4 text-xs text-slate-400 text-center">لا يوجد مستخدمون مؤهلون للإسناد في هذا الفرع</p>
                                                             ) : (
@@ -823,7 +823,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                             <div>
                                                                                 <div className="text-sm text-slate-700 font-medium">{user.name}</div>
                                                                                 {user.role_display_name && (
-                                                                                    <div className="text-[10px] text-slate-400">{user.role_display_name}</div>
+                                                                                    <div className="text-xs text-slate-400">{user.role_display_name}</div>
                                                                                 )}
                                                                             </div>
                                                                         </label>
@@ -855,7 +855,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         </div>
                                                     )}
 
-                                                    <p className="text-[11px] text-slate-400">
+                                                    <p className="text-xs text-slate-400">
                                                         القائمة تعرض فقط الأدوار المصرح لها بالإسناد (clients.can_be_assigned).
                                                     </p>
                                                 </div>
@@ -873,13 +873,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 value={firstName}
                                                 onChange={e => !firstNameLocked && setFirstName(e.target.value)}
                                                 readOnly={firstNameLocked}
-                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${firstNameLocked ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${firstNameLocked ? lockedCls : 'border-slate-200 focus:border-sky-500'}`}
                                                 placeholder="مثال: أحمد"
                                             />
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">اسم الأب</label>
-                                            <input value={fatherName} onChange={e => setFatherName(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" placeholder="مثال: خالد" />
+                                            <input value={fatherName} onChange={e => setFatherName(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" placeholder="مثال: خالد" />
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
@@ -890,7 +890,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 value={lastName}
                                                 onChange={e => !lastNameLocked && setLastName(e.target.value)}
                                                 readOnly={lastNameLocked}
-                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${lastNameLocked ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${lastNameLocked ? lockedCls : 'border-slate-200 focus:border-sky-500'}`}
                                                 placeholder="مثال: زيتون"
                                             />
                                         </div>
@@ -903,7 +903,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 value={nickname}
                                                 onChange={e => !nicknameLocked && setNickname(e.target.value)}
                                                 readOnly={nicknameLocked}
-                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${nicknameLocked ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none ${nicknameLocked ? lockedCls : 'border-slate-200 focus:border-sky-500'}`}
                                                 placeholder="مثال: أبو أيوب"
                                             />
                                         </div>
@@ -954,12 +954,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         ? 'bg-red-50/40 border-red-300'
                                                         : dup
                                                         ? 'bg-amber-50/30 border-amber-200'
-                                                        : 'bg-gray-50 border-gray-100'
+                                                        : 'bg-slate-50 border-slate-100'
                                                 }`}
                                             >
                                                 {/* Locked badge */}
                                                 {isLocked && (
-                                                    <div className={`flex items-center gap-1.5 text-[10px] font-bold rounded-lg px-2.5 py-1 w-fit border ${
+                                                    <div className={`flex items-center gap-1.5 text-xs font-bold rounded-lg px-2.5 py-1 w-fit border ${
                                                         lockSource === 'smart'
                                                             ? 'text-emerald-700 bg-emerald-100 border-emerald-200'
                                                             : 'text-amber-700 bg-amber-100 border-amber-200'
@@ -980,7 +980,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         className={`border rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[100px] ${
                                                             isLocked
                                                                 ? lockSource === 'smart' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed' : 'bg-amber-50/40 border-amber-200 text-amber-700 cursor-not-allowed'
-                                                                : 'bg-white border-gray-200'
+                                                                : 'bg-white border-slate-200'
                                                         }`}
                                                     >
                                                         {Object.entries(contactTypeConfig).map(([key, cfg]) => (
@@ -989,7 +989,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     </select>
 
                                                     {c.type === 'mobile' && (
-                                                        <span className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">+963</span>
+                                                        <span className="bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">+963</span>
                                                     )}
 
                                                     {c.type === 'landline' && !isLocked && (
@@ -1003,7 +1003,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                             placeholder="011"
                                                             dir="ltr"
                                                             maxLength={3}
-                                                            className="bg-white border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono text-slate-800 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none w-[60px] text-center"
+                                                            className="bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs font-mono text-slate-800 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none w-[60px] text-center"
                                                         />
                                                     )}
 
@@ -1020,7 +1020,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         placeholder={c.type === 'mobile' ? SYRIAN_MOBILE_HINT : c.type === 'landline' ? 'XXXXXXX' : 'الرقم...'}
                                                         dir="ltr"
                                                         maxLength={c.type === 'mobile' ? 10 : c.type === 'landline' ? 7 : 15}
-                                                        className={`flex-1 border rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-gray-300 focus:outline-none ${
+                                                        className={`flex-1 border rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-slate-300 focus:outline-none ${
                                                             isLocked
                                                                 ? lockSource === 'smart'
                                                                     ? 'bg-emerald-50 border-emerald-300 text-emerald-800 cursor-default focus:ring-0'
@@ -1029,7 +1029,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                 ? 'bg-white border-red-300 text-red-700 focus:border-red-400'
                                                                 : dup
                                                                 ? 'bg-white border-amber-300 focus:border-amber-400'
-                                                                : 'bg-white border-gray-200 focus:border-sky-500'
+                                                                : 'bg-white border-slate-200 focus:border-sky-500'
                                                         }`}
                                                     />
 
@@ -1040,8 +1040,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         title={isLocked ? 'لا يمكن حذف الرقم المحقق' : 'حذف الرقم'}
                                                         className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${
                                                             isLocked
-                                                                ? 'text-gray-200 border-transparent cursor-not-allowed'
-                                                                : 'text-gray-300 hover:text-red-500 hover:bg-red-50 border-transparent hover:border-red-100'
+                                                                ? 'text-slate-200 border-transparent cursor-not-allowed'
+                                                                : 'text-slate-300 hover:text-red-500 hover:bg-red-50 border-transparent hover:border-red-100'
                                                         }`}
                                                     >
                                                         <Trash2 className="w-3.5 h-3.5" />
@@ -1050,7 +1050,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
                                                 {/* Duplicate badge */}
                                                 {dup && (
-                                                    <div className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg border w-fit ${
+                                                    <div className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border w-fit ${
                                                         c.isPrimary
                                                             ? 'bg-red-100 text-red-700 border-red-200'
                                                             : 'bg-amber-100 text-amber-700 border-amber-200'
@@ -1061,7 +1061,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 )}
 
                                                 {hasInvalidNumber && (
-                                                    <div className="flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg border w-fit bg-red-100 text-red-700 border-red-200">
+                                                    <div className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border w-fit bg-red-100 text-red-700 border-red-200">
                                                         <AlertCircle className="w-3 h-3 shrink-0" />
                                                         رقم موبايل غير مطابق للصيغة 09XXXXXXXX
                                                     </div>
@@ -1074,13 +1074,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         value={c.label}
                                                         onChange={e => updateContact(c.id, 'label', e.target.value)}
                                                         placeholder="العلاقة (شخصي، زوجة، ابن...)"
-                                                        className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none"
+                                                        className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none"
                                                     />
 
                                                     <select
                                                         value={c.status}
                                                         onChange={e => updateContact(c.id, 'status', e.target.value as ContactStatus)}
-                                                        className={`border rounded-lg px-2 py-1.5 text-[11px] font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[c.status]?.style || contactStatusConfig.active.style}`}
+                                                        className={`border rounded-lg px-2 py-1.5 text-xs font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[c.status]?.style || contactStatusConfig.active.style}`}
                                                     >
                                                         {Object.entries(contactStatusConfig).map(([key, cfg]) => (
                                                             <option key={key} value={key}>{cfg.label}</option>
@@ -1092,7 +1092,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         onClick={() => updateContact(c.id, 'hasWhatsApp', !c.hasWhatsApp)}
                                                         className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${c.hasWhatsApp
                                                             ? 'bg-green-50 border-green-200 text-green-600'
-                                                            : 'bg-white border-gray-200 text-gray-300 hover:text-gray-400'
+                                                            : 'bg-white border-slate-200 text-slate-300 hover:text-slate-400'
                                                             }`}
                                                         title={c.hasWhatsApp ? 'يدعم واتساب' : 'بدون واتساب'}
                                                     >
@@ -1116,14 +1116,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                             c.isPrimary
                                                                 ? dup ? 'bg-red-50 border-red-300' : 'bg-sky-50 border-sky-200'
                                                                 : isDupPrimary
-                                                                    ? 'bg-gray-50 border-gray-200 opacity-40 cursor-not-allowed'
-                                                                    : 'bg-white border-gray-200 hover:border-gray-300'
+                                                                    ? 'bg-slate-50 border-slate-200 opacity-40 cursor-not-allowed'
+                                                                    : 'bg-white border-slate-200 hover:border-slate-300'
                                                         }`}
                                                     >
                                                         <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center ${
                                                             c.isPrimary
                                                                 ? dup ? 'border-red-500' : 'border-sky-500'
-                                                                : 'border-gray-300'
+                                                                : 'border-slate-300'
                                                         }`}>
                                                             {c.isPrimary && <div className={`w-1.5 h-1.5 rounded-full ${dup ? 'bg-red-500' : 'bg-sky-500'}`} />}
                                                         </div>
@@ -1134,7 +1134,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         })}
                                     </AnimatePresence>
 
-                                    <button type="button" onClick={addContact} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-slate-500 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50 transition-all text-sm font-medium">
+                                    <button type="button" onClick={addContact} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border-2 border-dashed border-slate-200 text-slate-500 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50 transition-all text-sm font-medium">
                                         <Plus className="w-4 h-4" />
                                         <span>إضافة رقم</span>
                                     </button>
@@ -1156,19 +1156,19 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         invalid={candidateGeoNeedsUpgrade}
                                     />
                                     {fl(initialData?.neighborhood) && !candidateGeoNeedsUpgrade && (
-                                        <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1.5 -mt-2">
+                                        <p className="text-xs text-amber-600 font-medium flex items-center gap-1.5 -mt-2">
                                             <Lock className="w-3.5 h-3.5 shrink-0" />
                                             العنوان منقول من الاسم المقترح — لا يمكن تعديله
                                         </p>
                                     )}
                                     {!fl(initialData?.neighborhood) && !(geoSelection.subId || geoSelection.neighborhoodId) && (
-                                        <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1.5 -mt-2">
+                                        <p className="text-xs text-amber-600 font-medium flex items-center gap-1.5 -mt-2">
                                             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                                             يجب اختيار ناحية على الأقل — لا يمكن الاكتفاء بمحافظة أو منطقة
                                         </p>
                                     )}
                                     {candidateGeoNeedsUpgrade && (
-                                        <p className="text-[11px] text-red-600 font-medium flex items-center gap-1.5 -mt-2">
+                                        <p className="text-xs text-red-600 font-medium flex items-center gap-1.5 -mt-2">
                                             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                                             عنوان الاسم المقترح غير كاف لإنشاء زبون — يجب تحديد ناحية على الأقل.
                                         </p>
@@ -1182,7 +1182,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             value={formData.detailedAddress || ''}
                                             onChange={e => !detailedAddressLocked && updateForm('detailedAddress', e.target.value)}
                                             readOnly={detailedAddressLocked}
-                                            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none min-h-[60px] resize-none ${detailedAddressLocked ? lockedCls : 'border-gray-200 focus:border-sky-500'}`}
+                                            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none min-h-[60px] resize-none ${detailedAddressLocked ? lockedCls : 'border-slate-200 focus:border-sky-500'}`}
                                         />
                                     </div>
 
@@ -1194,7 +1194,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 <span>تحديد الموقع على الخريطة</span>
                                             </label>
                                             {mapPosition && (
-                                                <span className="text-[10px] font-mono text-slate-400" dir="ltr">
+                                                <span className="text-xs font-mono text-slate-400" dir="ltr">
                                                     {mapPosition[0].toFixed(5)}, {mapPosition[1].toFixed(5)}
                                                 </span>
                                             )}
@@ -1276,7 +1276,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                 onChange={(e) => setEmployeeIdInput(e.target.value)}
                                                                 onBlur={handleEmployeeBlur}
                                                                 placeholder="أدخل رقم الموظف..."
-                                                                className="w-1/2 p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+                                                                className="w-1/2 p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
                                                             />
                                                             <button
                                                                 type="button"
@@ -1316,7 +1316,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                     onChange={(e) => handleClientSearch(e.target.value)}
                                                                     onFocus={() => handleClientSearch(clientSearch)}
                                                                     placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-                                                                    className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+                                                                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
                                                                 />
                                                                 {clientSuggestions.length > 0 && (
                                                                     <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-10 overflow-hidden">
@@ -1328,7 +1328,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                             >
                                                                                 <div className="flex flex-col items-start gap-1">
                                                                                     <span className="font-bold text-slate-700 text-sm">{client.name}</span>
-                                                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
+                                                                                    <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
                                                                                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                                                         : getClientLifecycleStage(client) === 'FOP'
                                                                                             ? 'bg-amber-50 text-amber-700 border-amber-200'
@@ -1356,10 +1356,10 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                             type="text"
                                                             value={referralNameSnapshot}
                                                             readOnly
-                                                            className="w-full p-2.5 rounded-xl border border-gray-200 bg-slate-50 text-slate-600 font-bold cursor-not-allowed text-sm focus:border-sky-500 focus:outline-none"
+                                                            className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-600 font-bold cursor-not-allowed text-sm focus:border-sky-500 focus:outline-none"
                                                         />
                                                         {referralType === 'Personal' && (
-                                                            <p className="mt-1 text-[11px] text-slate-400">
+                                                            <p className="mt-1 text-xs text-slate-400">
                                                                 يتم اعتماد اسم المستخدم الحالي تلقائياً عند اختيار وسيط شخصي.
                                                             </p>
                                                         )}
@@ -1376,7 +1376,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 onChange={e => setReferralNotes(e.target.value)}
                                                 placeholder="أي ملاحظات تخص الوسيط أو طريقة التواصل..."
                                                 rows={3}
-                                                className="w-full p-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:border-sky-500 focus:outline-none resize-none"
+                                                className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none resize-none"
                                             />
                                         </div>
                                     </div>
@@ -1393,7 +1393,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             <button
                                                 type="button"
                                                 onClick={() => setGender(gender === 'male' ? '' : 'male')}
-                                                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-bold transition-all ${gender === 'male' ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-gray-200 text-slate-500 hover:border-sky-200 hover:text-sky-600'}`}
+                                                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-bold transition-all ${gender === 'male' ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-white border-slate-200 text-slate-500 hover:border-sky-200 hover:text-sky-600'}`}
                                             >
                                                 <svg width="18" height="18" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
                                                     <circle cx="32" cy="20" r="12" fill="currentColor" opacity="0.9" />
@@ -1404,7 +1404,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             <button
                                                 type="button"
                                                 onClick={() => setGender(gender === 'female' ? '' : 'female')}
-                                                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-bold transition-all ${gender === 'female' ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-slate-500 hover:border-rose-200 hover:text-rose-600'}`}
+                                                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-bold transition-all ${gender === 'female' ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-white border-slate-200 text-slate-500 hover:border-rose-200 hover:text-rose-600'}`}
                                             >
                                                 <svg width="18" height="18" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
                                                     <ellipse cx="32" cy="21" rx="16" ry="14" fill="currentColor" opacity="0.5" />
@@ -1423,7 +1423,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             <label className="text-xs font-semibold text-slate-500">اسم الأم</label>
                                             <input type="text" value={motherName} onChange={e => setMotherName(e.target.value)}
                                                 placeholder="اسم الأم"
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
+                                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">تاريخ الميلاد</label>
@@ -1431,7 +1431,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 type="date"
                                                 value={birthDate}
                                                 onChange={e => setBirthDate(e.target.value)}
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none"
+                                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none"
                                             />
                                         </div>
                                     </div>
@@ -1454,16 +1454,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     ? 'border-amber-300 focus:border-amber-400 bg-amber-50/30'
                                                     : nationalId.length === 11
                                                     ? 'border-emerald-300 focus:border-emerald-400 bg-emerald-50/20'
-                                                    : 'border-gray-200 focus:border-sky-500'
+                                                    : 'border-slate-200 focus:border-sky-500'
                                             }`}
                                         />
                                         {nationalId.length > 0 && nationalId.length < 11 && (
-                                            <p className="text-[10px] text-amber-600 font-medium">
+                                            <p className="text-xs text-amber-600 font-medium">
                                                 {11 - nationalId.length} خانة متبقية
                                             </p>
                                         )}
                                         {nationalId.length === 11 && (
-                                            <p className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                                            <p className="text-xs text-emerald-600 font-medium flex items-center gap-1">
                                                 <CheckCircle className="w-3 h-3" /> مكتمل
                                             </p>
                                         )}
@@ -1475,13 +1475,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             <label className="text-xs font-semibold text-slate-500">القيد</label>
                                             <input type="text" value={nationalIdRegistry} onChange={e => setNationalIdRegistry(e.target.value)}
                                                 placeholder="رقم القيد"
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
+                                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">الخانة</label>
                                             <input type="text" value={nationalIdBox} onChange={e => setNationalIdBox(e.target.value)}
                                                 placeholder="رقم أو اسم الخانة"
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
+                                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
                                         </div>
                                     </div>
 
@@ -1491,12 +1491,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                             <label className="text-xs font-semibold text-slate-500">أمانة السجل المدني</label>
                                             <input type="text" value={nationalIdIssuedBy} onChange={e => setNationalIdIssuedBy(e.target.value)}
                                                 placeholder="أمين السجل المدني"
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
+                                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">تاريخ منح الهوية</label>
                                             <input type="date" value={nationalIdIssueDate} onChange={e => setNationalIdIssueDate(e.target.value)}
-                                                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
+                                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
                                         </div>
                                     </div>
                                 </div>
@@ -1580,7 +1580,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-semibold text-slate-500">ملاحظات إضافية (محرر نصي)</label>
-                                            <div className="quill-wrapper rounded-xl overflow-hidden border border-gray-200">
+                                            <div className="quill-wrapper rounded-xl overflow-hidden border border-slate-200">
                                                 <ReactQuill
                                                     theme="snow"
                                                     value={notes}
@@ -1603,7 +1603,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         </div >
 
                         {/* Footer */}
-                        <div className="bg-gray-50 px-4 sm:px-5 py-3 sm:py-4 border-t border-gray-200 flex items-center justify-between gap-3 shrink-0">
+                        <div className="bg-slate-50 px-4 sm:px-5 py-3 sm:py-4 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
                             {primaryDup ? (
                                 <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
                                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -1611,7 +1611,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                 </div>
                             ) : <div />}
                             <div className="flex gap-3">
-                                <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 font-medium transition-all">
+                                <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-medium transition-all">
                                     إلغاء
                                 </button>
                                 <button

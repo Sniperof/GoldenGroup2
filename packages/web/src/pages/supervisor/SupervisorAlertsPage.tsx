@@ -60,7 +60,7 @@ export default function SupervisorAlertsPage() {
             <AlertTriangle className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-xl font-black text-slate-800">لوحة تنبيهات المشرف</h1>
+            <h1 className="text-2xl font-bold text-slate-800">لوحة تنبيهات المشرف</h1>
             <p className="text-xs text-slate-500">تتبع المهام عالية المحاولات والزيارات بانتظار التوثيق.</p>
           </div>
         </div>
@@ -83,9 +83,9 @@ export default function SupervisorAlertsPage() {
         <div className="rounded-2xl border border-orange-200 bg-orange-50/60 p-4 space-y-3">
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4 text-orange-700" />
-            <h3 className="text-sm font-bold text-orange-900">زيارات بانتظار التوثيق</h3>
+            <h3 className="text-base font-bold text-orange-900">زيارات بانتظار التوثيق</h3>
           </div>
-          <p className="text-[11px] text-orange-800/80">
+          <p className="text-xs text-orange-800/80">
             زيارات في in_progress / ended تجاوزت عتبة الساعات. التصعيد ينطلق على ثلاث مراحل (24/48/72h) من إعدادات النظام.
           </p>
 
@@ -110,10 +110,10 @@ export default function SupervisorAlertsPage() {
                       <div className="text-xs font-bold text-slate-800 truncate">
                         {item.clientName || `زبون #${item.clientId}`}
                       </div>
-                      <div className="text-[11px] text-slate-500 truncate">
+                      <div className="text-xs text-slate-500 truncate">
                         زيارة #{item.visitId} · {item.status}
                       </div>
-                      <div className="text-[10px] text-slate-400">
+                      <div className="text-xs text-slate-400">
                         منذ {Math.round(item.hoursSinceUpdate)} ساعة
                       </div>
                     </div>
@@ -121,7 +121,7 @@ export default function SupervisorAlertsPage() {
                       {item.tiersAlerted.map((tier) => (
                         <span
                           key={tier}
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${TIER_META[tier].bg} ${TIER_META[tier].color}`}
+                          className={`text-xs font-bold px-1.5 py-0.5 rounded ${TIER_META[tier].bg} ${TIER_META[tier].color}`}
                         >
                           {TIER_META[tier].label}
                         </span>

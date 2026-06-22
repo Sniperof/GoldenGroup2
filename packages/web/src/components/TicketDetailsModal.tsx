@@ -84,7 +84,7 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="p-5 border-b border-gray-100 bg-gradient-to-l from-sky-50/80 to-white">
+                <div className="p-5 border-b border-slate-100 bg-gradient-to-l from-sky-50/80 to-white">
                     <div className="flex justify-between items-start">
                         <div className="flex items-center gap-3">
                             <div className="w-11 h-11 rounded-xl bg-sky-100 flex items-center justify-center text-sky-600 font-bold text-sm">
@@ -93,7 +93,7 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                             <div>
                                 <h2 className="text-lg font-bold text-slate-800">{ticket.clientName}</h2>
                                 <div className="flex items-center gap-2 mt-1">
-                                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-lg ${status.color}`}>{status.label}</span>
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${status.color}`}>{status.label}</span>
 
                                     {/* Priority dropdown (changeable from details) */}
                                     <Select<EmergencyTicketPriority>
@@ -120,7 +120,7 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         <InfoCard icon={MapPin} label="العنوان" value={ticket.clientAddress} />
                         <InfoCard icon={ShieldCheck} label="التقييم">
-                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border ${rating.color}`}>{rating.label}</span>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-lg border ${rating.color}`}>{rating.label}</span>
                         </InfoCard>
                         <InfoCard icon={Wrench} label="الجهاز" value={ticket.deviceModelName || 'غير محدد'} />
                         <InfoCard icon={Calendar} label="التاريخ" value={`${createdDate.toLocaleDateString('ar-SY')} ${createdDate.toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' })}`} />
@@ -159,7 +159,7 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                             </div>
                             <div className="flex gap-2 flex-wrap">
                                 {ticket.attachments.map((att, i) => (
-                                    <a key={i} href={att} target="_blank" rel="noopener noreferrer" className="w-20 h-20 rounded-lg overflow-hidden border border-gray-200 block hover:shadow-lg transition-shadow">
+                                    <a key={i} href={att} target="_blank" rel="noopener noreferrer" className="w-20 h-20 rounded-lg overflow-hidden border border-slate-200 block hover:shadow-lg transition-shadow">
                                         <img src={att} alt="" className="w-full h-full object-cover" />
                                     </a>
                                 ))}
@@ -168,12 +168,12 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                     )}
 
                     {/* Technical History */}
-                    <div className="border-t border-gray-100 pt-5">
+                    <div className="border-t border-slate-100 pt-5">
                         <div className="flex items-center gap-2 mb-3">
                             <History className="w-4 h-4 text-indigo-500" />
                             <span className="text-sm font-bold text-slate-700">السجل الفني للجهاز</span>
                             {maintenanceHistory.length > 0 && (
-                                <span className="text-[10px] font-medium bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{maintenanceHistory.length} سجل</span>
+                                <span className="text-xs font-medium bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{maintenanceHistory.length} سجل</span>
                             )}
                         </div>
 
@@ -194,13 +194,13 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                                             <div className="flex justify-between items-start gap-3">
                                                 <div>
                                                     <div className="flex items-center gap-2 mb-1">
-                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${req.visitType === 'Emergency' ? 'bg-red-100 text-red-700' :
+                                                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${req.visitType === 'Emergency' ? 'bg-red-100 text-red-700' :
                                                                 req.visitType === 'Periodic' ? 'bg-indigo-100 text-indigo-700' :
                                                                     'bg-slate-100 text-slate-600'
                                                             }`}>
                                                             {req.visitType === 'Emergency' ? 'طوارئ' : req.visitType === 'Periodic' ? 'دوري' : req.visitType}
                                                         </span>
-                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${req.resolutionStatus === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
+                                                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${req.resolutionStatus === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
                                                                 req.resolutionStatus === 'Pending' ? 'bg-amber-100 text-amber-700' :
                                                                     'bg-slate-100 text-slate-600'
                                                             }`}>
@@ -209,9 +209,9 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                                                         </span>
                                                     </div>
                                                     <p className="text-xs text-slate-600">{req.problemDescription}</p>
-                                                    {tech && <p className="text-[10px] text-slate-400 mt-1">الفني: {tech.name}</p>}
+                                                    {tech && <p className="text-xs text-slate-400 mt-1">الفني: {tech.name}</p>}
                                                 </div>
-                                                <span className="text-[10px] text-slate-400 whitespace-nowrap">{date.toLocaleDateString('ar-SY')}</span>
+                                                <span className="text-xs text-slate-400 whitespace-nowrap">{date.toLocaleDateString('ar-SY')}</span>
                                             </div>
                                         </div>
                                     );
@@ -222,8 +222,8 @@ export default function TicketDetailsModal({ ticket, onClose, onUpdate }: Props)
                 </div>
 
                 {/* Footer */}
-                <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end">
-                    <button onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors bg-white border border-gray-200 rounded-xl hover:bg-slate-50">
+                <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+                    <button onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors bg-white border border-slate-200 rounded-xl hover:bg-slate-50">
                         إغلاق
                     </button>
                 </div>
@@ -238,7 +238,7 @@ function InfoCard({ icon: Icon, label, value, children }: { icon: typeof MapPin;
         <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
             <div className="flex items-center gap-1 mb-1">
                 <Icon className="w-3 h-3 text-slate-400" />
-                <span className="text-[10px] text-slate-400 font-bold">{label}</span>
+                <span className="text-xs text-slate-400 font-bold">{label}</span>
             </div>
             {children || <p className="text-xs font-medium text-slate-700 truncate">{value}</p>}
         </div>

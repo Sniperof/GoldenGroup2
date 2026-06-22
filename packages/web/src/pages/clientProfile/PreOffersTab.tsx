@@ -194,7 +194,7 @@ export function PreOffersTab({ client }: Props) {
       <div className="space-y-4 max-w-7xl">
         <header className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-lg font-black text-slate-800">العروض المسبقة</h3>
+            <h3 className="text-base font-bold text-slate-800">العروض المسبقة</h3>
             <p className="text-xs text-slate-400 font-bold mt-1">
               العروض المُحضَّرة قبل الزيارة ضمن مهام عرض جهاز، ونتيجة رد الزبون على كل عرض.
             </p>
@@ -220,7 +220,7 @@ export function PreOffersTab({ client }: Props) {
     <div className="space-y-4 max-w-7xl">
       <header className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-black text-slate-800">العروض المسبقة</h3>
+          <h3 className="text-base font-bold text-slate-800">العروض المسبقة</h3>
           <p className="text-xs text-slate-400 font-bold mt-1">
             العروض المُحضَّرة قبل الزيارة ضمن مهام عرض جهاز، ونتيجة رد الزبون على كل عرض.
           </p>
@@ -290,11 +290,11 @@ export function PreOffersTab({ client }: Props) {
                   <td className="py-3 px-4">
                     <div className="font-bold text-slate-800">{e.deviceModelName ?? '—'}</div>
                     {e.quantity > 1 && (
-                      <div className="text-[10px] text-slate-400 mt-0.5">× {e.quantity}</div>
+                      <div className="text-xs text-slate-400 mt-0.5">× {e.quantity}</div>
                     )}
                   </td>
                   <td className="py-3 px-4">
-                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
                       e.offerType === 'cash'
                         ? 'bg-sky-50 text-sky-700'
                         : 'bg-violet-50 text-violet-700'
@@ -307,14 +307,14 @@ export function PreOffersTab({ client }: Props) {
                   </td>
                   <td className="py-3 px-4 text-slate-600">
                     {e.offerType === 'installment' && e.installmentMonths
-                      ? <span className="text-[11px]">
+                      ? <span className="text-xs">
                           أول دفعة {fmtMoney(e.firstPaymentAmount, e.currency)} · {e.installmentMonths} شهر
                         </span>
                       : <span className="text-slate-400">—</span>}
                   </td>
                   <td className="py-3 px-4">
                     {e.discountPercentage && e.discountPercentage > 0 ? (
-                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700">
                         {e.discountPercentage}%
                       </span>
                     ) : <span className="text-slate-400">—</span>}
@@ -375,7 +375,7 @@ function SummaryCard({ icon, label, value, color }: SummaryCardProps) {
           {icon}
         </div>
         <div>
-          <div className="text-[11px] text-slate-400 font-bold">{label}</div>
+          <div className="text-xs text-slate-400 font-bold">{label}</div>
           <div className="text-lg font-black text-slate-800">{value}</div>
         </div>
       </div>

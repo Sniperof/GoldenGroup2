@@ -38,8 +38,8 @@ export default function TaskQuickStatsCard(props: TaskQuickStatsCardProps) {
                 <Icon className="w-4 h-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-bold text-slate-400 tracking-wide">{t.label}</p>
-                <p className={`text-xl font-black tabular-nums leading-tight ${isZero ? 'text-slate-300' : 'text-slate-800'}`}>
+                <p className="text-xs font-bold text-slate-400 tracking-wide">{t.label}</p>
+                <p className={`text-lg font-black tabular-nums leading-tight ${isZero ? 'text-slate-300' : 'text-slate-800'}`}>
                   {t.value}
                 </p>
               </div>

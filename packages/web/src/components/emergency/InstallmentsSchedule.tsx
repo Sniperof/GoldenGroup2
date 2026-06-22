@@ -178,7 +178,7 @@ export default function InstallmentsSchedule({
                 : `المجموع: ${totalEntered.toLocaleString('ar-SY')} / المطلوب: ${installableAmount.toLocaleString('ar-SY')} ل.س`}
             </span>
             {!balanced && (
-              <span className="text-[10px]">
+              <span className="text-xs">
                 فرق: {Math.abs(diff).toLocaleString('ar-SY')} ل.س ({diff > 0 ? 'زيادة' : 'نقص'})
               </span>
             )}

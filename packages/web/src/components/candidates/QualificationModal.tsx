@@ -83,7 +83,7 @@ function LinkConfirmOverlay({
                             <User className="w-4 h-4 text-sky-500" />
                         </div>
                         <div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">الاسم</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">الاسم</p>
                             <p className="text-sm font-bold text-slate-800">
                                 {client.name || `${client.firstName || ''} ${client.lastName || ''}`.trim() || `#${client.id}`}
                                 {client.nickname && (
@@ -100,11 +100,11 @@ function LinkConfirmOverlay({
                             <Phone className="w-4 h-4 text-emerald-500" />
                         </div>
                         <div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">الهاتف</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">الهاتف</p>
                             {primaryContact ? (
                                 <p className="text-sm font-bold text-slate-800 font-mono tracking-wide">
                                     {primaryContact.number}
-                                    <span className="text-[10px] text-emerald-600 font-sans font-bold mr-1.5">رئيسي</span>
+                                    <span className="text-xs text-emerald-600 font-sans font-bold mr-1.5">رئيسي</span>
                                 </p>
                             ) : (
                                 <p className="text-sm font-bold text-slate-800 font-mono">{client.mobile || '--'}</p>
@@ -121,7 +121,7 @@ function LinkConfirmOverlay({
                             <MapPin className="w-4 h-4 text-violet-500" />
                         </div>
                         <div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">العنوان</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">العنوان</p>
                             <p className="text-sm font-medium text-slate-700">
                                 {geoUnits.length === 0 ? (
                                     <span className="text-slate-400 text-xs">جاري تحميل العناوين...</span>
@@ -142,7 +142,7 @@ function LinkConfirmOverlay({
                                 <Building2 className="w-4 h-4 text-slate-500" />
                             </div>
                             <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">الفرع</p>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">الفرع</p>
                                 <p className="text-sm font-bold text-slate-700">{client.branchName}</p>
                             </div>
                         </div>
@@ -300,7 +300,7 @@ export default function QualificationModal({
                                 <Search className="w-5 h-5 text-sky-600" />
                             </div>
                             <div>
-                                <h2 className="text-xl font-bold text-slate-800">تأهيل وتحقق</h2>
+                                <h2 className="text-lg font-bold text-slate-800">تأهيل وتحقق</h2>
                                 <p className="text-xs text-slate-500">
                                     الاسم المقترح: {candidate.firstName} {candidate.nickname}
                                 </p>
@@ -316,7 +316,7 @@ export default function QualificationModal({
 
                                 {/* ── Auto Phone Check ── */}
                                 <div>
-                                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+                                    <h3 className="text-base font-bold text-slate-500 uppercase tracking-wider mb-3">
                                         نتائج التحقق من التكرار
                                     </h3>
 
@@ -364,13 +364,13 @@ export default function QualificationModal({
                                                             {autoCheckResult.client.name}
                                                         </div>
                                                         {autoCheckResult.client.branchName && (
-                                                            <div className="text-[10px] text-slate-500">
+                                                            <div className="text-xs text-slate-500">
                                                                 {autoCheckResult.client.branchName}
                                                             </div>
                                                         )}
                                                     </div>
                                                 </div>
-                                                <span className="px-2 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold group-hover:bg-red-200 transition-colors">
+                                                <span className="px-2 py-0.5 rounded bg-red-100 text-red-700 text-xs font-bold group-hover:bg-red-200 transition-colors">
                                                     اختيار وتأكيد
                                                 </span>
                                             </button>
@@ -417,7 +417,7 @@ export default function QualificationModal({
 
                                 {/* ── Manual Deep Search ── */}
                                 <div>
-                                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+                                    <h3 className="text-base font-bold text-slate-500 uppercase tracking-wider mb-3">
                                         بحث عميق يدوي
                                     </h3>
                                     <form
@@ -456,16 +456,16 @@ export default function QualificationModal({
                                                                 </div>
                                                                 <div>
                                                                     <div className="text-sm font-bold text-slate-800">{d.name}</div>
-                                                                    <div className="text-[10px] text-slate-500">
+                                                                    <div className="text-xs text-slate-500">
                                                                         {d.governorate} · {d.neighborhood}
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                             <div className="flex flex-col items-end gap-0.5">
-                                                                <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-600 text-[10px] font-bold group-hover:bg-sky-100 group-hover:text-sky-700 transition-colors">
+                                                                <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-600 text-xs font-bold group-hover:bg-sky-100 group-hover:text-sky-700 transition-colors">
                                                                     اختيار وتأكيد
                                                                 </span>
-                                                                <span className="text-[10px] text-slate-400">{clientType}</span>
+                                                                <span className="text-xs text-slate-400">{clientType}</span>
                                                             </div>
                                                         </button>
                                                     );
@@ -491,7 +491,7 @@ export default function QualificationModal({
                             /* ── Step 2: Final Action ── */
                             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
                                 <div className="text-center space-y-2 mb-2">
-                                    <h3 className="text-lg font-bold text-slate-800">اتخاذ إجراء نهائي</h3>
+                                    <h3 className="text-base font-bold text-slate-800">اتخاذ إجراء نهائي</h3>
                                     <p className="text-sm text-slate-500">تم التأكد من صحة البيانات. ماذا تريد أن تفعل؟</p>
                                 </div>
 
@@ -508,7 +508,7 @@ export default function QualificationModal({
                                     </div>
                                     <div className="flex justify-between items-center pt-3 border-t border-slate-200/60 mb-1">
                                         <span className="text-xs text-slate-500 font-bold">اسم الوسيط</span>
-                                        <span className="text-[10px] bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold">
+                                        <span className="text-xs bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold">
                                             {candidate.referralType}
                                         </span>
                                     </div>

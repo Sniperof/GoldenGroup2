@@ -112,13 +112,13 @@ export default function CandidatesEntry() {
                                                         <span>{getPrimaryContact(candidate).number}</span>
                                                     </div>
                                                     {getEntityContacts(candidate).length > 1 && (
-                                                        <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100 self-start">
+                                                        <span className="text-xs font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100 self-start">
                                                             {getEntityContacts(candidate).length} أرقام تواصل
                                                         </span>
                                                     )}
                                                 </div>
                                                 {candidate.duplicateFlag && (
-                                                    <div className="flex items-center gap-1 mt-1 text-amber-600 text-[10px] font-bold">
+                                                    <div className="flex items-center gap-1 mt-1 text-amber-600 text-xs font-bold">
                                                         <AlertCircle className="w-3 h-3" />
                                                         مكرر ({candidate.duplicateType === 'Client' ? 'زبون' : 'مرشح'})
                                                     </div>
@@ -127,12 +127,12 @@ export default function CandidatesEntry() {
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col gap-1">
                                                     <div className="flex items-center gap-1.5">
-                                                        <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-100">
+                                                        <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-xs font-bold border border-indigo-100">
                                                             {candidate.referralType}
                                                         </span>
                                                         <span className="text-xs font-bold text-slate-700">{candidate.referralNameSnapshot}</span>
                                                     </div>
-                                                    <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                                                    <div className="flex items-center gap-1 text-xs text-slate-400">
                                                         <FileText className="w-3 h-3" />
                                                         {sheet ? `ورقة #${sheet.id}` : 'إدخال مباشر'} | {candidate.referralDate.split('T')[0]}
                                                     </div>
@@ -165,7 +165,7 @@ export default function CandidatesEntry() {
                                                         </>
                                                     )}
                                                     {candidate.status === 'Qualified' && (
-                                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
+                                                        <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
                                                             ID: {candidate.convertedToLeadId}
                                                         </span>
                                                     )}

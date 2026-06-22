@@ -75,8 +75,8 @@ function OfferGoldenButton({ device, onCreated }: { device: DeviceCtx; onCreated
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Award className="h-3.5 w-3.5" />}
         عرض كفالة ذهبية
       </button>
-      {msg && <span className="text-[11px] text-emerald-600">{msg}</span>}
-      {err && <span className="text-[11px] text-rose-600">{err}</span>}
+      {msg && <span className="text-xs text-emerald-600">{msg}</span>}
+      {err && <span className="text-xs text-rose-600">{err}</span>}
     </div>
   );
 }

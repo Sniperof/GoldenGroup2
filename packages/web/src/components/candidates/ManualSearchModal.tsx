@@ -49,7 +49,7 @@ function NameMatchHint({ nameMatch }: { nameMatch?: SmartMatchNameCheck }) {
     if (!nameMatch?.checked) return null;
 
     return (
-        <div className={`mt-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold ${
+        <div className={`mt-2 rounded-lg border px-2.5 py-1.5 text-xs font-bold ${
             nameMatch.matches
                 ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
                 : 'border-amber-100 bg-amber-50 text-amber-700'
@@ -173,7 +173,7 @@ export default function ManualSearchModal({
                             <Search className="w-5 h-5 text-indigo-600" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-800">التحقق الذكي (Smart Match)</h2>
+                            <h2 className="text-lg font-bold text-slate-800">التحقق الذكي (Smart Match)</h2>
                             <p className="text-sm text-slate-500">فحص التكرار على مستوى النظام مع احترام صلاحيات العرض</p>
                         </div>
                     </div>
@@ -188,7 +188,7 @@ export default function ManualSearchModal({
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-[11px] font-bold text-slate-500 mb-1.5">الاسم / الكنية</label>
+                                <label className="block text-xs font-bold text-slate-500 mb-1.5">الاسم / الكنية</label>
                                 <Input
                                     value={inputs.name}
                                     onChange={e => setInputs(prev => ({ ...prev, name: e.target.value }))}
@@ -196,7 +196,7 @@ export default function ManualSearchModal({
                                 />
                             </div>
                             <div>
-                                <label className="block text-[11px] font-bold text-slate-500 mb-1.5">
+                                <label className="block text-xs font-bold text-slate-500 mb-1.5">
                                     رقم الموبايل
                                     {phoneVerified && (
                                         <span className="mr-1.5 text-emerald-600 font-black inline-flex items-center gap-0.5">
@@ -249,14 +249,14 @@ export default function ManualSearchModal({
                                     )}
                                 </div>
                                 {!phoneVerified && inputs.mobile.length > 0 && !isValidSyrianMobile && (
-                                    <p className="text-[10px] text-amber-500 mt-1 font-medium">
+                                    <p className="text-xs text-amber-500 mt-1 font-medium">
                                         {inputs.mobile.length < 10
                                             ? `${10 - inputs.mobile.length} خانة متبقية، ويجب أن يبدأ الرقم بـ 09`
                                             : 'يجب أن يبدأ رقم الموبايل بـ 09'}
                                     </p>
                                 )}
                                 {!phoneVerified && inputs.mobile.length === 0 && (
-                                    <p className="text-[10px] text-slate-400 mt-1 font-medium">أدخل 10 أرقام تبدأ بـ 09 لإجراء الفحص</p>
+                                    <p className="text-xs text-slate-400 mt-1 font-medium">أدخل 10 أرقام تبدأ بـ 09 لإجراء الفحص</p>
                                 )}
                             </div>
                         </div>
@@ -264,7 +264,7 @@ export default function ManualSearchModal({
 
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-bold text-slate-700">نتيجة التحقق</h3>
+                            <h3 className="text-base font-bold text-slate-800">نتيجة التحقق</h3>
                         </div>
 
                         {isSearching ? (

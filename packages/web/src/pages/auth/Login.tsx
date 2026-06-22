@@ -81,10 +81,10 @@ export default function Login() {
             </div>
           </div>
 
-          <h1 className="text-4xl xl:text-5xl font-bold mb-4 text-center tracking-tight">
+          <h1 className="text-2xl xl:text-2xl font-bold mb-4 text-center tracking-tight">
             Golden Group
           </h1>
-          <p className="text-xl xl:text-2xl font-light text-white/90 mb-12 text-center">
+          <p className="text-lg xl:text-2xl font-light text-white/90 mb-12 text-center">
             نظام إدارة العملاء والموارد
           </p>
 
@@ -115,14 +115,14 @@ export default function Login() {
             <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg shadow-sky-500/20 mb-3 transition-transform duration-300 hover:scale-105 border border-slate-100">
               <img src={logoMark} alt="Golden Group" className="w-11 h-11 object-contain" />
             </div>
-            <h1 className="text-xl font-bold text-slate-800">Golden Group</h1>
+            <h1 className="text-lg font-bold text-slate-800">Golden Group</h1>
             <p className="text-sm text-slate-500 mt-1">نظام إدارة العملاء والموارد</p>
           </div>
 
           {/* Card */}
           <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-6 sm:p-8">
             <div className="text-center mb-6">
-              <h2 className="text-xl font-bold text-slate-800">تسجيل الدخول</h2>
+              <h2 className="text-lg font-bold text-slate-800">تسجيل الدخول</h2>
               <p className="text-sm text-slate-500 mt-1">
                 أدخل بيانات حسابك للمتابعة
               </p>

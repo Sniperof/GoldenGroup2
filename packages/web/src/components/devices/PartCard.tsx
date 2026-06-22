@@ -26,34 +26,34 @@ export function PartCard({ item, contract, installed }: Props) {
             {label}
           </span>
           {code && (
-            <span className="text-[10px] text-slate-400 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
+            <span className="text-xs text-slate-400 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
               {code}
             </span>
           )}
-          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+          <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
             installed ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-100 text-amber-700'
           }`}>
             {installed ? '✓ مركّب' : '⏳ بانتظار التركيب'}
           </span>
         </div>
         <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-          <span className="text-[11px] text-slate-500">الكمية: {qty}</span>
+          <span className="text-xs text-slate-500">الكمية: {qty}</span>
           {totalPrice != null && (
-            <span className="text-[11px] text-slate-500">
+            <span className="text-xs text-slate-500">
               السعر: {totalPrice.toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س
               {qty > 1 && price != null && (
                 <span className="text-slate-400"> ({price.toLocaleString('ar-SY', { numberingSystem: 'latn' })} × {qty})</span>
               )}
             </span>
           )}
-          <span className="text-[11px] text-slate-400">
+          <span className="text-xs text-slate-400">
             تاريخ الشراء: {contract?.contractDate ? new Date(contract.contractDate).toLocaleDateString('ar-SY') : '—'}
           </span>
-          <span className="text-[11px] text-slate-400">
+          <span className="text-xs text-slate-400">
             المصدر: عقد #{contract?.contractNumber || contract?.id}
           </span>
           {item.oldPartRemoved === true && (
-            <span className="text-[11px] text-emerald-600 font-medium">✓ تم تبديل القطعة القديمة</span>
+            <span className="text-xs text-emerald-600 font-medium">✓ تم تبديل القطعة القديمة</span>
           )}
         </div>
       </div>

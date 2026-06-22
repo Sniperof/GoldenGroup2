@@ -195,10 +195,10 @@ function Section({ icon: Icon, title, accent = 'text-sky-600', children, action 
     icon: any; title: string; accent?: string; children: React.ReactNode; action?: React.ReactNode;
 }) {
     return (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-            <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
                 <Icon className={`w-4 h-4 ${accent}`} />
-                <h2 className="text-sm font-bold text-slate-700">{title}</h2>
+                <h2 className="text-lg font-bold text-slate-800">{title}</h2>
                 {action && <div className="mr-auto">{action}</div>}
             </div>
             <div className="p-5">{children}</div>
@@ -372,7 +372,7 @@ export default function VisitDetailPage() {
                                 <Icon className={`w-4 h-4 ${muted ? 'text-slate-400' : 'text-indigo-500'}`} />
                             </div>
                             <div className="min-w-0">
-                                <p className="text-[10px] text-slate-400">{title}</p>
+                                <p className="text-xs text-slate-400">{title}</p>
                                 <p className="text-xs font-semibold text-slate-700 truncate">{dash(data?.[key]?.name)}</p>
                             </div>
                         </div>
@@ -398,18 +398,18 @@ export default function VisitDetailPage() {
                 <div className="flex items-center gap-2 mb-2">
                     <TypeIcon className={`w-3.5 h-3.5 ${tc.iconClass}`} />
                     <span className="text-xs font-bold text-slate-700">{r.sourceLabel}</span>
-                    <span className="text-[10px] text-slate-400">{r.purchaseDate}</span>
+                    <span className="text-xs text-slate-400">{r.purchaseDate}</span>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-black text-slate-800">{r.itemName}</span>
-                    {r.itemCode && <span className="text-[10px] font-mono text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">{r.itemCode}</span>}
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${tc.badgeClass}`}>{tc.label}</span>
+                    {r.itemCode && <span className="text-xs font-mono text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">{r.itemCode}</span>}
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${tc.badgeClass}`}>{tc.label}</span>
                 </div>
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <span className="text-xs font-black text-slate-700">
                         {Number(r.totalPrice).toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س
                     </span>
-                    {r.quantity > 1 && <span className="text-[10px] text-slate-500">كمية: {r.quantity}</span>}
+                    {r.quantity > 1 && <span className="text-xs text-slate-500">كمية: {r.quantity}</span>}
                 </div>
             </div>
         );
@@ -418,13 +418,13 @@ export default function VisitDetailPage() {
     return (
         <div className="h-full overflow-y-auto custom-scroll bg-slate-50/40">
             {/* ── Header ── */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-4 sticky top-0 z-10">
+            <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center gap-4 sticky top-0 z-10">
                 <button onClick={() => navigate(-1)}
-                    className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 text-slate-500">
+                    className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50 text-slate-500">
                     <ArrowRight className="w-4 h-4" />
                 </button>
                 <div className="flex-1">
-                    <h1 className="text-base font-bold text-slate-800">
+                    <h1 className="text-2xl font-bold text-slate-800">
                         {visit.client_name ?? `زيارة #${visit.id}`}
                         <span className="text-slate-300 font-mono text-sm mr-2">#{visit.id}</span>
                     </h1>
@@ -432,7 +432,7 @@ export default function VisitDetailPage() {
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${status.bg} ${status.color}`}>{status.label}</span>
                         {visit.scheduled_date && <span className="text-xs text-slate-400">{formatDate(visit.scheduled_date)}</span>}
                         {visit.origin_type && (
-                            <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                            <span className="text-xs text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
                                 {ORIGIN_LABELS[visit.origin_type] ?? visit.origin_type}
                             </span>
                         )}
@@ -576,7 +576,7 @@ export default function VisitDetailPage() {
                             <div>
                                 <TeamCard data={backupTeam} label="الفريق الرديف (الأصلي)" muted />
                                 {team.reassigned_at && (
-                                    <p className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1">
+                                    <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
                                         <Repeat className="w-3 h-3" /> تاريخ التغيير: {formatDate(team.reassigned_at)} {formatTime(team.reassigned_at)}
                                     </p>
                                 )}
@@ -607,7 +607,7 @@ export default function VisitDetailPage() {
                             <div className="flex items-center gap-2 mr-auto">
                                 <div className="text-center px-3 py-1.5 rounded-lg bg-sky-50 border border-sky-200">
                                     <p className="text-base font-black text-sky-700">{sheet.target_candidates ?? 0}</p>
-                                    <p className="text-[10px] text-sky-600">أسماء مقترحة</p>
+                                    <p className="text-xs text-sky-600">أسماء مقترحة</p>
                                 </div>
                             </div>
                         </div>
@@ -640,7 +640,7 @@ export default function VisitDetailPage() {
                             const decisionMeta = getFinalDecisionMeta(task.final_decision);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
                             return (
-                                <div key={task.id} className="rounded-xl border border-gray-200 p-4">
+                                <div key={task.id} className="rounded-xl border border-slate-200 p-4">
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
                                             <p className="text-sm font-bold text-slate-800">
@@ -661,25 +661,25 @@ export default function VisitDetailPage() {
                                         <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                                             <div className="grid gap-2 md:grid-cols-2">
                                                 <div className="rounded-xl border border-white bg-white px-3 py-2 shadow-sm">
-                                                    <div className="mb-1 text-[11px] font-bold text-slate-400">النتيجة</div>
+                                                    <div className="mb-1 text-xs font-bold text-slate-400">النتيجة</div>
                                                     <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-xs font-black ${decisionMeta.cls}`}>
                                                         {decisionMeta.label}
                                                     </span>
                                                 </div>
                                                 <div className="rounded-xl border border-white bg-white px-3 py-2 shadow-sm">
-                                                    <div className="mb-1 text-[11px] font-bold text-slate-400">المحصلة</div>
+                                                    <div className="mb-1 text-xs font-bold text-slate-400">المحصلة</div>
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-xs font-black ${outcomeMeta.cls}`}>
                                                             {outcomeMeta.label}
                                                         </span>
                                                         {outcomeMeta.detail && (
-                                                            <span className="text-[11px] font-semibold text-slate-500">{outcomeMeta.detail}</span>
+                                                            <span className="text-xs font-semibold text-slate-500">{outcomeMeta.detail}</span>
                                                         )}
                                                     </div>
                                                 </div>
                                             </div>
                                             {outcomeMeta.counts.total > 0 && (
-                                                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-bold">
+                                                <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-bold">
                                                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">العروض: {outcomeMeta.counts.total}</span>
                                                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">مقبول: {outcomeMeta.counts.accepted}</span>
                                                     <span className="rounded-full bg-rose-50 px-2 py-0.5 text-rose-700">رفض: {outcomeMeta.counts.rejected}</span>
@@ -746,7 +746,7 @@ export default function VisitDetailPage() {
                     )}
 
                     {visit.status === 'cancelled' && (
-                        <div className="mt-4 pt-4 border-t border-gray-100 bg-rose-50/40 -mx-5 -mb-5 px-5 py-4">
+                        <div className="mt-4 pt-4 border-t border-slate-100 bg-rose-50/40 -mx-5 -mb-5 px-5 py-4">
                             <p className="text-xs font-bold text-rose-700 flex items-center gap-1 mb-2"><XCircle className="w-4 h-4" /> سبب إلغاء الزيارة</p>
                             <p className="text-sm font-semibold text-slate-800">{dash(visit.cancellation_reason_label)}</p>
                             {visit.cancellation_notes && <p className="text-xs text-slate-500 mt-1">{visit.cancellation_notes}</p>}
@@ -754,13 +754,13 @@ export default function VisitDetailPage() {
                     )}
 
                     {visit.field_notes && (
-                        <div className="mt-4 pt-4 border-t border-gray-100">
+                        <div className="mt-4 pt-4 border-t border-slate-100">
                             <Field icon={FileText} label="ملاحظات الميدان" value={visit.field_notes} full />
                         </div>
                     )}
 
                     {survey && (
-                        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center gap-2 text-xs">
+                        <div className="mt-4 pt-4 border-t border-slate-100 flex items-center gap-2 text-xs">
                             <ClipboardCheck className="w-4 h-4 text-emerald-500" />
                             <span className="text-slate-500">الاستبيان:</span>
                             {survey.is_skipped ? (

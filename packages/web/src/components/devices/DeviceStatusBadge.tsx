@@ -15,7 +15,7 @@ const MAP: Record<string, { cls: string; label: string }> = {
   faulty:           { cls: 'bg-red-100 text-red-700',        label: 'معطل' },
   in_workshop:      { cls: 'bg-orange-100 text-orange-700',  label: 'في الورشة' },
   ready:            { cls: 'bg-cyan-100 text-cyan-700',      label: 'جاهز' },
-  out_of_service:   { cls: 'bg-gray-100 text-gray-500',      label: 'خارج الخدمة' },
+  out_of_service:   { cls: 'bg-slate-100 text-slate-500',      label: 'خارج الخدمة' },
   retrieved:        { cls: 'bg-slate-100 text-slate-600',    label: 'مستردة' },
 };
 

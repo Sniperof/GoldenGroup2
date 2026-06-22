@@ -15,7 +15,7 @@ function PossessionEmpty({ status }: { status?: string }) {
   return (
     <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2">
       <div className="text-xs font-bold text-amber-700">لا يوجد حائز حالي</div>
-      <div className="text-[11px] text-amber-700/80 mt-0.5">{reason}</div>
+      <div className="text-xs text-amber-700/80 mt-0.5">{reason}</div>
     </div>
   );
 }
@@ -24,7 +24,7 @@ function LocationEmpty() {
   return (
     <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2">
       <div className="text-xs font-bold text-amber-700">موقع الجهاز غير مكتمل</div>
-      <div className="text-[11px] text-amber-700/80 mt-0.5">
+      <div className="text-xs text-amber-700/80 mt-0.5">
         لم تحفظ منطقة أو عنوان أو إحداثيات للجهاز. غالباً يجب تعبئة بيانات الجهاز من مسودة العقد عند الاعتماد أو من نتيجة مهمة التسليم.
       </div>
     </div>
@@ -46,7 +46,7 @@ export function CurrentHolderSection({ device, currentPossession }: Props) {
     >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-2">الحائز الحالي</div>
+          <div className="text-xs text-slate-400 font-bold mb-2">الحائز الحالي</div>
           {currentPossession ? (
             <PossessionHolderChip
               holderType={currentPossession.holderType}
@@ -57,7 +57,7 @@ export function CurrentHolderSection({ device, currentPossession }: Props) {
             <PossessionEmpty status={device?.status} />
           )}
           {currentPossession?.startAt && (
-            <div className="mt-2 text-[11px] text-slate-500">
+            <div className="mt-2 text-xs text-slate-500">
               منذ:{' '}
               <span className="font-semibold text-slate-700">
                 {new Date(currentPossession.startAt).toLocaleString('ar-SY', { numberingSystem: 'latn' })}
@@ -67,7 +67,7 @@ export function CurrentHolderSection({ device, currentPossession }: Props) {
         </div>
 
         <div>
-          <div className="text-[11px] text-slate-400 font-bold mb-2 flex items-center gap-1">
+          <div className="text-xs text-slate-400 font-bold mb-2 flex items-center gap-1">
             <MapPin className="w-3.5 h-3.5" /> موقع التركيب المرجعي
           </div>
           {hasLocation ? (

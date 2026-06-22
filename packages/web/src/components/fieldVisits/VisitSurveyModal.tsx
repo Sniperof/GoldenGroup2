@@ -166,7 +166,7 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
         <header className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50">
           <div className="flex items-center gap-2">
             <ClipboardCheck className="w-4 h-4 text-emerald-700" />
-            <h2 className="text-sm font-bold text-slate-800">استبيان الزيارة</h2>
+            <h2 className="text-lg font-bold text-slate-800">استبيان الزيارة</h2>
           </div>
           <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
         </header>
@@ -189,7 +189,7 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
 
           {skipMode ? (
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">سبب التخطي</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1">سبب التخطي</label>
               <Select
                 value={skipReason}
                 onChange={setSkipReason}
@@ -210,7 +210,7 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
               <TextField label="رأي الزبون بنتيجة Demo Kit" value={form.customerOpinionDemoKit} onChange={(v) => setField('customerOpinionDemoKit', v)} />
               <TextField label="تقييم فكرة أجهزة التنقية" value={form.customerOpinionPurificationIdea} onChange={(v) => setField('customerOpinionPurificationIdea', v)} />
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">رغبة الشراء</label>
+                <label className="block text-xs font-bold text-slate-600 mb-1">رغبة الشراء</label>
                 <Select<'yes' | 'no'>
                   value={form.customerPurchaseIntent}
                   onChange={v => setField('customerPurchaseIntent', v)}
@@ -224,7 +224,7 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
               </div>
               <TextField label="طريقة الدفع المتوقعة" value={form.expectedPaymentMethod} onChange={(v) => setField('expectedPaymentMethod', v)} />
               <div className="col-span-2">
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">تقييم المنطقة</label>
+                <label className="block text-xs font-bold text-slate-600 mb-1">تقييم المنطقة</label>
                 <Select
                   value={form.areaEvaluation}
                   onChange={v => setField('areaEvaluation', v)}

@@ -184,7 +184,7 @@ export default function RouteManager() {
             {/* ── Page header ── */}
             <div className="flex items-end justify-between mb-6">
                 <div>
-                    <h1 className="text-xl font-bold text-slate-900 mb-1">إدارة خطوط السير</h1>
+                    <h1 className="text-2xl font-bold text-slate-800 mb-1">إدارة خطوط السير</h1>
                     <p className="text-slate-500 text-sm">عرض وإدارة مسارات التوزيع والصيانة.</p>
                 </div>
                 <button
@@ -199,7 +199,7 @@ export default function RouteManager() {
             </div>
 
             {/* ── Search ── */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-6 flex items-center gap-3">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 mb-6 flex items-center gap-3">
                 <div className="relative flex-1">
                     <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
@@ -207,26 +207,26 @@ export default function RouteManager() {
                         placeholder="بحث عن مسار..."
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg pr-10 pl-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg pr-10 pl-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
                     />
                 </div>
                 <BranchScopeIndicator />
             </div>
 
             {/* ── Routes table ── */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <table className="w-full">
                     <thead>
-                        <tr className="border-b border-gray-200 bg-gray-50">
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">اسم المسار</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">الفرع التابع</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">عدد المحطات</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">المحطات</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase">إجراءات</th>
+                        <tr className="border-b border-slate-200 bg-slate-50">
+                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">#</th>
+                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">اسم المسار</th>
+                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">الفرع التابع</th>
+                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">عدد المحطات</th>
+                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">المحطات</th>
+                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">إجراءات</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-slate-100">
                         {filtered.length === 0 ? (
                             <tr>
                                 <td colSpan={6} className="text-center text-slate-500 py-10 text-sm">لا توجد مسارات</td>
@@ -255,12 +255,12 @@ export default function RouteManager() {
                                             return (
                                                 <span key={p.geoUnitId} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs ${colors.bg} ${colors.text} border ${colors.border}`}>
                                                     {getUnitName(p.geoUnitId)}
-                                                    <span className="opacity-60 text-[10px]">{levelNames[p.level]}</span>
+                                                    <span className="opacity-60 text-xs">{levelNames[p.level]}</span>
                                                 </span>
                                             );
                                         })}
                                         {r.points.length > 4 && (
-                                            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-xs text-slate-500">
+                                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-xs text-slate-500">
                                                 +{r.points.length - 4}
                                             </span>
                                         )}
@@ -294,13 +294,13 @@ export default function RouteManager() {
                         <motion.div
                             initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
                             transition={{ type: 'spring', damping: 25 }}
-                            className="fixed top-0 left-0 h-full w-[480px] bg-white border-r border-gray-200 z-50 flex flex-col shadow-2xl"
+                            className="fixed top-0 left-0 h-full w-[480px] bg-white border-r border-slate-200 z-50 flex flex-col shadow-2xl"
                             style={{ direction: 'rtl' }}
                         >
                             {/* Builder header */}
-                            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+                            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
                                 <div>
-                                    <h3 className="text-slate-900 font-bold">
+                                    <h3 className="text-slate-800 font-bold">
                                         {editRoute ? 'تعديل المسار' : 'مسار جديد'}
                                     </h3>
                                 </div>
@@ -316,7 +316,7 @@ export default function RouteManager() {
                                         value={builderName}
                                         onChange={e => setBuilderName(e.target.value)}
                                         placeholder="مثال: مسار المنصور"
-                                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
                                     />
                                 </div>
 
@@ -325,7 +325,7 @@ export default function RouteManager() {
                                     <label className="text-xs font-semibold text-slate-600">
                                         اختر محطة من الشجرة الجغرافية
                                     </label>
-                                    <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
+                                    <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
                                         {[1, 2, 3, 4].map(level => {
                                             const parentId = level === 1 ? null : treeSel[level - 2];
                                             const canShow = level === 1 || parentId !== null;
@@ -335,9 +335,9 @@ export default function RouteManager() {
                                             if (children.length === 0 && level > 1) return null;
 
                                             return (
-                                                <div key={level} className={level > 1 ? 'border-t border-gray-200' : ''}>
-                                                    <div className="px-3 py-1.5 bg-gray-100">
-                                                        <p className="text-[10px] font-semibold text-sky-600 uppercase tracking-wider">
+                                                <div key={level} className={level > 1 ? 'border-t border-slate-200' : ''}>
+                                                    <div className="px-3 py-1.5 bg-slate-100">
+                                                        <p className="text-xs font-semibold text-sky-600 uppercase tracking-wider">
                                                             {levelNames[level]}
                                                         </p>
                                                     </div>
@@ -352,10 +352,10 @@ export default function RouteManager() {
                                                                     disabled={alreadyAdded}
                                                                     className={`px-2.5 py-1.5 rounded-lg text-xs transition-all flex items-center gap-1 ${
                                                                         alreadyAdded
-                                                                            ? 'bg-gray-100 text-slate-400 cursor-not-allowed line-through'
+                                                                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed line-through'
                                                                             : isSelected
                                                                                 ? 'bg-sky-50 text-sky-700 font-bold ring-1 ring-sky-300'
-                                                                                : 'bg-white text-slate-700 hover:bg-sky-50 hover:text-sky-700 border border-gray-200'
+                                                                                : 'bg-white text-slate-700 hover:bg-sky-50 hover:text-sky-700 border border-slate-200'
                                                                     }`}
                                                                 >
                                                                     <span>{u.name}</span>
@@ -380,7 +380,7 @@ export default function RouteManager() {
                                         >
                                             <Plus className="w-4 h-4" />
                                             <span>إضافة «{getUnitName(addableUnit.id)}» كمحطة</span>
-                                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${levelColors[addableUnit.level].bg} ${levelColors[addableUnit.level].text}`}>
+                                            <span className={`px-1.5 py-0.5 rounded text-xs ${levelColors[addableUnit.level].bg} ${levelColors[addableUnit.level].text}`}>
                                                 {levelNames[addableUnit.level]}
                                             </span>
                                         </motion.button>
@@ -393,12 +393,12 @@ export default function RouteManager() {
                                     {builderPoints.map((p, idx) => {
                                         const colors = levelColors[p.level] || levelColors[4];
                                         return (
-                                            <div key={p.geoUnitId} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 border border-gray-200">
+                                            <div key={p.geoUnitId} className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
                                                 <span className="w-6 h-6 rounded-full bg-sky-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
                                                     {idx + 1}
                                                 </span>
                                                 <span className="flex-1 text-sm text-slate-800">{getUnitName(p.geoUnitId)}</span>
-                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${colors.bg} ${colors.text} ${colors.border}`}>
+                                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium border ${colors.bg} ${colors.text} ${colors.border}`}>
                                                     {levelNames[p.level]}
                                                 </span>
                                                 <button onClick={() => movePoint(idx, -1)} disabled={idx === 0} className="text-slate-400 hover:text-sky-600 disabled:opacity-30">
@@ -416,7 +416,7 @@ export default function RouteManager() {
                                 </div>
                             </div>
 
-                            <div className="p-4 border-t border-gray-200">
+                            <div className="p-4 border-t border-slate-200">
                                 <button onClick={saveRoute} className="w-full bg-sky-600 hover:bg-sky-500 text-white py-2.5 rounded-lg font-bold text-sm transition-all">
                                     {editRoute ? 'حفظ التعديلات' : 'إنشاء المسار'}
                                 </button>

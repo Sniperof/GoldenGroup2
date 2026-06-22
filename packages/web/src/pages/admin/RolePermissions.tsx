@@ -248,7 +248,7 @@ function ActionBadge({ action }: { action: string }) {
   };
   const cfg = map[action] ?? { icon: <Key className="w-3 h-3" />, color: 'bg-slate-100 text-slate-500', text: getActionLabel(action) };
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${cfg.color}`}>
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${cfg.color}`}>
       {cfg.icon}{cfg.text}
     </span>
   );
@@ -535,7 +535,7 @@ export default function RolePermissions() {
             <Key className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold text-slate-800 truncate">
+            <h1 className="text-2xl font-bold text-slate-800 truncate">
               صلاحيات دور: <span className="text-sky-600">{role?.displayName ?? `#${roleId}`}</span>
             </h1>
             <p className="text-xs text-slate-500">
@@ -656,22 +656,22 @@ export default function RolePermissions() {
                     {modCfg.icon}
                   </span>
                   <div className="min-w-0">
-                    <h3 className="text-sm font-bold text-slate-800">{modCfg.label}</h3>
+                    <h3 className="text-base font-bold text-slate-800">{modCfg.label}</h3>
                     {!isOpen && (
                       <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
                         {subModuleNames.slice(0, 3).map(name => (
-                          <span key={name} className="inline-flex items-center rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 text-[10px] font-medium">
+                          <span key={name} className="inline-flex items-center rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 text-xs font-medium">
                             {name}
                           </span>
                         ))}
                         {subModuleNames.length > 3 && (
-                          <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-400 px-2 py-0.5 text-[10px] font-medium">
+                          <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-400 px-2 py-0.5 text-xs font-medium">
                             +{subModuleNames.length - 3}
                           </span>
                         )}
                       </div>
                     )}
-                    <p className="text-[10px] text-slate-400">{moduleSelected} من {moduleTotal} صلاحية مُفعَّلة</p>
+                    <p className="text-xs text-slate-400">{moduleSelected} من {moduleTotal} صلاحية مُفعَّلة</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -710,10 +710,10 @@ export default function RolePermissions() {
                       <div className="flex items-center justify-between px-5 py-2.5 bg-slate-50/60">
                         <span className="text-xs font-semibold text-slate-500">{subLabel}</span>
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-400">{subSelected}/{perms.length}</span>
+                          <span className="text-xs text-slate-400">{subSelected}/{perms.length}</span>
                           <button
                             onClick={() => toggleSubModule(perms)}
-                            className={`text-[10px] font-semibold px-2.5 py-1 rounded-md transition-colors ${
+                            className={`text-xs font-semibold px-2.5 py-1 rounded-md transition-colors ${
                               allSubSelected
                                 ? 'bg-sky-100 text-sky-600 hover:bg-sky-200'
                                 : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
@@ -762,7 +762,7 @@ export default function RolePermissions() {
                                       <ActionBadge action={action} />
                                     </div>
                                     {desc && (
-                                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{desc}</p>
+                                      <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{desc}</p>
                                     )}
                                   </div>
                                   {isOn && scopeOptions.length > 1 && (
@@ -778,7 +778,7 @@ export default function RolePermissions() {
                                     </div>
                                   )}
                                   {isOn && scopeOptions.length === 1 && (
-                                    <span className="shrink-0 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-400">
+                                    <span className="shrink-0 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-400">
                                       {scopeOptions[0].label}
                                     </span>
                                   )}

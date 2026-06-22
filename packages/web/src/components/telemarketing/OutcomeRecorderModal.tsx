@@ -226,7 +226,7 @@ function OutcomeButton({
             onClick={onClick}
             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border-2 transition-all text-right ${isActive
                 ? `${colors.bg} ${colors.border} ${colors.color} ring-2 ring-offset-1 ring-violet-300 shadow-sm`
-                : 'bg-white border-gray-100 text-slate-600 hover:border-gray-200 hover:bg-gray-50'}`}
+                : 'bg-white border-slate-100 text-slate-600 hover:border-slate-200 hover:bg-slate-50'}`}
         >
             <span className="text-sm font-bold">{meta.label}</span>
             {isActive && <CheckCircle2 className="w-4 h-4 shrink-0" />}
@@ -440,7 +440,7 @@ export default function OutcomeRecorderModal({
                 className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
                 {/* Header */}
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-violet-50 shrink-0">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-violet-50 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
                             <Send className="w-5 h-5 text-violet-600" />
@@ -461,7 +461,7 @@ export default function OutcomeRecorderModal({
                         <label className="text-sm font-bold text-slate-700 flex items-center justify-between">
                             <span>قناة التواصل <span className="text-red-500">*</span></span>
                             {preselectedContactId && !relevantContact?.hasWhatsApp && (
-                                <span className="text-[10px] text-slate-400 font-normal">واتساب غير متاح لهذا الرقم</span>
+                                <span className="text-xs text-slate-400 font-normal">واتساب غير متاح لهذا الرقم</span>
                             )}
                         </label>
                         <div className={`grid gap-3 ${showWhatsAppOption ? 'grid-cols-2' : 'grid-cols-1'}`}>
@@ -470,7 +470,7 @@ export default function OutcomeRecorderModal({
                                 onClick={() => setMethod('cellular')}
                                 className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all ${method === 'cellular'
                                     ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-2 ring-indigo-200 shadow-sm'
-                                    : 'bg-white border-gray-100 text-slate-600 hover:border-gray-200 hover:bg-gray-50'}`}
+                                    : 'bg-white border-slate-100 text-slate-600 hover:border-slate-200 hover:bg-slate-50'}`}
                             >
                                 <Phone className="w-5 h-5" />
                                 <span className="text-sm font-bold">شبكة</span>
@@ -481,7 +481,7 @@ export default function OutcomeRecorderModal({
                                 onClick={() => setMethod('whatsapp')}
                                 className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all ${method === 'whatsapp'
                                     ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-2 ring-emerald-200 shadow-sm'
-                                    : 'bg-white border-gray-100 text-slate-600 hover:border-gray-200 hover:bg-gray-50'}`}
+                                    : 'bg-white border-slate-100 text-slate-600 hover:border-slate-200 hover:bg-slate-50'}`}
                             >
                                 <MessageSquare className="w-5 h-5" />
                                 <span className="text-sm font-bold">واتساب</span>
@@ -512,7 +512,7 @@ export default function OutcomeRecorderModal({
                                         رسالة
                                     </button>
                                 </div>
-                                <p className="text-[10px] text-indigo-600 font-bold mt-2 bg-white px-2 py-1 rounded border border-indigo-100 w-fit">
+                                <p className="text-xs text-indigo-600 font-bold mt-2 bg-white px-2 py-1 rounded border border-indigo-100 w-fit">
                                     الموظف: {currentUser?.name || 'غير معروف'}
                                 </p>
                             </div>
@@ -541,7 +541,7 @@ export default function OutcomeRecorderModal({
                                         مكالمة صوتية
                                     </button>
                                 </div>
-                                <p className="text-[10px] text-emerald-600 font-bold mt-2 bg-white px-2 py-1 rounded border border-emerald-100 w-fit">
+                                <p className="text-xs text-emerald-600 font-bold mt-2 bg-white px-2 py-1 rounded border border-emerald-100 w-fit">
                                     الموظف: {currentUser?.name || 'غير معروف'}
                                 </p>
                             </div>
@@ -569,12 +569,12 @@ export default function OutcomeRecorderModal({
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-[10px] font-bold text-slate-400 mb-0.5">الرقم المختار للتواصل</p>
+                                <p className="text-xs font-bold text-slate-400 mb-0.5">الرقم المختار للتواصل</p>
                                 <p className="text-sm font-black text-slate-800" dir="ltr">{relevantContact?.number}</p>
                                 <p className="text-xs text-slate-500">{relevantContact?.label}</p>
                             </div>
                             {relevantContact?.hasWhatsApp && (
-                                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold border border-green-200 shrink-0">واتساب ✓</span>
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold border border-green-200 shrink-0">واتساب ✓</span>
                             )}
                         </div>
                     ) : (
@@ -614,7 +614,7 @@ export default function OutcomeRecorderModal({
                             type="datetime-local"
                             value={callDateTime}
                             onChange={e => setCallDateTime(e.target.value)}
-                            className="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none transition-all"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none transition-all"
                         />
                     </div>
 
@@ -833,7 +833,7 @@ export default function OutcomeRecorderModal({
                                         key={opt.value}
                                         className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border cursor-pointer text-sm font-bold transition-all ${answeredBy === opt.value
                                             ? 'bg-violet-50 border-violet-300 text-violet-700 ring-1 ring-violet-200'
-                                            : 'bg-white border-gray-200 text-slate-600 hover:bg-slate-50'}`}
+                                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                                     >
                                         <input
                                             type="radio"
@@ -865,7 +865,7 @@ export default function OutcomeRecorderModal({
                                         onClick={() => setSelectedPhoneStatus(status)}
                                         className={`px-3 py-2 rounded-lg border-2 text-xs font-bold transition-all text-right ${selectedPhoneStatus === status
                                             ? 'bg-red-50 border-red-400 text-red-700 ring-2 ring-red-200 shadow-sm'
-                                            : 'bg-white border-gray-200 text-slate-600 hover:border-gray-300 hover:bg-gray-50'}`}
+                                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
                                     >
                                         {label}
                                     </button>
@@ -1013,9 +1013,9 @@ export default function OutcomeRecorderModal({
                             value={notes}
                             onChange={e => setNotes(e.target.value)}
                             placeholder={requiresNotes ? 'مطلوب — أدخل التفاصيل هنا...' : 'أي تفاصيل إضافية حول التواصل...'}
-                            className={`w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:bg-white focus:ring-2 focus:outline-none min-h-[80px] resize-none transition-all ${requiresNotes && !notes.trim()
+                            className={`w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:outline-none min-h-[80px] resize-none transition-all ${requiresNotes && !notes.trim()
                                 ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500/20'
-                                : 'border-gray-200 focus:border-violet-500 focus:ring-violet-500/20'}`}
+                                : 'border-slate-200 focus:border-violet-500 focus:ring-violet-500/20'}`}
                         />
                         {requiresNotes && !notes.trim() && (
                             <p className="text-xs text-amber-600 font-bold">يرجى إدخال ملاحظات لهذه النتيجة</p>
@@ -1024,7 +1024,7 @@ export default function OutcomeRecorderModal({
                 </div>
 
                 {/* Footer */}
-                <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
+                <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
                     <Button variant="ghost" onClick={onClose}>إلغاء</Button>
                     <Button
                         icon={CheckCircle2}

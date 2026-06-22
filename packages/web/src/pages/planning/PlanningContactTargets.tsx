@@ -228,10 +228,10 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                             <span className="text-sm">{pm.icon}</span>
                         </div>
                         <div>
-                            <h3 className="font-bold text-slate-900">{client.clientName}</h3>
+                            <h3 className="font-bold text-slate-800">{client.clientName}</h3>
                             <div className="flex items-center gap-2 mt-0.5">
                                 {client.primaryPhone && <span className="text-xs font-mono text-slate-500" dir="ltr">{client.primaryPhone}</span>}
-                                <span className={`text-[10px] font-bold rounded-full border px-1.5 py-0.5 ${pm.badge}`}>{pm.label}</span>
+                                <span className={`text-xs font-bold rounded-full border px-1.5 py-0.5 ${pm.badge}`}>{pm.label}</span>
                             </div>
                         </div>
                     </div>
@@ -327,7 +327,7 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                                     </div>
                                     {task.dueDate && <p className="text-xs text-slate-500 mt-0.5">استحقاق: {task.dueDate}</p>}
                                 </div>
-                                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold
+                                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-bold
                                     ${task.status === 'assigned'      ? 'border-amber-200 bg-amber-50 text-amber-700'
                                     : task.status === 'in_scheduling' ? 'border-sky-200 bg-sky-50 text-sky-700'
                                     : task.status === 'scheduled'     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -370,8 +370,8 @@ function StatCard({ phase, count, active, onClick }: {
                 className={`flex flex-col items-center gap-1 rounded-xl border px-4 py-3 min-w-[72px] transition-all ${
                     active ? 'border-slate-700 bg-slate-800 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                 }`}>
-                <span className="text-xl font-black">{count}</span>
-                <span className="text-[10px] font-bold">المعروض</span>
+                <span className="text-lg font-black">{count}</span>
+                <span className="text-xs font-bold">المعروض</span>
             </button>
         );
     }
@@ -381,10 +381,10 @@ function StatCard({ phase, count, active, onClick }: {
             className={`flex flex-col items-center gap-1 rounded-xl border px-4 py-3 min-w-[72px] transition-all ${
                 active ? `${pm.badge} shadow-sm ring-2 ring-offset-1 ring-current/20` : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
             }`}>
-            <span className="text-xl font-black">{count}</span>
+            <span className="text-lg font-black">{count}</span>
             <div className="flex items-center gap-1">
                 <span className={`w-1.5 h-1.5 rounded-full ${active ? pm.dot : 'bg-slate-300'}`} />
-                <span className="text-[10px] font-bold">{pm.label}</span>
+                <span className="text-xs font-bold">{pm.label}</span>
             </div>
         </button>
     );
@@ -645,14 +645,14 @@ export default function PlanningContactTargets() {
                     </button>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                            <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+                            <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-800">
                                 <Target className="h-5 w-5 text-sky-600" />
                                 جهات الاتصال — {teamLabel}
                             </h1>
                             <p className="mt-0.5 text-sm text-slate-500 flex items-center gap-1.5">
                                 <Calendar className="h-3.5 w-3.5" />
                                 {date}
-                                {date === defaultPlanningDate && <span className="text-[10px] font-bold bg-sky-100 text-sky-600 px-1.5 py-0.5 rounded-full border border-sky-200">خطة الغد</span>}
+                                {date === defaultPlanningDate && <span className="text-xs font-bold bg-sky-100 text-sky-600 px-1.5 py-0.5 rounded-full border border-sky-200">خطة الغد</span>}
                             </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -702,7 +702,7 @@ export default function PlanningContactTargets() {
                                         {taskListGeneratedAt ? `آخر توليد: ${taskListGeneratedAt} — ` : ''}
                                         المعروض الأساسي هو جهات الاتصال ضمن القائمة. أي مهام مناسبة تظهر بعد آخر توليد ستظهر كبادجات فرق، ولا تدخل القائمة إلا بعد إعادة التوليد.
                                     </p>
-                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-bold">
                                         <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-emerald-700">
                                             {generatedCount} ضمن القائمة
                                         </span>
@@ -873,7 +873,7 @@ export default function PlanningContactTargets() {
                                         {/* Checkbox col — only interactive on assigned/excluded */}
                                         <th className="w-12 px-3 py-3 text-center">
                                             {phaseFilter === 'assigned'
-                                                ? <span className="text-[10px] text-slate-400 font-normal">توليد</span>
+                                                ? <span className="text-xs text-slate-400 font-normal">توليد</span>
                                                 : null}
                                         </th>
                                         <th className="px-4 py-3 text-right w-16">
@@ -1011,7 +1011,7 @@ export default function PlanningContactTargets() {
                                                 </td>
 
                                                 <td className="px-4 py-3">
-                                                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${classificationColor(client.candidateStatus)}`}>
+                                                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-bold ${classificationColor(client.candidateStatus)}`}>
                                                         {classificationLabel(client.candidateStatus)}
                                                     </span>
                                                 </td>

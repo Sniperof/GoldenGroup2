@@ -600,7 +600,7 @@ export default function SystemLists() {
         {/* ── Sidebar ── */}
         <Card padding="none" className="w-60 overflow-y-auto flex-shrink-0">
           <div className="p-3.5 border-b border-slate-100 bg-slate-50 sticky top-0">
-            <h3 className="font-bold text-slate-600 text-xs uppercase tracking-wider">الفئات</h3>
+            <h3 className="font-bold text-slate-600 text-base uppercase tracking-wider">الفئات</h3>
           </div>
           <div className="p-2 space-y-0.5">
             {sidebarCategories.map(cat => {
@@ -644,7 +644,7 @@ export default function SystemLists() {
                   </div>
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold text-sm">{activeMeta.label}</h3>
+                      <h3 className="font-bold text-base">{activeMeta.label}</h3>
                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${impactCfg.cls}`}>
                         {impactCfg.label}
                       </span>
@@ -662,7 +662,7 @@ export default function SystemLists() {
                         <div key={i} className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium ${impactCfg.cls}`}>
                           {loc.icon}
                           <span>{loc.label}</span>
-                          <span className="opacity-60 text-[10px] before:content-['—'] before:mr-1">{loc.route}</span>
+                          <span className="opacity-60 text-xs before:content-['—'] before:mr-1">{loc.route}</span>
                         </div>
                       ))}
                     </div>
@@ -803,12 +803,12 @@ export default function SystemLists() {
                           {activeCategory === 'job_title' && (
                             <div className="mt-1">
                               {item.linkedRoleName ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+                                <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
                                   <ShieldCheck className="w-3 h-3" />
                                   {item.linkedRoleName}
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                                <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
                                   لم يُربط بدور بعد
                                 </span>
                               )}
@@ -817,12 +817,12 @@ export default function SystemLists() {
                           {activeCategory === 'department_type' && (
                             <div className="mt-1">
                               {(item.metadata as any)?.canSelectDevice ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
                                   <Cpu className="w-3 h-3" />
                                   تخصيص جهاز مفعّل
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-50 text-slate-400 border border-slate-200">
+                                <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-slate-50 text-slate-400 border border-slate-200">
                                   <Cpu className="w-3 h-3" />
                                   بدون أجهزة
                                 </span>
@@ -849,8 +849,8 @@ export default function SystemLists() {
       {isItemModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gray-50">
-              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
                 <Tag className="w-5 h-5 text-sky-500" />
                 {editingItem ? 'تعديل خيار' : `إضافة — ${panelTitle()}`}
               </h3>
@@ -942,8 +942,8 @@ export default function SystemLists() {
       {isNewCatOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gray-50">
-              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
                 <FolderPlus className="w-5 h-5 text-indigo-500" /> إضافة فئة جديدة
               </h3>
               <IconButton icon={X} label="إغلاق" onClick={() => setIsNewCatOpen(false)} />

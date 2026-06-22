@@ -187,9 +187,9 @@ export default function GeoSettings() {
         <button
             onClick={() => canManageGeo && toggleStatus(unit)}
             title={canManageGeo ? (unit.status === 'active' ? 'انقر لتعطيل' : 'انقر لتفعيل') : undefined}
-            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${canManageGeo ? 'cursor-pointer hover:opacity-75' : 'cursor-default'} ${unit.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200'}`}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${canManageGeo ? 'cursor-pointer hover:opacity-75' : 'cursor-default'} ${unit.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-200'}`}
         >
-            <span className={`w-1.5 h-1.5 rounded-full ${unit.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${unit.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
             {unit.status === 'active' ? 'نشط' : 'معطّل'}
         </button>
     );
@@ -245,7 +245,7 @@ export default function GeoSettings() {
                             <Globe className="w-5 h-5 text-sky-600" />
                         </div>
                         <div>
-                            <h1 className="text-xl font-bold text-slate-900 leading-tight">إدارة المستويات الإدارية</h1>
+                            <h1 className="text-2xl font-bold text-slate-800 leading-tight">إدارة المستويات الإدارية</h1>
                             <p className="text-slate-500 text-xs mt-0.5">{geoUnits.length} وحدة جغرافية</p>
                         </div>
                     </div>
@@ -258,7 +258,7 @@ export default function GeoSettings() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
                     {tabs.map(tab => (
                         <button
                             key={tab.level}
@@ -270,7 +270,7 @@ export default function GeoSettings() {
                         >
                             <tab.icon className="w-4 h-4" />
                             <span>{tab.label}</span>
-                            <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${activeTab === tab.level ? 'bg-sky-50 text-sky-600' : 'bg-gray-200 text-gray-500'}`}>
+                            <span className={`px-1.5 py-0.5 rounded-md text-xs font-bold ${activeTab === tab.level ? 'bg-sky-50 text-sky-600' : 'bg-slate-200 text-slate-500'}`}>
                                 {byLevel(tab.level).length}
                             </span>
                         </button>
@@ -293,12 +293,12 @@ export default function GeoSettings() {
                     actions={(u) => (
                         <div className="flex items-center gap-1">
                             {canManageGeo && (
-                                <button onClick={() => openEditModal(u)} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-400 hover:text-sky-500 transition-all border border-transparent hover:border-gray-100">
+                                <button onClick={() => openEditModal(u)} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-400 hover:text-sky-500 transition-all border border-transparent hover:border-slate-100">
                                     <Pencil className="w-4 h-4" />
                                 </button>
                             )}
                             {canManageGeo && (
-                                <button onClick={() => deleteUnit(u.id)} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-400 hover:text-red-500 transition-all border border-transparent hover:border-gray-100">
+                                <button onClick={() => deleteUnit(u.id)} className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-400 hover:text-red-500 transition-all border border-transparent hover:border-slate-100">
                                     <Trash2 className="w-4 h-4" />
                                 </button>
                             )}
@@ -343,8 +343,8 @@ export default function GeoSettings() {
                             exit={{ opacity: 0, scale: 0.95 }}
                             className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
                         >
-                            <div className="p-5 border-b border-gray-100 flex justify-between items-center">
-                                <h2 className="text-lg font-bold text-slate-900">تعديل {levelNames[editUnit.level]}</h2>
+                            <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                                <h2 className="text-lg font-bold text-slate-800">تعديل {levelNames[editUnit.level]}</h2>
                                 <IconButton icon={X} label="إغلاق" onClick={() => setEditUnit(null)} />
                             </div>
                             <div className="p-5 space-y-4">
@@ -355,7 +355,7 @@ export default function GeoSettings() {
                                         value={editName}
                                         onChange={e => { setEditName(e.target.value); setEditError(''); }}
                                         onKeyDown={e => e.key === 'Enter' && handleEdit()}
-                                        className={`w-full bg-gray-50 border rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none transition-colors ${editError ? 'border-red-300 focus:border-red-500' : 'border-gray-200 focus:border-sky-500'}`}
+                                        className={`w-full bg-slate-50 border rounded-lg px-3 py-2.5 text-sm text-slate-900 focus:outline-none transition-colors ${editError ? 'border-red-300 focus:border-red-500' : 'border-slate-200 focus:border-sky-500'}`}
                                         autoFocus
                                     />
                                 </div>
@@ -366,8 +366,8 @@ export default function GeoSettings() {
                                     </div>
                                 )}
                             </div>
-                            <div className="p-5 border-t border-gray-100 flex gap-3">
-                                <button onClick={() => setEditUnit(null)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm transition-colors">
+                            <div className="p-5 border-t border-slate-100 flex gap-3">
+                                <button onClick={() => setEditUnit(null)} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm transition-colors">
                                     إلغاء
                                 </button>
                                 <button onClick={handleEdit} className="flex-1 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-bold text-sm transition-colors">
@@ -390,8 +390,8 @@ export default function GeoSettings() {
                             className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden"
                         >
                             {/* Modal Header */}
-                            <div className="p-5 border-b border-gray-100 flex justify-between items-center">
-                                <h2 className="text-lg font-bold text-slate-900">إضافة {levelNames[activeTab]}</h2>
+                            <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                                <h2 className="text-lg font-bold text-slate-800">إضافة {levelNames[activeTab]}</h2>
                                 <IconButton icon={X} label="إغلاق" onClick={() => setIsModalOpen(false)} />
                             </div>
 
@@ -454,7 +454,7 @@ export default function GeoSettings() {
                                         onChange={e => { setModalName(e.target.value); setAddError(''); }}
                                         onKeyDown={e => e.key === 'Enter' && handleAdd()}
                                         placeholder={`أدخل اسم ${levelNames[activeTab]}...`}
-                                        className={`w-full bg-gray-50 border rounded-lg px-3 py-2.5 text-sm text-slate-900 placeholder:text-gray-400 focus:outline-none transition-colors ${addError ? 'border-red-300 focus:border-red-500' : 'border-gray-200 focus:border-sky-500'}`}
+                                        className={`w-full bg-slate-50 border rounded-lg px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none transition-colors ${addError ? 'border-red-300 focus:border-red-500' : 'border-slate-200 focus:border-sky-500'}`}
                                         autoFocus
                                     />
                                 </div>
@@ -467,8 +467,8 @@ export default function GeoSettings() {
                             </div>
 
                             {/* Modal Footer */}
-                            <div className="p-5 border-t border-gray-100 flex gap-3">
-                                <button onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm transition-colors">
+                            <div className="p-5 border-t border-slate-100 flex gap-3">
+                                <button onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm transition-colors">
                                     إلغاء
                                 </button>
                                 <button onClick={handleAdd} className="flex-1 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-bold text-sm transition-colors flex items-center justify-center gap-2">

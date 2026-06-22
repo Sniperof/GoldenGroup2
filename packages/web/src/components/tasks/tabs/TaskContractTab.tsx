@@ -47,7 +47,7 @@ const PAYMENT_TYPE_LABELS: Record<string, string> = {
 
 function Badge({ text, cls }: { text: string; cls: string }) {
   return (
-    <span className={`inline-flex items-center text-[11px] font-bold rounded-lg border px-2 py-0.5 ${cls}`}>
+    <span className={`inline-flex items-center text-xs font-bold rounded-lg border px-2 py-0.5 ${cls}`}>
       {text}
     </span>
   );
@@ -228,7 +228,7 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
         <Card title="عنوان التركيب" icon={MapPin}>
           {fullAddress && (
             <div className="mb-3 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5">
-              <div className="text-[11px] font-bold text-slate-500 mb-1">العنوان الكامل</div>
+              <div className="text-xs font-bold text-slate-500 mb-1">العنوان الكامل</div>
               <div className="text-sm text-slate-800 leading-relaxed">{fullAddress}</div>
             </div>
           )}
@@ -257,7 +257,7 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
                   title="موقع التركيب"
                 />
               </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500">
+              <div className="flex items-center justify-between text-xs text-slate-500">
                 <span dir="ltr" className="font-mono">{Number(addressLat).toFixed(6)}, {Number(addressLng).toFixed(6)}</span>
                 <a
                   href={`https://www.google.com/maps?q=${addressLat},${addressLng}`}

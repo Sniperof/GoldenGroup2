@@ -375,7 +375,7 @@ export default function PermissionSettings() {
             <Shield className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold text-slate-800">إعدادات نطاقات الصلاحيات</h1>
+            <h1 className="text-2xl font-bold text-slate-800">إعدادات نطاقات الصلاحيات</h1>
             <p className="text-xs text-slate-500">
               تحديد النطاقات المسموحة لكل صلاحية — يؤثر على الخيارات المتاحة عند تعيين الصلاحيات للأدوار
             </p>
@@ -415,7 +415,7 @@ export default function PermissionSettings() {
         {/* Scope column header */}
         <div className="hidden md:flex items-center gap-2 px-5 py-2">
           <div className="flex-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">الصلاحية</div>
-          <div className="flex items-center gap-3 shrink-0 ml-2 text-[11px] font-bold text-slate-500">
+          <div className="flex items-center gap-3 shrink-0 ml-2 text-xs font-bold text-slate-500">
             {(['GLOBAL', 'BRANCH', 'ASSIGNED'] as ScopeKey[]).map(s => (
               <span key={s} className="w-24 text-center leading-tight">{SCOPE_LABELS[s]}</span>
             ))}
@@ -433,7 +433,7 @@ export default function PermissionSettings() {
                 <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${modCfg.color}`}>
                   {modCfg.icon}
                 </span>
-                <h3 className="text-sm font-bold text-slate-700">{modCfg.label}</h3>
+                <h3 className="text-base font-bold text-slate-800">{modCfg.label}</h3>
                 <span className="text-xs text-slate-400 mr-auto">{perms.length} صلاحية</span>
               </div>
 
@@ -450,7 +450,7 @@ export default function PermissionSettings() {
                           <p className="text-sm font-semibold text-slate-700 truncate">
                             {getPermLabel(perm)}
                           </p>
-                          <p className="text-[11px] text-slate-400">{getPermissionContextLabel(perm)}</p>
+                          <p className="text-xs text-slate-400">{getPermissionContextLabel(perm)}</p>
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           {(['GLOBAL', 'BRANCH', 'ASSIGNED'] as ScopeKey[]).map(scope => {

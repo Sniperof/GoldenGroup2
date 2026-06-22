@@ -48,8 +48,8 @@ export default function AssignAgentModal({ isOpen, onClose, selectedDueIds }: As
                     exit={{ opacity: 0, scale: 0.95 }}
                     className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden"
                 >
-                    <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                        <h3 className="text-lg font-bold text-slate-900">تعيين موظف</h3>
+                    <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                        <h3 className="text-base font-bold text-slate-800">تعيين موظف</h3>
                         <IconButton icon={X} label="إغلاق" shape="circle" onClick={onClose} />
                     </div>
 

@@ -26,7 +26,7 @@ export default function TaskScheduleCard({ task, extraRows }: TaskScheduleCardPr
               {task.expectedDate ? formatDate(task.expectedDate) : '—'}
             </span>
             {expectedStatus && (
-              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${expectedStatus.badgeClass}`}>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${expectedStatus.badgeClass}`}>
                 {expectedStatus.label}
               </span>
             )}

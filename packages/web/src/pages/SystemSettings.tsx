@@ -39,27 +39,27 @@ export default function SystemSettings() {
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm"
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
                 >
-                    <div className="p-6 border-b border-gray-100 bg-slate-50/50 flex items-center gap-3">
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
                         <Database className="w-5 h-5 text-sky-600" />
-                        <h2 className="text-lg font-bold text-slate-700">إدارة البيانات</h2>
+                        <h2 className="text-lg font-bold text-slate-800">إدارة البيانات</h2>
                     </div>
 
                     <div className="p-6">
                         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-4 mb-6">
                             <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0" />
                             <div>
-                                <h3 className="text-sm font-bold text-amber-800 mb-1">منطقة الخطر</h3>
+                                <h3 className="text-base font-bold text-amber-800 mb-1">منطقة الخطر</h3>
                                 <p className="text-xs text-amber-700 leading-relaxed">
                                     البيانات مخزنة في قاعدة البيانات. إعادة التحميل ستقوم بتحديث التطبيق وجلب أحدث البيانات من الخادم.
                                 </p>
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-between p-4 border border-gray-100 rounded-xl bg-white hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center justify-between p-4 border border-slate-100 rounded-xl bg-white hover:bg-slate-50 transition-colors">
                             <div>
-                                <h3 className="text-sm font-bold text-slate-700">إعادة ضبط المصنع (حذف الكل)</h3>
+                                <h3 className="text-base font-bold text-slate-800">إعادة ضبط المصنع (حذف الكل)</h3>
                                 <p className="text-xs text-slate-500 mt-1">إعادة تحميل التطبيق</p>
                             </div>
 

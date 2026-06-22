@@ -112,19 +112,19 @@ export default function TaskCommunicationOnlyTab({ task, calls, activity, onSubm
                         : <Phone className="w-3.5 h-3.5 text-sky-500 shrink-0" />}
                       <span className="text-sm font-bold text-slate-800">{meta.label}</span>
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                    <span className="text-xs text-slate-400 font-mono whitespace-nowrap">
                       {formatDateTime(call.callDate ?? call.createdAt)}
                     </span>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5">
                     {call.contactLabel && (
-                      <span className="text-[10px] bg-sky-50 text-sky-600 border border-sky-100 px-2 py-0.5 rounded font-bold">
+                      <span className="text-xs bg-sky-50 text-sky-600 border border-sky-100 px-2 py-0.5 rounded font-bold">
                         {call.contactLabel}
                       </span>
                     )}
                     {call.communicationChannel && (
-                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
+                      <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
                         {call.communicationChannel === 'cellular_call' ? 'مكالمة هاتفية'
                           : call.communicationChannel === 'cellular_text' ? 'رسالة نصية'
                           : call.communicationChannel === 'whatsapp_call' ? 'واتساب صوتي'
@@ -133,7 +133,7 @@ export default function TaskCommunicationOnlyTab({ task, calls, activity, onSubm
                       </span>
                     )}
                     {call.telemarketerName && (
-                      <span className="text-[10px] bg-violet-50 text-violet-600 border border-violet-100 px-2 py-0.5 rounded font-bold">
+                      <span className="text-xs bg-violet-50 text-violet-600 border border-violet-100 px-2 py-0.5 rounded font-bold">
                         {call.telemarketerName}
                       </span>
                     )}
@@ -141,12 +141,12 @@ export default function TaskCommunicationOnlyTab({ task, calls, activity, onSubm
 
                   {siblings.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
-                      <span className="flex items-center gap-1 text-[10px] text-violet-600 font-bold shrink-0">
+                      <span className="flex items-center gap-1 text-xs text-violet-600 font-bold shrink-0">
                         <Layers className="w-3 h-3" />
                         شملت أيضاً:
                       </span>
                       {siblings.map((s: any) => (
-                        <span key={s.taskId} className="text-[10px] bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded font-bold">
+                        <span key={s.taskId} className="text-xs bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded font-bold">
                           {s.arabicLabel}
                         </span>
                       ))}
@@ -227,11 +227,11 @@ export default function TaskCommunicationOnlyTab({ task, calls, activity, onSubm
                   <div className="flex items-center gap-2 flex-wrap mb-1.5">
                     <span className="text-xs font-bold text-slate-700">{n.author}</span>
                     {n.isCreator && (
-                      <span className="text-[10px] font-bold text-indigo-600 bg-white border border-indigo-200 px-1.5 py-0.5 rounded">
+                      <span className="text-xs font-bold text-indigo-600 bg-white border border-indigo-200 px-1.5 py-0.5 rounded">
                         منشئ المهمة · أول ملاحظة
                       </span>
                     )}
-                    {n.createdAt && <span className="text-[10px] text-slate-400">{formatDateTime(n.createdAt)}</span>}
+                    {n.createdAt && <span className="text-xs text-slate-400">{formatDateTime(n.createdAt)}</span>}
                   </div>
                   <p className="text-sm text-slate-700 whitespace-pre-wrap">{n.text}</p>
                 </div>

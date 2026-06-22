@@ -229,10 +229,10 @@ export default function NewServiceRequestModal({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80]" dir="rtl">
       <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full mx-4 max-h-[92vh] overflow-auto">
-        <header className="flex items-center justify-between p-4 border-b border-gray-200 sticky top-0 bg-white z-10">
+        <header className="flex items-center justify-between p-4 border-b border-slate-200 sticky top-0 bg-white z-10">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">{CHANNEL_TITLES[channel]}</h2>
-            <div className="text-xs text-gray-500 mt-0.5">
+            <h2 className="text-lg font-bold text-slate-800">{CHANNEL_TITLES[channel]}</h2>
+            <div className="text-xs text-slate-500 mt-0.5">
               قناة: <span className="font-medium">{channel}</span>
             </div>
           </div>
@@ -249,7 +249,7 @@ export default function NewServiceRequestModal({
 
           {/* (1) Client — mandatory, from existing only (V1.0) */}
           <section className="space-y-2">
-            <h3 className="text-sm font-medium text-gray-700">
+            <h3 className="text-base font-bold text-slate-800">
               الزبون <span className="text-xs text-red-600">*</span>
             </h3>
             {clientId != null ? (
@@ -259,7 +259,7 @@ export default function NewServiceRequestModal({
                   {clientName ?? `#${clientId}`}
                 </span>
                 {!isClientLocked && (
-                  <button onClick={clearClient} className="text-xs text-gray-500 hover:text-red-600">
+                  <button onClick={clearClient} className="text-xs text-slate-500 hover:text-red-600">
                     تَغيير
                   </button>
                 )}
@@ -267,33 +267,33 @@ export default function NewServiceRequestModal({
             ) : (
               <div className="space-y-1">
                 <div className="relative">
-                  <Search className="h-4 w-4 absolute right-2 top-2.5 text-gray-400" />
+                  <Search className="h-4 w-4 absolute right-2 top-2.5 text-slate-400" />
                   <input
                     type="text"
                     value={clientSearch}
                     onChange={(e) => setClientSearch(e.target.value)}
                     placeholder="ابحث بالاسم أو الهاتف (حرفين فأكثر)"
-                    className="w-full text-sm border border-gray-300 rounded p-2 pr-8"
+                    className="w-full text-sm border border-slate-300 rounded p-2 pr-8"
                   />
                 </div>
                 {searchingClients && (
-                  <div className="text-xs text-gray-500 flex items-center gap-1">
+                  <div className="text-xs text-slate-500 flex items-center gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     جارٍ البحث...
                   </div>
                 )}
                 {clientResults.length > 0 && (
-                  <ul className="border border-gray-200 rounded divide-y divide-gray-100 max-h-48 overflow-auto">
+                  <ul className="border border-slate-200 rounded divide-y divide-slate-100 max-h-48 overflow-auto">
                     {clientResults.map((c) => (
                       <li key={c.id}>
                         <button
                           onClick={() => selectClient(c)}
                           className="w-full text-right p-2 text-sm hover:bg-blue-50"
                         >
-                          <div className="font-medium text-gray-800">
+                          <div className="font-medium text-slate-800">
                             {c.fullName ?? c.name ?? `#${c.id}`}
                           </div>
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-slate-500">
                             {c.phone ?? c.mobile ?? '— لا هاتف —'}
                           </div>
                         </button>
@@ -302,7 +302,7 @@ export default function NewServiceRequestModal({
                   </ul>
                 )}
                 {clientSearch.trim().length >= 2 && !searchingClients && clientResults.length === 0 && (
-                  <div className="text-xs text-gray-500">لا نتائج. (إنشاء زبون جديد خارج نطاق V1.0)</div>
+                  <div className="text-xs text-slate-500">لا نتائج. (إنشاء زبون جديد خارج نطاق V1.0)</div>
                 )}
               </div>
             )}
@@ -310,15 +310,15 @@ export default function NewServiceRequestModal({
 
           {/* (2) Device — mandatory, from client devices */}
           <section className="space-y-2">
-            <h3 className="text-sm font-medium text-gray-700">
+            <h3 className="text-base font-bold text-slate-800">
               الجهاز <span className="text-xs text-red-600">*</span>
             </h3>
             {clientId == null ? (
-              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
+              <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded p-2">
                 اختر الزبون أولاً لرؤية أجهزته.
               </div>
             ) : loadingDevices ? (
-              <div className="text-xs text-gray-500 flex items-center gap-1">
+              <div className="text-xs text-slate-500 flex items-center gap-1">
                 <Loader2 className="h-3 w-3 animate-spin" /> جارٍ تَحميل الأجهزة...
               </div>
             ) : devices.length === 0 ? (
@@ -344,7 +344,7 @@ export default function NewServiceRequestModal({
 
           {/* (3) Problem description — mandatory */}
           <section className="space-y-2">
-            <h3 className="text-sm font-medium text-gray-700">
+            <h3 className="text-base font-bold text-slate-800">
               وصف المشكلة <span className="text-xs text-red-600">*</span>
             </h3>
             <textarea
@@ -352,25 +352,25 @@ export default function NewServiceRequestModal({
               onChange={(e) => setProblemDescription(e.target.value)}
               placeholder="صَوت الزبون — اكتب ما يَقوله بلا تَفسير (immutable بعد الإنشاء، SR-R008)"
               rows={3}
-              className="w-full text-sm border border-gray-300 rounded p-2"
+              className="w-full text-sm border border-slate-300 rounded p-2"
             />
           </section>
 
           {/* (4) Call notes — optional (stored as first internal note) */}
           <section className="space-y-2">
-            <h3 className="text-sm font-medium text-gray-700">ملاحظات على المكالمة</h3>
+            <h3 className="text-base font-bold text-slate-800">ملاحظات على المكالمة</h3>
             <textarea
               value={callNotes}
               onChange={(e) => setCallNotes(e.target.value)}
               placeholder="ملاحظات داخلية للموظف المُستلِم (اختياري)"
               rows={2}
-              className="w-full text-sm border border-gray-300 rounded p-2"
+              className="w-full text-sm border border-slate-300 rounded p-2"
             />
           </section>
 
           {/* (5) Priority */}
           <section className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">الأولوية:</span>
+            <span className="text-xs text-slate-500">الأولوية:</span>
             <Select<'Critical' | 'High' | 'Normal' | 'Low'>
               value={priority}
               onChange={setPriority}
@@ -385,15 +385,15 @@ export default function NewServiceRequestModal({
             />
           </section>
 
-          <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+          <p className="text-xs text-slate-500 bg-slate-50 p-2 rounded">
             💡 المرفقات وقائمة الأعطال تُضاف من شاشة تفاصيل الطلب بعد الإنشاء.
           </p>
         </div>
 
-        <footer className="flex items-center justify-end gap-2 p-3 border-t border-gray-200 bg-gray-50 sticky bottom-0">
+        <footer className="flex items-center justify-end gap-2 p-3 border-t border-slate-200 bg-slate-50 sticky bottom-0">
           <button
             onClick={onClose}
-            className="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded"
+            className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded"
           >
             إلغاء
           </button>

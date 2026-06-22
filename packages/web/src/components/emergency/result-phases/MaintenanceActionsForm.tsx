@@ -176,19 +176,19 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
       {/* Row 3: الكمية + السعر + الإجمالي */}
       <div className="grid grid-cols-3 gap-2">
         <div className="space-y-1">
-          <label className="block text-[10px] font-bold text-slate-400">الكمية</label>
+          <label className="block text-xs font-bold text-slate-400">الكمية</label>
           <input type="number" min="1" value={draft.quantity}
             onChange={e => set('quantity', e.target.value)}
             className={`${inp} text-sm text-center`} />
         </div>
         <div className="space-y-1">
-          <label className="block text-[10px] font-bold text-slate-400">سعر الوحدة (ل.س)</label>
+          <label className="block text-xs font-bold text-slate-400">سعر الوحدة (ل.س)</label>
           <input type="number" min="0" value={draft.unitPrice}
             onChange={e => set('unitPrice', e.target.value)}
             className={`${inp} text-sm`} />
         </div>
         <div className="space-y-1">
-          <label className="block text-[10px] font-bold text-slate-400">الإجمالي</label>
+          <label className="block text-xs font-bold text-slate-400">الإجمالي</label>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-black text-emerald-700 text-center">
             {lineTotal.toLocaleString('ar-SY')}
           </div>
@@ -197,7 +197,7 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
 
       {/* Row 4: هل تم سحب القطعة المبدلة؟ */}
       <div className="space-y-1 pt-1 border-t border-rose-100">
-        <label className="block text-[11px] font-bold text-slate-600">مصير القطعة الجديدة</label>
+        <label className="block text-xs font-bold text-slate-600">مصير القطعة الجديدة</label>
         <div className="flex gap-2">
           {[
             { val: 'installed', label: 'تم تركيبها', active: 'bg-sky-600 text-white border-sky-500' },
@@ -205,7 +205,7 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
           ].map(opt => (
             <button key={opt.val} type="button"
               onClick={() => set('placementState', opt.val)}
-              className={`flex-1 px-3 py-2 rounded-xl text-[11px] font-bold border-2 transition-all ${
+              className={`flex-1 px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all ${
                 draft.placementState === opt.val ? opt.active : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}>
               {opt.label}
@@ -215,13 +215,13 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
       </div>
 
       <div className="flex items-center gap-3 pt-1 border-t border-rose-100">
-        <span className="text-[11px] font-bold text-slate-600 shrink-0">هل تم سحب القطعة المبدلة؟</span>
+        <span className="text-xs font-bold text-slate-600 shrink-0">هل تم سحب القطعة المبدلة؟</span>
         <div className="flex gap-2">
           {[{ val: true, label: 'نعم ✓', active: 'bg-emerald-500 text-white border-emerald-400' },
             { val: false, label: 'لا ✗',  active: 'bg-red-500 text-white border-red-400' }].map(opt => (
             <button key={String(opt.val)} type="button"
               onClick={() => set('retrieved', opt.val)}
-              className={`px-3 py-1 rounded-lg text-[11px] font-bold border-2 transition-all ${
+              className={`px-3 py-1 rounded-lg text-xs font-bold border-2 transition-all ${
                 draft.retrieved === opt.val ? opt.active : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}>
               {opt.label}
@@ -233,7 +233,7 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
       {/* Reason if not retrieved */}
       {!draft.retrieved && (
         <div className="space-y-1">
-          <label className="block text-[10px] font-bold text-rose-600">سبب عدم السحب *</label>
+          <label className="block text-xs font-bold text-rose-600">سبب عدم السحب *</label>
           <Select
             value={draft.noRetrievalReasonId}
             onChange={v => set('noRetrievalReasonId', v)}
@@ -412,7 +412,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
   return (
     <Card padding="none" className="overflow-hidden" dir="rtl">
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between">
-        <h3 className="font-bold text-slate-800 text-sm">القطع المستبدلة</h3>
+        <h3 className="font-bold text-slate-800 text-base">القطع المستبدلة</h3>
         {(initialData || savedParts.length > 0) && (
           <Badge variant="success" size="sm">
             {savedParts.length > 0 ? `${savedParts.length} قطعة محفوظة` : 'محفوظة ✓'}
@@ -469,11 +469,11 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-bold text-slate-800">{p.partNameSnapshot}</span>
                         {p.maintenanceType && (
-                          <span className={`text-[10px] font-bold rounded-full border px-2 py-0.5 ${TYPE_COLORS[p.maintenanceType] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                          <span className={`text-xs font-bold rounded-full border px-2 py-0.5 ${TYPE_COLORS[p.maintenanceType] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                             {TYPE_LABELS[p.maintenanceType]}
                           </span>
                         )}
-                        <span className={`text-[10px] font-bold rounded-full border px-2 py-0.5 ${
+                        <span className={`text-xs font-bold rounded-full border px-2 py-0.5 ${
                           p.placementState === 'customer_stock'
                             ? 'bg-violet-50 text-violet-700 border-violet-200'
                             : 'bg-sky-50 text-sky-700 border-sky-200'
@@ -481,7 +481,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
                           {p.placementState === 'customer_stock' ? 'مسلّمة وغير مركبة' : 'مركبة'}
                         </span>
                         {!p.retrieved && (
-                          <span className="text-[10px] font-bold rounded-full border border-amber-200 bg-amber-50 text-amber-700 px-2 py-0.5">
+                          <span className="text-xs font-bold rounded-full border border-amber-200 bg-amber-50 text-amber-700 px-2 py-0.5">
                             لم تُسحب
                           </span>
                         )}

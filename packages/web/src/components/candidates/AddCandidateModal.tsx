@@ -590,7 +590,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                             {sheetLocked ? (
                                                 <div className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-600 text-sm font-bold flex items-center justify-between">
                                                     <span>{selectedSheet?.assignedHrUserName ?? 'مسؤول اللائحة'}</span>
-                                                    <span className="text-[10px] text-slate-400">مثبّت من اللائحة</span>
+                                                    <span className="text-xs text-slate-400">مثبّت من اللائحة</span>
                                                 </div>
                                             ) : (
                                                 <Select
@@ -722,7 +722,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                         >
                                                             <div className="flex flex-col items-start gap-1">
                                                                 <span className="font-bold text-slate-700 text-sm">{client.name}</span>
-                                                                <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
+                                                                <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
                                                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                                     : getClientLifecycleStage(client) === 'FOP'
                                                                         ? 'bg-amber-50 text-amber-700 border-amber-200'
@@ -758,7 +758,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
                         {/* SECTION B: Candidate */}
                         <div className="space-y-4">
-                            <h3 className="text-sm font-bold text-slate-800 border-r-4 border-sky-500 pr-2"> بيانات الاسم المقترح</h3>
+                            <h3 className="text-base font-bold text-slate-800 border-r-4 border-sky-500 pr-2"> بيانات الاسم المقترح</h3>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div>
@@ -787,7 +787,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                             initial={{ opacity: 0, height: 0 }}
                                             animate={{ opacity: 1, height: 'auto' }}
                                             exit={{ opacity: 0, height: 0 }}
-                                            className={`rounded-xl p-3 border space-y-2.5 ${hasInvalidNumber ? 'bg-red-50/40 border-red-200' : 'bg-gray-50 border-gray-100'}`}
+                                            className={`rounded-xl p-3 border space-y-2.5 ${hasInvalidNumber ? 'bg-red-50/40 border-red-200' : 'bg-slate-50 border-slate-100'}`}
                                         >
                                             {/* Row 1: Type + Country code / Area code + Number + Delete */}
                                             <div className="flex items-center gap-2">
@@ -805,7 +805,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
                                                 {/* +963 badge for mobile */}
                                                 {contact.type === 'mobile' && (
-                                                    <span className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">+963</span>
+                                                    <span className="bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">+963</span>
                                                 )}
 
                                                 {/* Area code for landline */}
@@ -822,7 +822,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                         placeholder="011"
                                                         dir="ltr"
                                                         maxLength={3}
-                                                        className="bg-white border border-gray-200 rounded-lg px-2.5 py-2 text-xs font-mono text-slate-800 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none w-[60px] text-center"
+                                                        className="bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs font-mono text-slate-800 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none w-[60px] text-center"
                                                     />
                                                 )}
 
@@ -842,7 +842,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                     }
                                                     dir="ltr"
                                                     maxLength={contact.type === 'mobile' ? 10 : contact.type === 'landline' ? 7 : 15}
-                                                    className={`flex-1 bg-white border rounded-lg px-3 py-2 text-sm font-mono placeholder:text-gray-300 focus:outline-none ${hasInvalidNumber ? 'border-red-300 text-red-700 focus:border-red-400' : 'border-gray-200 text-slate-800 focus:border-sky-500'}`}
+                                                    className={`flex-1 bg-white border rounded-lg px-3 py-2 text-sm font-mono placeholder:text-slate-300 focus:outline-none ${hasInvalidNumber ? 'border-red-300 text-red-700 focus:border-red-400' : 'border-slate-200 text-slate-800 focus:border-sky-500'}`}
                                                 />
 
                                                 <button
@@ -853,7 +853,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                         setCandidateData({ ...candidateData, contacts: newContacts.length > 0 ? newContacts : [{ id: simpleUUID(), type: 'mobile', number: '', label: '', hasWhatsApp: false, isPrimary: true, status: 'active' }] });
                                                     }}
                                                     title="حذف الرقم"
-                                                    className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all border border-transparent hover:border-red-100 shrink-0"
+                                                    className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all border border-transparent hover:border-red-100 shrink-0"
                                                 >
                                                     <Trash2 className="w-3.5 h-3.5" />
                                                 </button>
@@ -870,7 +870,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                         setCandidateData({ ...candidateData, contacts: newContacts });
                                                     }}
                                                     placeholder="العلاقة (شخصي، زوجة، ابن...)"
-                                                    className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none"
+                                                    className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none"
                                                 />
 
                                                 <select
@@ -880,7 +880,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                         newContacts[index] = { ...contact, status: e.target.value as ContactStatus };
                                                         setCandidateData({ ...candidateData, contacts: newContacts });
                                                     }}
-                                                    className={`border rounded-lg px-2 py-1.5 text-[11px] font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[contact.status as ContactStatus]?.style || ''}`}
+                                                    className={`border rounded-lg px-2 py-1.5 text-xs font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[contact.status as ContactStatus]?.style || ''}`}
                                                 >
                                                     {Object.entries(contactStatusConfig).map(([key, cfg]) => (
                                                         <option key={key} value={key}>{cfg.label}</option>
@@ -894,7 +894,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                         newContacts[index] = { ...contact, hasWhatsApp: !contact.hasWhatsApp };
                                                         setCandidateData({ ...candidateData, contacts: newContacts });
                                                     }}
-                                                    className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${contact.hasWhatsApp ? 'bg-green-50 border-green-200 text-green-600' : 'bg-white border-gray-200 text-gray-300 hover:text-gray-400'}`}
+                                                    className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${contact.hasWhatsApp ? 'bg-green-50 border-green-200 text-green-600' : 'bg-white border-slate-200 text-slate-300 hover:text-slate-400'}`}
                                                     title={contact.hasWhatsApp ? 'يدعم واتساب' : 'بدون واتساب'}
                                                 >
                                                     <MessageCircle className="w-3.5 h-3.5" />
@@ -906,17 +906,17 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                         const newContacts = candidateData.contacts.map((c, i) => ({ ...c, isPrimary: i === index }));
                                                         setCandidateData({ ...candidateData, contacts: newContacts });
                                                     }}
-                                                    className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${contact.isPrimary ? 'bg-sky-50 border-sky-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+                                                    className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border shrink-0 ${contact.isPrimary ? 'bg-sky-50 border-sky-200' : 'bg-white border-slate-200 hover:border-slate-300'}`}
                                                     title="تعيين كرقم أساسي"
                                                 >
-                                                    <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center ${contact.isPrimary ? 'border-sky-500' : 'border-gray-300'}`}>
+                                                    <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center ${contact.isPrimary ? 'border-sky-500' : 'border-slate-300'}`}>
                                                         {contact.isPrimary && <div className="w-1.5 h-1.5 rounded-full bg-sky-500" />}
                                                     </div>
                                                 </button>
                                             </div>
 
                                             {hasInvalidNumber && (
-                                                <div className="flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg border w-fit bg-red-100 text-red-700 border-red-200">
+                                                <div className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border w-fit bg-red-100 text-red-700 border-red-200">
                                                     <AlertCircle className="w-3 h-3 shrink-0" />
                                                     رقم موبايل غير مطابق للصيغة 09XXXXXXXX
                                                 </div>
@@ -933,7 +933,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                         ...candidateData,
                                         contacts: [...candidateData.contacts, { id: simpleUUID(), type: 'mobile', number: '', label: '', hasWhatsApp: false, isPrimary: candidateData.contacts.length === 0, status: 'active' }]
                                     })}
-                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-slate-500 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50 transition-all text-sm font-medium"
+                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border-2 border-dashed border-slate-200 text-slate-500 hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50/50 transition-all text-sm font-medium"
                                 >
                                     <Plus className="w-4 h-4" />
                                     <span>إضافة رقم</span>
@@ -943,7 +943,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                             <div className="grid grid-cols-1 gap-4">
                                 <div>
                                     <GeoSmartSearch label="العنوان" geoUnits={geoUnits} value={candidateData.locationSelection} onChange={loc => setCandidateData({ ...candidateData, locationSelection: loc })} />
-                                    <p className="mt-1.5 text-[11px] text-slate-500 font-medium">
+                                    <p className="mt-1.5 text-xs text-slate-500 font-medium">
                                         يمكن اختيار أي مستوى متاح للاسم المقترح، لكن عند تحويله إلى زبون يجب تحديد ناحية على الأقل.
                                     </p>
                                 </div>
@@ -980,7 +980,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                         </div>
                     </div>
 
-                    <div className="bg-gray-50 p-4 border-t border-slate-100 flex justify-end gap-3 shrink-0">
+                    <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-end gap-3 shrink-0">
                         <button onClick={resetAndClose} className="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-100 transition-all">إلغاء</button>
                         {!initialData && (
                             <button onClick={() => handleSave(true)} className="px-5 py-2 rounded-xl text-sky-600 bg-sky-50 border border-sky-100 font-bold hover:bg-sky-100 transition-all flex items-center gap-2">

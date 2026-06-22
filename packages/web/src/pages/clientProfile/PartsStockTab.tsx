@@ -132,7 +132,7 @@ export function PartsStockTab({ client }: Props) {
     <div className="space-y-4 max-w-7xl">
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h3 className="text-lg font-black text-slate-800">مخزون الزبون</h3>
+          <h3 className="text-base font-bold text-slate-800">مخزون الزبون</h3>
           <p className="text-xs text-slate-400 font-bold mt-1">
             هذا القسم يعرض القطع والملحقات الموجودة حالياً عند الزبون ولم تُركب بعد، والمحتسبة من العقود النافذة فقط.
           </p>
@@ -186,11 +186,11 @@ export function PartsStockTab({ client }: Props) {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <h4 className="text-sm font-black text-slate-800 truncate">{record.itemName}</h4>
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-sky-50 text-sky-700">
                             {itemTypeLabel(record.itemType)}
                           </span>
                           {record.itemCode ? (
-                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
                               الكود: {record.itemCode}
                             </span>
                           ) : null}
@@ -222,7 +222,7 @@ export function PartsStockTab({ client }: Props) {
                       {record.sources.slice(0, 6).map((source, index) => (
                         <span
                           key={`${record.stockId}-${source.sourceType}-${source.sourceId ?? index}`}
-                          className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 text-[11px] font-bold"
+                          className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold"
                         >
                           {sourceTypeLabel(source.sourceType)} · {source.sourceLabel} · {fmtDate(source.receivedAt)}
                         </span>
@@ -246,7 +246,7 @@ function SummaryCard({ icon: Icon, label, value, accent }: { icon: any; label: s
         <Icon className={`w-5 h-5 ${accent}`} />
       </div>
       <div>
-        <div className="text-[11px] text-slate-400 font-bold">{label}</div>
+        <div className="text-xs text-slate-400 font-bold">{label}</div>
         <div className="text-sm font-black text-slate-800 mt-1">{value}</div>
       </div>
     </div>
@@ -256,7 +256,7 @@ function SummaryCard({ icon: Icon, label, value, accent }: { icon: any; label: s
 function MetaPill({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
     <div className="rounded-2xl bg-slate-50 border border-slate-100 px-3 py-2">
-      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold">
+      <div className="flex items-center gap-1.5 text-xs text-slate-400 font-bold">
         <Icon className="w-3.5 h-3.5" />
         <span>{label}</span>
       </div>

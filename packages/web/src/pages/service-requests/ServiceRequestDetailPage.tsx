@@ -38,13 +38,13 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  received: 'bg-gray-100 text-gray-700',
+  received: 'bg-slate-100 text-slate-700',
   in_review: 'bg-blue-100 text-blue-700',
   awaiting_customer_info: 'bg-yellow-100 text-yellow-700',
   resolved_at_intake: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
   promoted: 'bg-purple-100 text-purple-700',
-  cancelled: 'bg-gray-100 text-gray-500',
+  cancelled: 'bg-slate-100 text-slate-500',
 };
 
 type Tab = 'overview' | 'problems' | 'audit' | 'linkage';
@@ -81,7 +81,7 @@ export default function ServiceRequestDetailPage() {
   if (loading || !data) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
       </div>
     );
   }
@@ -181,10 +181,10 @@ export default function ServiceRequestDetailPage() {
         </span>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <div className="flex items-center justify-between mb-2">
-          <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-            <Hash className="h-5 w-5 text-gray-400" />
+          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            <Hash className="h-5 w-5 text-slate-400" />
             {req.publicRefNumber}
           </h1>
           <div className="flex gap-1 flex-wrap">
@@ -195,25 +195,25 @@ export default function ServiceRequestDetailPage() {
               <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded">يَحتاج مراجعة مدقّق</span>
             )}
             {req.archivedAt && (
-              <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded">مُؤرشَف</span>
+              <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-700 rounded">مُؤرشَف</span>
             )}
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div>
-            <div className="text-xs text-gray-500">القناة</div>
+            <div className="text-xs text-slate-500">القناة</div>
             <div className="font-medium">{req.channel}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-500">الأولوية</div>
+            <div className="text-xs text-slate-500">الأولوية</div>
             <div className="font-medium">{req.priority ?? '—'}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-500">المُستلِم</div>
+            <div className="text-xs text-slate-500">المُستلِم</div>
             <div className="font-medium">{req.reviewedByUserId ? `#${req.reviewedByUserId}` : '— لم يَتولّى أحد —'}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-500">تاريخ الإنشاء</div>
+            <div className="text-xs text-slate-500">تاريخ الإنشاء</div>
             <div className="font-medium">{new Date(req.createdAt).toLocaleString('ar-SY')}</div>
           </div>
         </div>
@@ -318,7 +318,7 @@ export default function ServiceRequestDetailPage() {
         </div>
       )}
       {isTerminal && canArchive && !req.archivedAt && (
-        <div className="bg-gray-50 border border-gray-200 rounded p-3 mb-4">
+        <div className="bg-slate-50 border border-slate-200 rounded p-3 mb-4">
           <Button
             variant="secondary"
             size="sm"
@@ -331,7 +331,7 @@ export default function ServiceRequestDetailPage() {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-4">
+      <div className="border-b border-slate-200 mb-4">
         <nav className="flex gap-1">
           {(['overview', 'problems', 'audit', 'linkage'] as Tab[]).map((t) => (
             <button
@@ -340,7 +340,7 @@ export default function ServiceRequestDetailPage() {
               className={`px-4 py-2 text-sm font-medium border-b-2 ${
                 tab === t
                   ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
               {t === 'overview' && 'نظرة عامة'}
@@ -397,23 +397,23 @@ export default function ServiceRequestDetailPage() {
             </div>
           )}
 
-          <div className="bg-white border border-gray-200 rounded p-4">
-            <h3 className="font-semibold text-gray-800 mb-2">شكوى الزبون</h3>
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{req.problemDescription}</p>
+          <div className="bg-white border border-slate-200 rounded p-4">
+            <h3 className="font-bold text-slate-800 mb-2">شكوى الزبون</h3>
+            <p className="text-sm text-slate-700 whitespace-pre-wrap">{req.problemDescription}</p>
           </div>
 
           {/* Linked client + device summary */}
-          <div className="bg-white border border-gray-200 rounded p-4">
-            <h3 className="font-semibold text-gray-800 mb-2">الربط</h3>
+          <div className="bg-white border border-slate-200 rounded p-4">
+            <h3 className="font-bold text-slate-800 mb-2">الربط</h3>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <div className="text-xs text-gray-500">الزبون</div>
+                <div className="text-xs text-slate-500">الزبون</div>
                 <div className="font-medium">
                   {req.beneficiaryClientId ? `#${req.beneficiaryClientId}` : '— لم يُربَط بعد —'}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-gray-500">الجهاز</div>
+                <div className="text-xs text-slate-500">الجهاز</div>
                 <div className="font-medium">
                   {req.installedDeviceId ? `#${req.installedDeviceId}` : '— لم يُربَط بعد —'}
                 </div>
@@ -421,8 +421,8 @@ export default function ServiceRequestDetailPage() {
             </div>
           </div>
           {req.requesterExternal && (
-            <div className="bg-white border border-gray-200 rounded p-4">
-              <h3 className="font-semibold text-gray-800 mb-2">بيانات صاحب الطلب</h3>
+            <div className="bg-white border border-slate-200 rounded p-4">
+              <h3 className="font-bold text-slate-800 mb-2">بيانات صاحب الطلب</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><Phone className="h-3 w-3 inline mr-1" /> {req.requesterExternal.name ?? '—'}</div>
                 <div>{req.requesterExternal.primary_phone ?? '—'}</div>
@@ -430,17 +430,17 @@ export default function ServiceRequestDetailPage() {
             </div>
           )}
           {req.serviceAddress && (
-            <div className="bg-white border border-gray-200 rounded p-4">
-              <h3 className="font-semibold text-gray-800 mb-2">عنوان الخدمة</h3>
-              <p className="text-sm text-gray-700 flex items-center gap-1">
-                <MapPin className="h-4 w-4 text-gray-400" />
+            <div className="bg-white border border-slate-200 rounded p-4">
+              <h3 className="font-bold text-slate-800 mb-2">عنوان الخدمة</h3>
+              <p className="text-sm text-slate-700 flex items-center gap-1">
+                <MapPin className="h-4 w-4 text-slate-400" />
                 {req.serviceAddress.governorate} — {req.serviceAddress.detailed_address}
               </p>
             </div>
           )}
           {req.linkedOpenTaskId && (
             <div className="bg-purple-50 border border-purple-200 rounded p-4">
-              <h3 className="font-semibold text-purple-800 mb-2">المهمة المُرتبطة</h3>
+              <h3 className="font-bold text-purple-800 mb-2">المهمة المُرتبطة</h3>
               <button
                 onClick={() => navigate(`/tasks/emergency/${req.linkedOpenTaskId}`)}
                 className="text-sm text-purple-700 hover:underline"

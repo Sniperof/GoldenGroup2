@@ -80,7 +80,7 @@ function PartCard({ part }: { part: SparePart }) {
                 <span className="text-xs text-slate-400 font-mono">{part.code}</span>
             </div>
             <div className="shrink-0 text-left">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${tc.bg} ${tc.color} ${tc.border} mb-1 block text-center`}>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${tc.bg} ${tc.color} ${tc.border} mb-1 block text-center`}>
                     {tc.label}
                 </span>
                 <span className="text-sm font-bold text-slate-700 font-mono block text-center">{formatPrice(part.basePrice)}</span>
@@ -162,7 +162,7 @@ export default function DeviceDetail() {
         );
     }
 
-    const cat = categoryLabels[device.category] || { label: device.category, icon: '📦', color: 'text-gray-700', bg: 'bg-gray-100' };
+    const cat = categoryLabels[device.category] || { label: device.category, icon: '📦', color: 'text-slate-700', bg: 'bg-slate-100' };
     const images = (device.images || []) as { id: string; name: string; url: string }[];
     const videos = (device.videos || []) as { id: string; name: string; url: string }[];
     const documents = (device.documents || []) as { id: string; name: string; url: string }[];
@@ -235,7 +235,7 @@ export default function DeviceDetail() {
     return (
         <div className="h-full flex flex-col overflow-hidden bg-slate-50" dir="rtl">
             {/* Breadcrumb header */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0 flex items-center gap-3">
+            <div className="bg-white border-b border-slate-200 px-6 py-4 shrink-0 flex items-center gap-3">
                 <button
                     onClick={() => navigate('/devices')}
                     className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
@@ -280,7 +280,7 @@ export default function DeviceDetail() {
                                 {/* Name + category */}
                                 <div>
                                     <div className="flex items-start justify-between gap-3 mb-1">
-                                        <h1 className="text-xl font-bold text-slate-900">{device.nameAr || device.name}</h1>
+                                        <h1 className="text-2xl font-bold text-slate-800">{device.nameAr || device.name}</h1>
                                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${cat.bg} ${cat.color}`}>
                                             <span>{cat.icon}</span>{cat.label}
                                         </span>
@@ -377,7 +377,7 @@ export default function DeviceDetail() {
                     {/* ── Videos ── */}
                     {videos.length > 0 && (
                         <div className="bg-white rounded-xl border border-slate-200 p-5">
-                            <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-4">
+                            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-4">
                                 <Video className="w-4 h-4 text-purple-500" /> فيديوهات الجهاز
                             </h2>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -394,7 +394,7 @@ export default function DeviceDetail() {
                     {/* ── Documents ── */}
                     {documents.length > 0 && (
                         <div className="bg-white rounded-xl border border-slate-200 p-5">
-                            <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-4">
+                            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-4">
                                 <FileText className="w-4 h-4 text-emerald-500" /> المستندات
                             </h2>
                             <div className="space-y-2">
@@ -405,7 +405,7 @@ export default function DeviceDetail() {
                                         <div key={doc.id} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200">
                                             {isImage
                                                 ? <img src={doc.url} alt={doc.name} className="w-10 h-10 object-cover rounded-lg" />
-                                                : <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white text-[10px] font-bold ${isPdf ? 'bg-red-500' : 'bg-blue-500'}`}>
+                                                : <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white text-xs font-bold ${isPdf ? 'bg-red-500' : 'bg-blue-500'}`}>
                                                     {isPdf ? 'PDF' : 'DOC'}
                                                   </div>
                                             }
@@ -419,7 +419,7 @@ export default function DeviceDetail() {
 
                     {/* ── Spare Parts ── */}
                     <div className="bg-white rounded-xl border border-slate-200 p-5">
-                        <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-5">
+                        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-5">
                             <Wrench className="w-4 h-4 text-slate-400" />
                             القطع المرتبطة بالجهاز
                             <span className="mr-auto text-xs font-normal text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full">
@@ -440,7 +440,7 @@ export default function DeviceDetail() {
                                         <div className="flex items-center gap-2 mb-3">
                                             <RefreshCw className="w-3.5 h-3.5 text-blue-500" />
                                             <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">قطع الصيانة الدورية</span>
-                                            <span className="text-[10px] text-blue-400 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">{periodicParts.length}</span>
+                                            <span className="text-xs text-blue-400 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">{periodicParts.length}</span>
                                         </div>
                                         <div className="space-y-2">
                                             {periodicParts.map(p => <PartCard key={p.id} part={p} />)}
@@ -454,7 +454,7 @@ export default function DeviceDetail() {
                                         <div className="flex items-center gap-2 mb-3">
                                             <Zap className="w-3.5 h-3.5 text-red-500" />
                                             <span className="text-xs font-bold text-red-600 uppercase tracking-wider">قطع الطوارئ</span>
-                                            <span className="text-[10px] text-red-400 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full">{emergencyParts.length}</span>
+                                            <span className="text-xs text-red-400 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full">{emergencyParts.length}</span>
                                         </div>
                                         <div className="space-y-2">
                                             {emergencyParts.map(p => <PartCard key={p.id} part={p} />)}
@@ -468,7 +468,7 @@ export default function DeviceDetail() {
                                         <div className="flex items-center gap-2 mb-3">
                                             <Tag className="w-3.5 h-3.5 text-purple-500" />
                                             <span className="text-xs font-bold text-purple-600 uppercase tracking-wider">ملحقات</span>
-                                            <span className="text-[10px] text-purple-400 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full">{accessoryParts.length}</span>
+                                            <span className="text-xs text-purple-400 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full">{accessoryParts.length}</span>
                                         </div>
                                         <div className="space-y-2">
                                             {accessoryParts.map(p => <PartCard key={p.id} part={p} />)}
@@ -507,7 +507,7 @@ export default function DeviceDetail() {
                     {canViewPrices && activeDetailTab === 'prices' && (
                     <div>
                         <div className="flex items-center justify-between mb-5">
-                            <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                                 <Tag className="w-4 h-4 text-sky-500" />
                                 سجل الأسعار
                                 <span className="mr-auto text-xs font-normal text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full">
@@ -568,7 +568,7 @@ export default function DeviceDetail() {
                     {canViewDiscounts && activeDetailTab === 'discounts' && (
                     <div>
                         <div className="flex items-center justify-between mb-5">
-                            <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                                 <Tag className="w-4 h-4 text-emerald-500" />
                                 الحسومات الزمنية
                                 <span className="mr-auto text-xs font-normal text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full">

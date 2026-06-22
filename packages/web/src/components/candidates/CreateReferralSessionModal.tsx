@@ -333,7 +333,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             <PlusCircle className="w-5 h-5 text-amber-600" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-800">إضافة لائحة أسماء جديدة </h2>
+                            <h2 className="text-lg font-bold text-slate-800">إضافة لائحة أسماء جديدة </h2>
                             <p className="text-sm text-slate-500">تسجيل لائحة أسماء جديدة تحت وسيط محدد</p>
                         </div>
                     </div>
@@ -460,7 +460,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                                         >
                                             <div className="flex flex-col items-start gap-1">
                                                 <span className="font-bold text-slate-700">{client.name}</span>
-                                                <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
+                                                <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${getClientLifecycleStage(client) === 'OP'
                                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                     : getClientLifecycleStage(client) === 'FOP'
                                                         ? 'bg-amber-50 text-amber-700 border-amber-200'

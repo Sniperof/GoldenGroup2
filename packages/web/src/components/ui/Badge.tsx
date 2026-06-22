@@ -10,8 +10,8 @@
 //   gold     — bg-amber-100   text-amber-800    (highlighted / special)
 //
 // Sizes:
-//   sm — text-[10px] px-2 py-0.5
-//   md — text-[11px] px-2.5 py-0.5  (default)
+//   sm — text-xs px-2 py-0.5
+//   md — text-xs px-2.5 py-0.5  (default)
 //
 // Optional leading Lucide icon. Always pill-shaped.
 // ────────────────────────────────────────────────────────────────────────────
@@ -38,8 +38,8 @@ const VARIANT: Record<BadgeVariant, string> = {
 };
 
 const SIZE: Record<BadgeSize, string> = {
-  sm: 'text-[10px] px-2 py-0.5 gap-1',
-  md: 'text-[11px] px-2.5 py-0.5 gap-1.5',
+  sm: 'text-xs px-2 py-0.5 gap-1',
+  md: 'text-xs px-2.5 py-0.5 gap-1.5',
 };
 
 const ICON_SIZE: Record<BadgeSize, string> = {

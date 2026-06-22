@@ -264,7 +264,7 @@ export default function Departments() {
       {/* ── Header ── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <Layers className="w-7 h-7 text-sky-500" />
             الأقسام
           </h1>
@@ -321,7 +321,7 @@ export default function Departments() {
 
             {/* Modal header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/60 flex-shrink-0">
-              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
                 <Layers className="w-5 h-5 text-sky-500" />
                 {editingDept ? 'تعديل القسم' : 'إضافة قسم جديد'}
               </h3>

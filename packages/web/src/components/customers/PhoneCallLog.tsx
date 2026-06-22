@@ -156,12 +156,12 @@ export default function PhoneCallLog({ customerId, contactId, contactLabel, cont
                                 <OutcomeIcon outcome={log.outcome} status={log.status} channel={log.communicationChannel} />
                                 <span className="font-bold text-slate-800 text-sm">{meta.label}</span>
                                 {log.status === 'pending' && (
-                                    <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">
+                                    <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">
                                         منتظر رد
                                     </span>
                                 )}
                             </div>
-                            <span className="text-slate-400 font-mono text-[10px] bg-white border border-slate-100 px-2 py-0.5 rounded-md shadow-sm whitespace-nowrap">
+                            <span className="text-slate-400 font-mono text-xs bg-white border border-slate-100 px-2 py-0.5 rounded-md shadow-sm whitespace-nowrap">
                                 {formatDate(log.callDate)}
                             </span>
                         </div>
@@ -172,25 +172,25 @@ export default function PhoneCallLog({ customerId, contactId, contactLabel, cont
 
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                             {log.callerName && (
-                                <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
+                                <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
                                     {log.callerName}
                                 </span>
                             )}
-                            <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
+                            <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold">
                                 {chLabel}
                             </span>
-                            <span className="text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded font-bold border border-violet-100">
+                            <span className="text-xs bg-violet-50 text-violet-600 px-2 py-0.5 rounded font-bold border border-violet-100">
                                 {sourceLabel(log.sourceType)}
                             </span>
                             {abLabel && (
-                                <span className="text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded font-bold border border-violet-100">
+                                <span className="text-xs bg-violet-50 text-violet-600 px-2 py-0.5 rounded font-bold border border-violet-100">
                                     {abLabel}
                                 </span>
                             )}
                             {canEdit && log.status === 'pending' && log.communicationChannel?.includes('text') && (
                                 <button
                                     onClick={() => setEditLog(log)}
-                                    className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded font-bold border border-amber-100 hover:bg-amber-100 transition-colors flex items-center gap-1"
+                                    className="text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded font-bold border border-amber-100 hover:bg-amber-100 transition-colors flex items-center gap-1"
                                 >
                                     <Edit3 className="w-3 h-3" /> تعديل النتيجة
                                 </button>

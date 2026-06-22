@@ -312,7 +312,7 @@ function ReceiptModal(props: {
       <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-6 py-4">
           <div>
-            <h3 className="text-lg font-black text-slate-800">إيصال العرض</h3>
+            <h3 className="text-base font-bold text-slate-800">إيصال العرض</h3>
             <p className="mt-1 text-xs text-slate-500">مراجعة قبل الحفظ أو المشاركة</p>
           </div>
           <IconButton icon={X} label="إغلاق" onClick={onClose} />
@@ -618,7 +618,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
       <div className="w-full max-w-5xl rounded-3xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
-            <h3 className="text-lg font-black text-slate-800">إضافة عرض جهاز</h3>
+            <h3 className="text-base font-bold text-slate-800">إضافة عرض جهاز</h3>
             <p className="mt-1 text-xs text-slate-500">{client.name}</p>
           </div>
           <IconButton icon={X} label="إغلاق" onClick={onClose} />

@@ -595,7 +595,7 @@ export default function ApplicationDetail() {
           <ArrowRight className="w-5 h-5" />
         </button>
         <div>
-          <h1 className="text-xl font-bold text-slate-800">طلب التوظيف #{detail.id}</h1>
+          <h1 className="text-2xl font-bold text-slate-800">طلب التوظيف #{detail.id}</h1>
           <p className="text-sm text-slate-500">{detail.applicant?.firstName} {detail.applicant?.lastName} — {detail.vacancy?.title}</p>
         </div>
       </div>
@@ -648,7 +648,7 @@ export default function ApplicationDetail() {
       {/* Tabs — underline pattern (Golden Group design system) */}
       <div className="flex gap-1 mb-6 border-b border-[#E3E7EC] flex-wrap">
         {(() => {
-          const tabBase = 'relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors';
+          const tabBase = 'relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-base font-bold transition-colors';
           const tabActive = 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t';
           const tabIdle = 'text-slate-500 hover:text-slate-800';
           const cls = (active: boolean) => `${tabBase} ${active ? tabActive : tabIdle}`;
@@ -723,7 +723,7 @@ export default function ApplicationDetail() {
                           matchResult.score >= 60 ? 'text-sky-600' :
                           matchResult.score >= 40 ? 'text-amber-600' : 'text-red-500'
                         }`}>{matchResult.score}%</span>
-                        <span className="text-[10px] text-slate-400 font-medium mt-0.5">التوافق</span>
+                        <span className="text-xs text-slate-400 font-medium mt-0.5">التوافق</span>
                       </div>
                     )}
                   </div>
@@ -779,7 +779,7 @@ export default function ApplicationDetail() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Personal */}
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <User className="w-3.5 h-3.5" /> المعلومات الشخصية
                 </h3>
                 <div className="space-y-3">
@@ -793,7 +793,7 @@ export default function ApplicationDetail() {
 
               {/* Location */}
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <MapPin className="w-3.5 h-3.5" /> السكن والعنوان
                 </h3>
                 <div className="space-y-3">
@@ -810,7 +810,7 @@ export default function ApplicationDetail() {
 
             {/* ── 3. Professional Profile ── */}
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <GraduationCap className="w-3.5 h-3.5" /> المؤهلات والخبرة المهنية
               </h3>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3">
@@ -821,15 +821,15 @@ export default function ApplicationDetail() {
               </div>
               <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-1 flex items-center gap-1"><Monitor className="w-3 h-3" /> مهارات الحاسب</p>
+                  <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Monitor className="w-3 h-3" /> مهارات الحاسب</p>
                   <p className="text-xs text-slate-700 font-medium leading-relaxed">{detail.applicant?.computerSkills || '—'}</p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-1 flex items-center gap-1"><Globe className="w-3 h-3" /> اللغات</p>
+                  <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Globe className="w-3 h-3" /> اللغات</p>
                   <p className="text-xs text-slate-700 font-medium leading-relaxed">{detail.applicant?.foreignLanguages || '—'}</p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> رخصة قيادة</p>
+                  <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> رخصة قيادة</p>
                   <p className="text-xs font-bold">
                     {detail.applicant?.drivingLicense && detail.applicant.drivingLicense !== 'false'
                       ? <span className="text-emerald-600">نعم</span>
@@ -837,7 +837,7 @@ export default function ApplicationDetail() {
                   </p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> هل تمتلك سيارة</p>
+                  <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> هل تمتلك سيارة</p>
                   <p className="text-xs font-bold">
                     {detail.applicant?.hasCar === true
                       ? <span className="text-emerald-600">نعم</span>
@@ -852,7 +852,7 @@ export default function ApplicationDetail() {
             {/* ── 4. Match Score vs Vacancy ── */}
             {matchResult && (
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <Sparkles className="w-3.5 h-3.5 text-amber-400" /> مؤشرات التوافق مع الشاغر
                 </h3>
                 <div className="flex items-center gap-5 mb-4">
@@ -894,7 +894,7 @@ export default function ApplicationDetail() {
                     ))}
                     {matchResult.vacSkills.length > 0 && (
                       <div className="w-full mt-1">
-                        <p className="text-[10px] text-slate-400 mb-1.5">مهارات الشاغر المطلوبة:</p>
+                        <p className="text-xs text-slate-400 mb-1.5">مهارات الشاغر المطلوبة:</p>
                         <div className="flex flex-wrap gap-1.5">
                           {matchResult.vacSkills.map((s, i) => (
                             <span key={i} className={`text-xs px-2 py-0.5 rounded-lg border font-medium ${
@@ -911,7 +911,7 @@ export default function ApplicationDetail() {
 
             {/* ── 5. Vacancy Details ── */}
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Briefcase className="w-3.5 h-3.5" /> الشاغر الوظيفي
               </h3>
               <div className="flex items-start justify-between mb-4">
@@ -929,25 +929,25 @@ export default function ApplicationDetail() {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-0.5">المؤهل المطلوب</p>
+                  <p className="text-xs text-slate-400 mb-0.5">المؤهل المطلوب</p>
                   <p className="text-xs font-bold text-slate-700">{detail.vacancy?.requiredCertificate || 'لا يهم'}</p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-0.5">الاختصاص</p>
+                  <p className="text-xs text-slate-400 mb-0.5">الاختصاص</p>
                   <p className="text-xs font-bold text-slate-700">{detail.vacancy?.requiredMajor || 'لا يهم'}</p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-0.5">الخبرة المطلوبة</p>
+                  <p className="text-xs text-slate-400 mb-0.5">الخبرة المطلوبة</p>
                   <p className="text-xs font-bold text-slate-700">
                     {detail.vacancy?.requiredExperienceYears != null ? `${detail.vacancy.requiredExperienceYears}+ سنة` : 'لا يهم'}
                   </p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-0.5">الجنس</p>
+                  <p className="text-xs text-slate-400 mb-0.5">الجنس</p>
                   <p className="text-xs font-bold text-slate-700">{detail.vacancy?.requiredGender || 'لا يهم'}</p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-0.5">الفئة العمرية</p>
+                  <p className="text-xs text-slate-400 mb-0.5">الفئة العمرية</p>
                   <p className="text-xs font-bold text-slate-700">
                     {(detail.vacancy?.requiredAgeMin || detail.vacancy?.requiredAgeMax)
                       ? `${detail.vacancy.requiredAgeMin || '—'} – ${detail.vacancy.requiredAgeMax || '—'} سنة`
@@ -955,19 +955,19 @@ export default function ApplicationDetail() {
                   </p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-0.5">الشواغر المتبقية</p>
+                  <p className="text-xs text-slate-400 mb-0.5">الشواغر المتبقية</p>
                   <p className="text-xs font-bold text-slate-700">{detail.vacancy?.vacancyCount ?? '—'}</p>
                 </div>
               </div>
               {detail.vacancy?.requiredSkills && (
                 <div className="mt-3 bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-1.5">المهارات المطلوبة</p>
+                  <p className="text-xs text-slate-400 mb-1.5">المهارات المطلوبة</p>
                   <p className="text-xs text-slate-600 leading-relaxed">{detail.vacancy.requiredSkills}</p>
                 </div>
               )}
               {detail.vacancy?.responsibilities && (
                 <div className="mt-3 bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-1.5">المهام والمسؤوليات</p>
+                  <p className="text-xs text-slate-400 mb-1.5">المهام والمسؤوليات</p>
                   <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{detail.vacancy.responsibilities}</p>
                 </div>
               )}
@@ -976,7 +976,7 @@ export default function ApplicationDetail() {
             {/* ── 6. Referrer ── */}
             {detail.referrer && (
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <UserPlus className="w-3.5 h-3.5 text-amber-400" /> المُعرِّف
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
@@ -988,7 +988,7 @@ export default function ApplicationDetail() {
                   <InfoRow label="المدينة" value={detail.referrer.cityOrArea || '—'} />
                   {detail.referrer.referrerNotes && (
                     <div className="col-span-2 bg-amber-50 rounded-xl p-3">
-                      <p className="text-[10px] text-amber-400 mb-1">ملاحظات</p>
+                      <p className="text-xs text-amber-400 mb-1">ملاحظات</p>
                       <p className="text-xs text-amber-800">{detail.referrer.referrerNotes}</p>
                     </div>
                   )}
@@ -1020,7 +1020,7 @@ export default function ApplicationDetail() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-white/70 text-[11px] font-medium">المرحلة الحالية</p>
+                    <p className="text-white/70 text-xs font-medium">المرحلة الحالية</p>
                     <p className="text-white font-bold text-sm">{STAGE_LABELS[detail.currentStage]}</p>
                   </div>
                   {/* Operational status pill */}
@@ -1153,7 +1153,7 @@ export default function ApplicationDetail() {
             {!isTerminal && !isAssistantWorkflowLocked && detail.currentStage === 'Submitted' && detail.applicationStatus === 'New' && (
               <PermissionGate permission="jobs.applications.change_stage">
                 <div className="bg-sky-50 border border-sky-200 rounded-2xl p-5 space-y-3">
-                  <h3 className="text-[11px] font-bold text-sky-600 uppercase tracking-widest flex items-center gap-2">
+                  <h3 className="text-base font-bold text-sky-600 uppercase tracking-widest flex items-center gap-2">
                     <FileText className="w-3.5 h-3.5" /> مرحلة استلام الطلب
                   </h3>
                   <p className="text-xs text-sky-700 leading-relaxed">
@@ -1172,7 +1172,7 @@ export default function ApplicationDetail() {
               return (
                 <PermissionGate permission="jobs.interviews.schedule">
                   <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-3">
-                    <h3 className="text-[11px] font-bold text-amber-600 uppercase tracking-widest flex items-center gap-2">
+                    <h3 className="text-base font-bold text-amber-600 uppercase tracking-widest flex items-center gap-2">
                       <Users className="w-3.5 h-3.5" /> مرحلة المقابلة
                     </h3>
                     {scheduledInterview ? (
@@ -1211,7 +1211,7 @@ export default function ApplicationDetail() {
               return (
                 <PermissionGate anyOf={["jobs.training.view_detail", "jobs.training.create"]}>
                   <div className="bg-cyan-50 border border-cyan-200 rounded-2xl p-5 space-y-3">
-                    <h3 className="text-[11px] font-bold text-cyan-600 uppercase tracking-widest flex items-center gap-2">
+                    <h3 className="text-base font-bold text-cyan-600 uppercase tracking-widest flex items-center gap-2">
                       <BookOpen className="w-3.5 h-3.5" /> مرحلة التدريب
                     </h3>
                     {enrollment && info ? (
@@ -1243,7 +1243,7 @@ export default function ApplicationDetail() {
             {!isTerminal && !isAssistantWorkflowLocked && workflowActions.length > 0 && (
               <PermissionGate permission="jobs.applications.change_stage">
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                   <Zap className="w-3.5 h-3.5 text-sky-400" /> الإجراء التالي
                 </h3>
                 <div className="space-y-2">
@@ -1268,7 +1268,7 @@ export default function ApplicationDetail() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-sky-700">{action.label}</p>
-                            <p className="text-[11px] text-sky-500/80 mt-0.5">{action.description}</p>
+                            <p className="text-xs text-sky-500/80 mt-0.5">{action.description}</p>
                           </div>
                           <ArrowUpRight className="w-4 h-4 text-sky-400 group-hover:text-sky-600 shrink-0 transition-colors" />
                         </div>
@@ -1284,7 +1284,7 @@ export default function ApplicationDetail() {
             {!isTerminal && !isAssistantWorkflowLocked && decisionActions.length > 0 && (
               <PermissionGate anyOf={["jobs.applications.record_decision", "jobs.applications.hire"]}>
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                   <Gavel className="w-3.5 h-3.5 text-violet-400" /> اتخاذ قرار
                 </h3>
                 <div className="space-y-2">
@@ -1323,7 +1323,7 @@ export default function ApplicationDetail() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className={`text-sm font-bold ${textColor}`}>{action.label}</p>
-                            <p className={`text-[11px] mt-0.5 ${descColor}`}>{action.description}</p>
+                            <p className={`text-xs mt-0.5 ${descColor}`}>{action.description}</p>
                           </div>
                         </div>
                       </button>
@@ -1359,7 +1359,7 @@ export default function ApplicationDetail() {
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div>
-                    <h3 className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-2">
+                    <h3 className="text-base font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-2">
                       <RotateCcw className="w-3.5 h-3.5" /> فك التصعيد
                     </h3>
                     <p className="text-xs text-emerald-700 mt-1 leading-relaxed">
@@ -1376,7 +1376,7 @@ export default function ApplicationDetail() {
             {/* Internal Notes */}
             {detail.internalNotes && (
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">ملاحظات داخلية</h3>
+                <h3 className="text-base font-bold text-slate-400 uppercase tracking-widest mb-3">ملاحظات داخلية</h3>
                 <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{detail.internalNotes}</p>
               </div>
             )}
@@ -1391,7 +1391,7 @@ export default function ApplicationDetail() {
         /* Interviews Tab */
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
               <Users className="w-4 h-4 text-sky-500" /> المقابلات
             </h3>
 
@@ -1443,7 +1443,7 @@ export default function ApplicationDetail() {
         /* Training Tab */
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-sky-500" /> سجل التدريب
             </h3>
           </div>
@@ -1511,7 +1511,7 @@ export default function ApplicationDetail() {
                     </div>
 
                     {t.resultRecordedAt && (
-                      <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                      <p className="text-xs text-slate-400 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         سُجِّلت النتيجة: {new Date(t.resultRecordedAt).toLocaleDateString('ar-IQ')}
                       </p>
@@ -1528,7 +1528,7 @@ export default function ApplicationDetail() {
       ) : (
         /* Audit Log Tab */
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+          <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
             <Clock className="w-4 h-4 text-sky-500" /> سجل التدقيق
           </h3>
           {auditLogs.length === 0 ? (
@@ -1742,7 +1742,7 @@ export default function ApplicationDetail() {
                               />
                             </svg>
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
-                              <span className="text-xl font-black text-slate-800">{score}%</span>
+                              <span className="text-lg font-black text-slate-800">{score}%</span>
                               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">درجة الملاءمة</span>
                             </div>
                           </div>
@@ -1757,7 +1757,7 @@ export default function ApplicationDetail() {
                         <div className="md:col-span-2 bg-slate-50 border border-slate-200 rounded-2xl p-5 flex flex-col justify-center gap-4">
                           <div className="flex items-center gap-4">
                             <div className="flex-1 space-y-1">
-                              <div className="flex justify-between text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                              <div className="flex justify-between text-xs font-bold text-slate-400 uppercase tracking-widest">
                                 <span>مؤشرات المراجعة الآلية</span>
                                 <span className="text-sky-600">{score}/100</span>
                               </div>
@@ -1775,10 +1775,10 @@ export default function ApplicationDetail() {
 
                       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                         <div className="grid grid-cols-[1.5fr_1.5fr_auto_1.5fr] bg-slate-50 border-b border-slate-200">
-                          <div className="px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-widest">المعيار الأساسي</div>
-                          <div className="px-5 py-3.5 text-[11px] font-bold text-sky-600 uppercase tracking-widest flex items-center gap-2"><User className="w-4 h-4" /> بيانات المتقدم</div>
-                          <div className="px-4 py-3.5 italic text-[10px] text-slate-400">الحالة</div>
-                          <div className="px-5 py-3.5 text-[11px] font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2"><Briefcase className="w-4 h-4" /> متطلبات الشاغر</div>
+                          <div className="px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-widest">المعيار الأساسي</div>
+                          <div className="px-5 py-3.5 text-xs font-bold text-sky-600 uppercase tracking-widest flex items-center gap-2"><User className="w-4 h-4" /> بيانات المتقدم</div>
+                          <div className="px-4 py-3.5 italic text-xs text-slate-400">الحالة</div>
+                          <div className="px-5 py-3.5 text-xs font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2"><Briefcase className="w-4 h-4" /> متطلبات الشاغر</div>
                         </div>
                         <div className="divide-y divide-slate-100">
                           {rows.map((row, i) => (
@@ -1795,7 +1795,7 @@ export default function ApplicationDetail() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-4">
                           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                            <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                               <Sparkles className="w-4 h-4 text-amber-500" /> مهارات إضافية تم رصدها
                             </h4>
                             <div className="flex flex-wrap gap-2">
@@ -1809,7 +1809,7 @@ export default function ApplicationDetail() {
                             </div>
                           </div>
                           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                            <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                               <Clock className="w-4 h-4 text-sky-500" /> خبرات سابقة أخرى
                             </h4>
                             <p className="text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 italic">
@@ -1818,7 +1818,7 @@ export default function ApplicationDetail() {
                           </div>
                         </div>
                         <div className="bg-indigo-50/30 border border-indigo-100 rounded-2xl p-5 flex flex-col">
-                          <h4 className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                             <FileText className="w-4 h-4" /> ملاحظات عامة
                           </h4>
                           <textarea
@@ -1828,7 +1828,7 @@ export default function ApplicationDetail() {
                             onChange={e => setReviewNotes(e.target.value)}
                             className="w-full h-full bg-white border border-indigo-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all placeholder:text-slate-300"
                           />
-                          <p className="text-[10px] text-indigo-400 mt-3 font-medium">سيتم حفظ هذه الملاحظات في سجل التدقيق (Audit Log) عند التأكيد.</p>
+                          <p className="text-xs text-indigo-400 mt-3 font-medium">سيتم حفظ هذه الملاحظات في سجل التدقيق (Audit Log) عند التأكيد.</p>
                         </div>
                       </div>
                     </div>
@@ -2079,7 +2079,7 @@ export default function ApplicationDetail() {
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
               onClick={e => e.stopPropagation()}
             >
-              <h3 className="text-lg font-bold text-slate-800 mb-4">سبب القرار</h3>
+              <h3 className="text-base font-bold text-slate-800 mb-4">سبب القرار</h3>
               <textarea
                 value={rejectReason}
                 onChange={e => setRejectReason(e.target.value)}

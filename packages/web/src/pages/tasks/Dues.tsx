@@ -34,7 +34,7 @@ export default function Dues() {
         { key: 'mobile', label: 'الموبايل', render: (d) => <span className="text-sm font-mono text-slate-500 dir-ltr">{d.mobile}</span> },
         {
             key: 'type', label: 'النوع', sortable: true,
-            render: (d) => <span className="text-xs font-medium px-2 py-0.5 rounded bg-gray-100 text-gray-600">{d.type === 'Installment' ? 'قسط' : d.type === 'Down Payment' ? 'دفعة أولى' : 'صيانة'}</span>
+            render: (d) => <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">{d.type === 'Installment' ? 'قسط' : d.type === 'Down Payment' ? 'دفعة أولى' : 'صيانة'}</span>
         },
         {
             key: 'remainingBalance', label: 'المتبقي', sortable: true,
@@ -60,7 +60,7 @@ export default function Dues() {
             key: 'status', label: 'الحالة', sortable: true,
             render: (d) => {
                 const styles: Record<string, string> = {
-                    'Pending': 'bg-gray-100 text-slate-600',
+                    'Pending': 'bg-slate-100 text-slate-600',
                     'Partial': 'bg-amber-50 text-amber-700 border-amber-200',
                     'Paid': 'bg-emerald-50 text-emerald-700 border-emerald-200',
                     'Overdue': 'bg-red-50 text-red-700 border-red-200',
@@ -94,7 +94,7 @@ export default function Dues() {
     ];
 
     const getRowClass = (d: typeof dues[0]) => {
-        if (d.status === 'Paid') return 'opacity-60 bg-gray-50';
+        if (d.status === 'Paid') return 'opacity-60 bg-slate-50';
 
         const today = new Date();
         const due = new Date(d.adjustedDate);
@@ -122,7 +122,7 @@ export default function Dues() {
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
                     <div>
                         <p className="text-slate-500 text-sm font-medium mb-1">إجمالي الديون المتبقية</p>
-                        <h3 className="text-2xl font-bold text-slate-900">{formatMoney(kpis.totalRemaining)}</h3>
+                        <h3 className="text-2xl font-bold text-slate-800">{formatMoney(kpis.totalRemaining)}</h3>
                     </div>
                     <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
                         <DollarSign className="w-6 h-6" />
@@ -132,7 +132,7 @@ export default function Dues() {
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
                     <div>
                         <p className="text-slate-500 text-sm font-medium mb-1">نسبة المتأخرات (&gt;30 يوم)</p>
-                        <h3 className="text-2xl font-bold text-slate-900">{kpis.overdueRate.toFixed(1)}%</h3>
+                        <h3 className="text-2xl font-bold text-slate-800">{kpis.overdueRate.toFixed(1)}%</h3>
                     </div>
                     <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center text-red-600">
                         <TrendingDown className="w-6 h-6" />
@@ -142,7 +142,7 @@ export default function Dues() {
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
                     <div>
                         <p className="text-slate-500 text-sm font-medium mb-1">ديون غير مسندة</p>
-                        <h3 className="text-2xl font-bold text-slate-900">{kpis.unassignedDues}</h3>
+                        <h3 className="text-2xl font-bold text-slate-800">{kpis.unassignedDues}</h3>
                     </div>
                     <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600">
                         <AlertTriangle className="w-6 h-6" />

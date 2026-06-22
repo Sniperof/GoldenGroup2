@@ -70,7 +70,7 @@ export function GeoPathDisplay({
   return (
     <div className="space-y-2">
       {error && (
-        <div className="text-[11px] text-rose-600 font-bold">{error}</div>
+        <div className="text-xs text-rose-600 font-bold">{error}</div>
       )}
 
       {path.length > 0 && (
@@ -89,7 +89,7 @@ export function GeoPathDisplay({
             {path.map((u, i) => (
               <div key={u.id} className="flex items-stretch gap-1.5">
                 <div className="bg-sky-50 border border-sky-100 rounded-xl px-3 py-1.5 leading-tight">
-                  <div className="text-[10px] text-sky-600 font-black">
+                  <div className="text-xs text-sky-600 font-black">
                     {geoLevelLabel(u.level)}
                   </div>
                   <div className="text-sm font-bold text-slate-800">{u.name}</div>
@@ -117,14 +117,14 @@ export function GeoPathDisplay({
           href={`https://maps.google.com/?q=${lat},${lng}`}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 text-[11px] text-sky-600 hover:underline font-bold"
+          className="inline-flex items-center gap-1 text-xs text-sky-600 hover:underline font-bold"
         >
           <MapPin className="w-3 h-3" />
           عرض على الخريطة ↗
         </a>
       ) : (path.length > 0 || (detailedText && detailedText.trim())) && (
         // Address known but no pin saved — explain instead of silently hiding the link.
-        <div className="text-[11px] text-slate-400 italic">
+        <div className="text-xs text-slate-400 italic">
           لا يوجد موقع مثبت على الخريطة لهذا العنوان.
         </div>
       )}

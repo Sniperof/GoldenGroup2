@@ -23,7 +23,7 @@ const STATUS_META: Record<Employee['status'], { label: string; className: string
   active: { label: 'نشط', className: 'bg-emerald-50 text-emerald-700 border border-emerald-100' },
   vacation: { label: 'إجازة', className: 'bg-amber-50 text-amber-700 border border-amber-100' },
   suspended: { label: 'موقوف', className: 'bg-orange-50 text-orange-700 border border-orange-100' },
-  terminated: { label: 'منتهي الخدمة', className: 'bg-gray-50 text-gray-600 border border-gray-100' },
+  terminated: { label: 'منتهي الخدمة', className: 'bg-slate-50 text-slate-600 border border-slate-100' },
 };
 
 function getEmployeeResidenceTableLabel(employee: Employee) {
@@ -91,7 +91,7 @@ export default function Employees() {
       render: (employee) => (
         <div className="flex items-center gap-3">
           {employee.avatar ? (
-            <img src={employee.avatar} alt={employee.name} className="h-9 w-9 rounded-full border border-gray-100 object-cover" />
+            <img src={employee.avatar} alt={employee.name} className="h-9 w-9 rounded-full border border-slate-100 object-cover" />
           ) : (
             <div className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-sky-50 text-xs font-bold text-sky-600">
               {employee.name.slice(0, 1)}
@@ -240,7 +240,7 @@ export default function Employees() {
                   setCreateError('');
                   setShowCreateModal(true);
                 }}
-                className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
               >
                 <Plus className="h-4 w-4" />
                 {mustPickBranch ? 'اختر فرعاً لإضافة موظف' : 'إضافة موظف'}

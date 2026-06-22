@@ -487,7 +487,7 @@ export default function PublicJobs() {
     <div className="h-full overflow-y-auto p-6" dir="rtl">
       {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-slate-800 mb-2">الوظائف المتاحة</h1>
+        <h1 className="text-2xl font-bold text-slate-800 mb-2">الوظائف المتاحة</h1>
         <p className="text-slate-500">تصفح الشواغر الوظيفية المتاحة وقدّم طلبك الآن</p>
       </div>
 
@@ -551,7 +551,7 @@ export default function PublicJobs() {
                 <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <PartyPopper className="w-8 h-8 text-emerald-600" />
                 </div>
-                <h2 className="text-2xl font-bold text-emerald-800 mb-2">تم تقديم طلبك بنجاح!</h2>
+                <h2 className="text-lg font-bold text-emerald-800 mb-2">تم تقديم طلبك بنجاح!</h2>
                 <p className="text-emerald-700 text-sm mb-1">{submitResult.message}</p>
                 {submitResult.id && <p className="text-xs text-emerald-600 mt-2">رقم الطلب: <span className="font-bold">#{submitResult.id}</span></p>}
                 <Button variant="primary" onClick={() => { setSelectedVacancy(null); setSubmitResult(null); }} className="mt-6">

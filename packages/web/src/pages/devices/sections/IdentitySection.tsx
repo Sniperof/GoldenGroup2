@@ -9,7 +9,7 @@ function MissingValue({ children }: { children: ReactNode }) {
   return (
     <div className="inline-flex flex-col gap-0.5">
       <span className="text-sm text-amber-700 font-bold">غير مسجل</span>
-      <span className="text-[11px] text-slate-400 font-medium leading-relaxed">{children}</span>
+      <span className="text-xs text-slate-400 font-medium leading-relaxed">{children}</span>
     </div>
   );
 }
@@ -17,7 +17,7 @@ function MissingValue({ children }: { children: ReactNode }) {
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
-      <div className="text-[11px] text-slate-400 font-bold mb-1">{label}</div>
+      <div className="text-xs text-slate-400 font-bold mb-1">{label}</div>
       <div className="text-sm text-slate-700 font-semibold break-words">{value}</div>
     </div>
   );

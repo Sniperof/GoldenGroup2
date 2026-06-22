@@ -241,7 +241,7 @@ export default function DeviceDeliveryResultModal({
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-2">
             <Truck className="h-5 w-5 text-sky-600" />
-            <h2 className="text-base font-black text-slate-900">تسجيل نتيجة تسليم الجهاز</h2>
+            <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة تسليم الجهاز</h2>
           </div>
           <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </div>

@@ -62,7 +62,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
     return (
         <div className="space-y-2">
             {/* Map iframe */}
-            <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm relative" style={{ height: 180 }}>
+            <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm relative" style={{ height: 180 }}>
                 <iframe
                     src={mapUrl}
                     style={{ width: '100%', height: '100%', border: 0 }}
@@ -93,7 +93,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
                     onBlur={applyManual}
                     placeholder="Lat"
                     dir="ltr"
-                    className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none text-center"
+                    className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none text-center"
                 />
 
                 {/* Lng */}
@@ -104,7 +104,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
                     onBlur={applyManual}
                     placeholder="Lng"
                     dir="ltr"
-                    className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 placeholder:text-gray-300 focus:border-sky-500 focus:outline-none text-center"
+                    className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none text-center"
                 />
 
                 {/* Clear */}

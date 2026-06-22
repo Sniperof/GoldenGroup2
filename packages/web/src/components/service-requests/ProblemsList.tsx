@@ -39,13 +39,13 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  reported: 'bg-gray-100 text-gray-700',
+  reported: 'bg-slate-100 text-slate-700',
   confirmed: 'bg-blue-100 text-blue-700',
   resolved_at_intake: 'bg-green-100 text-green-700',
   resolved: 'bg-green-100 text-green-700',
   deferred: 'bg-yellow-100 text-yellow-700',
   unresolvable_field: 'bg-red-100 text-red-700',
-  cancelled: 'bg-gray-100 text-gray-500',
+  cancelled: 'bg-slate-100 text-slate-500',
 };
 
 const PHASE_LABELS: Record<string, string> = {
@@ -137,7 +137,7 @@ export default function ProblemsList({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+        <h3 className="font-bold text-slate-800 flex items-center gap-2">
           <Wrench className="h-4 w-4" />
           لائحة الأعطال ({active.length})
         </h3>
@@ -168,7 +168,7 @@ export default function ProblemsList({
             onChange={(e) => setNewDetails(e.target.value)}
             placeholder="تفاصيل (اختياري)"
             rows={2}
-            className="w-full text-sm border border-gray-300 rounded p-2"
+            className="w-full text-sm border border-slate-300 rounded p-2"
           />
           <Select<'intake' | 'in_review' | 'technical_consultation' | 'field_discovery'>
             value={newPhase}
@@ -192,7 +192,7 @@ export default function ProblemsList({
             </button>
             <button
               onClick={() => setShowAdd(false)}
-              className="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded"
+              className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded"
             >
               إلغاء
             </button>
@@ -201,19 +201,19 @@ export default function ProblemsList({
       )}
 
       {active.length === 0 ? (
-        <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded">
+        <p className="text-sm text-slate-500 bg-slate-50 p-3 rounded">
           لا توجد أعطال مُسجَّلة بعد.
         </p>
       ) : (
         <ul className="space-y-2">
           {active.map((p) => (
-            <li key={p.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+            <li key={p.id} className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
               <div className="flex items-start justify-between mb-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[p.status]}`}>
                     {STATUS_LABELS[p.status] ?? p.status}
                   </span>
-                  <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
+                  <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
                     {PHASE_LABELS[p.addedDuringPhase] ?? p.addedDuringPhase}
                   </span>
                   {p.addedDuringPhase === 'field_discovery' && (
@@ -223,11 +223,11 @@ export default function ProblemsList({
                     </span>
                   )}
                 </div>
-                <span className="text-xs text-gray-400">#{p.id}</span>
+                <span className="text-xs text-slate-400">#{p.id}</span>
               </div>
-              <div className="text-sm text-gray-700">
+              <div className="text-sm text-slate-700">
                 <strong>نوع #{p.problemTypeId}</strong>
-                {p.details && <p className="text-xs text-gray-600 mt-1">{p.details}</p>}
+                {p.details && <p className="text-xs text-slate-600 mt-1">{p.details}</p>}
               </div>
               {p.resolvedAt && (
                 <div className="text-xs text-green-700 mt-1.5">

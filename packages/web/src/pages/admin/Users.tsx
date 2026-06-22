@@ -64,7 +64,7 @@ export default function Users() {
               <User className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-800">المستخدمون</h1>
+              <h1 className="text-2xl font-bold text-slate-800">المستخدمون</h1>
               <p className="text-xs text-slate-500">حسابات النظام ضمن نطاقك. الإضافة تتم على مستوى فرع محدد.</p>
               <div className="mt-2"><BranchScopeIndicator /></div>
             </div>
@@ -74,7 +74,7 @@ export default function Users() {
               onClick={() => { setEditUser(null); setShowModal(true); }}
               disabled={mustPickBranch}
               title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة مستخدم' : undefined}
-              className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
             >
               <UserPlus className="w-4 h-4" />
               {mustPickBranch ? 'اختر فرعاً لإضافة مستخدم' : 'مستخدم جديد'}
@@ -137,7 +137,7 @@ export default function Users() {
                             : <span className="text-xs text-slate-400 italic">—</span>}
                         </td>
                         <td className="px-5 py-3.5">
-                          <span className={`text-[10px] font-medium px-2 py-1 rounded-full border ${user.isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-red-50 text-red-500 border-red-200'}`}>
+                          <span className={`text-xs font-medium px-2 py-1 rounded-full border ${user.isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-red-50 text-red-500 border-red-200'}`}>
                             {user.isActive ? 'نشط' : 'موقوف'}
                           </span>
                         </td>

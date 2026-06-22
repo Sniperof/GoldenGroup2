@@ -65,13 +65,13 @@ export function OutcomeChip({
       <Link
         to={`/contracts/${contractId}`}
         onClick={(e) => e.stopPropagation()}
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-opacity hover:opacity-80 ${s.cls}`}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-opacity hover:opacity-80 ${s.cls}`}
         title="فتح العقد المرتبط"
       >
         <Icon className="w-3 h-3" />
         {s.label}
         {contractNumber && (
-          <span className="rounded-lg bg-white/70 px-1.5 py-0.5 font-mono text-[10px] opacity-90">
+          <span className="rounded-lg bg-white/70 px-1.5 py-0.5 font-mono text-xs opacity-90">
             عقد #{contractNumber}
           </span>
         )}
@@ -83,7 +83,7 @@ export function OutcomeChip({
   if (state === 'not_chosen' && contractNumber) {
     return (
       <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold ${s.cls}`}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold ${s.cls}`}
         title={`وُقّع عقد على جهاز آخر (#${contractNumber})`}
       >
         <Icon className="w-3 h-3" />
@@ -99,7 +99,7 @@ export function OutcomeChip({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold ${s.cls}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold ${s.cls}`}
       title={tooltip}
     >
       <Icon className="w-3 h-3" />

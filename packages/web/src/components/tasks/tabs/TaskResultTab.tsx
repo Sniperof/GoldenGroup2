@@ -227,10 +227,10 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-bold text-slate-800">المحاولة {idx + 1}</span>
-                      {at.arabicLabel && <span className="text-[11px] text-slate-400">· {at.arabicLabel}</span>}
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${vs.cls}`}>{vs.label}</span>
+                      {at.arabicLabel && <span className="text-xs text-slate-400">· {at.arabicLabel}</span>}
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${vs.cls}`}>{vs.label}</span>
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1 flex-wrap">
+                    <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
                       {at.scheduledDate && (
                         <span className="inline-flex items-center gap-1">
                           <CalendarClock className="w-3 h-3" />
@@ -247,7 +247,7 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
                         </span>
                       )}
                     </div>
-                    {at.closingNotes && <p className="text-[11px] text-slate-400 mt-1 truncate">{at.closingNotes}</p>}
+                    {at.closingNotes && <p className="text-xs text-slate-400 mt-1 truncate">{at.closingNotes}</p>}
                   </div>
                   <ChevronLeft className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 shrink-0" />
                 </Link>
