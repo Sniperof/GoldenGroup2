@@ -449,7 +449,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                                 onChange={(e) => handleClientSearch(e.target.value)}
                                 onFocus={() => handleClientSearch(clientSearch)}
                                 placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-                                className="h-[39px]"
                             />
                             {clientSuggestions.length > 0 && (
                                 <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-10 overflow-hidden">

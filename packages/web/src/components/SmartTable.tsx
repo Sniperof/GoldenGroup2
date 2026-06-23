@@ -282,7 +282,6 @@ export default function SmartTable<T>({
                             value={search}
                             onChange={e => setSearch(e.target.value)}
                             leading={<Search className="w-4 h-4" />}
-                            className="h-[39px]"
                         />
                     </div>
                     {filters.map(f => (
@@ -487,7 +486,6 @@ export default function SmartTable<T>({
                             value={itemsPerPage}
                             onChange={n => setItemsPerPage(Number(n))}
                             ariaLabel="عدد صفوف الصفحة"
-                            size="sm"
                             options={PAGE_SIZE_OPTIONS.map(n => ({ value: n, label: String(n) }))}
                         />
                     </label>
@@ -499,13 +497,13 @@ export default function SmartTable<T>({
                         <button
                             disabled={currentPage === 1}
                             onClick={() => setCurrentPage(1)}
-                            className="px-2 py-1 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
+                            className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأولى"
                         >«</button>
                         <button
                             disabled={currentPage === 1}
                             onClick={() => setCurrentPage(p => p - 1)}
-                            className="px-2.5 py-1 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >السابق</button>
 
                         <div className="flex items-center gap-0.5 px-1">
@@ -518,7 +516,7 @@ export default function SmartTable<T>({
                                         )}
                                         <button
                                             onClick={() => setCurrentPage(p)}
-                                            className={`w-7 h-7 flex items-center justify-center text-xs font-bold rounded-lg transition-all ${
+                                            className={`w-7 h-7 flex items-center justify-center text-xs font-bold rounded-lg no-pill transition-all ${
                                                 currentPage === p
                                                     ? 'bg-sky-600 text-white shadow-sm'
                                                     : 'text-slate-500 hover:bg-slate-100'
@@ -531,12 +529,12 @@ export default function SmartTable<T>({
                         <button
                             disabled={currentPage === totalPages}
                             onClick={() => setCurrentPage(p => p + 1)}
-                            className="px-2.5 py-1 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >التالي</button>
                         <button
                             disabled={currentPage === totalPages}
                             onClick={() => setCurrentPage(totalPages)}
-                            className="px-2 py-1 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
+                            className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأخيرة"
                         >»</button>
                     </div>

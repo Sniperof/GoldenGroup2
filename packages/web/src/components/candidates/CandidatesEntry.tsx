@@ -50,7 +50,6 @@ export default function CandidatesEntry() {
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             leading={<Search className="w-4 h-4" />}
-                            className="h-[39px]"
                         />
                     </div>
                     <Select<'All' | 'New' | 'Qualified' | 'Junk'>

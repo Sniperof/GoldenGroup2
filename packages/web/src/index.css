@@ -166,19 +166,28 @@ body {
 }
 
 /* ============================================================
-   Brand control shape — pill text inputs & selects ONLY.
-   IMPORTANT: do NOT globally pill <button> — many buttons in this
-   app are browser-style tabs (rounded-t-lg), pagination, icon
-   buttons, etc., and a blanket rule distorts them. Inputs/selects
-   are safe to pill globally (matches the brand). For ACTION buttons,
-   add `rounded-full` per-component, or use the opt-in `.btn-pill`
-   utility below.
+   Brand control shape — pill EVERYTHING by default.
    ============================================================ */
 @layer components {
     /* Opt-in pill for action buttons: add className="btn-pill" */
     .btn-pill {
         border-radius: 9999px;
     }
+}
+
+/* =========================================================
+   Global PILL for buttons — placed OUTSIDE @layer so it
+   reliably beats Tailwind's rounded-* utilities. Every
+   <button> becomes a pill EXCEPT:
+     • .no-pill          — explicit opt-out (icon-square,
+                           pagination, segmented, etc.)
+     • [class*=rounded-t] — tab triggers (top-rounded only)
+     • [class*=rounded-none] — intentionally square
+   "rounded-t" never appears inside rounded-lg/md/xl/2xl/full,
+   so action buttons keep getting pilled.
+   ========================================================= */
+button:not(.no-pill):not([class*="rounded-t"]):not([class*="rounded-none"]) {
+    border-radius: 9999px !important;
 }
 
 /* =========================================================

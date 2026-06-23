@@ -110,7 +110,7 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconB
         'inline-flex items-center justify-center shrink-0',
         'transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 focus-visible:ring-offset-1',
         'disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none',
-        shape === 'circle' ? 'rounded-full' : 'rounded-lg',
+        shape === 'circle' ? 'rounded-full' : 'rounded-lg no-pill',
         active ? ACTIVE_CLASSES[variant] || VARIANT_CLASSES[variant] : VARIANT_CLASSES[variant],
         SIZE_CLASSES[size],
         className,

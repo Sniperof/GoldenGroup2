@@ -25,7 +25,7 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   error?: string;
   leading?: ReactNode;
   trailing?: ReactNode;
-  /** Heights match <Button>: sm=h-8, md=h-10 (default), lg=h-12. */
+  /** Heights: sm=h-8, md=39px (default, project-standard control height), lg=h-12. */
   inputSize?: InputSize;
   /** Make the input span its container (default true). */
   fullWidth?: boolean;
@@ -33,7 +33,7 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
 
 const SIZE_CLASSES: Record<InputSize, string> = {
   sm: 'h-8 text-sm',
-  md: 'h-10 text-sm',
+  md: 'h-[39px] text-sm',
   lg: 'h-12 text-lg',
 };
 

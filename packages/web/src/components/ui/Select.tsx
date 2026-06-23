@@ -145,7 +145,7 @@ export default function Select<V extends string | number>({
     'group inline-flex w-full items-center justify-between gap-2 rounded-full font-bold transition-colors focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed';
   const triggerSize = size === 'sm'
     ? 'h-8 px-4 text-sm'
-    : 'h-10 px-4 text-sm';
+    : 'h-[39px] px-4 text-sm';
   const triggerVariant = variant === 'filled'
     ? 'bg-[#EEF1F4] text-slate-700 hover:bg-[#E3E7EC]'
     : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-300';

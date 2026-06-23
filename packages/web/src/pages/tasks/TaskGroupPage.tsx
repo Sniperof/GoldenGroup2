@@ -524,10 +524,10 @@ export default function TaskGroupPage() {
             type="date"
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
-            className="h-10 border border-slate-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="h-[39px] border border-slate-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
           />
 
-          <label className="inline-flex items-center gap-2 px-3 h-10 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2 px-3 h-[39px] bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
             <input
               type="checkbox"
               checked={hideSnoozed}
@@ -537,7 +537,7 @@ export default function TaskGroupPage() {
             <span title="المهام التي حدد لها التلمارك موعداً متوقعاً في المستقبل">إخفاء المؤجلة</span>
           </label>
 
-          <label className="inline-flex items-center gap-2 px-3 h-10 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2 px-3 h-[39px] bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
             <input
               type="checkbox"
               checked={hideFutureTasks}
