@@ -9,10 +9,12 @@ import {
   OPEN_TASK_REASON_LABELS,
   OPEN_TASK_FAMILY_LABELS,
 } from '@golden-crm/shared';
-import type { OpenTaskStatus, OpenTaskType } from '@golden-crm/shared';
+import type { OpenTask, OpenTaskStatus, OpenTaskType } from '@golden-crm/shared';
 import type { CustomerOwnership } from '../lib/types';
 import Select from '../components/ui/Select';
 import PageHeader from '../components/ui/PageHeader';
+import SmartTable from '../components/SmartTable';
+import type { ColumnDef } from '../components/SmartTable';
 
 const STATUS_COLORS: Record<string, string> = {
   open: 'bg-sky-50 text-sky-700 border border-sky-200',
@@ -104,6 +106,104 @@ export default function OpenTasks() {
     );
   }
 
+  const columns: ColumnDef<OpenTask>[] = [
+    {
+      key: 'clientName', label: 'اسم الزبون', sortable: true,
+      getValue: (task) => task.clientSnapshot?.name || task.clientName || '',
+      render: (task) => (
+        <div className="flex items-center">
+          {task.clientId ? (
+            <button
+              onClick={() => setClientPopupId(task.clientId)}
+              className="font-medium text-slate-800 transition-colors hover:text-sky-700 hover:underline"
+            >
+              {task.clientSnapshot?.name || task.clientName || '—'}
+            </button>
+          ) : (
+            <span className="font-medium text-slate-800">
+              {task.clientSnapshot?.name || task.clientName || '—'}
+            </span>
+          )}
+          {task.clientSnapshot?.rating && (
+            <span className="mr-2 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+              {task.clientSnapshot.rating}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'mobile', label: 'الموبايل', sortable: true,
+      getValue: (task) => task.clientSnapshot?.mobile || task.clientMobile || '',
+      render: (task) => (
+        <span className="text-slate-600" dir="ltr">{task.clientSnapshot?.mobile || task.clientMobile || '—'}</span>
+      ),
+    },
+    {
+      key: 'location', label: 'المنطقة', sortable: true,
+      getValue: (task) => getTaskLocation(task),
+      render: (task) => <span className="text-slate-600">{getTaskLocation(task)}</span>,
+    },
+    {
+      key: 'taskType', label: 'نوع المهمة', sortable: true,
+      getValue: (task) => OPEN_TASK_TYPE_LABELS[task.taskType] || task.taskType,
+      render: (task) => (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-purple-50 text-purple-700 text-xs font-medium border border-purple-100">
+          {OPEN_TASK_TYPE_LABELS[task.taskType] || task.taskType}
+        </span>
+      ),
+    },
+    {
+      key: 'taskFamily', label: 'العائلة', sortable: true,
+      getValue: (task) => OPEN_TASK_FAMILY_LABELS[task.taskFamily] || task.taskFamily,
+      render: (task) => (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${FAMILY_COLORS[task.taskFamily] || 'bg-slate-100 text-slate-600'}`}>
+          {OPEN_TASK_FAMILY_LABELS[task.taskFamily] || task.taskFamily}
+        </span>
+      ),
+    },
+    {
+      key: 'status', label: 'الحالة', sortable: true,
+      getValue: (task) => OPEN_TASK_STATUS_LABELS[task.status] || task.status,
+      render: (task) => (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${STATUS_COLORS[task.status] || 'bg-slate-100 text-slate-600'}`}>
+          {OPEN_TASK_STATUS_LABELS[task.status] || task.status}
+        </span>
+      ),
+    },
+    {
+      key: 'reason', label: 'السبب', sortable: true,
+      getValue: (task) => OPEN_TASK_REASON_LABELS[task.reason] || task.reason,
+      render: (task) => <span className="text-slate-600">{OPEN_TASK_REASON_LABELS[task.reason] || task.reason}</span>,
+    },
+    {
+      key: 'team', label: 'الفريق', sortable: false,
+      render: (task) => task.teamSnapshot ? (
+        <div className="flex flex-wrap gap-1">
+          {task.teamSnapshot.supervisor && (
+            <span className="rounded bg-purple-50 px-1.5 py-0.5 text-xs text-purple-700">م:{task.teamSnapshot.supervisor.name}</span>
+          )}
+          {task.teamSnapshot.technician && (
+            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700">ف:{task.teamSnapshot.technician.name}</span>
+          )}
+          {task.teamSnapshot.trainee && (
+            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">م.ت:{task.teamSnapshot.trainee.name}</span>
+          )}
+        </div>
+      ) : <span className="text-slate-600">—</span>,
+    },
+    {
+      key: 'ownership', label: 'التبعية', sortable: true,
+      getValue: (task) => task.ownership?.ownerLabel || '',
+      render: (task) => <OwnershipBadge ownership={task.ownership} />,
+    },
+    {
+      key: 'createdAt', label: 'تاريخ الإنشاء', sortable: true,
+      getValue: (task) => task.createdAt || '',
+      render: (task) => <span className="text-slate-500 text-xs">{formatDate(task.createdAt)}</span>,
+    },
+  ];
+
   return (
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
@@ -168,100 +268,19 @@ export default function OpenTasks() {
       )}
 
       {!loading && tasks.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">اسم الزبون</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الموبايل</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">المنطقة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">نوع المهمة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">العائلة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الحالة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">السبب</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الفريق</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">التبعية</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">تاريخ الإنشاء</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tasks.map((task) => (
-                  <tr key={task.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3">
-                      {task.clientId ? (
-                        <button
-                          onClick={() => setClientPopupId(task.clientId)}
-                          className="font-medium text-slate-800 transition-colors hover:text-sky-700 hover:underline"
-                        >
-                          {task.clientSnapshot?.name || task.clientName || '—'}
-                        </button>
-                      ) : (
-                        <span className="font-medium text-slate-800">
-                          {task.clientSnapshot?.name || task.clientName || '—'}
-                        </span>
-                      )}
-                      {task.clientSnapshot?.rating && (
-                        <span className="mr-2 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-                          {task.clientSnapshot.rating}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 direction-ltr" dir="ltr">
-                      {task.clientSnapshot?.mobile || task.clientMobile || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {getTaskLocation(task)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-purple-50 text-purple-700 text-xs font-medium border border-purple-100">
-                        {OPEN_TASK_TYPE_LABELS[task.taskType] || task.taskType}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${FAMILY_COLORS[task.taskFamily] || 'bg-slate-100 text-slate-600'}`}>
-                        {OPEN_TASK_FAMILY_LABELS[task.taskFamily] || task.taskFamily}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${STATUS_COLORS[task.status] || 'bg-slate-100 text-slate-600'}`}>
-                        {OPEN_TASK_STATUS_LABELS[task.status] || task.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {OPEN_TASK_REASON_LABELS[task.reason] || task.reason}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {task.teamSnapshot ? (
-                        <div className="flex flex-wrap gap-1">
-                          {task.teamSnapshot.supervisor && (
-                            <span className="rounded bg-purple-50 px-1.5 py-0.5 text-xs text-purple-700">
-                              م:{task.teamSnapshot.supervisor.name}
-                            </span>
-                          )}
-                          {task.teamSnapshot.technician && (
-                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700">
-                              ف:{task.teamSnapshot.technician.name}
-                            </span>
-                          )}
-                          {task.teamSnapshot.trainee && (
-                            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
-                              م.ت:{task.teamSnapshot.trainee.name}
-                            </span>
-                          )}
-                        </div>
-                      ) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      <OwnershipBadge ownership={task.ownership} />
-                    </td>
-                    <td className="px-4 py-3 text-slate-500 text-xs">{formatDate(task.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <SmartTable<OpenTask>
+          title="جدول المهام المفتوحة"
+          icon={Target}
+          data={tasks}
+          columns={columns}
+          getId={(task) => task.id}
+          hideFilterBar
+          tableMinWidth={1180}
+          defaultSortKey="createdAt"
+          defaultSortDir="desc"
+          emptyIcon={Target}
+          emptyMessage="لا توجد مهام مفتوحة"
+        />
       )}
 
       {clientPopupId !== null && (
