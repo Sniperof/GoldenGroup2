@@ -4,6 +4,7 @@ import { Navigate } from 'react-router-dom';
 import { Settings, Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
 import Button from '../components/ui/Button';
+import PageHeader from '../components/ui/PageHeader';
 
 export default function SystemSettings() {
     const { hasPermission } = usePermissions();
@@ -24,15 +25,16 @@ export default function SystemSettings() {
 
     return (
         <div className="p-8 max-w-4xl mx-auto">
-            <div className="flex items-center gap-3 mb-8">
-                <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
-                    <Settings className="w-6 h-6 text-slate-600" />
-                </div>
-                <div>
-                    <h1 className="text-2xl mb-1 font-bold text-slate-800">إعدادات النظام</h1>
-                    <p className="text-slate-500">تحكم ببيانات النظام والخيارات المتقدمة</p>
-                </div>
-            </div>
+            <PageHeader
+                className="mb-8"
+                title="إعدادات النظام"
+                subtitle="تحكم ببيانات النظام والخيارات المتقدمة"
+                icon={
+                    <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
+                        <Settings className="w-6 h-6 text-slate-600" />
+                    </div>
+                }
+            />
 
             <div className="space-y-6">
                 {/* Data Management Section */}

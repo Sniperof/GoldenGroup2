@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import Select from '../../components/ui/Select';
+import PageHeader from '../../components/ui/PageHeader';
 import {
   OPEN_TASK_STATUS_LABELS,
   OPEN_TASK_PHASE_LABELS,
@@ -474,16 +475,17 @@ export default function TaskGroupPage() {
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${config.accentBg} ${config.accentRing}`}>
-            <Icon className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl mb-1 font-bold text-slate-800">{config.label}</h1>
-            <p className="text-sm text-slate-500">{config.subtitle}</p>
-            <div className="mt-2"><BranchScopeIndicator /></div>
-          </div>
-        </div>
+        <PageHeader
+          title={config.label}
+          subtitle={config.subtitle}
+          icon={
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${config.accentBg} ${config.accentRing}`}>
+              <Icon className="w-5 h-5 text-white" />
+            </div>
+          }
+        >
+          <BranchScopeIndicator />
+        </PageHeader>
 
         {/* Filters */}
         <div className="flex items-center gap-2 flex-wrap">

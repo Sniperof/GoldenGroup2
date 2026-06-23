@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import Select from '../../components/ui/Select';
+import PageHeader from '../../components/ui/PageHeader';
 import { OPEN_TASK_STATUS_LABELS, OPEN_TASK_PHASE_LABELS, OPEN_TASK_PHASE_COLORS, getTaskPhase, type OpenTaskStatus, type CustomerOwnership } from '@golden-crm/shared';
 import { getExpectedDateStatus, getDueDateStatus } from '../../lib/taskDateStatus';
 
@@ -189,15 +190,15 @@ export default function DeviceDemo() {
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <Monitor className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl mb-1 font-bold text-slate-800">عروض الأجهزة</h1>
-            <p className="text-sm text-slate-500">مهام عرض الجهاز المرتبطة بزيارات التسويق</p>
-          </div>
-        </div>
+        <PageHeader
+          title="عروض الأجهزة"
+          subtitle="مهام عرض الجهاز المرتبطة بزيارات التسويق"
+          icon={
+            <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <Monitor className="w-5 h-5 text-white" />
+            </div>
+          }
+        />
 
         {/* Filters */}
         <div className="flex items-center gap-2 flex-wrap">

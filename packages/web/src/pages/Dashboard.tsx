@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Users, UserCheck, Route, MapPin, TrendingUp, Clock } from 'lucide-react';
 import { api } from '../lib/api';
+import PageHeader from '../components/ui/PageHeader';
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
 const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } };
@@ -42,10 +43,11 @@ export default function Dashboard() {
 
     return (
         <div className="h-full overflow-y-auto p-8 custom-scroll">
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-800 mb-1">نظرة عامة</h1>
-                <p className="text-slate-500 text-sm">نظرة عامة على أداء النظام والبيانات.</p>
-            </div>
+            <PageHeader
+                className="mb-6"
+                title="نظرة عامة"
+                subtitle="نظرة عامة على أداء النظام والبيانات."
+            />
 
             {/* Stats Grid */}
             <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">

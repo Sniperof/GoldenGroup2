@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { levelNames } from '../lib/geoConstants';
+import PageHeader from '../components/ui/PageHeader';
 import type { Route, GeoUnit, RoutePoint } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -183,10 +184,10 @@ export default function RouteManager() {
 
             {/* ── Page header ── */}
             <div className="flex items-end justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800 mb-1">إدارة خطوط السير</h1>
-                    <p className="text-slate-500 text-sm">عرض وإدارة مسارات التوزيع والصيانة.</p>
-                </div>
+                <PageHeader
+                    title="إدارة خطوط السير"
+                    subtitle="عرض وإدارة مسارات التوزيع والصيانة."
+                />
                 <button
                     onClick={() => openBuilder()}
                     disabled={!canManageGeo || mustPickBranch}

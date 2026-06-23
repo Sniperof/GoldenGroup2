@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle, LayoutGrid, ArrowLeft } from 'lucide-react';
 import { api } from '../../lib/api';
+import PageHeader from '../../components/ui/PageHeader';
 import IconButton from '../../components/ui/IconButton';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import type { DaySchedule, Employee } from '../../lib/types';
@@ -180,19 +181,20 @@ export default function TeamScheduler() {
 
     return (
         <div className="h-full overflow-y-auto p-8 custom-scroll">
-            <div className="flex items-end justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800 mb-1">جدولة الفرق</h1>
-                    <p className="text-slate-500 text-sm">تعيين المشرفين والفنيين للفرق اليومية.</p>
-                </div>
-                <button
-                    type="button"
-                    onClick={() => navigate('/planning/zone-study')}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white hover:bg-sky-500"
-                >
-                    <LayoutGrid className="w-3.5 h-3.5" /> دراسة النطاقات <ArrowLeft className="w-3.5 h-3.5" />
-                </button>
-            </div>
+            <PageHeader
+                className="mb-6"
+                title="جدولة الفرق"
+                subtitle="تعيين المشرفين والفنيين للفرق اليومية."
+                actions={
+                    <button
+                        type="button"
+                        onClick={() => navigate('/planning/zone-study')}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white hover:bg-sky-500"
+                    >
+                        <LayoutGrid className="w-3.5 h-3.5" /> دراسة النطاقات <ArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                }
+            />
 
             {/* Control Bar */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex items-center gap-4 flex-wrap">

@@ -7,6 +7,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
+import PageHeader from '../../components/ui/PageHeader';
 import { UserModal, UserBranchAssignmentsModal } from './Roles';
 
 /**
@@ -58,18 +59,15 @@ export default function Users() {
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
 
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-3">
+        <PageHeader
+          title="المستخدمون"
+          subtitle="حسابات النظام ضمن نطاقك. الإضافة تتم على مستوى فرع محدد."
+          icon={
             <div className="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center shadow-lg shadow-sky-500/30">
               <User className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <h1 className="text-2xl mb-1 font-bold text-slate-800">المستخدمون</h1>
-              <p className="text-xs text-slate-500">حسابات النظام ضمن نطاقك. الإضافة تتم على مستوى فرع محدد.</p>
-              <div className="mt-2"><BranchScopeIndicator /></div>
-            </div>
-          </div>
-          {canManageRoleUsers && (
+          }
+          actions={canManageRoleUsers && (
             <button
               onClick={() => { setEditUser(null); setShowModal(true); }}
               disabled={mustPickBranch}
@@ -80,7 +78,9 @@ export default function Users() {
               {mustPickBranch ? 'اختر فرعاً لإضافة مستخدم' : 'مستخدم جديد'}
             </button>
           )}
-        </div>
+        >
+          <BranchScopeIndicator />
+        </PageHeader>
 
         {loading && <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-sky-400" /></div>}
 

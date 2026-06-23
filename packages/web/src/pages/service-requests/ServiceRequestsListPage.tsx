@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { ClipboardList, Filter, Hash, Loader2, Plus, RefreshCw, User } from 'lucide-react';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
+import PageHeader from '../../components/ui/PageHeader';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { usePermissions } from '../../hooks/usePermissions';
 
@@ -97,10 +98,10 @@ export default function ServiceRequestsListPage() {
   return (
     <div className="max-w-7xl mx-auto p-4" dir="rtl">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-          <ClipboardList className="h-6 w-6 text-blue-600" />
-          طلبات الصيانة
-        </h1>
+        <PageHeader
+          title="طلبات الصيانة"
+          icon={<ClipboardList className="h-6 w-6 text-blue-600" />}
+        />
         <div className="flex gap-2">
           <button
             onClick={load}

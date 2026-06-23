@@ -212,6 +212,7 @@ export default function InstalledDevicesList() {
         <div className="p-8">
             <SmartTable<InstalledDevice>
                 title="الأجهزة المركّبة"
+                titlePlacement="page"
                 icon={HardDrive}
                 scopeIndicator={<BranchScopeIndicator />}
                 data={devices}

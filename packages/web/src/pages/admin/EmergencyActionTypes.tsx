@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, Trash2, X, Zap 
 import IconButton from '../../components/ui/IconButton';
 import Toggle from '../../components/ui/Toggle';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
@@ -95,22 +96,21 @@ export default function EmergencyActionTypes() {
   return (
     <div className="p-6 max-w-3xl mx-auto" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
+      <PageHeader
+        className="mb-6"
+        title="أنواع إجراءات الصيانة الطارئة"
+        subtitle="قائمة الإجراءات التي يمكن تحديدها عند طلب صيانة طارئة"
+        icon={
           <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center">
             <Zap className="w-5 h-5 text-rose-600" />
           </div>
-          <div>
-            <h1 className="text-2xl mb-1 font-bold text-slate-800">أنواع إجراءات الصيانة الطارئة</h1>
-            <p className="text-sm text-slate-500 mt-0.5">قائمة الإجراءات التي يمكن تحديدها عند طلب صيانة طارئة</p>
-          </div>
-        </div>
-        {canManage && (
+        }
+        actions={canManage && (
           <Button variant="danger" icon={Plus} onClick={openNew}>
             إضافة نوع
           </Button>
         )}
-      </div>
+      />
 
       {/* Messages */}
       {error && (

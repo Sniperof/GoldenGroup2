@@ -10,6 +10,7 @@ import QualificationModal from '../../components/candidates/QualificationModal';
 import ClientModal from '../../components/ClientModal';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
 import Select from '../../components/ui/Select';
+import PageHeader from '../../components/ui/PageHeader';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -260,13 +261,10 @@ export default function CandidatesEntry() {
 
             {/* Header & Tabs */}
             <div className="flex flex-col gap-6">
-                <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-                    <div>
-                        <h1 className="text-2xl mb-1 font-bold text-slate-800">سجلات الأسماء المقترحة</h1>
-                        <p className="text-sm text-slate-500 mt-1">فلترة، تدقيق، وتوجيه الأسماء الجديدة</p>
-                        <div className="mt-2"><BranchScopeIndicator /></div>
-                    </div>
-                    <div className="flex gap-2 items-center">
+                <PageHeader
+                    title="سجلات الأسماء المقترحة"
+                    subtitle="فلترة، تدقيق، وتوجيه الأسماء الجديدة"
+                    actions={<>
                         {/* GLOBAL branch filter moved to the unified external switcher (sidebar). */}
                         {isBranchNames && (
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 text-sm font-bold">
@@ -286,8 +284,10 @@ export default function CandidatesEntry() {
                             <UserPlus className="w-4 h-4" /> {mustPickBranch ? 'اختر فرعاً' : 'إضافة اسم'}
                         </button>
                         )}
-                    </div>
-                </div>
+                    </>}
+                >
+                    <BranchScopeIndicator />
+                </PageHeader>
 
                 {/* Tabs Navigation */}
                 <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">

@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Calendar, Users, Save, Plus, MapPin, Route as RouteIcon, ListOrdered, X, ArrowRight, ArrowLeft, Loader2, GripVertical, RefreshCw } from 'lucide-react';
 import { api } from '../../lib/api';
+import PageHeader from '../../components/ui/PageHeader';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import Select from '../../components/ui/Select';
@@ -457,12 +458,11 @@ export default function RouteAssigner() {
 
     return (
         <div className="h-full overflow-y-auto p-8 custom-scroll">
-            <div className="flex items-end justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800 mb-1">نطاق عمل الفريق</h1>
-                    <p className="text-slate-500 text-sm">تحديد مسارات ومناطق عمل كل فريق بدقة لليوم المحدد.</p>
-                </div>
-            </div>
+            <PageHeader
+                className="mb-6"
+                title="نطاق عمل الفريق"
+                subtitle="تحديد مسارات ومناطق عمل كل فريق بدقة لليوم المحدد."
+            />
 
             {/* Context Bar */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex items-center gap-4 flex-wrap">

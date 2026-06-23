@@ -4,6 +4,7 @@ import { useTrainingStore } from '../../hooks/useTrainingStore';
 import type { CreateTrainingCourseRequest, DeviceModel } from '../../lib/types';
 import { authFetch } from '../../lib/authFetch';
 import { api } from '../../lib/api';
+import PageHeader from '../../components/ui/PageHeader';
 import {
   GraduationCap, Plus, Search, Filter, ChevronDown,
   Calendar, User, Monitor, Building2, Users, CheckCircle, X, Loader2,
@@ -238,13 +239,11 @@ export default function TrainingCourses() {
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-            <GraduationCap className="w-7 h-7 text-sky-500" />
-            الدورات التدريبية
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">إدارة دورات التدريب وسجلات الحضور والنتائج</p>
-        </div>
+        <PageHeader
+          title="الدورات التدريبية"
+          subtitle="إدارة دورات التدريب وسجلات الحضور والنتائج"
+          icon={<GraduationCap className="w-7 h-7 text-sky-500" />}
+        />
         <PermissionGate permission="jobs.training.create">
           <button
             onClick={() => setShowModal(true)}

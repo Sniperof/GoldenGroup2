@@ -213,6 +213,7 @@ export default function Employees() {
     <>
       <SmartTable<Employee>
         title="سجلات الموظفين"
+        titlePlacement="page"
         icon={Users}
         scopeIndicator={<BranchScopeIndicator />}
         data={employees}

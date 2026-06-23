@@ -20,6 +20,7 @@ import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { GeoSelection, getLevelName } from '../../components/GeoSmartSearch';
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 import { api } from '../../lib/api';
 import type { Department, GeoUnit } from '../../lib/types';
 
@@ -626,19 +627,19 @@ export default function Vacancies() {
   return (
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-            <Briefcase className="w-7 h-7 text-sky-500" />إدارة الشواغر الوظيفية
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">إنشاء وإدارة فرص العمل المتاحة</p>
-        </div>
-        <PermissionGate permission="jobs.vacancies.create">
-          <Button icon={Plus} onClick={openCreate}>
-            إنشاء شاغر جديد
-          </Button>
-        </PermissionGate>
-      </div>
+      <PageHeader
+        className="mb-6"
+        title="إدارة الشواغر الوظيفية"
+        subtitle="إنشاء وإدارة فرص العمل المتاحة"
+        icon={<Briefcase className="w-7 h-7 text-sky-500" />}
+        actions={
+          <PermissionGate permission="jobs.vacancies.create">
+            <Button icon={Plus} onClick={openCreate}>
+              إنشاء شاغر جديد
+            </Button>
+          </PermissionGate>
+        }
+      />
 
       {/* Filters */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';
+import PageHeader from '../../components/ui/PageHeader';
 import ClientAvatar from '../../components/ClientAvatar';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -1184,15 +1185,15 @@ export default function VisitsListPage() {
   return (
     <div className="space-y-6 p-6" dir="rtl">
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-500 text-white shadow-lg shadow-sky-500/20">
-            <CalendarDays className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl mb-1 font-bold text-slate-800">الزيارات</h1>
-            <p className="text-sm text-slate-500">جدول يومي مركزي للزيارات كوعاء لكل المهام التشغيلية.</p>
-          </div>
-        </div>
+        <PageHeader
+          title="الزيارات"
+          subtitle="جدول يومي مركزي للزيارات كوعاء لكل المهام التشغيلية."
+          icon={
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-500 text-white shadow-lg shadow-sky-500/20">
+              <CalendarDays className="h-5 w-5" />
+            </div>
+          }
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <Filter className="h-4 w-4 text-slate-400" />

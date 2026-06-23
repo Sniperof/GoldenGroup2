@@ -12,6 +12,7 @@ import {
 import type { OpenTaskStatus, OpenTaskType } from '@golden-crm/shared';
 import type { CustomerOwnership } from '../lib/types';
 import Select from '../components/ui/Select';
+import PageHeader from '../components/ui/PageHeader';
 
 const STATUS_COLORS: Record<string, string> = {
   open: 'bg-sky-50 text-sky-700 border border-sky-200',
@@ -107,15 +108,15 @@ export default function OpenTasks() {
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center shadow-lg shadow-sky-500/20">
-            <Target className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl mb-1 font-bold text-slate-800">المهام المفتوحة</h1>
-            <p className="text-sm text-slate-500">إدارة المهام التسويقية والخدمية المفتوحة</p>
-          </div>
-        </div>
+        <PageHeader
+          title="المهام المفتوحة"
+          subtitle="إدارة المهام التسويقية والخدمية المفتوحة"
+          icon={
+            <div className="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center shadow-lg shadow-sky-500/20">
+              <Target className="w-5 h-5 text-white" />
+            </div>
+          }
+        />
 
         {/* Filters */}
         <div className="flex items-center gap-2">

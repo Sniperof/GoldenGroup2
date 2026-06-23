@@ -17,6 +17,7 @@ import Select from '../../components/ui/Select';
 import Toggle from '../../components/ui/Toggle';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 import Input from '../../components/ui/Input';
 import Badge from '../../components/ui/Badge';
 
@@ -586,15 +587,12 @@ export default function SystemLists() {
   return (
     <div className="p-6 max-w-7xl mx-auto h-[calc(100vh-4rem)] flex flex-col" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <Settings2 className="w-7 h-7 text-sky-500" />
-            إدارة القوائم والفهارس
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">تحكم ديناميكي بجميع القوائم المنسدلة — كل تغيير ينعكس فوراً على النظام</p>
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6 flex-shrink-0"
+        title="إدارة القوائم والفهارس"
+        subtitle="تحكم ديناميكي بجميع القوائم المنسدلة — كل تغيير ينعكس فوراً على النظام"
+        icon={<Settings2 className="w-7 h-7 text-sky-500" />}
+      />
 
       <div className="flex gap-5 flex-1 min-h-0">
         {/* ── Sidebar ── */}

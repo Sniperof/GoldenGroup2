@@ -4,6 +4,7 @@ import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } f
 import type { LucideIcon } from 'lucide-react';
 import Select from './ui/Select';
 import Input from './ui/Input';
+import PageHeader from './ui/PageHeader';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -34,6 +35,15 @@ export interface BulkActionDef<T> {
 
 export interface SmartTableProps<T> {
     title: string;
+    /** Optional descriptive line under the title. Defaults to the record count. */
+    subtitle?: ReactNode;
+    /**
+     * Where the title block is rendered:
+     *  - 'card' (default): inside the table card as a section header.
+     *  - 'page': as a unified page-level header (matching <PageHeader>) ABOVE the card.
+     * Use 'page' when the table IS the page's primary content (no separate page header).
+     */
+    titlePlacement?: 'card' | 'page';
     icon: LucideIcon;
     data: T[];
     columns: ColumnDef<T>[];
@@ -97,6 +107,8 @@ export default function SmartTable<T>({
     icon: Icon,
     data,
     columns,
+    subtitle,
+    titlePlacement = 'card',
     filters = [],
     searchKeys = [],
     searchPlaceholder = 'بحث...',
@@ -229,13 +241,60 @@ export default function SmartTable<T>({
     const startRecord = sorted.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
     const endRecord   = Math.min(sorted.length, currentPage * itemsPerPage);
 
+    /* Record-count line (used as the default subtitle). */
+    const countNode = hasActiveFilters
+        ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
+        : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>;
+
+    /* Header toolbar (reset filters · export · custom header actions). */
+    const toolbar = (
+        <>
+            {hasActiveFilters && (
+                <button
+                    onClick={resetFilters}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
+                >
+                    <RotateCcw className="w-3 h-3" />
+                    مسح الفلاتر
+                </button>
+            )}
+            <button
+                onClick={() => exportCSV(columns, sorted, title)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
+            >
+                <Download className="w-3 h-3" />
+                تصدير CSV
+            </button>
+            {headerActions}
+        </>
+    );
+
     /* ---------------------------------------------------------------- */
     /*  Render                                                           */
     /* ---------------------------------------------------------------- */
     return (
+        <>
+            {/* ── PAGE-LEVEL HEADER (title above the card) ── */}
+            {titlePlacement === 'page' && (
+                <PageHeader
+                    className="mb-5"
+                    title={title}
+                    subtitle={subtitle ?? countNode}
+                    icon={
+                        <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">
+                            <Icon className="w-5 h-5 text-sky-600" />
+                        </div>
+                    }
+                    actions={toolbar}
+                >
+                    {scopeIndicator}
+                </PageHeader>
+            )}
+
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
-            {/* ── HEADER ── */}
+            {/* ── HEADER (card variant — section label inside the card) ── */}
+            {titlePlacement === 'card' && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
                 <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">
@@ -243,35 +302,14 @@ export default function SmartTable<T>({
                     </div>
                     <div>
                         <h2 className="text-lg font-bold text-slate-800 leading-tight">{title}</h2>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                            {hasActiveFilters
-                                ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
-                                : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>}
-                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">{subtitle ?? countNode}</p>
                     </div>
                     {scopeIndicator}
                 </div>
 
-                <div className="flex items-center gap-2">
-                    {hasActiveFilters && (
-                        <button
-                            onClick={resetFilters}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
-                        >
-                            <RotateCcw className="w-3 h-3" />
-                            مسح الفلاتر
-                        </button>
-                    )}
-                    <button
-                        onClick={() => exportCSV(columns, sorted, title)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
-                    >
-                        <Download className="w-3 h-3" />
-                        تصدير CSV
-                    </button>
-                    {headerActions}
-                </div>
+                <div className="flex items-center gap-2">{toolbar}</div>
             </div>
+            )}
 
             {/* ── FILTER BAR ── */}
             {!hideFilterBar && (
@@ -541,5 +579,6 @@ export default function SmartTable<T>({
                 )}
             </div>
         </div>
+        </>
     );
 }

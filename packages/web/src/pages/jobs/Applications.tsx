@@ -7,6 +7,7 @@ import {
   ClipboardList, Search, Filter, ChevronDown, Eye, AlertTriangle, Calendar, Archive, Plus
 } from 'lucide-react';
 import PermissionGate from '../../components/PermissionGate';
+import PageHeader from '../../components/ui/PageHeader';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';
@@ -191,13 +192,11 @@ export default function Applications() {
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-            <ClipboardList className="w-7 h-7 text-sky-500" />
-            طلبات التوظيف
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">عرض وإدارة جميع طلبات التوظيف المقدمة</p>
-        </div>
+        <PageHeader
+          title="طلبات التوظيف"
+          subtitle="عرض وإدارة جميع طلبات التوظيف المقدمة"
+          icon={<ClipboardList className="w-7 h-7 text-sky-500" />}
+        />
         <PermissionGate permission="jobs.applications.create">
           <button
             onClick={() => navigate('/jobs/applications/new')}

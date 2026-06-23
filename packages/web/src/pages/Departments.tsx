@@ -9,6 +9,7 @@ import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import Select from '../components/ui/Select';
+import PageHeader from '../components/ui/PageHeader';
 import IconButton from '../components/ui/IconButton';
 import {
   Building2, Plus, Edit, Trash2, X,
@@ -263,15 +264,11 @@ export default function Departments() {
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <Layers className="w-7 h-7 text-sky-500" />
-            الأقسام
-          </h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            إدارة أقسام الفروع وأنواعها وتخصيص الأجهزة لها
-          </p>
-        </div>
+        <PageHeader
+          title="الأقسام"
+          subtitle="إدارة أقسام الفروع وأنواعها وتخصيص الأجهزة لها"
+          icon={<Layers className="w-7 h-7 text-sky-500" />}
+        />
 
         <button
           onClick={openCreate}
