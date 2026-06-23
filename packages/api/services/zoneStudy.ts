@@ -6,7 +6,7 @@ import type {
   ZoneStudyResponse,
 } from '@golden-crm/shared';
 import { resolveTeamPlanningScope } from './teamPlanningScope.js';
-import { buildClientLifecycleStatusSql } from './customerOwnership.js';
+import { buildClientLifecycleStatusSql, eligiblePersonalOwnerCondition } from './customerOwnership.js';
 import { buildOpenTaskEligibilityPredicate } from './planningMarketingTargets.js';
 
 // ── Errors (mapped to HTTP codes by the route layer) ─────────────────────────
@@ -127,9 +127,10 @@ async function loadCompanyEligibleByZone(branchId: number): Promise<Map<number, 
               SELECT 1
               FROM client_assignments ca
               JOIN hr_users u ON u.id = ca.hr_user_id
+              LEFT JOIN roles r ON r.id = u.role_id
+              LEFT JOIN employees e ON e.id = u.employee_id
               WHERE ca.client_id = c.id
-                AND u.employee_id IS NOT NULL
-                AND u.is_active = TRUE
+                AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
             )
           )
       ) t
@@ -171,10 +172,7 @@ async function loadTeamZoneStats(
             JOIN employees e ON e.id = u.employee_id
             WHERE ca.client_id = c.id
               AND ca.hr_user_id = ANY($2::int[])
-              AND u.is_active = TRUE
-              AND u.employee_id IS NOT NULL
-              AND r.team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')
-              AND e.status = 'active'
+              AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
           )
       )
       SELECT

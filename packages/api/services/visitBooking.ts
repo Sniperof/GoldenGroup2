@@ -20,6 +20,7 @@
 
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
+import { resolveTeamZoneIds } from './planningMarketingTargets.js';
 
 export type VisitOriginType =
   | 'telemarketing'
@@ -62,6 +63,7 @@ const POST_SALE_TASK_TYPES = new Set([
   'device_delivery',
   'device_installation',
   'device_activation',
+  'device_disconnection',
 ]);
 
 // ─── D18 triple guard ──────────────────────────────────────────────────────
@@ -207,6 +209,7 @@ async function loadTeamSnapshot(
     if (!team) return { teamSnapshot: null, responsibleEmployeeId: null };
     return {
       teamSnapshot: {
+        teamKey,
         supervisorEmployeeId: Number.isInteger(team.supervisor) ? team.supervisor : null,
         technicianEmployeeId: Number.isInteger(team.technician) ? team.technician : null,
         traineeEmployeeId: Number.isInteger(team.trainee) ? team.trainee : null,
@@ -223,6 +226,7 @@ async function loadTeamSnapshot(
     // Emergency / solo: technician carries the visit per DEC-007 D47.
     return {
       teamSnapshot: {
+        teamKey,
         technicianEmployeeId: Number.isInteger(solo.technician) ? solo.technician : null,
         telemarketerEmployeeIds: Array.isArray(solo.telemarketers) ? solo.telemarketers : [],
       },
@@ -238,13 +242,14 @@ async function assertTeamSlotAvailable(
   params: { branchId: number; scheduledDate: string; scheduledTime: string; teamKey: string },
 ): Promise<void> {
   const { rows } = await db.query<{ id: number }>(
-    `SELECT id
-       FROM field_visits
-      WHERE branch_id = $1
-        AND scheduled_date = $2
-        AND team_snapshot->>'teamKey' = $3
-        AND substring(COALESCE(scheduled_time, '') from 1 for 5) = substring($4 from 1 for 5)
-        AND status IN ('scheduled', 'in_progress', 'ended', 'completed')
+    `SELECT fv.id
+       FROM field_visits fv
+       LEFT JOIN contact_targets ct ON ct.latest_visit_id = fv.id
+      WHERE fv.branch_id = $1
+        AND fv.scheduled_date = $2
+        AND COALESCE(fv.team_snapshot->>'teamKey', ct.team_key) = $3
+        AND substring(COALESCE(fv.scheduled_time, '') from 1 for 5) = substring($4 from 1 for 5)
+        AND fv.status IN ('scheduled', 'in_progress', 'ended', 'completed')
       LIMIT 1`,
     [params.branchId, params.scheduledDate, params.teamKey, params.scheduledTime],
   );
@@ -405,6 +410,235 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
 
     await db.query('COMMIT');
     return { fieldVisitId, visitTaskIds };
+  } catch (err) {
+    await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    db.release();
+  }
+}
+
+// ─── DEC-011: Field-Initiated Instant Visit ────────────────────────────────
+
+export interface CreateInstantVisitInput {
+  performedByUserId: number;
+  clientId: number;
+  lat?: number | null;
+  lng?: number | null;
+  accuracy?: number | null;
+  locationMissingReasonId?: number | null;
+}
+
+export interface CreateInstantVisitResult {
+  fieldVisitId: number;
+}
+
+/** Find the teamKey (team_N / solo_N) the employee belongs to in today's schedule. */
+async function findTeamKeyForUserToday(
+  db: PoolClient,
+  employeeId: number,
+  date: string,
+): Promise<string | null> {
+  const { rows } = await db.query('SELECT teams, solos FROM day_schedules WHERE date = $1', [date]);
+  const sched = rows[0];
+  if (!sched) return null;
+
+  const teams = Array.isArray(sched.teams) ? sched.teams : [];
+  for (let i = 0; i < teams.length; i++) {
+    const t = teams[i] ?? {};
+    if (Number(t.supervisor) === employeeId
+        || Number(t.technician) === employeeId
+        || Number(t.trainee) === employeeId) {
+      return `team_${i}`;
+    }
+  }
+  const solos = Array.isArray(sched.solos) ? sched.solos : [];
+  for (let i = 0; i < solos.length; i++) {
+    if (Number(solos[i]?.technician) === employeeId) return `solo_${i}`;
+  }
+  return null;
+}
+
+/**
+ * DEC-011: create an off-plan visit on the spot, already in_progress. The team
+ * responsible (supervisor/technician) creates it for a customer in their branch
+ * whose neighborhood falls in their route zones today. Starts empty — tasks are
+ * added via the pull flow (DEC-010). Hard guards: D18 (day+route exist), branch,
+ * zone membership, and cooldown/do_not_contact (BLOCK). Also creates+closes a
+ * contact_target so daily-contact reporting stays coherent.
+ */
+export async function createInstantVisit(input: CreateInstantVisitInput): Promise<CreateInstantVisitResult> {
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+
+    // 1. Resolve performer → employee + branch.
+    const { rows: userRows } = await db.query(
+      `SELECT u.employee_id AS "employeeId", e.branch_id AS "branchId"
+         FROM hr_users u
+         LEFT JOIN employees e ON e.id = u.employee_id
+        WHERE u.id = $1 AND u.is_active = TRUE`,
+      [input.performedByUserId],
+    );
+    const employeeId = Number(userRows[0]?.employeeId);
+    const branchId = Number(userRows[0]?.branchId);
+    if (!Number.isInteger(employeeId) || employeeId <= 0) {
+      throw new BookingError(403, 'حسابك غير مرتبط بموظف — لا يمكن إنشاء زيارة فورية.');
+    }
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      throw new BookingError(409, 'تعذّر تحديد فرعك من بيانات الموظف.');
+    }
+
+    // 2. Resolve the team she leads today.
+    const teamKey = await findTeamKeyForUserToday(db, employeeId, today);
+    if (!teamKey) {
+      throw new BookingError(409, 'لست ضمن أي فريق في جدول اليوم — لا يمكن إنشاء زيارة فورية.');
+    }
+
+    // 3. D18 triple guard (day_schedule + route_assignment + date>=today).
+    await assertD18(db, { scheduledDate: today, teamKey });
+
+    // 4. Team snapshot + responsible user.
+    const teamInfo = await loadTeamSnapshot(db, today, teamKey);
+    const responsibleHrUserId = await resolveHrUserId(db, teamInfo.responsibleEmployeeId);
+
+    // 5. Client guards: exists, active, same branch.
+    const { rows: clientRows } = await db.query(
+      `SELECT id, name, mobile, detailed_address, branch_id, neighborhood, water_source,
+              cooldown_until, do_not_contact, is_active, deleted_at
+         FROM clients WHERE id = $1 LIMIT 1`,
+      [input.clientId],
+    );
+    const client = clientRows[0];
+    if (!client || client.deleted_at != null || client.is_active === false) {
+      throw new BookingError(404, 'الزبون غير موجود أو غير نشط.');
+    }
+    if (Number(client.branch_id) !== branchId) {
+      throw new BookingError(403, 'هذا الزبون ليس ضمن فرعك (DEC-011).');
+    }
+
+    // 6. Cooldown / do_not_contact — BLOCK (DEC-005, no field override).
+    if (client.do_not_contact === true) {
+      throw new BookingError(409, 'الزبون مُعلَّم «عدم التواصل» — لا يمكن إنشاء زيارة.');
+    }
+    if (client.cooldown_until != null) {
+      const cd = new Date(client.cooldown_until).toISOString().slice(0, 10);
+      if (cd >= today) {
+        throw new BookingError(409, `الزبون ضمن فترة تهدئة حتى ${cd} — لا يمكن إنشاء زيارة فورية (DEC-005).`);
+      }
+    }
+
+    // 7. Zone guard: client's neighborhood must be in the team's route zones today.
+    const neighborhood = Number(client.neighborhood);
+    if (!Number.isInteger(neighborhood) || neighborhood <= 0) {
+      throw new BookingError(409, 'الزبون بلا منطقة محدّدة — لا يمكن التحقق من نطاق فريقك.');
+    }
+    const zoneIds = await resolveTeamZoneIds(today, teamKey);
+    if (!zoneIds.includes(neighborhood)) {
+      throw new BookingError(403, 'منطقة الزبون ليست ضمن مسار فريقك اليوم (DEC-011).');
+    }
+
+    // 8. GPS / location_missing (DEC-004 D17).
+    const lat = input.lat != null ? Number(input.lat) : null;
+    const lng = input.lng != null ? Number(input.lng) : null;
+    const accuracy = input.accuracy != null ? Number(input.accuracy) : null;
+    const locationMissing = lat === null || lng === null || !Number.isFinite(lat) || !Number.isFinite(lng);
+    const locationMissingReasonId = Number(input.locationMissingReasonId) || null;
+    if (locationMissing && !locationMissingReasonId) {
+      throw new BookingError(400, 'GPS غير متاح — يجب اختيار سبب (locationMissingReasonId).');
+    }
+
+    // 9. Create the field_visit, already in_progress.
+    const customerSnapshot = {
+      name: client.name,
+      address: client.detailed_address,
+      mobile: client.mobile,
+      teamKey,
+      waterSource: client.water_source,
+      fieldInitiated: true,
+    };
+    const timeSlot = now.toTimeString().slice(0, 5);
+    const { rows: visitRows } = await db.query(
+      `INSERT INTO field_visits (
+         visit_type, visit_family, branch_id, client_id, status,
+         scheduled_date, scheduled_time,
+         origin_type, origin_id,
+         team_snapshot, team_responsible_user_id,
+         customer_snapshot, appointment_booked_at, created_by
+       ) VALUES (
+         'marketing', 'marketing', $1, $2, 'in_progress',
+         $3, $4,
+         'field_initiated', $5,
+         $6::jsonb, $7,
+         $8::jsonb, NOW(), $5
+       )
+       RETURNING id`,
+      [
+        branchId,
+        input.clientId,
+        today,
+        timeSlot,
+        input.performedByUserId,
+        teamInfo.teamSnapshot ? JSON.stringify(teamInfo.teamSnapshot) : null,
+        responsibleHrUserId,
+        JSON.stringify(customerSnapshot),
+      ],
+    );
+    const fieldVisitId = Number(visitRows[0].id);
+
+    // 10. Start geo log (mirrors POST /:id/start).
+    await db.query(
+      `INSERT INTO visit_geo_logs (visit_id, actual_start_time, actual_start_lat, actual_start_lng,
+         actual_start_accuracy, location_missing, location_missing_reason, started_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`,
+      [
+        fieldVisitId,
+        now,
+        locationMissing ? null : lat,
+        locationMissing ? null : lng,
+        accuracy && Number.isFinite(accuracy) ? Math.round(accuracy) : null,
+        locationMissing,
+        locationMissing ? locationMissingReasonId : null,
+        input.performedByUserId,
+      ],
+    );
+
+    // 11. Create + close the contact_target (DEC-005 / D23 reporting coherence).
+    await db.query(
+      `INSERT INTO contact_targets (
+         branch_id, target_type, target_id, target_stage, visit_type,
+         source_type, source_id, supervisor_hr_user_id, zone_id, status,
+         date, team_key, work_location_geo_unit_id,
+         closing_reason, closed_by, closed_at, latest_visit_id
+       )
+       VALUES ($1, 'client', $2, 'lead', 'marketing', 'lead', $2, $3, $4, 'closed',
+               $5::date, $6, $4, 'field_initiated_visit', $7, NOW(), $8)
+       ON CONFLICT (branch_id, target_type, target_id, work_location_geo_unit_id, date)
+       WHERE work_location_geo_unit_id IS NOT NULL
+       DO UPDATE SET
+         status = 'closed',
+         closing_reason = 'field_initiated_visit',
+         closed_by = EXCLUDED.closed_by,
+         closed_at = NOW(),
+         latest_visit_id = EXCLUDED.latest_visit_id,
+         team_key = EXCLUDED.team_key,
+         updated_at = NOW()`,
+      [
+        branchId,
+        input.clientId,
+        responsibleHrUserId,
+        neighborhood,
+        today,
+        teamKey,
+        input.performedByUserId,
+        fieldVisitId,
+      ],
+    );
+
+    await db.query('COMMIT');
+    return { fieldVisitId };
   } catch (err) {
     await db.query('ROLLBACK');
     throw err;

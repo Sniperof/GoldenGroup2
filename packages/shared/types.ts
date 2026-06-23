@@ -668,12 +668,18 @@ export interface TeamSlot {
     technician: number | null;
     telemarketers?: number[];
     trainee?: number | null;
+    teamKey?: string;
+    teamLabel?: string;
+    supervisorName?: string | null;
 }
 
 export interface EmergencySlot {
     technician: number | null;
     trainee?: number | null;
     telemarketers?: number[];
+    teamKey?: string;
+    teamLabel?: string;
+    technicianName?: string | null;
 }
 
 /** @deprecated Use EmergencySlot */
@@ -1666,7 +1672,7 @@ export const OPEN_TASK_TYPE_LABELS: Record<string, string> = {
   golden_warranty_card_delivery: 'تسليم كرت كفالة ذهبية',
   warranty_cancellation: 'إلغاء كفالة',
   warranty_reactivation: 'إعادة تفعيل كفالة',
-  device_disconnection: 'فصل جهاز',
+  device_disconnection: 'فك جهاز',
   device_transfer: 'نقل جهاز',
 };
 

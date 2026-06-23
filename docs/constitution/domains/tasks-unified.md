@@ -169,10 +169,10 @@ const xyzExtension: TaskTypeExtension = {
 | النوع | التسمية | ملاحظات |
 |-------|---------|---------|
 | `parts_sale` | شراء قطعة | يحتاج عقد |
-| `device_retrieval` | سحب الجهاز | يحتاج عقد |
+| `device_retrieval` | سحب الجهاز | يعتمد على الجهاز وحالته التشغيلية، لا على العقد |
 | `device_repair` | فحص وإصلاح | يحتاج عقد |
-| `device_disconnection` | توقيف مؤقت | يحتاج عقد |
-| `device_transfer` | نقل لعنوان جديد | يحتاج عقد |
+| `device_disconnection` | فك الجهاز | يحتاج عقد |
+| `device_transfer` | نقل الجهاز | قد يغير الموقع فقط أو يغير الحيازة حسب نوع النقل |
 
 ### 4.7 warranty
 

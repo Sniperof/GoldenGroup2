@@ -6,9 +6,10 @@ import type { TaskResultModalProps, TaskTypeExtension, TaskDetailData } from '..
 import DeliveryInfoTab from '../../taskTypes/device_delivery/DeliveryInfoTab';
 import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceActivationResultModal';
 import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
+import DeviceDisconnectionResultModal from '../../taskTypes/device_delivery/DeviceDisconnectionResultModal';
 import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
 
-const RECORDABLE_POST_SALE_TYPES = new Set(['device_delivery', 'device_installation', 'device_activation']);
+const RECORDABLE_POST_SALE_TYPES = new Set(['device_delivery', 'device_installation', 'device_activation', 'device_disconnection']);
 
 // The component is mounted from four group routes; the back link must point to
 // the group the user actually came from (group segment in /tasks/group/<g>/:id),
@@ -17,6 +18,7 @@ const BACK_BY_GROUP: Record<string, { href: string; label: string }> = {
   'device-delivery':     { href: '/tasks/group/device-delivery',     label: 'مهام تسليم الجهاز' },
   'device-installation': { href: '/tasks/group/device-installation', label: 'مهام تركيب الجهاز' },
   'device-activation':   { href: '/tasks/group/device-activation',   label: 'مهام تشغيل الجهاز' },
+  'device-disconnection': { href: '/tasks/group/device-disconnection', label: 'مهام فك الجهاز' },
   'after-sale-services': { href: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع' },
 };
 
@@ -30,6 +32,9 @@ const PostSaleResultModal = (props: TaskResultModalProps) => {
   }
   if (taskType === 'device_delivery') {
     return <DeviceDeliveryResultModal {...props} />;
+  }
+  if (taskType === 'device_disconnection') {
+    return <DeviceDisconnectionResultModal {...props} />;
   }
   return null;
 };

@@ -5,6 +5,7 @@ import {
   buildClientLifecycleStatusSql,
   buildCustomerOwnershipSelectColumns,
   buildCustomerOwnershipSql,
+  eligiblePersonalOwnerCondition,
   mapCustomerOwnership,
 } from './customerOwnership.js';
 
@@ -307,18 +308,51 @@ function buildOwnershipScopePredicate(clientAlias: string, actorParam = '$3'): s
         SELECT 1
         FROM client_assignments ca_own
         JOIN hr_users u_own ON u_own.id = ca_own.hr_user_id
+        LEFT JOIN roles r_own ON r_own.id = u_own.role_id
+        LEFT JOIN employees e_own ON e_own.id = u_own.employee_id
         WHERE ca_own.client_id = ${clientAlias}.id
-          AND u_own.employee_id IS NOT NULL
-          AND u_own.is_active = TRUE
+          AND ${eligiblePersonalOwnerCondition('u_own', 'r_own', 'e_own')}
       )
       OR (cardinality(${actorParam}::int[]) > 0 AND EXISTS (
         SELECT 1
         FROM client_assignments ca_team
+        JOIN hr_users u_team ON u_team.id = ca_team.hr_user_id
+        LEFT JOIN roles r_team ON r_team.id = u_team.role_id
+        LEFT JOIN employees e_team ON e_team.id = u_team.employee_id
         WHERE ca_team.client_id = ${clientAlias}.id
           AND ca_team.hr_user_id = ANY(${actorParam}::int[])
+          AND ${eligiblePersonalOwnerCondition('u_team', 'r_team', 'e_team')}
       ))
     )
   `;
+}
+
+/**
+ * DEC-011: resolve the geo-unit zone ids covered by a team's route assignment on
+ * a given day. Reuses the same routes+extra_zones → zone resolution the planning
+ * targets use, so the field-initiated instant-visit zone guard matches exactly
+ * what planning considers "this team's area today". Returns [] when no assignment.
+ */
+export async function resolveTeamZoneIds(date: string, teamKey: string): Promise<number[]> {
+  const assignmentKey = `${date}_${teamKey}`;
+  const { rows } = await pool.query(
+    'SELECT routes, extra_zones AS "extraZones" FROM route_assignments WHERE key = $1',
+    [assignmentKey],
+  );
+  if (!rows[0]) return [];
+  const routes = normalizeRoutes(rows[0].routes);
+  const extraZones = normalizeExtraZones(rows[0].extraZones);
+  return buildZoneIds(routes, extraZones);
+}
+
+/**
+ * DEC-009 لبنة 8 (freeze/append-only): resolve the geo-unit zone set covered by a
+ * raw route_assignment payload (routes + extra_zones) BEFORE it is persisted. Used
+ * by the route-assignment save guard to compare the proposed coverage against the
+ * already-generated coverage and reject any zone removal (additions only).
+ */
+export async function resolveZoneIdsForAssignment(routes: unknown, extraZones: unknown): Promise<number[]> {
+  return buildZoneIds(normalizeRoutes(routes), normalizeExtraZones(extraZones));
 }
 
 async function buildZoneIds(routes: RouteCompositionInput[], extraZones: number[]): Promise<number[]> {
@@ -961,7 +995,10 @@ export async function getPlanningWorkScope(params: {
          WHEN NOT EXISTS (
            SELECT 1 FROM client_assignments ca2
            JOIN hr_users u2 ON u2.id = ca2.hr_user_id
-           WHERE ca2.client_id = c.id AND u2.employee_id IS NOT NULL AND u2.is_active = TRUE
+           LEFT JOIN roles r2 ON r2.id = u2.role_id
+           LEFT JOIN employees e2 ON e2.id = u2.employee_id
+           WHERE ca2.client_id = c.id
+             AND ${eligiblePersonalOwnerCondition('u2', 'r2', 'e2')}
          ) THEN 'company_branch'
          ELSE 'personal'
        END AS "ownershipType",
@@ -971,13 +1008,19 @@ export async function getPlanningWorkScope(params: {
            WHEN NOT EXISTS (
              SELECT 1 FROM client_assignments ca3
              JOIN hr_users u3 ON u3.id = ca3.hr_user_id
-             WHERE ca3.client_id = c.id AND u3.employee_id IS NOT NULL AND u3.is_active = TRUE
+             LEFT JOIN roles r3 ON r3.id = u3.role_id
+             LEFT JOIN employees e3 ON e3.id = u3.employee_id
+             WHERE ca3.client_id = c.id
+               AND ${eligiblePersonalOwnerCondition('u3', 'r3', 'e3')}
            ) THEN b.name
            ELSE (
              SELECT string_agg(u4.name, ' + ' ORDER BY ca4.assigned_at)
              FROM client_assignments ca4
              JOIN hr_users u4 ON u4.id = ca4.hr_user_id
-             WHERE ca4.client_id = c.id AND u4.employee_id IS NOT NULL AND u4.is_active = TRUE
+             LEFT JOIN roles r4 ON r4.id = u4.role_id
+             LEFT JOIN employees e4 ON e4.id = u4.employee_id
+             WHERE ca4.client_id = c.id
+               AND ${eligiblePersonalOwnerCondition('u4', 'r4', 'e4')}
            )
          END,
          b.name

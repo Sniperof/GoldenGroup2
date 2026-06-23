@@ -11,21 +11,16 @@
 // Submits via the unified recordTaskResult; warranty creation is a reflection.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { Award, CalendarClock, ChevronDown, ChevronLeft, CircleCheck, CircleX, Loader2, Plus, Trash2, X } from 'lucide-react';
+import { Award, CalendarClock, ChevronDown, ChevronLeft, CircleCheck, CircleX, CreditCard, Loader2, Trash2, Wrench, X } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import { TechnicalStateFields, buildTechnicalStatePayload, hasAnyTechnicalReading, type TechStateForm } from '../../components/devices/TechnicalStateFields';
 import Select from '../../components/ui/Select';
-
-const PAYMENT_METHODS: Array<{ value: string; label: string }> = [
-  { value: 'cash', label: 'نقدي' }, { value: 'usd_cash', label: 'دولار نقدي' },
-  { value: 'bank_transfer', label: 'تحويل بنكي' }, { value: 'sham_cash', label: 'شام كاش' },
-  { value: 'syriatel_cash', label: 'سيرياتيل كاش' }, { value: 'mtn_cash', label: 'MTN كاش' },
-  { value: 'alharam', label: 'الهرم' }, { value: 'barter', label: 'مقايضة' },
-];
+import WarrantyPaymentEntries, { warrantyEntrySyp, warrantyPaymentPayload, type WarrantyPaymentRow } from '../../components/warranty/WarrantyPaymentEntries';
 
 type Mode = 'activate' | 'later' | 'reject';
-interface PaymentRow { method: string; amountValue: string; }
+type PaymentType = 'cash' | 'installment';
+interface InstallmentDraft { installmentNumber: number; dueDate: string; amountSyp: string; }
 interface DeviceRow {
   installedDeviceId: number;
   deviceModelName: string;
@@ -35,7 +30,10 @@ interface DeviceRow {
   months: string;
   totalValue: string;
   expanded: boolean;
-  payments: PaymentRow[];
+  paymentType: PaymentType;
+  payments: WarrantyPaymentRow[];
+  installmentCount: string;
+  installments: InstallmentDraft[];
   reading: TechStateForm;
 }
 
@@ -73,7 +71,10 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
           months: '12',
           totalValue: '',
           expanded: false,
-          payments: [] as PaymentRow[],
+          paymentType: 'cash' as PaymentType,
+          payments: [] as WarrantyPaymentRow[],
+          installmentCount: '6',
+          installments: [] as InstallmentDraft[],
           reading: {} as TechStateForm,
         }))))
         .catch(() => setDevices([]));
@@ -86,6 +87,33 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
   const updateDevice = (i: number, patch: Partial<DeviceRow>) =>
     setDevices((p) => p.map((d, idx) => (idx === i ? { ...d, ...patch } : d)));
 
+  const devicePaidSyp = (d: DeviceRow) => d.payments.reduce((s, p) => s + warrantyEntrySyp(p), 0);
+
+  // Generate an installment schedule for one device: (value − down payment)
+  // split over N monthly steps starting one month after the receipt date.
+  const generateInstallments = (i: number) => {
+    const d = devices[i];
+    const total = Number(d.totalValue) || 0;
+    const downPaid = devicePaidSyp(d);
+    const remaining = total - downPaid;
+    const count = parseInt(d.installmentCount, 10) || 0;
+    if (remaining <= 0 || count <= 0) { updateDevice(i, { installments: [] }); return; }
+    const monthly = Math.floor(remaining / count);
+    const last = remaining - monthly * (count - 1);
+    const drafts: InstallmentDraft[] = [];
+    for (let n = 0; n < count; n++) {
+      drafts.push({
+        installmentNumber: n + 1,
+        dueDate: addMonths(receiptDate, n + 1),
+        amountSyp: String(n === count - 1 ? last : monthly),
+      });
+    }
+    updateDevice(i, { installments: drafts });
+  };
+
+  const updateInstallment = (i: number, n: number, patch: Partial<InstallmentDraft>) =>
+    updateDevice(i, { installments: devices[i].installments.map((x, xi) => (xi === n ? { ...x, ...patch } : x)) });
+
   async function submit() {
     setError('');
     let body: any;
@@ -93,7 +121,12 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
       const chosen = devices.filter((d) => d.selected);
       if (chosen.length === 0) { setError('اختر جهازاً واحداً على الأقل للتفعيل'); return; }
       for (const d of chosen) {
-        if (!(Number(d.months) > 0)) { setError(`المدة غير صالحة للجهاز ${d.serialNumber ?? d.installedDeviceId}`); return; }
+        const label = d.serialNumber ?? `#${d.installedDeviceId}`;
+        if (!(Number(d.months) > 0)) { setError(`المدة غير صالحة للجهاز ${label}`); return; }
+        if (d.paymentType === 'installment') {
+          if (!(Number(d.totalValue) > 0)) { setError(`قيمة الكفالة مطلوبة للتقسيط — الجهاز ${label}`); return; }
+          if (d.installments.length === 0) { setError(`ولّد أقساط الجهاز ${label} قبل الحفظ`); return; }
+        }
       }
       body = {
         final_decision: 'activated',
@@ -103,9 +136,17 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
           installedDeviceId: d.installedDeviceId,
           months: Number(d.months),
           totalValue: d.totalValue.trim() ? Number(d.totalValue) : null,
+          paymentType: d.paymentType,
           payments: d.payments
-            .filter((p) => p.amountValue.trim() && Number(p.amountValue) > 0)
-            .map((p) => ({ method: p.method, amountValue: Number(p.amountValue) })),
+            .filter((p) => (p.paymentCategory === 'barter' ? Number(p.barterValueSyp) > 0 : Number(p.amountValue) > 0))
+            .map(warrantyPaymentPayload),
+          installments: d.paymentType === 'installment'
+            ? d.installments.map((inst) => ({
+                installmentNumber: inst.installmentNumber,
+                dueDate: inst.dueDate,
+                amountSyp: Number(inst.amountSyp) || 0,
+              }))
+            : [],
           reading: hasAnyTechnicalReading(d.reading) ? buildTechnicalStatePayload(d.reading) : null,
         })),
       };
@@ -188,34 +229,97 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                     </div>
                     {d.selected && !d.activeGoldenWarrantyId && d.expanded && (
                       <div className="space-y-3 border-t border-slate-100 bg-slate-50/40 px-3 py-3">
-                        <div>
-                          <div className="mb-1 flex items-center justify-between">
-                            <span className="text-xs font-bold text-slate-600">الدفعات</span>
-                            <button type="button" onClick={() => updateDevice(i, { payments: [...d.payments, { method: 'cash', amountValue: '' }] })}
-                              className="inline-flex items-center gap-1 text-xs font-bold text-amber-700"><Plus className="h-3.5 w-3.5" /> إضافة دفعة</button>
-                          </div>
-                          {d.payments.map((p, pi) => (
-                            <div key={pi} className="mb-1 flex items-center gap-2">
-                              <Select
-                                value={p.method}
-                                onChange={(v) => updateDevice(i, { payments: d.payments.map((x, xi) => xi === pi ? { ...x, method: v } : x) })}
-                                className="flex-1"
-                                size="sm"
-                                options={PAYMENT_METHODS.map((m) => ({ value: m.value, label: m.label }))}
-                              />
-                              <input type="number" min="0" placeholder="المبلغ" value={p.amountValue}
-                                onChange={(e) => updateDevice(i, { payments: d.payments.map((x, xi) => xi === pi ? { ...x, amountValue: e.target.value } : x) })}
-                                className="w-28 rounded border border-slate-200 px-2 py-1 text-xs" />
-                              <button type="button" onClick={() => updateDevice(i, { payments: d.payments.filter((_, xi) => xi !== pi) })}
-                                className="p-1 text-rose-400 hover:bg-rose-50 rounded"><Trash2 className="h-3.5 w-3.5" /></button>
+                        {/* ── بطاقة الدفع ─────────────────────────────── */}
+                        <section className="rounded-xl border border-emerald-200 bg-white">
+                          <header className="flex items-center gap-2 border-b border-emerald-100 bg-emerald-50/60 px-3 py-2">
+                            <CreditCard className="h-4 w-4 text-emerald-600" />
+                            <span className="text-xs font-black text-emerald-800">الدفع</span>
+                          </header>
+                          <div className="space-y-3 p-3">
+                            {/* نوع الدفع */}
+                            <div className="flex gap-2">
+                              {([
+                                { v: 'cash', label: 'نقدي' },
+                                { v: 'installment', label: 'تقسيط' },
+                              ] as Array<{ v: PaymentType; label: string }>).map((o) => (
+                                <button key={o.v} type="button"
+                                  onClick={() => updateDevice(i, { paymentType: o.v, installments: o.v === 'cash' ? [] : d.installments })}
+                                  className={`flex-1 rounded-lg border-2 py-2 text-xs font-bold transition ${
+                                    d.paymentType === o.v
+                                      ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
+                                      : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                                  }`}>
+                                  {o.label}
+                                </button>
+                              ))}
                             </div>
-                          ))}
-                          {d.payments.length === 0 && <p className="text-[11px] text-slate-400">لا دفعات.</p>}
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold text-slate-600">الحالة الفنية المرجعية (خط الأساس)</span>
-                          <div className="mt-2"><TechnicalStateFields value={d.reading} onChange={(next) => updateDevice(i, { reading: next })} /></div>
-                        </div>
+
+                            <div>
+                              <p className="mb-1.5 text-[11px] font-bold text-slate-500">
+                                {d.paymentType === 'installment' ? 'الدفعة المقدّمة (اختياري)' : 'الدفعات'}
+                              </p>
+                              <WarrantyPaymentEntries
+                                entries={d.payments}
+                                onChange={(next) => updateDevice(i, { payments: next })}
+                                grandTotal={d.paymentType === 'cash' && Number(d.totalValue) > 0 ? Number(d.totalValue) : null}
+                              />
+                            </div>
+
+                            {/* جدول الأقساط */}
+                            {d.paymentType === 'installment' && (
+                              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[11px] font-bold text-slate-500">عدد الأقساط</span>
+                                  <input type="number" min="1" value={d.installmentCount}
+                                    onChange={(e) => updateDevice(i, { installmentCount: e.target.value })}
+                                    className="w-16 rounded border border-slate-200 px-2 py-1 text-sm" />
+                                  <button type="button" onClick={() => generateInstallments(i)}
+                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500">
+                                    توليد الأقساط
+                                  </button>
+                                  <span className="mr-auto text-[11px] text-slate-400">
+                                    المتبقّي بعد المقدّم: {Math.max(0, (Number(d.totalValue) || 0) - devicePaidSyp(d)).toLocaleString('ar-SY')} ل.س
+                                  </span>
+                                </div>
+                                {d.installments.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {d.installments.map((inst, n) => (
+                                      <div key={n} className="flex items-center gap-2">
+                                        <span className="w-6 text-center text-[11px] font-bold text-slate-400">{inst.installmentNumber}</span>
+                                        <input type="date" value={inst.dueDate}
+                                          onChange={(e) => updateInstallment(i, n, { dueDate: e.target.value })}
+                                          className="rounded border border-slate-200 px-2 py-1 text-xs" />
+                                        <input type="number" min="0" value={inst.amountSyp}
+                                          onChange={(e) => updateInstallment(i, n, { amountSyp: e.target.value })}
+                                          className="w-28 rounded border border-slate-200 px-2 py-1 text-xs" dir="ltr" />
+                                        <span className="text-[11px] text-slate-400">ل.س</span>
+                                        <button type="button" onClick={() => updateDevice(i, { installments: d.installments.filter((_, xi) => xi !== n) })}
+                                          className="mr-auto rounded p-1 text-rose-400 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5" /></button>
+                                      </div>
+                                    ))}
+                                    <div className="flex justify-between border-t border-slate-200 pt-1 text-xs font-black text-slate-700">
+                                      <span>مجموع الأقساط</span>
+                                      <span>{d.installments.reduce((s, x) => s + (Number(x.amountSyp) || 0), 0).toLocaleString('ar-SY')} ل.س</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-[11px] text-slate-400">لم تُولّد أقساط بعد.</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </section>
+
+                        {/* ── بطاقة الحالة الفنية ─────────────────────── */}
+                        <section className="rounded-xl border border-sky-200 bg-white">
+                          <header className="flex items-center gap-2 border-b border-sky-100 bg-sky-50/60 px-3 py-2">
+                            <Wrench className="h-4 w-4 text-sky-600" />
+                            <span className="text-xs font-black text-sky-800">الحالة الفنية المرجعية (خط الأساس)</span>
+                          </header>
+                          <div className="p-3">
+                            <TechnicalStateFields value={d.reading} onChange={(next) => updateDevice(i, { reading: next })} />
+                          </div>
+                        </section>
                       </div>
                     )}
                   </div>

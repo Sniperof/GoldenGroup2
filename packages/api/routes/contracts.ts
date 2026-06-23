@@ -8,6 +8,7 @@ import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
 import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
 import { persistOpenTaskSnapshots } from './openTasks.js';
+import { createInstallmentCollectionTasksForContract } from '../services/installmentCollectionTasks.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1009,6 +1010,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
           [contract.id, inst.installmentNumber, inst.dueDate, inst.amountSyp || 0, inst.confirmed === true],
         );
       }
+    }
+
+    if (contract.status === 'active') {
+      await createInstallmentCollectionTasksForContract(client, Number(contract.id));
     }
 
     // Financial constitution: `dues` are no longer stored independently.
@@ -2045,6 +2050,8 @@ router.post('/:id/approve', async (req, res) => {
     if (refreshed.contractType === 'sale_contract') {
       await createDeliveryTaskForContract(pgClient, refreshed);
     }
+
+    await createInstallmentCollectionTasksForContract(pgClient, contractId);
 
     if (refreshed.customerId) {
       await promoteClientToLifecycleStatus(pgClient, Number(refreshed.customerId), 'OP');

@@ -405,6 +405,7 @@ export const api = {
   openTasks: {
     create: (data: any) => request<any>('/open-tasks', { method: 'POST', body: JSON.stringify(data) }),
     listByClient: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}`),
+    collectableInstallments: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}/collectable-installments`),
     get: (id: number) => request<any>(`/open-tasks/${id}`),
     update: (id: number, data: any) => request<any>(`/open-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     assignTeam: (id: number, data: { supervisorId?: number; technicianId?: number; traineeId?: number }) =>
@@ -639,6 +640,34 @@ export const api = {
       `/field-visits/${id}/tasks`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+    /** DEC-010: the customer's waiting-phase tasks (visit's branch) pullable into the visit. */
+    pullableTasks: (id: number) => request<Array<{
+      openTaskId: number; taskType: string; arabicLabel: string | null; taskFamily: string | null;
+      status: string; reason: string | null; priority: string | null; creationOrigin: string | null;
+      createdAt: string; expectedDate: string | null; expectedTime: string | null;
+      contractId: number | null; contractNumber: string | null; deviceModelName: string | null;
+      installmentId: number | null; installmentNumber: number | null;
+      installmentAmount: number | string | null; installmentRemaining: number | string | null;
+      expectedAmount: number | string | null; receivableLabel: string | null;
+      taskAddress: string | null; taskGeoUnitId: number | null;
+    }>>(`/field-visits/${id}/pullable-tasks`),
+    /** DEC-010 D-PB8: undo a pull (pulled + pending only). */
+    removePulledTask: (id: number, visitTaskId: number) =>
+      request<{ success: boolean; removedVisitTaskId: number; restoredOpenTaskId: number | null }>(
+        `/field-visits/${id}/tasks/${visitTaskId}`,
+        { method: 'DELETE' },
+      ),
+    /** DEC-011: create a field-initiated instant visit (starts in_progress now). */
+    createInstant: (data: {
+      clientId: number;
+      lat?: number | null;
+      lng?: number | null;
+      accuracy?: number | null;
+      locationMissingReasonId?: number | null;
+    }) => request<{ success: boolean; fieldVisitId: number }>(
+      `/field-visits/instant`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
     recordTaskResult: (visitId: number, taskId: number, data: any) =>
       request<any>(`/field-visits/${visitId}/tasks/${taskId}/result`, {
         method: 'POST',
@@ -867,6 +896,15 @@ export const api = {
     create: (data: any) => request<any>('/system-lists', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/system-lists/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/system-lists/${id}`, { method: 'DELETE' }),
+  },
+  systemSettings: {
+    list: () => request<{ settings: Array<{ key: string; value: string; valueType: string; category: string | null; description: string | null }> }>(
+      '/system-settings',
+    ),
+    setContactTargetCleanupTime: (time: string) => request<{ key: string; value: string }>(
+      '/system-settings/contact-target-cleanup-time',
+      { method: 'PUT', body: JSON.stringify({ time }) },
+    ),
   },
   departments: {
     // branchId narrows a GLOBAL viewer to one branch (sent as X-Branch-Id, the

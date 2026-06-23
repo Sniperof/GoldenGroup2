@@ -35,10 +35,9 @@ async function scopeScheduleForViewer(authContext: AuthContext, schedule: any) {
   const plan = resolveListAccessScope(authContext, 'routes.assign.view');
   const isGlobal = authContext.isSuperAdmin || plan.scope === 'GLOBAL';
   const actingBranchId = authContext.actingBranchId ?? null;
-  let allowed: Set<number>;
+  let allowed: Set<number> | null;
   if (isGlobal) {
-    if (actingBranchId == null) return schedule;   // all-branches view — nothing redacted
-    allowed = new Set([actingBranchId]);
+    allowed = actingBranchId == null ? null : new Set([actingBranchId]);
   } else {
     allowed = new Set(authContext.allowedBranchIds);
   }
@@ -48,25 +47,51 @@ async function scopeScheduleForViewer(authContext: AuthContext, schedule: any) {
   ].filter((id): id is number => id != null);
 
   const branchByEmployee = new Map<number, number>();
+  const nameByEmployee = new Map<number, string>();
   if (ownerIds.length > 0) {
-    const { rows } = await pool.query<{ id: number; branchId: number }>(
-      'SELECT id, branch_id AS "branchId" FROM employees WHERE id = ANY($1::int[])',
+    const { rows } = await pool.query<{ id: number; branchId: number; name: string }>(
+      'SELECT id, branch_id AS "branchId", name FROM employees WHERE id = ANY($1::int[])',
       [[...new Set(ownerIds)]],
     );
-    rows.forEach(r => branchByEmployee.set(Number(r.id), Number(r.branchId)));
+    rows.forEach(r => {
+      branchByEmployee.set(Number(r.id), Number(r.branchId));
+      if (typeof r.name === 'string' && r.name.trim()) {
+        nameByEmployee.set(Number(r.id), r.name.trim());
+      }
+    });
   }
 
   const isVisible = (slot: any, isSolo: boolean): boolean => {
     const empId = slotOwnerEmployeeId(slot, isSolo);
     if (empId == null) return true;                 // empty/unowned slot: nothing to leak
     const ownerBranch = branchByEmployee.get(empId);
-    return ownerBranch == null || allowed.has(ownerBranch); // null owner-branch → permissive (GAP-DS-005)
+    return allowed == null || ownerBranch == null || allowed.has(ownerBranch); // null owner-branch → permissive (GAP-DS-005)
+  };
+
+  const enrichTeam = (team: any, index: number) => {
+    const supervisorName = nameByEmployee.get(Number(team?.supervisor)) ?? null;
+    return {
+      ...team,
+      teamKey: `team_${index}`,
+      supervisorName,
+      teamLabel: supervisorName ? `فريق ${supervisorName}` : `فريق #${index + 1}`,
+    };
+  };
+
+  const enrichSolo = (solo: any, index: number) => {
+    const technicianName = nameByEmployee.get(Number(solo?.technician)) ?? null;
+    return {
+      ...solo,
+      teamKey: `solo_${index}`,
+      technicianName,
+      teamLabel: technicianName ? `طوارئ: ${technicianName}` : `فريق طوارئ #${index + 1}`,
+    };
   };
 
   return {
     ...schedule,
-    teams: teams.map(t => (isVisible(t, false) ? t : { ...LOCKED_SLOT })),
-    solos: solos.map(s => (isVisible(s, true) ? s : { ...LOCKED_SLOT })),
+    teams: teams.map((t, index) => (isVisible(t, false) ? enrichTeam(t, index) : { ...LOCKED_SLOT })),
+    solos: solos.map((s, index) => (isVisible(s, true) ? enrichSolo(s, index) : { ...LOCKED_SLOT })),
   };
 }
 
@@ -456,6 +481,28 @@ router.put('/:date', async (req, res) => {
     // Keep the index: a locked placeholder is replaced by the stored slot it stood for.
     mergedTeams = (teams as any[]).map((t, i) => (isLockedSlot(t) ? storedTeams[i] : t));
     mergedSolos = (solos as any[]).map((s, i) => (isLockedSlot(s) ? storedSolos[i] : s));
+  }
+
+  // DEC-009 لبنة 8 (freeze): a team whose contact targets are already generated for
+  // this date cannot be deleted — its committed call list and assigned tasks depend
+  // on the slot index (team_N). Composition may still change; only removal is blocked.
+  const { rows: generatedTeamRows } = await pool.query(
+    'SELECT DISTINCT team_key FROM telemarketing_task_lists WHERE date = $1',
+    [req.params.date],
+  );
+  for (const gr of generatedTeamRows) {
+    const m = String(gr.team_key).match(/^(team|solo)_(\d+)$/);
+    if (!m) continue;
+    const idx = Number(m[2]);
+    const slot = m[1] === 'team' ? mergedTeams[idx] : mergedSolos[idx];
+    const slotMissing = slot == null || (typeof slot === 'object' && Object.keys(slot).length === 0);
+    if (slotMissing) {
+      return res.status(409).json({
+        error: `تعذّر الحفظ: لا يمكن حذف الفريق بعد توليد جهات اتصاله لهذا اليوم (DEC-009 لبنة 8).`,
+        code: 'TEAM_FROZEN_AFTER_GENERATION',
+        teamKey: gr.team_key,
+      });
+    }
   }
 
   const { rows } = await pool.query(

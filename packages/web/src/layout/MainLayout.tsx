@@ -17,7 +17,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug,
 } from 'lucide-react';
 
 const navItems = [
@@ -47,13 +47,14 @@ const recordsChildren = [
 const operationsChildren = [
     { path: '/tasks/group/device-demo',         label: 'مهام عرض الجهاز',        icon: Monitor,     permission: 'tasks.demo.view' },
     { path: '/tasks/group/maintenance',         label: 'مهام الصيانة',           icon: Wrench,      permission: 'tasks.maintenance.view' },
-    { path: '/tasks/group/collection',          label: 'مهام تحصيل الأقساط',     icon: DollarSign,  permission: 'tasks.collection.view' },
+    { path: '/tasks/group/collection',          label: 'مهام تسديد الذمم',       icon: DollarSign,  permission: 'tasks.collection.view' },
     { path: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع', icon: RefreshCw,   permission: 'tasks.after_sales.view' },
     { path: '/tasks/group/gift-delivery',       label: 'مهام تسليم الهدايا',     icon: Gift,        permission: 'tasks.gifts.view' },
     { path: '/tasks/group/warranty-services',   label: 'مهام خدمات الكفالة',     icon: ShieldCheck, permission: 'tasks.warranty.view' },
     { path: '/tasks/group/device-delivery',     label: 'مهام تسليم الجهاز',      icon: Gift,        permission: 'tasks.delivery.view' },
     { path: '/tasks/group/device-installation', label: 'مهام تركيب الجهاز',      icon: Wrench,      permission: 'tasks.installation.view' },
     { path: '/tasks/group/device-activation',   label: 'مهام تشغيل الجهاز',      icon: Monitor,     permission: 'tasks.activation.view' },
+    { path: '/tasks/group/device-disconnection', label: 'مهام فك الجهاز',        icon: Unplug,      permission: 'tasks.disconnection.view' },
     // DEC-006 D37/D38: hub for supervisor alerts (attempt threshold + visit escalation)
     { path: '/supervisor/alerts',               label: 'تنبيهات المشرف',         icon: Bell,        permission: 'tasks.supervisor_alerts.view' },
 

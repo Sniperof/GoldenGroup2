@@ -7,12 +7,13 @@ import type { AuthContext } from '@golden-crm/shared';
 import { canViewFieldVisit, canEditFieldVisit, getFieldVisitListAccessPlan } from '../policies/fieldVisitPolicy.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
-import { applyDeviceActivationResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { applyDeviceActivationResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceDisconnectionResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, applyInstallmentCollectionResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
 import {
   buildClientLifecycleStatusSql,
   buildCustomerOwnershipSql,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
+import { createInstantVisit, BookingError } from '../services/visitBooking.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -300,6 +301,37 @@ async function resolveVisitSource(visitId: number): Promise<{
  *       500:
  *         description: Server error
  */
+// DEC-011: field-initiated instant visit — created already in_progress for a
+// customer in the team's branch + today's route zones. Starts empty (tasks via
+// the pull flow, DEC-010). Guards (branch/zone/cooldown/D18) live in the service.
+router.post('/instant', requirePermission('field_visits.create_instant'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const clientId = Number(req.body?.clientId);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId مطلوب' });
+    }
+    if (authContext.userId == null) {
+      return res.status(401).json({ error: 'مستخدم غير معروف' });
+    }
+    const result = await createInstantVisit({
+      performedByUserId: authContext.userId,
+      clientId,
+      lat: req.body?.lat != null ? Number(req.body.lat) : null,
+      lng: req.body?.lng != null ? Number(req.body.lng) : null,
+      accuracy: req.body?.accuracy != null ? Number(req.body.accuracy) : null,
+      locationMissingReasonId: Number(req.body?.locationMissingReasonId) || null,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    if (err instanceof BookingError) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error('[field-visits] POST /instant error:', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل إنشاء الزيارة الفورية' });
+  }
+});
+
 router.post('/:id/start', requirePermission('field_visits.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -2119,74 +2151,77 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
     }
     const taskFamily = configRows[0].task_family;
 
-    // 3. Resolve or create the source open_task
-    let openTaskId: number | null = Number(body.openTaskId) || null;
-    if (openTaskId != null && openTaskId > 0) {
-      const { rows: existingRows } = await client.query(
-        `SELECT id, client_id, task_type FROM open_tasks WHERE id = $1 LIMIT 1`,
-        [openTaskId],
-      );
-      if (existingRows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: `open_task #${openTaskId} غير موجودة` });
-      }
-      if (Number(existingRows[0].client_id) !== Number(visit.client_id)) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({
-          error: 'لا يجوز إضافة مهمة لزبون مختلف عن زبون الزيارة (DEC-003 D7).',
-        });
-      }
-      if (existingRows[0].task_type !== taskType) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          error: `نوع المهمة المطلوب (${taskType}) لا يطابق نوع open_task #${openTaskId} (${existingRows[0].task_type}).`,
-        });
-      }
-    } else {
-      // Create new open_task with creation_origin = cascading_during_visit
-      const { rows: newRows } = await client.query(
-        `INSERT INTO open_tasks (
-           client_id, branch_id, task_type, task_family, reason, status,
-           source, origin, creation_origin,
-           assigned_at, assigned_by, assigned_via,
-           created_by
-         ) VALUES (
-           $1, $2, $3, $4, $5, 'scheduled',
-           'manual', 'manual_entry', 'cascading_during_visit',
-           NOW(), $6, 'cascading',
-           $6
-         )
-         RETURNING id`,
-        [
-          visit.client_id,
-          visit.branch_id,
-          taskType,
-          taskFamily,
-          body.reason ?? 'إضافة أثناء الزيارة',
-          performedByUserId,
-        ],
-      );
-      openTaskId = Number(newRows[0].id);
+    // 3. Resolve the source open_task — DEC-010: pull-only.
+    //    Creation-from-visit (D-PB1) is deferred; only an existing task in the
+    //    waiting phase (D-PB2) of the visit's own branch (D-PB4) may be pulled.
+    const PULLABLE_STATUSES = ['open', 'needs_follow_up'];
+    const openTaskId: number | null = Number(body.openTaskId) || null;
+    if (!(openTaskId != null && openTaskId > 0)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'إنشاء مهمة جديدة من داخل الزيارة غير مدعوم حالياً — اسحب مهمة قائمة (DEC-010 D-PB1).',
+      });
+    }
+    const { rows: existingRows } = await client.query(
+      `SELECT id, client_id, branch_id, task_type, status FROM open_tasks WHERE id = $1 LIMIT 1`,
+      [openTaskId],
+    );
+    if (existingRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: `open_task #${openTaskId} غير موجودة` });
+    }
+    const ot = existingRows[0];
+    if (Number(ot.client_id) !== Number(visit.client_id)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'لا يجوز سحب مهمة لزبون مختلف عن زبون الزيارة (DEC-003 D7).',
+      });
+    }
+    if (ot.task_type !== taskType) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `نوع المهمة المطلوب (${taskType}) لا يطابق نوع open_task #${openTaskId} (${ot.task_type}).`,
+      });
+    }
+    if (Number(ot.branch_id) !== Number(visit.branch_id)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'لا يجوز سحب مهمة من فرع مختلف عن فرع الزيارة (DEC-010 D-PB4).',
+      });
+    }
+    if (!PULLABLE_STATUSES.includes(ot.status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `لا يمكن سحب المهمة — حالتها "${ot.status}". يُسمح فقط بمهام قيد الانتظار (open / needs_follow_up) (DEC-010 D-PB2).`,
+      });
     }
 
-    // 4. Insert the visit_task
+    // 4. Insert the visit_task (marked as pulled — DEC-010 D-PB7).
     const { rows: vtRows } = await client.query(
       `INSERT INTO visit_tasks (
          field_visit_id, source_open_task_id,
          task_type, task_family,
-         sequence_no, status
+         sequence_no, status, added_via
        )
        SELECT $1, $2, $3, $4,
               COALESCE(MAX(sequence_no), 0) + 1,
-              'pending'
+              'pending', 'pull'
          FROM visit_tasks WHERE field_visit_id = $1
        RETURNING id, sequence_no`,
       [fieldVisitId, openTaskId, taskType, taskFamily],
     );
 
-    // 5. Ensure the linked open_task is in scheduled state
+    // 5. Move the open_task to scheduled, preserving the waiting status so
+    //    undo-pull (D-PB8) can restore it.
     await client.query(
-      `UPDATE open_tasks SET status = 'scheduled', updated_at = NOW() WHERE id = $1 AND status IN ('open', 'needs_follow_up', 'assigned', 'in_scheduling')`,
+      `UPDATE open_tasks
+          SET last_waiting_status = CASE
+                WHEN status IN ('open', 'needs_follow_up') THEN status
+                ELSE last_waiting_status
+              END,
+              status = 'scheduled',
+              updated_at = NOW()
+        WHERE id = $1 AND status IN ('open', 'needs_follow_up')`,
       [openTaskId],
     );
 
@@ -2200,6 +2235,146 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
     await client.query('ROLLBACK');
     console.error('[field-visits] POST /:id/tasks error:', err);
     res.status(500).json({ error: err?.message ?? 'فشل إضافة المهمة' });
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================================================
+// DEC-010 — Visit Task Pull
+// ============================================================================
+
+/**
+ * GET /api/field-visits/:id/pullable-tasks
+ * The customer's waiting-phase open_tasks (open / needs_follow_up) in the
+ * visit's branch, that the team can pull into the in_progress visit.
+ *   - D-PB2: status restricted to the waiting phase (also the duplicate guard —
+ *            a task already pulled is `scheduled` and never appears here).
+ *   - D-PB3: constrained by client only, location-agnostic.
+ *   - D-PB4: branch restricted to the visit's branch.
+ *   - D-PB5: no N-Window, no eligibility filter.
+ *   - D-PB6: oldest-first, information-dense.
+ */
+router.get('/:id/pullable-tasks', requirePermission('field_visits.view'), async (req, res) => {
+  const fieldVisitId = Number(req.params.id);
+  if (!Number.isInteger(fieldVisitId) || fieldVisitId <= 0) {
+    return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+  }
+  try {
+    const { rows: visitRows } = await pool.query(
+      `SELECT id, client_id, branch_id FROM field_visits WHERE id = $1 LIMIT 1`,
+      [fieldVisitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    const visit = visitRows[0];
+
+    const { rows } = await pool.query(
+      `SELECT ot.id                       AS "openTaskId",
+              ot.task_type                AS "taskType",
+              ttc.arabic_label            AS "arabicLabel",
+              ot.task_family              AS "taskFamily",
+              ot.status,
+              ot.reason,
+              ot.priority,
+              ot.creation_origin          AS "creationOrigin",
+              ot.created_at               AS "createdAt",
+              ot.expected_date            AS "expectedDate",
+              ot.expected_time            AS "expectedTime",
+              ot.contract_id              AS "contractId",
+              ct.contract_number          AS "contractNumber",
+              ct.device_model_name        AS "deviceModelName",
+              ot.installment_id           AS "installmentId",
+              ci.installment_number       AS "installmentNumber",
+              ci.amount_syp               AS "installmentAmount",
+              ci.remaining_balance        AS "installmentRemaining",
+              ot.expected_amount_syp      AS "expectedAmount",
+              ot.receivable_source_label  AS "receivableLabel",
+              idev.installation_address_text AS "taskAddress",
+              idev.installation_geo_unit_id  AS "taskGeoUnitId"
+         FROM open_tasks ot
+         LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+         LEFT JOIN contracts ct ON ct.id = ot.contract_id
+         LEFT JOIN contract_installments ci ON ci.id = ot.installment_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
+        WHERE ot.client_id = $1
+          AND ot.branch_id = $2
+          AND ot.status IN ('open', 'needs_follow_up')
+        ORDER BY ot.created_at ASC`,
+      [visit.client_id, visit.branch_id],
+    );
+    return res.json(rows);
+  } catch (err: any) {
+    console.error('[field-visits] GET /:id/pullable-tasks error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل جلب المهام القابلة للسحب' });
+  }
+});
+
+/**
+ * DELETE /api/field-visits/:id/tasks/:visitTaskId
+ * Undo a pull (DEC-010 D-PB8). Allowed only when the visit_task:
+ *   1. was added via pull (added_via = 'pull') — never an original booked task, and
+ *   2. has no result yet (still pending).
+ * Effect: delete the visit_task, restore the open_task to its last_waiting_status.
+ */
+router.delete('/:id/tasks/:visitTaskId', requirePermission('field_visits.edit'), async (req, res) => {
+  const fieldVisitId = Number(req.params.id);
+  const visitTaskId = Number(req.params.visitTaskId);
+  if (!Number.isInteger(fieldVisitId) || fieldVisitId <= 0 ||
+      !Number.isInteger(visitTaskId) || visitTaskId <= 0) {
+    return res.status(400).json({ error: 'معرّف غير صالح' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT vt.id, vt.source_open_task_id, vt.added_via,
+              fv.status AS visit_status,
+              vtr.id AS result_id
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+        WHERE vt.id = $1 AND vt.field_visit_id = $2
+        LIMIT 1`,
+      [visitTaskId, fieldVisitId],
+    );
+    if (rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'المهمة غير موجودة ضمن هذه الزيارة' });
+    }
+    const row = rows[0];
+    if (row.visit_status !== 'in_progress') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'إلغاء السحب متاح فقط أثناء سير الزيارة (in_progress).' });
+    }
+    if (row.added_via !== 'pull') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'لا يمكن إلغاء سحب مهمة أصلية من حجز الزيارة — تُلغى عبر إلغاء/عدم إتمام (DEC-010 D-PB8).' });
+    }
+    if (row.result_id != null) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'لا يمكن إلغاء السحب بعد تسجيل نتيجة — عدّل النتيجة بدلاً من ذلك (DEC-010 D-PB8).' });
+    }
+
+    await client.query(`DELETE FROM visit_tasks WHERE id = $1`, [visitTaskId]);
+    if (row.source_open_task_id) {
+      await client.query(
+        `UPDATE open_tasks
+            SET status = COALESCE(last_waiting_status, 'open'),
+                updated_at = NOW()
+          WHERE id = $1 AND status = 'scheduled'`,
+        [row.source_open_task_id],
+      );
+    }
+    await client.query('COMMIT');
+    return res.json({
+      success: true,
+      removedVisitTaskId: visitTaskId,
+      restoredOpenTaskId: row.source_open_task_id ?? null,
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('[field-visits] DELETE /:id/tasks/:visitTaskId error:', err);
+    res.status(500).json({ error: err?.message ?? 'فشل إلغاء سحب المهمة' });
   } finally {
     client.release();
   }
@@ -2688,6 +2863,11 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
       return res.json({ success: true, ...result });
     }
 
+    if (taskType === 'device_disconnection') {
+      const result = await applyDeviceDisconnectionResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
     if (taskType === 'emergency_maintenance') {
       // Lifecycle-only path (reschedule / cancel). The "apply maintenance"
       // outcome continues to use the dedicated /api/emergency-result wizard.
@@ -2702,6 +2882,11 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
 
     if (taskType === 'golden_warranty_card_delivery') {
       const result = await applyGoldenWarrantyCardDeliveryResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'installment_collection') {
+      const result = await applyInstallmentCollectionResult(taskId, body, authContext.userId);
       return res.json({ success: true, ...result });
     }
 

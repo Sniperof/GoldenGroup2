@@ -234,7 +234,7 @@ router.post('/golden/offer-result', requirePermission('contracts.edit'), async (
       `INSERT INTO device_warranties
          (device_id, warranty_type, start_date, end_date, months, visits, total_value,
           status, activated_at, source_task_id, offer_task_id)
-       VALUES ($1, 'golden', $2, ($2::date + ($3 || ' months')::interval)::date, $3, $4, $5,
+       VALUES ($1, 'golden', $2, ($2::date + make_interval(months => $3::int))::date, $3::int, $4, $5,
                'active', now(), $6, $6)
        RETURNING *`,
       [deviceId, receiptDate, months, b.visits ?? null, totalValue, taskId],

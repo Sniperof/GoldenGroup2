@@ -12,15 +12,34 @@ import {
 import { api } from '../../lib/api';
 import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
 import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';
+import PullTaskModal from '../../components/fieldVisits/PullTaskModal';
 import DeviceDemoResultModal from '../../taskTypes/device_demo/DeviceDemoResultModal';
 import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceActivationResultModal';
 import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
+import DeviceDisconnectionResultModal from '../../taskTypes/device_delivery/DeviceDisconnectionResultModal';
 import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
 import EmergencyResultModal from '../../taskTypes/emergency_maintenance/EmergencyResultModal';
 import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';
 import GoldenWarrantyCardDeliveryModal from '../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardDeliveryModal';
+import InstallmentCollectionResultModal from '../../taskTypes/installment_collection/InstallmentCollectionResultModal';
 import ClientSnapshot from '../../components/ClientSnapshot';
 import { useAuthStore } from '../../hooks/useAuthStore';
+
+const RESULT_MODAL_TASK_TYPES = new Set([
+    'device_demo',
+    'device_delivery',
+    'device_installation',
+    'device_activation',
+    'device_disconnection',
+    'emergency_maintenance',
+    'golden_warranty_offer',
+    'golden_warranty_card_delivery',
+    'installment_collection',
+]);
+
+function hasResultModal(taskType: string | null | undefined) {
+    return !!taskType && RESULT_MODAL_TASK_TYPES.has(taskType);
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -234,6 +253,8 @@ export default function VisitDetailPage() {
 
     const [surveyOpen, setSurveyOpen] = useState(false);
     const [referralOpen, setReferralOpen] = useState(false);
+    const [pullOpen, setPullOpen] = useState(false);
+    const [removingTaskId, setRemovingTaskId] = useState<number | null>(null);
     const [resultTask, setResultTask] = useState<any | null>(null);
     const [reopening, setReopening] = useState(false);
     const hasPermission = useAuthStore((s) => s.hasPermission);
@@ -309,6 +330,18 @@ export default function VisitDetailPage() {
         } catch (err: any) {
             alert(err?.message ?? 'فشل في إقفال الزيارة');
         } finally { setActionLoading(null); }
+    };
+
+    // DEC-010 D-PB8: undo a pulled task (pulled + still pending only).
+    const handleRemovePulled = async (visitTaskId: number) => {
+        if (!confirm('إلغاء سحب هذه المهمة؟ ستعود لقائمة انتظار الزبون.')) return;
+        setRemovingTaskId(visitTaskId);
+        try {
+            await api.fieldVisits.removePulledTask(visitId, visitTaskId);
+            await load();
+        } catch (err: any) {
+            alert(err?.message ?? 'فشل إلغاء سحب المهمة');
+        } finally { setRemovingTaskId(null); }
     };
 
     if (loading) {
@@ -619,7 +652,13 @@ export default function VisitDetailPage() {
                 </Section>
 
                 {/* ── ٦) مهام الزيارة ── */}
-                <Section icon={ClipboardList} title={`مهام الزيارة (${tasks.length})`} accent="text-indigo-600">
+                <Section icon={ClipboardList} title={`مهام الزيارة (${tasks.length})`} accent="text-indigo-600"
+                    action={visit.status === 'in_progress' ? (
+                        <button onClick={() => setPullOpen(true)}
+                            className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-500">
+                            <ListPlus className="w-3.5 h-3.5" /> سحب مهمة
+                        </button>
+                    ) : undefined}>
                     {tasks.length === 0 && <p className="text-sm text-slate-400 text-center py-4">لا توجد مهام مرتبطة بهذه الزيارة</p>}
                     <div className="space-y-3">
                         {tasks.map((task: any) => {
@@ -630,13 +669,8 @@ export default function VisitDetailPage() {
                             // after it transitions to `ended`. The visit auto-completes
                             // once the last task result + the survey are in place.
                             const canRecord = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
-                            const isDemo = task.task_type === 'device_demo';
-                            const isDelivery = task.task_type === 'device_delivery';
-                            const isInstallation = task.task_type === 'device_installation';
-                            const isActivation = task.task_type === 'device_activation';
-                            const isEmergency = task.task_type === 'emergency_maintenance';
-                            const supportsUnifiedResult = isDemo || isDelivery || isInstallation || isActivation || isEmergency;
-                            const canEditResult = visit.status === 'completed' && hasResult && supportsUnifiedResult;
+                            const canOpenResultModal = hasResultModal(task.task_type);
+                            const canEditResult = visit.status === 'completed' && hasResult && canOpenResultModal;
                             const decisionMeta = getFinalDecisionMeta(task.final_decision);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
                             return (
@@ -695,16 +729,16 @@ export default function VisitDetailPage() {
                                     )}
 
                                     {/* الإجراء حسب حالة الزيارة */}
-                                    <div className="mt-3">
+                                    <div className="mt-3 flex items-center gap-2 flex-wrap">
                                         {visit.status === 'scheduled' && <span className="text-xs text-slate-400">عرض فقط — لم تبدأ الزيارة</span>}
                                         {visit.status === 'cancelled' && <span className="text-xs text-slate-400">الزيارة ملغاة</span>}
-                                        {canRecord && supportsUnifiedResult && (
+                                        {canRecord && canOpenResultModal && (
                                             <button onClick={() => setResultTask(task)}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 transition-colors">
                                                 <ClipboardCheck className="w-3.5 h-3.5" /> تسجيل النتيجة
                                             </button>
                                         )}
-                                        {canRecord && !supportsUnifiedResult && (
+                                        {canRecord && !canOpenResultModal && (
                                             <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded inline-flex items-center gap-1">
                                                 <AlertCircle className="w-3 h-3" /> تسجيل نتيجة هذا النوع قيد التطوير
                                             </span>
@@ -717,6 +751,13 @@ export default function VisitDetailPage() {
                                         )}
                                         {!canRecord && hasResult && !canEditResult && (
                                             <span className="text-xs text-emerald-600 inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> النتيجة مسجّلة</span>
+                                        )}
+                                        {/* DEC-010 D-PB8: undo a pulled, still-pending task */}
+                                        {visit.status === 'in_progress' && task.added_via === 'pull' && !hasResult && (
+                                            <button onClick={() => handleRemovePulled(task.id)} disabled={removingTaskId === task.id}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100 disabled:opacity-60 transition-colors">
+                                                {removingTaskId === task.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />} إلغاء السحب
+                                            </button>
                                         )}
                                     </div>
                                 </div>
@@ -785,6 +826,8 @@ export default function VisitDetailPage() {
                         onClose={() => setSurveyOpen(false)} onSaved={() => { setSurveyOpen(false); load(); }} />
                     <ReferralSheetModal visitId={visit.id} open={referralOpen}
                         onClose={() => setReferralOpen(false)} onSaved={() => { setReferralOpen(false); load(); }} />
+                    <PullTaskModal visitId={visit.id} open={pullOpen}
+                        onClose={() => setPullOpen(false)} onPulled={() => { setPullOpen(false); load(); }} />
                 </>
             )}
             {resultTask?.task_type === 'device_demo' && (
@@ -829,6 +872,16 @@ export default function VisitDetailPage() {
                     onSaved={() => { setResultTask(null); load(); }}
                 />
             )}
+            {resultTask?.task_type === 'device_disconnection' && (
+                <DeviceDisconnectionResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
             {resultTask?.task_type === 'emergency_maintenance' && (
                 <EmergencyResultModal
                     key={`${visit.id}:${resultTask.id}`}
@@ -854,6 +907,16 @@ export default function VisitDetailPage() {
             )}
             {resultTask?.task_type === 'golden_warranty_card_delivery' && (
                 <GoldenWarrantyCardDeliveryModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'installment_collection' && (
+                <InstallmentCollectionResultModal
                     key={`${visit.id}:${resultTask.id}`}
                     visitId={visit.id}
                     taskId={resultTask.id}
