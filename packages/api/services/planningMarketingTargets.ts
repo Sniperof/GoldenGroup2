@@ -327,6 +327,34 @@ function buildOwnershipScopePredicate(clientAlias: string, actorParam = '$3'): s
   `;
 }
 
+/**
+ * DEC-011: resolve the geo-unit zone ids covered by a team's route assignment on
+ * a given day. Reuses the same routes+extra_zones → zone resolution the planning
+ * targets use, so the field-initiated instant-visit zone guard matches exactly
+ * what planning considers "this team's area today". Returns [] when no assignment.
+ */
+export async function resolveTeamZoneIds(date: string, teamKey: string): Promise<number[]> {
+  const assignmentKey = `${date}_${teamKey}`;
+  const { rows } = await pool.query(
+    'SELECT routes, extra_zones AS "extraZones" FROM route_assignments WHERE key = $1',
+    [assignmentKey],
+  );
+  if (!rows[0]) return [];
+  const routes = normalizeRoutes(rows[0].routes);
+  const extraZones = normalizeExtraZones(rows[0].extraZones);
+  return buildZoneIds(routes, extraZones);
+}
+
+/**
+ * DEC-009 لبنة 8 (freeze/append-only): resolve the geo-unit zone set covered by a
+ * raw route_assignment payload (routes + extra_zones) BEFORE it is persisted. Used
+ * by the route-assignment save guard to compare the proposed coverage against the
+ * already-generated coverage and reject any zone removal (additions only).
+ */
+export async function resolveZoneIdsForAssignment(routes: unknown, extraZones: unknown): Promise<number[]> {
+  return buildZoneIds(normalizeRoutes(routes), normalizeExtraZones(extraZones));
+}
+
 async function buildZoneIds(routes: RouteCompositionInput[], extraZones: number[]): Promise<number[]> {
   const zoneIds = new Set<number>();
   const routeIds = Array.from(new Set(routes.map(route => route.routeId)));

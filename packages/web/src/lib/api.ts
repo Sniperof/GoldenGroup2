@@ -657,6 +657,17 @@ export const api = {
         `/field-visits/${id}/tasks/${visitTaskId}`,
         { method: 'DELETE' },
       ),
+    /** DEC-011: create a field-initiated instant visit (starts in_progress now). */
+    createInstant: (data: {
+      clientId: number;
+      lat?: number | null;
+      lng?: number | null;
+      accuracy?: number | null;
+      locationMissingReasonId?: number | null;
+    }) => request<{ success: boolean; fieldVisitId: number }>(
+      `/field-visits/instant`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
     recordTaskResult: (visitId: number, taskId: number, data: any) =>
       request<any>(`/field-visits/${visitId}/tasks/${taskId}/result`, {
         method: 'POST',
@@ -885,6 +896,15 @@ export const api = {
     create: (data: any) => request<any>('/system-lists', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/system-lists/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/system-lists/${id}`, { method: 'DELETE' }),
+  },
+  systemSettings: {
+    list: () => request<{ settings: Array<{ key: string; value: string; valueType: string; category: string | null; description: string | null }> }>(
+      '/system-settings',
+    ),
+    setContactTargetCleanupTime: (time: string) => request<{ key: string; value: string }>(
+      '/system-settings/contact-target-cleanup-time',
+      { method: 'PUT', body: JSON.stringify({ time }) },
+    ),
   },
   departments: {
     // branchId narrows a GLOBAL viewer to one branch (sent as X-Branch-Id, the

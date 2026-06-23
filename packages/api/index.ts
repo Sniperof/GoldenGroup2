@@ -65,6 +65,7 @@ import emergencyResultRouter from './routes/emergencyResult.js';
 import deviceWarrantiesRouter from './routes/deviceWarranties.js';
 import devicePossessionRouter from './routes/devicePossession.js';
 import devicePartsRouter from './routes/deviceParts.js';
+import systemSettingsRouter from './routes/systemSettings.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -98,6 +99,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/trpc', createExpressMiddleware({ router: appRouter, createContext }));
 
 app.use('/api/auth', authRouter);
+app.use('/api/system-settings', requireAuth, systemSettingsRouter);
 app.use('/api/geo-units', geoUnitsRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/employees', employeesRouter);

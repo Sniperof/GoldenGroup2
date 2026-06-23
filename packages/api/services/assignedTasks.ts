@@ -209,5 +209,39 @@ export async function syncAssignedTasks(params: {
     }
   }
 
+  // ── Step 9 (DEC-009 لبنة 7 — release-side symmetry): when a task is released
+  // from this team (e.g. the manager narrowed the route so an overlapping zone left
+  // this team's scope), close THIS team's contact_target for it — but only when the
+  // target has no other task still assigned to this team. Without this, team A's
+  // stale target lingers after the task is re-pulled by team B, so the same task
+  // surfaces under two teams. Skips already-contacted targets to avoid wiping live
+  // call progress (post-generation route narrowing is itself blocked upstream).
+  if (releasedIds.length > 0) {
+    await db.query(
+      `UPDATE contact_targets ct
+          SET status         = 'closed',
+              closing_reason = 'reassigned',
+              closed_at      = NOW(),
+              updated_at     = NOW()
+        WHERE ct.team_key = $1
+          AND ct.date     = $2::date
+          AND ct.status NOT IN ('closed', 'contacted')
+          AND EXISTS (
+            SELECT 1 FROM contact_target_open_tasks ctot
+             WHERE ctot.contact_target_id = ct.id
+               AND ctot.open_task_id = ANY($3::int[])
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM contact_target_open_tasks ctot2
+              JOIN open_tasks ot2 ON ot2.id = ctot2.open_task_id
+             WHERE ctot2.contact_target_id = ct.id
+               AND ot2.status = 'assigned'
+               AND ot2.assigned_team_key = $1
+          )`,
+      [teamKey, date, releasedIds],
+    );
+  }
+
   return { plannedTaskIds, eligibleTaskIds, newlyAssignedIds, releasedIds };
 }

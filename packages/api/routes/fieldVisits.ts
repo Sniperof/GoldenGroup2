@@ -13,6 +13,7 @@ import {
   buildCustomerOwnershipSql,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
+import { createInstantVisit, BookingError } from '../services/visitBooking.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -300,6 +301,37 @@ async function resolveVisitSource(visitId: number): Promise<{
  *       500:
  *         description: Server error
  */
+// DEC-011: field-initiated instant visit — created already in_progress for a
+// customer in the team's branch + today's route zones. Starts empty (tasks via
+// the pull flow, DEC-010). Guards (branch/zone/cooldown/D18) live in the service.
+router.post('/instant', requirePermission('field_visits.create_instant'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const clientId = Number(req.body?.clientId);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId مطلوب' });
+    }
+    if (authContext.userId == null) {
+      return res.status(401).json({ error: 'مستخدم غير معروف' });
+    }
+    const result = await createInstantVisit({
+      performedByUserId: authContext.userId,
+      clientId,
+      lat: req.body?.lat != null ? Number(req.body.lat) : null,
+      lng: req.body?.lng != null ? Number(req.body.lng) : null,
+      accuracy: req.body?.accuracy != null ? Number(req.body.accuracy) : null,
+      locationMissingReasonId: Number(req.body?.locationMissingReasonId) || null,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    if (err instanceof BookingError) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    console.error('[field-visits] POST /instant error:', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل إنشاء الزيارة الفورية' });
+  }
+});
+
 router.post('/:id/start', requirePermission('field_visits.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
