@@ -115,7 +115,7 @@ export default function Users() {
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
-      <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
 
         {/* Header */}
         <PageHeader
@@ -149,14 +149,8 @@ export default function Users() {
             data={hrUsers}
             columns={columns}
             getId={(u) => u.id}
-            searchKeys={['name', 'username', 'branchName']}
-            searchPlaceholder="بحث بالاسم أو اسم الدخول أو الفرع..."
-            filters={[
-              { key: 'isActive', label: 'كل الحالات', options: [
-                { value: 'true', label: 'نشط' },
-                { value: 'false', label: 'موقوف' },
-              ] },
-            ]}
+            hideFilterBar
+            paginated={false}
             defaultSortKey="name"
             defaultSortDir="asc"
             emptyIcon={User}

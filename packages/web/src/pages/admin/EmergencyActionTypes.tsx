@@ -5,6 +5,8 @@ import IconButton from '../../components/ui/IconButton';
 import Toggle from '../../components/ui/Toggle';
 import Button from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
+import SmartTable from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
@@ -91,6 +93,33 @@ export default function EmergencyActionTypes() {
     finally { setSavingId(null); }
   };
 
+  const columns: ColumnDef<ActionType>[] = [
+    {
+      key: 'displayOrder', label: '#', width: 'w-12',
+      render: (item) => <span className="text-slate-400 font-mono text-xs">{item.displayOrder}</span>,
+    },
+    {
+      key: 'arabicLabel', label: 'الإجراء',
+      render: (item) => <span className="font-bold text-slate-800">{item.arabicLabel}</span>,
+    },
+    {
+      key: 'description', label: 'الوصف',
+      render: (item) => <span className="text-slate-500 text-xs">{item.description || '—'}</span>,
+    },
+    {
+      key: 'isActive', label: 'مفعّل', width: 'w-24',
+      render: (item) => (
+        canManage ? (
+          <Toggle checked={item.isActive} onCheckedChange={() => toggleActive(item)} disabled={savingId === item.id} size="sm" label={item.isActive ? 'تعطيل' : 'تفعيل'} />
+        ) : (
+          <span className={`text-xs font-bold ${item.isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
+            {item.isActive ? 'مفعّل' : 'معطّل'}
+          </span>
+        )
+      ),
+    },
+  ];
+
   if (!canView) return <Navigate to="/" replace />;
 
   return (
@@ -129,52 +158,29 @@ export default function EmergencyActionTypes() {
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-rose-500" /></div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 font-bold">
-              <tr>
-                <th className="p-3 text-right w-12">#</th>
-                <th className="p-3 text-right">الإجراء</th>
-                <th className="p-3 text-right">الوصف</th>
-                <th className="p-3 text-center w-24">مفعّل</th>
-                {canManage && <th className="p-3 text-center w-24">إجراءات</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 && (
-                <tr><td colSpan={5} className="text-center py-10 text-slate-400 text-sm">لا توجد أنواع بعد</td></tr>
-              )}
-              {items.map((item, idx) => (
-                <tr key={item.id} className={`border-b border-slate-100 last:border-b-0 ${idx % 2 === 1 ? 'bg-slate-50/50' : ''} ${!item.isActive ? 'opacity-50' : ''}`}>
-                  <td className="p-3 text-slate-400 font-mono text-xs">{item.displayOrder}</td>
-                  <td className="p-3 font-bold text-slate-800">{item.arabicLabel}</td>
-                  <td className="p-3 text-slate-500 text-xs">{item.description || '—'}</td>
-                  <td className="p-3 text-center">
-                    {canManage ? (
-                      <Toggle checked={item.isActive} onCheckedChange={() => toggleActive(item)} disabled={savingId === item.id} size="sm" label={item.isActive ? 'تعطيل' : 'تفعيل'} />
-                    ) : (
-                      <span className={`text-xs font-bold ${item.isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
-                        {item.isActive ? 'مفعّل' : 'معطّل'}
-                      </span>
-                    )}
-                  </td>
-                  {canManage && (
-                    <td className="p-3">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button onClick={() => openEdit(item)} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors">
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(item)} disabled={savingId === item.id} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <SmartTable<ActionType>
+          title="أنواع الإجراءات"
+          icon={Zap}
+          data={items}
+          columns={columns}
+          getId={(item) => item.id}
+          hideFilterBar
+          paginated={false}
+          tableMinWidth={620}
+          rowClassName={(item) => (!item.isActive ? 'opacity-50 hover:bg-sky-50' : '')}
+          emptyIcon={Zap}
+          emptyMessage="لا توجد أنواع بعد"
+          actions={canManage ? (item) => (
+            <div className="flex items-center justify-center gap-1.5">
+              <button onClick={() => openEdit(item)} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors">
+                <Edit className="w-4 h-4" />
+              </button>
+              <button onClick={() => handleDelete(item)} disabled={savingId === item.id} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ) : undefined}
+        />
       )}
 
       {/* Edit Modal */}

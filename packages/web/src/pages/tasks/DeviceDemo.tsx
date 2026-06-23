@@ -6,6 +6,8 @@ import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import Select from '../../components/ui/Select';
 import PageHeader from '../../components/ui/PageHeader';
+import SmartTable from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 import { OPEN_TASK_STATUS_LABELS, OPEN_TASK_PHASE_LABELS, OPEN_TASK_PHASE_COLORS, getTaskPhase, type OpenTaskStatus, type CustomerOwnership } from '@golden-crm/shared';
 import { getExpectedDateStatus, getDueDateStatus } from '../../lib/taskDateStatus';
 
@@ -186,6 +188,110 @@ export default function DeviceDemo() {
     );
   }
 
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const columns: ColumnDef<any>[] = [
+    { key: 'id', label: 'معرف المهمة', render: (row) => <span className="text-slate-700 font-mono text-xs">#{row.id}</span> },
+    { key: 'branch', label: 'الفرع', render: (row) => <span className="text-slate-600">{getBranchLabel(row)}</span> },
+    {
+      key: 'name', label: 'اسم الزبون الكامل',
+      render: (row) => {
+        const name = getFullCustomerName(row);
+        return row.clientId ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); setClientPopupId(row.clientId); }}
+            className="font-medium text-slate-800 hover:text-indigo-700 hover:underline transition-colors"
+          >
+            {name}
+          </button>
+        ) : (
+          <span className="font-medium text-slate-800">{name}</span>
+        );
+      },
+    },
+    { key: 'location', label: 'العنوان', render: (row) => <span className="text-slate-600 whitespace-nowrap">{getLocation(row)}</span> },
+    { key: 'mobile', label: 'رقم الموبايل الأساسي', render: (row) => <span className="text-slate-600" dir="ltr">{getPrimaryMobile(row)}</span> },
+    { key: 'ownership', label: 'الملكية', render: (row) => <OwnershipCell ownership={row.ownership} /> },
+    {
+      key: 'phase', label: 'المرحلة',
+      render: (row) => {
+        const phase = (row.phase ?? getTaskPhase(row.taskStatus as OpenTaskStatus)) as keyof typeof OPEN_TASK_PHASE_LABELS;
+        return (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold border ${OPEN_TASK_PHASE_COLORS[phase]}`}>
+            {OPEN_TASK_PHASE_LABELS[phase]}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'status', label: 'الحالة',
+      render: (row) => (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${TASK_STATUS_COLORS[row.taskStatus] || 'bg-slate-100 text-slate-600'}`}>
+          {(OPEN_TASK_STATUS_LABELS as Record<string, string>)[row.taskStatus] || row.taskStatus}
+        </span>
+      ),
+    },
+    {
+      key: 'priority', label: 'الأولوية',
+      render: (row) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <Select
+            value={row.priority || ''}
+            onChange={(v) => handlePriorityChange(row.id, v)}
+            disabled={savingPriorityId === row.id}
+            size="sm"
+            ariaLabel="الأولوية"
+            options={[
+              { value: '', label: '—' },
+              { value: 'high', label: PRIORITY_LABELS.high },
+              { value: 'medium', label: PRIORITY_LABELS.medium },
+              { value: 'low', label: PRIORITY_LABELS.low },
+            ]}
+          />
+        </div>
+      ),
+    },
+    {
+      key: 'dueDate', label: 'التاريخ المطلوب',
+      render: (row) => {
+        const s = getDueDateStatus(row.dueDate, getDateCounterReference(row));
+        if (!s) return <span className="text-slate-300">—</span>;
+        return (
+          <div className="flex flex-col gap-1 items-start text-xs">
+            <span className={s.textClass}>{formatDate(row.dueDate)}</span>
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>{s.shortLabel}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'expectedDate', label: 'التاريخ المتوقع',
+      render: (row) => {
+        if (!row.expectedDate) return <span className="text-slate-300">—</span>;
+        const s = getExpectedDateStatus(row.expectedDate, getDateCounterReference(row));
+        if (!s) return <span className="text-slate-600 text-xs">{formatDate(row.expectedDate)}</span>;
+        return (
+          <div className="flex flex-col gap-1 items-start text-xs">
+            <span className={s.textClass}>{formatDate(row.expectedDate)}</span>
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>{s.shortLabel}</span>
+          </div>
+        );
+      },
+    },
+    { key: 'scheduledDate', label: 'تاريخ الزيارة', render: (row) => <span className="text-slate-600">{formatDate(row.scheduledDate)}</span> },
+    {
+      key: 'visitStatus', label: 'حالة الزيارة',
+      render: (row) => row.visitStatus ? (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${VISIT_STATUS_COLORS[row.visitStatus] || 'bg-slate-100 text-slate-600'}`}>
+          {VISIT_STATUS_LABELS[row.visitStatus] || row.visitStatus}
+        </span>
+      ) : (
+        <span className="text-slate-400 text-xs">—</span>
+      ),
+    },
+    { key: 'creator', label: 'منشئ المهمة', render: (row) => <span className="text-slate-600">{getCreatorLabel(row)}</span> },
+    { key: 'createdAt', label: 'تاريخ الإنشاء', render: (row) => <span className="text-slate-500 text-xs">{formatDate(row.createdAt)}</span> },
+  ];
+
   return (
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
@@ -293,127 +399,19 @@ export default function DeviceDemo() {
 
       {/* Table */}
       {!loading && rows.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">معرف المهمة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الفرع</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">اسم الزبون الكامل</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">العنوان</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">رقم الموبايل الأساسي</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الملكية</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">المرحلة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الحالة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الأولوية</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">التاريخ المطلوب</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">التاريخ المتوقع</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">تاريخ الزيارة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">حالة الزيارة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">منشئ المهمة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">تاريخ الإنشاء</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const mobile = getPrimaryMobile(row);
-                  const name = getFullCustomerName(row);
-                  const phase = (row.phase ?? getTaskPhase(row.taskStatus as OpenTaskStatus)) as keyof typeof OPEN_TASK_PHASE_LABELS;
-                  const dateCounterReference = getDateCounterReference(row);
-
-                  return (
-                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`/tasks/device-demo/${row.id}`)}>
-                      <td className="px-4 py-3 text-slate-700 font-mono text-xs">#{row.id}</td>
-                      <td className="px-4 py-3 text-slate-600">{getBranchLabel(row)}</td>
-                      <td className="px-4 py-3">
-                        {row.clientId ? (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setClientPopupId(row.clientId); }}
-                            className="font-medium text-slate-800 hover:text-indigo-700 hover:underline transition-colors"
-                          >
-                            {name}
-                          </button>
-                        ) : (
-                          <span className="font-medium text-slate-800">{name}</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{getLocation(row)}</td>
-                      <td className="px-4 py-3 text-slate-600" dir="ltr">{mobile}</td>
-                      <td className="px-4 py-3"><OwnershipCell ownership={row.ownership} /></td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold border ${OPEN_TASK_PHASE_COLORS[phase]}`}>
-                          {OPEN_TASK_PHASE_LABELS[phase]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${TASK_STATUS_COLORS[row.taskStatus] || 'bg-slate-100 text-slate-600'}`}>
-                          {(OPEN_TASK_STATUS_LABELS as Record<string, string>)[row.taskStatus] || row.taskStatus}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <Select
-                          value={row.priority || ''}
-                          onChange={(v) => handlePriorityChange(row.id, v)}
-                          disabled={savingPriorityId === row.id}
-                          size="sm"
-                          ariaLabel="الأولوية"
-                          options={[
-                            { value: '', label: '—' },
-                            { value: 'high', label: PRIORITY_LABELS.high },
-                            { value: 'medium', label: PRIORITY_LABELS.medium },
-                            { value: 'low', label: PRIORITY_LABELS.low },
-                          ]}
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        {(() => {
-                          const s = getDueDateStatus(row.dueDate, dateCounterReference);
-                          if (!s) return <span className="text-slate-300">—</span>;
-                          return (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className={s.textClass}>{formatDate(row.dueDate)}</span>
-                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>
-                                {s.shortLabel}
-                              </span>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        {(() => {
-                          if (!row.expectedDate) return <span className="text-slate-300">—</span>;
-                          const s = getExpectedDateStatus(row.expectedDate, dateCounterReference);
-                          if (!s) return <span className="text-slate-600">{formatDate(row.expectedDate)}</span>;
-                          return (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className={s.textClass}>{formatDate(row.expectedDate)}</span>
-                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>
-                                {s.shortLabel}
-                              </span>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{formatDate(row.scheduledDate)}</td>
-                      <td className="px-4 py-3">
-                        {row.visitStatus ? (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${VISIT_STATUS_COLORS[row.visitStatus] || 'bg-slate-100 text-slate-600'}`}>
-                            {VISIT_STATUS_LABELS[row.visitStatus] || row.visitStatus}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{getCreatorLabel(row)}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs">{formatDate(row.createdAt)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <SmartTable<any>
+          title="قائمة عروض الأجهزة"
+          icon={Monitor}
+          data={rows}
+          columns={columns}
+          getId={(row) => row.id}
+          hideFilterBar
+          paginated={false}
+          tableMinWidth={1900}
+          emptyIcon={Monitor}
+          emptyMessage="لا توجد مهام عروض أجهزة"
+          onRowClick={(row) => navigate(`/tasks/device-demo/${row.id}`)}
+        />
       )}
 
       {clientPopupId !== null && (

@@ -63,6 +63,12 @@ export interface SmartTableProps<T> {
     tableMinWidth?: number;
     defaultSortKey?: string;
     defaultSortDir?: 'asc' | 'desc';
+    /**
+     * Client-side pagination. Default `true` (10/page with footer nav).
+     * Set `false` to render ALL rows on one page — no page navigation and no
+     * filler rows — for tables whose source showed every row.
+     */
+    paginated?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -125,6 +131,7 @@ export default function SmartTable<T>({
     tableMinWidth = 860,
     defaultSortKey,
     defaultSortDir,
+    paginated = true,
 }: SmartTableProps<T> & { rowClassName?: (item: T) => string }) {
 
     /* ---------- state ---------- */
@@ -177,15 +184,18 @@ export default function SmartTable<T>({
     }, [filtered, sortKey, sortDir, columns]);
 
     /* ---------- pagination ---------- */
-    const totalPages = Math.max(1, Math.ceil(sorted.length / itemsPerPage));
+    // When pagination is off, every row renders on a single page.
+    const effectivePerPage = paginated ? itemsPerPage : Math.max(1, sorted.length);
+    const totalPages = Math.max(1, Math.ceil(sorted.length / effectivePerPage));
 
     const paginatedData = useMemo(() => {
+        if (!paginated) return sorted;
         const start = (currentPage - 1) * itemsPerPage;
         return sorted.slice(start, start + itemsPerPage);
-    }, [sorted, currentPage, itemsPerPage]);
+    }, [sorted, currentPage, itemsPerPage, paginated]);
 
-    // number of empty filler rows to keep the table height fixed
-    const fillerRows = paginatedData.length > 0
+    // number of empty filler rows to keep the table height fixed (paginated only)
+    const fillerRows = paginated && paginatedData.length > 0
         ? Math.max(0, itemsPerPage - paginatedData.length)
         : 0;
 
@@ -238,8 +248,8 @@ export default function SmartTable<T>({
     const hasActiveFilters = search.trim() !== '' || Object.values(filterValues).some(v => v !== 'all');
 
     const colSpanTotal = columns.length + (bulkActions ? 1 : 0) + (actions ? 1 : 0);
-    const startRecord = sorted.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
-    const endRecord   = Math.min(sorted.length, currentPage * itemsPerPage);
+    const startRecord = sorted.length === 0 ? 0 : (currentPage - 1) * effectivePerPage + 1;
+    const endRecord   = Math.min(sorted.length, currentPage * effectivePerPage);
 
     /* Record-count line (used as the default subtitle). */
     const countNode = hasActiveFilters
@@ -507,7 +517,8 @@ export default function SmartTable<T>({
                 </table>
             </div>
 
-            {/* ── PAGINATION FOOTER ── */}
+            {/* ── PAGINATION FOOTER ── (hidden when pagination is disabled) */}
+            {paginated && (
             <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
 
                 {/* Record info + page size selector */}
@@ -578,6 +589,7 @@ export default function SmartTable<T>({
                     </div>
                 )}
             </div>
+            )}
         </div>
         </>
     );
