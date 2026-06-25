@@ -4,12 +4,12 @@ import { useVacancyStore } from '../../hooks/useVacancyStore';
 import type { JobVacancy, VacancyStatus, BranchContact, BranchContactType } from '../../lib/types';
 import {
   Plus, Search, Filter, Edit, Archive, XCircle, Briefcase, Calendar,
-  MapPin, GraduationCap, Users, ChevronDown, X, RotateCcw, Lock, Eye,
+  MapPin, GraduationCap, Users, ChevronDown, RotateCcw, Lock, Eye,
   Mail, Phone, Smartphone, Globe, PhoneCall, AlertTriangle, CheckCircle,
   ClipboardList, ArrowLeft, ArrowRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -735,27 +735,56 @@ export default function Vacancies() {
       )}
 
       {/* ── MODAL ── */}
-      <AnimatePresence>
-        {showModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
-            onClick={() => setShowModal(false)}>
-            <motion.div
-              initial={{ scale: 0.96, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.96, opacity: 0, y: 20 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden"
-              style={{ maxHeight: 'min(90vh, 740px)' }}
-              onClick={e => e.stopPropagation()} dir="rtl">
-
-              {/* Header */}
-              <div className="px-7 pt-6 pb-0 shrink-0">
-                <div className="flex items-start justify-between mb-5">
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-800">{editingVacancy ? 'تعديل الشاغر الوظيفي' : 'إنشاء شاغر وظيفي جديد'}</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">{editingVacancy ? `شاغر: ${editingVacancy.title}` : 'أكمل الخطوات الثلاث لإضافة الشاغر'}</p>
-                  </div>
-                  <IconButton icon={X} label="إغلاق" onClick={() => setShowModal(false)} />
+      <Modal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        size="2xl"
+        title={editingVacancy ? 'تعديل الشاغر الوظيفي' : 'إنشاء شاغر وظيفي جديد'}
+        subtitle={editingVacancy ? `شاغر: ${editingVacancy.title}` : 'أكمل الخطوات الثلاث لإضافة الشاغر'}
+        footer={
+          <div className="w-full flex items-center justify-between">
+            {!editingVacancy ? (
+              <>
+                <span className="text-xs text-slate-400">الخطوة {wizardStep} من 3</span>
+                <div className="flex items-center gap-3">
+                  {wizardStep > 1 && (
+                    <Button variant="secondary" icon={ArrowRight} onClick={() => setWizardStep(s => (s - 1) as 1 | 2 | 3)}>
+                      السابق
+                    </Button>
+                  )}
+                  <Button variant="ghost" onClick={() => setShowModal(false)}>إلغاء</Button>
+                  {wizardStep < 3 ? (
+                    <Button onClick={() => {
+                      setFormError('');
+                      if (wizardStep === 1) {
+                        if (!formData.title?.trim()) { setFormError('عنوان الوظيفة مطلوب'); return; }
+                        if (!formData.branch?.trim()) { setFormError('الفرع مطلوب'); return; }
+                        if (!formData.departmentId) { setFormError('القسم مطلوب'); return; }
+                      }
+                      setWizardStep(s => (s + 1) as 1 | 2 | 3);
+                    }} icon={ArrowLeft} iconPosition="trailing">
+                      التالي
+                    </Button>
+                  ) : (
+                    <Button icon={CheckCircle} loading={saving} onClick={handleSave} className="bg-emerald-500 hover:bg-emerald-600">
+                      {saving ? 'جاري الحفظ...' : 'إنشاء الشاغر'}
+                    </Button>
+                  )}
                 </div>
+              </>
+            ) : (
+              <>
+                <Button variant="secondary" onClick={() => setShowModal(false)}>إلغاء</Button>
+                <Button icon={CheckCircle} loading={saving} onClick={handleSave}>
+                  {saving ? 'جاري الحفظ...' : 'حفظ التعديلات'}
+                </Button>
+              </>
+            )}
+          </div>
+        }
+      >
+              {/* Step indicator + alerts (non-scrolling) */}
+              <div className="px-7 pt-4 sticky top-0 z-10 bg-white">
 
                 {/* Step Indicator (create only) */}
                 {!editingVacancy && (
@@ -793,56 +822,12 @@ export default function Vacancies() {
               </div>
 
               {/* Body */}
-              <div className="flex-1 overflow-y-auto px-7 pt-2">
+              <div className="px-7 pt-2 pb-2">
                 <AnimatePresence mode="wait">
                   {editingVacancy ? EditAllFields : wizardStep === 1 ? Step1 : wizardStep === 2 ? Step2 : Step3}
                 </AnimatePresence>
               </div>
-
-              {/* Footer */}
-              <div className="px-7 py-4 border-t border-slate-100 shrink-0 flex items-center justify-between bg-white">
-                {!editingVacancy ? (
-                  <>
-                    <span className="text-xs text-slate-400">الخطوة {wizardStep} من 3</span>
-                    <div className="flex items-center gap-3">
-                      {wizardStep > 1 && (
-                        <Button variant="secondary" icon={ArrowRight} onClick={() => setWizardStep(s => (s - 1) as 1 | 2 | 3)}>
-                          السابق
-                        </Button>
-                      )}
-                      <Button variant="ghost" onClick={() => setShowModal(false)}>إلغاء</Button>
-                      {wizardStep < 3 ? (
-                        <Button onClick={() => {
-                          setFormError('');
-                          if (wizardStep === 1) {
-                            if (!formData.title?.trim()) { setFormError('عنوان الوظيفة مطلوب'); return; }
-                            if (!formData.branch?.trim()) { setFormError('الفرع مطلوب'); return; }
-                            if (!formData.departmentId) { setFormError('القسم مطلوب'); return; }
-                          }
-                          setWizardStep(s => (s + 1) as 1 | 2 | 3);
-                        }} icon={ArrowLeft} iconPosition="trailing">
-                          التالي
-                        </Button>
-                      ) : (
-                        <Button icon={CheckCircle} loading={saving} onClick={handleSave} className="bg-emerald-500 hover:bg-emerald-600">
-                          {saving ? 'جاري الحفظ...' : 'إنشاء الشاغر'}
-                        </Button>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Button variant="secondary" onClick={() => setShowModal(false)}>إلغاء</Button>
-                    <Button icon={CheckCircle} loading={saving} onClick={handleSave}>
-                      {saving ? 'جاري الحفظ...' : 'حفظ التعديلات'}
-                    </Button>
-                  </>
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
     </div>
   );
 }

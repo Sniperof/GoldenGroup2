@@ -4,11 +4,10 @@ import { authFetch } from '../../lib/authFetch';
 import type { InterviewerOption } from '../../lib/types';
 import {
   ArrowRight, Users, Calendar, Clock, User, Briefcase, MapPin,
-  GraduationCap, CheckCircle, XCircle, Edit, AlertTriangle, X,
+  GraduationCap, CheckCircle, XCircle, Edit, AlertTriangle,
   Car, Monitor, Globe, DollarSign
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
 import PermissionGate from '../../components/PermissionGate';
 import Button from '../../components/ui/Button';
 import { fetchInterviewersForApplication } from './interviewerLookup';
@@ -319,18 +318,21 @@ export default function InterviewDetail() {
         </div>
       </div>
 
-      <AnimatePresence>
-        {showEditModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={() => setShowEditModal(false)}>
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
-              onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-base font-bold text-slate-800">تعديل المقابلة</h3>
-                <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setShowEditModal(false)} />
-              </div>
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        size="md"
+        title="تعديل المقابلة"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowEditModal(false)}>إلغاء</Button>
+            <Button loading={editSaving} onClick={handleSaveEdit}>
+              {editSaving ? 'جاري...' : 'حفظ التعديلات'}
+            </Button>
+          </>
+        }
+      >
+              <div className="p-6">
               {editError && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0" /> {editError}
@@ -402,30 +404,24 @@ export default function InterviewDetail() {
                     rows={2} className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500" />
                 </div>
               </div>
-              <div className="flex gap-3 justify-end mt-5">
-                <Button variant="secondary" onClick={() => setShowEditModal(false)}>إلغاء</Button>
-                <Button loading={editSaving} onClick={handleSaveEdit}>
-                  {editSaving ? 'جاري...' : 'حفظ التعديلات'}
-                </Button>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
 
-      <AnimatePresence>
-        {showResultModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={() => setShowResultModal(false)}>
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
-              onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-base font-bold text-slate-800">تسجيل نتيجة المقابلة</h3>
-                <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setShowResultModal(false)} />
-              </div>
-              <div className="space-y-4">
+      <Modal
+        isOpen={showResultModal}
+        onClose={() => setShowResultModal(false)}
+        size="md"
+        title="تسجيل نتيجة المقابلة"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowResultModal(false)}>إلغاء</Button>
+            <Button loading={actionLoading} onClick={handleRecordResult} className={resultStatus === 'Interview Completed' ? 'bg-teal-500 hover:bg-teal-600' : 'bg-red-500 hover:bg-red-600'}>
+              {actionLoading ? 'جاري...' : 'حفظ النتيجة'}
+            </Button>
+          </>
+        }
+      >
+              <div className="p-6 space-y-4">
                 <div className="flex gap-3">
                   <button onClick={() => setResultStatus('Interview Completed')}
                     className={`flex-1 py-3 rounded-xl text-sm font-bold border-2 transition-all flex items-center justify-center gap-2 ${
@@ -446,16 +442,7 @@ export default function InterviewDetail() {
                     rows={3} className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500" />
                 </div>
               </div>
-              <div className="flex gap-3 justify-end mt-5">
-                <Button variant="secondary" onClick={() => setShowResultModal(false)}>إلغاء</Button>
-                <Button loading={actionLoading} onClick={handleRecordResult} className={resultStatus === 'Interview Completed' ? 'bg-teal-500 hover:bg-teal-600' : 'bg-red-500 hover:bg-red-600'}>
-                  {actionLoading ? 'جاري...' : 'حفظ النتيجة'}
-                </Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
     </div>
   );
 }

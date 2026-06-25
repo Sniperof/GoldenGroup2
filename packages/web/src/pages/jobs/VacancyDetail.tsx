@@ -4,13 +4,13 @@ import type { JobVacancy, JobApplicationListItem, ApplicationStage } from '../..
 import { authFetch } from '../../lib/authFetch';
 import {
   ArrowRight, Briefcase, MapPin, Calendar, Users, GraduationCap, Edit, Car,
-  XCircle, RotateCcw, Archive, Lock, X, AlertTriangle, CheckCircle,
+  XCircle, RotateCcw, Archive, Lock, AlertTriangle, CheckCircle,
   ClipboardList, Eye, Mail, Phone, Smartphone, Globe,
   PhoneCall, User, BookOpen, Clock, TrendingUp,
   MessageSquare, Zap,
 } from 'lucide-react';
-import IconButton from '../../components/ui/IconButton';
-import { motion, AnimatePresence } from 'framer-motion';
+import Modal from '../../components/ui/Modal';
+import { motion } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { useBranchStore } from '../../hooks/useBranchStore';
@@ -576,29 +576,23 @@ export default function VacancyDetail() {
       </div>
 
       {/* ── Edit Modal (preserved) ── */}
-      <AnimatePresence>
-        {showModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
-            onClick={() => setShowModal(false)}>
-            <motion.div
-              initial={{ scale: 0.96, y: 20, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.96, y: 20, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden"
-              style={{ maxHeight: 'min(90vh, 720px)' }}
-              onClick={e => e.stopPropagation()} dir="rtl">
-
-              {/* Header */}
-              <div className="px-7 pt-6 pb-4 border-b border-slate-100 shrink-0 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-800">تعديل الشاغر الوظيفي</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">{detail.title} — {detail.branch}</p>
-                </div>
-                <IconButton icon={X} label="إغلاق" onClick={() => setShowModal(false)} />
-              </div>
-
+      <Modal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        size="2xl"
+        title="تعديل الشاغر الوظيفي"
+        subtitle={`${detail.title} — ${detail.branch}`}
+        footer={
+          <div className="w-full flex justify-between">
+            <button onClick={() => setShowModal(false)} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">إلغاء</button>
+            <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
+              {saving ? 'جاري الحفظ...' : <><CheckCircle className="w-4 h-4" /> حفظ التعديلات</>}
+            </button>
+          </div>
+        }
+      >
               {/* Body */}
-              <div className="flex-1 overflow-y-auto px-7 py-5 space-y-5">
+              <div className="px-7 py-5 space-y-5">
                 {formError && (
                   <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 shrink-0" />{formError}
@@ -774,18 +768,7 @@ export default function VacancyDetail() {
                   </div>
                 </div>
               </div>
-
-              {/* Footer */}
-              <div className="px-7 py-4 border-t border-slate-100 shrink-0 flex justify-between bg-white">
-                <button onClick={() => setShowModal(false)} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">إلغاء</button>
-                <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
-                  {saving ? 'جاري الحفظ...' : <><CheckCircle className="w-4 h-4" /> حفظ التعديلات</>}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
     </div>
   );
 }
