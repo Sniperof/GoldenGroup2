@@ -11,6 +11,7 @@ import ClientModal from '../../components/ClientModal';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
 import Select from '../../components/ui/Select';
 import PageHeader from '../../components/ui/PageHeader';
+import Modal from '../../components/ui/Modal';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -248,16 +249,21 @@ export default function CandidatesEntry() {
     return (
         <div className="p-8 space-y-6" dir="rtl">
             {/* Error Message Modal */}
-            {errorModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 text-center">
+            <Modal
+                isOpen={!!errorModal}
+                onClose={() => setErrorModal(null)}
+                size="sm"
+                hideCloseButton
+                footer={
+                    <button onClick={() => setErrorModal(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl transition-all">إغلاق</button>
+                }
+            >
+                    <div className="p-6 text-center">
                         <div className="w-12 h-12 mx-auto bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4"><AlertCircle className="w-6 h-6" /></div>
                         <h3 className="text-base font-bold text-slate-800 mb-2">تنبيه النظام</h3>
-                        <p className="text-sm text-slate-600 mb-6">{errorModal}</p>
-                        <button onClick={() => setErrorModal(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl transition-all">إغلاق</button>
+                        <p className="text-sm text-slate-600">{errorModal}</p>
                     </div>
-                </div>
-            )}
+            </Modal>
 
             {/* Header & Tabs */}
             <div className="flex flex-col gap-6">

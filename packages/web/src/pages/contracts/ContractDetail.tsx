@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import { DeviceStatusBadge as SharedDeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
+import Modal from '../../components/ui/Modal';
 import { usePermissions } from '../../hooks/usePermissions';
 
 // ── Lookup maps ───────────────────────────────────────────────────────────────
@@ -1023,14 +1024,23 @@ export default function ContractDetail() {
       </div>
 
       {/* ══ Activation Modal ════════════════════════════════════════════════════ */}
-      {showApprovalModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-base font-bold text-slate-800">اعتماد العقد</h3>
-              <button onClick={() => setShowApprovalModal(false)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">x</button>
-            </div>
-            <div className="space-y-4">
+      <Modal
+        isOpen={showApprovalModal}
+        onClose={() => setShowApprovalModal(false)}
+        size="md"
+        title="اعتماد العقد"
+        footer={
+          <div className="w-full flex gap-3">
+            <Button fullWidth disabled={approvalLoading !== null || !approvalCloserId} loading={approvalLoading === 'approve'} onClick={handleApprove}>
+              {approvalLoading === 'approve' ? 'جاري الاعتماد...' : 'موافقة واعتماد'}
+            </Button>
+            <Button variant="secondary" fullWidth onClick={() => setShowApprovalModal(false)}>
+              إلغاء
+            </Button>
+          </div>
+        }
+      >
+            <div className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">موظف التسكير</label>
                 <Select<string>
@@ -1052,37 +1062,29 @@ export default function ContractDetail() {
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-800 leading-relaxed">
                 عند الاعتماد سيتم تحويل العقد إلى نشط وإنشاء سجل الجهاز ومهمة التوصيل.
               </div>
-              <div className="flex gap-3 pt-2">
-                <Button
-                  fullWidth
-                  disabled={approvalLoading !== null || !approvalCloserId}
-                  loading={approvalLoading === 'approve'}
-                  onClick={handleApprove}
-                >
-                  {approvalLoading === 'approve' ? 'جاري الاعتماد...' : 'موافقة واعتماد'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  fullWidth
-                  onClick={() => setShowApprovalModal(false)}
-                >
-                  إلغاء
-                </Button>
-              </div>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
-      {approvalError && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
-          onClick={() => setApprovalError(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-t-4 border-rose-500"
-            onClick={(e) => e.stopPropagation()}
-          >
+      <Modal
+        isOpen={!!approvalError}
+        onClose={() => setApprovalError(null)}
+        size="md"
+        hideCloseButton
+        className="border-t-4 border-rose-500"
+        footer={approvalError && (
+          <div className="w-full flex gap-2">
+            {approvalError.issues.length > 0 && (
+              <Button fullWidth onClick={() => { setApprovalError(null); setShowApprovalModal(false); navigate(`/contracts/${id}/edit`); }}>
+                فتح العقد لإكمال البيانات
+              </Button>
+            )}
+            <Button variant="secondary" fullWidth onClick={() => setApprovalError(null)}>
+              حسناً
+            </Button>
+          </div>
+        )}
+      >
+            {approvalError && (<div className="p-6">
             <div className="flex items-start gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-lg font-bold shrink-0">!</div>
               <div className="flex-1">
@@ -1109,39 +1111,16 @@ export default function ContractDetail() {
               </div>
             )}
 
-            <div className="flex gap-2">
-              {approvalError.issues.length > 0 && (
-                <Button
-                  fullWidth
-                  onClick={() => {
-                    setApprovalError(null);
-                    setShowApprovalModal(false);
-                    navigate(`/contracts/${id}/edit`);
-                  }}
-                >
-                  فتح العقد لإكمال البيانات
-                </Button>
-              )}
-              <Button
-                variant="secondary"
-                fullWidth
-                onClick={() => setApprovalError(null)}
-              >
-                حسناً
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </div>)}
+      </Modal>
 
-      {showActivateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-base font-bold text-slate-800">تنشيط عملية الدفع</h3>
-              <button onClick={() => setShowActivateModal(false)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
-            </div>
-            <form onSubmit={handleActivatePayment} className="space-y-4">
+      <Modal
+        isOpen={showActivateModal}
+        onClose={() => setShowActivateModal(false)}
+        size="md"
+        title="تنشيط عملية الدفع"
+      >
+            <form onSubmit={handleActivatePayment} className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">طريقة الدفع</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -1182,9 +1161,7 @@ export default function ContractDetail() {
                 </Button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

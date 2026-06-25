@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
+import Modal from '../ui/Modal';
 
 interface PostSaleStepperProps {
   contract: any;
@@ -309,23 +310,25 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
       </div>
 
       {/* Recording Delivery Result Dialog */}
-      {showDeliveryModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-lg space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <Truck className="w-5 h-5 text-sky-600" />
-                تسجيل نتيجة تسليم الجهاز
-              </h3>
-              <button 
-                onClick={() => setShowDeliveryModal(false)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-medium"
-              >
-                إغلاق
-              </button>
-            </div>
-
-            <div className="space-y-3">
+      <Modal
+        isOpen={showDeliveryModal}
+        onClose={() => setShowDeliveryModal(false)}
+        size="lg"
+        title={<span className="flex items-center gap-2"><Truck className="w-5 h-5 text-sky-600" />تسجيل نتيجة تسليم الجهاز</span>}
+        footer={
+          <div className="w-full flex gap-3">
+            <button type="button" onClick={handleSubmitDeliveryResult} disabled={loading || (outcome === 'delivered_successfully' && !serialNumber.trim())}
+              className="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-bold py-2.5 rounded-xl transition duration-200 disabled:opacity-50 shadow-sm">
+              {loading ? 'جاري الحفظ...' : 'تأكيد وحفظ النتيجة'}
+            </button>
+            <button type="button" onClick={() => setShowDeliveryModal(false)}
+              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl transition duration-200">
+              إلغاء
+            </button>
+          </div>
+        }
+      >
+            <div className="p-6 space-y-3">
               {/* Outcome Selection */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">نتيجة عملية التوصيل</label>
@@ -410,27 +413,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
                 />
               </div>
             </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleSubmitDeliveryResult}
-                disabled={loading || (outcome === 'delivered_successfully' && !serialNumber.trim())}
-                className="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-bold py-2.5 rounded-xl transition duration-200 disabled:opacity-50 shadow-sm"
-              >
-                {loading ? 'جاري الحفظ...' : 'تأكيد وحفظ النتيجة'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowDeliveryModal(false)}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl transition duration-200"
-              >
-                إلغاء
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 };
