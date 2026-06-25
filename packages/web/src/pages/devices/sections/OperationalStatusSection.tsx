@@ -1,7 +1,7 @@
 // Device operational status + lifecycle dates.
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Loader2, MapPin, Truck, Unplug, Wrench, X, Zap } from 'lucide-react';
+import { AlertCircle, Loader2, MapPin, Truck, Unplug, Wrench, Zap } from 'lucide-react';
 import { DeviceStatusBadge } from '../../../components/devices/DeviceStatusBadge';
 import { SectionShell } from './SectionShell';
 import { api } from '../../../lib/api';
@@ -9,7 +9,7 @@ import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../.
 import MapPicker from '../../../components/MapPicker';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
-import IconButton from '../../../components/ui/IconButton';
+import Modal from '../../../components/ui/Modal';
 
 interface Props {
   device: any;
@@ -268,17 +268,19 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
         </div>
       </SectionShell>
 
-      {showInstallationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
-          <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <div className="flex items-center gap-2">
-                <Wrench className="h-5 w-5 text-sky-600" />
-                <h2 className="text-lg font-bold text-slate-800">إنشاء مهمة تركيب</h2>
-              </div>
-              <IconButton icon={X} label="إغلاق" onClick={() => setShowInstallationModal(false)} />
-            </div>
-            <div className="max-h-[75vh] space-y-4 overflow-y-auto px-5 py-4">
+      <Modal
+        isOpen={showInstallationModal}
+        onClose={() => setShowInstallationModal(false)}
+        size="2xl"
+        title={<span className="flex items-center gap-2"><Wrench className="h-5 w-5 text-sky-600" />إنشاء مهمة تركيب</span>}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowInstallationModal(false)}>إلغاء</Button>
+            <Button onClick={createInstallationTask} loading={busy}>إنشاء المهمة</Button>
+          </>
+        }
+      >
+            <div className="space-y-4 px-5 py-4">
               {modalError && (
                 <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                   <AlertCircle className="h-4 w-4" />
@@ -326,28 +328,25 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-              <Button variant="secondary" onClick={() => setShowInstallationModal(false)}>
-                إلغاء
-              </Button>
-              <Button onClick={createInstallationTask} loading={busy}>
-                إنشاء المهمة
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
-      {showActivationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
-          <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <div className="flex items-center gap-2">
-                <Zap className="h-5 w-5 text-sky-600" />
-                <h2 className="text-lg font-bold text-slate-800">إنشاء مهمة تشغيل</h2>
-              </div>
-              <IconButton icon={X} label="إغلاق" onClick={() => setShowActivationModal(false)} />
-            </div>
+      <Modal
+        isOpen={showActivationModal}
+        onClose={() => setShowActivationModal(false)}
+        size="xl"
+        title={<span className="flex items-center gap-2"><Zap className="h-5 w-5 text-sky-600" />إنشاء مهمة تشغيل</span>}
+        footer={
+          <>
+            <button onClick={() => setShowActivationModal(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
+              إلغاء
+            </button>
+            <button onClick={createActivationTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              إنشاء المهمة
+            </button>
+          </>
+        }
+      >
             <div className="space-y-4 px-5 py-4">
               {modalError && (
                 <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -397,18 +396,7 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
                 />
               </label>
             </div>
-            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-              <button onClick={() => setShowActivationModal(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
-                إلغاء
-              </button>
-              <button onClick={createActivationTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-                إنشاء المهمة
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </>
   );
 }
