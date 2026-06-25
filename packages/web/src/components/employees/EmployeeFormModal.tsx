@@ -334,6 +334,8 @@ function FieldLabel({
   );
 }
 
+// Single-line inputs are pilled globally by index.css (the design-system rule);
+// the rounded-2xl here only governs textareas, which the global rule leaves alone.
 const INPUT_CLASS =
   'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100';
 

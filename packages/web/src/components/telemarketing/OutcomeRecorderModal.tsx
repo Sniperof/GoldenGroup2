@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useSystemList } from '../../hooks/useSystemList';
 import { api } from '../../lib/api';
-import { motion } from 'framer-motion';
 import {
-    Phone, CheckCircle2, PhoneOff, PhoneMissed, X, Send,
+    Phone, CheckCircle2, PhoneOff, PhoneMissed, Send,
     MessageSquare, PhoneForwarded, UserCheck, PhoneCall,
     MapPin, AlertTriangle, Calendar, Edit3, Clock, Droplets, FileText,
 } from 'lucide-react';
-import IconButton from '../ui/IconButton';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
+import Modal from '../ui/Modal';
 import {
     TelemarketingOutcomeCode, OUTCOME_MAP, OUTCOMES_BY_GROUP,
     PHONE_STATUS_LABELS, PHONE_STATUS_TO_CONTACT_ENTRY,
@@ -429,32 +428,35 @@ export default function OutcomeRecorderModal({
           }));
 
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
-            dir="rtl"
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="lg"
+            title={
+                <span className="flex items-center gap-2">
+                    <Send className="w-5 h-5 text-violet-600" />
+                    {title || 'تسجيل نتيجة التواصل'}
+                </span>
+            }
+            subtitle={task?.name || undefined}
+            footer={
+                <>
+                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                    <Button
+                        icon={CheckCircle2}
+                        loading={saving}
+                        disabled={!canSave || saving}
+                        onClick={handleSave}
+                    >
+                        {isTextMessage ? 'إرسال الرسالة'
+                            : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
+                            : 'حفظ النتيجة'}
+                    </Button>
+                </>
+            }
         >
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-            >
-                {/* Header */}
-                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-violet-50 shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                            <Send className="w-5 h-5 text-violet-600" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-800">{title || 'تسجيل نتيجة التواصل'}</h2>
-                            {task?.name && <p className="text-xs text-slate-500">{task.name}</p>}
-                        </div>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
-                </div>
-
                 {/* Body */}
-                <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                <div className="p-5 space-y-5">
 
                     {/* Communication method */}
                     <div className="space-y-3">
@@ -1018,22 +1020,6 @@ export default function OutcomeRecorderModal({
                         )}
                     </div>
                 </div>
-
-                {/* Footer */}
-                <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
-                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
-                    <Button
-                        icon={CheckCircle2}
-                        loading={saving}
-                        disabled={!canSave || saving}
-                        onClick={handleSave}
-                    >
-                        {isTextMessage ? 'إرسال الرسالة'
-                            : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
-                            : 'حفظ النتيجة'}
-                    </Button>
-                </div>
-            </motion.div>
-        </div>
+        </Modal>
     );
 }

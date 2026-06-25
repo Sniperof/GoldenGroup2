@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Download, Loader2, Plus, Printer, Share2, Trash2, X } from 'lucide-react';
+import { CheckCircle2, Download, Loader2, Plus, Printer, Share2, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
 import Select from '../ui/Select';
-import IconButton from '../ui/IconButton';
+import Modal from '../ui/Modal';
 
 type PreOfferDraft = {
   deviceModelId: string;
@@ -308,17 +308,27 @@ function ReceiptModal(props: {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-4" dir="rtl">
-      <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-6 py-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-800">إيصال العرض</h3>
-            <p className="mt-1 text-xs text-slate-500">مراجعة قبل الحفظ أو المشاركة</p>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} />
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="3xl"
+      title="إيصال العرض"
+      subtitle="مراجعة قبل الحفظ أو المشاركة"
+      footer={
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <button onClick={handleDownload} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+            <Download className="h-4 w-4" /> تنزيل
+          </button>
+          <button onClick={handleShare} className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 hover:bg-sky-100">
+            <Share2 className="h-4 w-4" /> مشاركة
+          </button>
+          <button onClick={handlePrint} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-700">
+            <Printer className="h-4 w-4" /> طباعة / حفظ PDF
+          </button>
         </div>
-
-        <div className="max-h-[75vh] overflow-y-auto p-6 space-y-5">
+      }
+    >
+        <div className="p-6 space-y-5">
           <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4">
             <div className="flex items-center gap-2 text-sky-700 font-bold">
               <CheckCircle2 className="h-4 w-4" /> العرض جاهز للتثبيت
@@ -352,20 +362,7 @@ function ReceiptModal(props: {
             </div>
           </div>
         </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 px-6 py-4">
-          <button onClick={handleDownload} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
-            <Download className="h-4 w-4" /> تنزيل
-          </button>
-          <button onClick={handleShare} className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 hover:bg-sky-100">
-            <Share2 className="h-4 w-4" /> مشاركة
-          </button>
-          <button onClick={handlePrint} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-700">
-            <Printer className="h-4 w-4" /> طباعة / حفظ PDF
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -614,17 +611,28 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
   const availableOfferDevices = selectedDevices;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
-      <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-800">إضافة عرض جهاز</h3>
-            <p className="mt-1 text-xs text-slate-500">{client.name}</p>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} />
-        </div>
-
-        <div className="max-h-[80vh] overflow-y-auto bg-slate-50/50 px-6 py-6 space-y-6">
+    <>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="5xl"
+      title="إضافة عرض جهاز"
+      subtitle={client.name}
+      bodyClassName="bg-slate-50/50"
+      footer={
+        <>
+          <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50">
+            إلغاء
+          </button>
+          <button onClick={handleSubmit} disabled={saving || loading}
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            إنشاء المهمة
+          </button>
+        </>
+      }
+    >
+        <div className="px-6 py-6 space-y-6">
           {loading ? (
             <div className="py-16 text-center"><Loader2 className="mx-auto w-8 h-8 animate-spin text-slate-300" /></div>
           ) : (
@@ -955,18 +963,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
             </>
           )}
         </div>
-
-        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4">
-          <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50">
-            إلغاء
-          </button>
-          <button onClick={handleSubmit} disabled={saving || loading}
-            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            إنشاء المهمة
-          </button>
-        </div>
-      </div>
+    </Modal>
 
       {receiptOfferIndex != null && preOffers[receiptOfferIndex] && (
         <ReceiptModal
@@ -986,6 +983,6 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
           reasonLabel={reasonLabel}
         />
       )}
-    </div>
+    </>
   );
 }

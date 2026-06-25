@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Save, PlusCircle, Building2, User, Handshake, Search, CheckCircle, AlertCircle } from 'lucide-react';
+import { Save, PlusCircle, Building2, User, Handshake, Search, CheckCircle, AlertCircle } from 'lucide-react';
 import { ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { api } from '../../lib/api';
@@ -8,7 +8,7 @@ import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 import Select from '../ui/Select';
 import Input from '../ui/Input';
-import IconButton from '../ui/IconButton';
+import Modal from '../ui/Modal';
 
 interface Props {
     isOpen: boolean;
@@ -320,28 +320,32 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         setError('');
     };
 
-    if (!isOpen) return null;
-
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" dir="rtl">
-            <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-
-                {/* Header */}
-                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
-                            <PlusCircle className="w-5 h-5 text-amber-600" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-800">إضافة لائحة أسماء جديدة </h2>
-                            <p className="text-sm text-slate-500">تسجيل لائحة أسماء جديدة تحت وسيط محدد</p>
-                        </div>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
-                </div>
-
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="xl"
+            title={
+                <span className="flex items-center gap-2">
+                    <PlusCircle className="w-5 h-5 text-amber-600" />
+                    إضافة لائحة أسماء جديدة
+                </span>
+            }
+            subtitle="تسجيل لائحة أسماء جديدة تحت وسيط محدد"
+            footer={
+                <>
+                    <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700">
+                        إلغاء
+                    </button>
+                    <button onClick={handleSave} className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-md shadow-amber-500/20 rounded-xl transition-all">
+                        <Save className="w-4 h-4" />
+                        حفظ الورقة
+                    </button>
+                </>
+            }
+        >
                 {/* Body */}
-                <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                <div className="p-6 space-y-6">
                     {error && (
                         <div className="p-3 rounded-xl bg-red-50 text-red-600 text-sm font-medium border border-red-100">
                             {error}
@@ -501,19 +505,6 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                         />
                     </div>
                 </div>
-
-                {/* Footer */}
-                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
-                    <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700">
-                        إلغاء
-                    </button>
-                    <button onClick={handleSave} className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-md shadow-amber-500/20 rounded-xl transition-all">
-                        <Save className="w-4 h-4" />
-                        حفظ الورقة
-                    </button>
-                </div>
-
-            </div>
-        </div>
+        </Modal>
     );
 }

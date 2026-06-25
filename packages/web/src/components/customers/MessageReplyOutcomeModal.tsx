@@ -1,13 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import IconButton from '../ui/IconButton';
-import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
 import {
-    CheckCircle2, X, Send, PhoneMissed, PhoneCall,
+    CheckCircle2, Send, PhoneMissed, PhoneCall,
     PhoneForwarded, UserCheck, PhoneOff, Edit3, Calendar, Layers,
 } from 'lucide-react';
 import { TelemarketingOutcomeCode, OUTCOME_MAP } from '@golden-crm/shared';
 import { useSystemList } from '../../hooks/useSystemList';
 import Button from '../ui/Button';
+import Modal from '../ui/Modal';
 
 interface Props {
     isOpen: boolean;
@@ -45,8 +44,6 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
         }
     }, [isOpen]);
 
-    if (!isOpen) return null;
-
     const isFollowUp = outcome === 'currently_busy';
     const canSave = !!outcome;
 
@@ -61,28 +58,31 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" dir="rtl">
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-            >
-                {/* Header */}
-                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-amber-50 shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                            <Send className="w-5 h-5 text-amber-600" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-800">تعديل نتيجة الرسالة</h2>
-                            <p className="text-xs text-slate-500">تم الرد على الرسالة — سجّل النتيجة</p>
-                        </div>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
-                </div>
-
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="md"
+            closeOnBackdrop={false}
+            title={
+                <span className="flex items-center gap-3">
+                    <span className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+                        <Send className="w-5 h-5 text-amber-600" />
+                    </span>
+                    تعديل نتيجة الرسالة
+                </span>
+            }
+            subtitle="تم الرد على الرسالة — سجّل النتيجة"
+            footer={
+                <>
+                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                    <Button variant="gold" onClick={handleSave} disabled={!canSave} icon={CheckCircle2}>
+                        حفظ النتيجة
+                    </Button>
+                </>
+            }
+        >
                 {/* Body */}
-                <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                <div className="p-5 space-y-4">
 
                     {/* Outcome selection */}
                     <div className="space-y-3">
@@ -265,15 +265,6 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
                             className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm placeholder:text-slate-400 focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none min-h-[72px] resize-none transition-all" />
                     </div>
                 </div>
-
-                {/* Footer */}
-                <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
-                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
-                    <Button variant="gold" onClick={handleSave} disabled={!canSave} icon={CheckCircle2}>
-                        حفظ النتيجة
-                    </Button>
-                </div>
-            </motion.div>
-        </div>
+        </Modal>
     );
 }

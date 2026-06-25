@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import IconButton from '../ui/IconButton';
-import { Loader2, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import Modal from '../ui/Modal';
 import type {
   DeviceModel,
   Employee,
@@ -217,23 +217,41 @@ export default function MarketingVisitResultModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" dir="rtl">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-6 py-4">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة المهمة</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              {taskDisplayLabel
-                ? `المهمة: ${taskDisplayLabel}`
-                : task
-                  ? `المهمة: ${TASK_TYPE_LABELS[task.taskType] ?? task.taskType}`
-                  : 'تسجيل نتيجة مهمة الزيارة'}
-            </p>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
-        </div>
-
-        <div className="flex-1 space-y-5 overflow-y-auto p-6">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="2xl"
+      title="تسجيل نتيجة المهمة"
+      subtitle={
+        taskDisplayLabel
+          ? `المهمة: ${taskDisplayLabel}`
+          : task
+            ? `المهمة: ${TASK_TYPE_LABELS[task.taskType] ?? task.taskType}`
+            : 'تسجيل نتيجة مهمة الزيارة'
+      }
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200"
+          >
+            إلغاء
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {saving ? 'جاري الحفظ...' : 'حفظ النتيجة'}
+          </button>
+        </>
+      }
+    >
+        <div className="space-y-5 p-6">
           <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
             <div>
               <p className="text-xs font-bold text-slate-500">الزبون</p>
@@ -461,27 +479,6 @@ export default function MarketingVisitResultModal({
             </div>
           )}
         </div>
-
-        <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200"
-          >
-            إلغاء
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={saving}
-            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {saving ? 'جاري الحفظ...' : 'حفظ النتيجة'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

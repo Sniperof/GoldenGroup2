@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import IconButton from '../ui/IconButton';
+import { useState, useEffect } from 'react';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { X, Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck } from 'lucide-react';
+import { Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck } from 'lucide-react';
 import QualificationModal from './QualificationModal';
 import ClientModal from '../ClientModal';
 import { Candidate, Client, GeoUnit } from '../../lib/types';
@@ -9,6 +8,7 @@ import { api } from '../../lib/api';
 import { formatGeoUnitLastLevels } from '../GeoSmartSearch';
 import { usePermissions } from '../../hooks/usePermissions';
 import Button from '../ui/Button';
+import Modal from '../ui/Modal';
 
 interface Props {
     isOpen: boolean;
@@ -101,19 +101,27 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" dir="rtl">
-            <div className="bg-white rounded-2xl w-[95vw] max-w-6xl h-[90vh] shadow-2xl p-6 flex flex-col">
-                <div className="flex justify-between items-start mb-6 shrink-0">
-                    <div>
-                        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                            <FileText className="w-5 h-5 text-amber-600" />
-                            تفاصيل لائحة الأسماء #{sheet.id}
-                        </h2>
-                        <p className="text-sm text-slate-500 mt-1">الوسيط: {sheet.referralNameSnapshot}</p>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
-                </div>
-
+        <>
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="6xl"
+            title={
+                <span className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-amber-600" />
+                    تفاصيل لائحة الأسماء #{sheet.id}
+                </span>
+            }
+            subtitle={`الوسيط: ${sheet.referralNameSnapshot}`}
+            footer={
+                canEditNameLists && sheet.status !== 'Completed' ? (
+                    <Button onClick={() => { closeReferralSheet(sheet.id); onClose(); }}>
+                        إغلاق الورقة (أرشفة)
+                    </Button>
+                ) : undefined
+            }
+        >
+            <div className="p-6">
                 <div className="grid grid-cols-2 gap-4 mb-6">
                     <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                         <span className="text-xs text-slate-400 block mb-1">تاريخ الورقة</span>
@@ -145,9 +153,9 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                     </div>
                 </div>
 
-                <div className="border-t border-slate-100 pt-4 overflow-hidden flex flex-col flex-1">
+                <div className="border-t border-slate-100 pt-4">
                     <h3 className="text-base font-bold text-slate-800 mb-3 px-1">قائمة الأسماء في هذه الورقة</h3>
-                    <div className="overflow-x-auto overflow-y-auto custom-scroll flex-1 rounded-xl border border-slate-200">
+                    <div className="overflow-x-auto rounded-xl border border-slate-200">
                         <table className="w-full text-right bg-white">
                             <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                                 <tr>
@@ -256,17 +264,8 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                         </table>
                     </div>
                 </div>
-
-                <div className="mt-6 flex justify-end shrink-0">
-                    {canEditNameLists && sheet.status !== 'Completed' && (
-                        <Button
-                            onClick={() => { closeReferralSheet(sheet.id); onClose(); }}
-                        >
-                            إغلاق الورقة (أرشفة)
-                        </Button>
-                    )}
-                </div>
             </div>
+        </Modal>
 
             <QualificationModal
                 isOpen={canEditCandidates && isQualifyModalOpen}
@@ -289,6 +288,6 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                 geoUnits={geoUnits}
                 fromCandidate={true}
             />
-        </div>
+        </>
     );
 }

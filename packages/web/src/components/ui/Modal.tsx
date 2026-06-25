@@ -23,7 +23,7 @@ import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import IconButton from './IconButton';
 
-export type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
+export type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl';
 
 const SIZE_CLASSES: Record<ModalSize, string> = {
   sm:  'max-w-sm',
@@ -32,13 +32,18 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
   xl:  'max-w-xl',
   '2xl': 'max-w-2xl',
   '3xl': 'max-w-3xl',
+  '4xl': 'max-w-4xl',
+  '5xl': 'max-w-5xl',
+  '6xl': 'max-w-6xl',
 };
 
 export interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Optional header title. When omitted, no header bar is rendered. */
+  /** Optional header title. When omitted (and no subtitle), no header bar is rendered. */
   title?: ReactNode;
+  /** Optional secondary line under the title (e.g. a contextual name/phone). */
+  subtitle?: ReactNode;
   /** Max width preset. Default 'md'. */
   size?: ModalSize;
   /** Optional right-aligned footer slot (or use <ModalFooter> in children). */
@@ -60,6 +65,7 @@ export default function Modal({
   isOpen,
   onClose,
   title,
+  subtitle,
   size = 'md',
   footer,
   closeOnBackdrop = true,
@@ -108,9 +114,12 @@ export default function Modal({
               className,
             ].filter(Boolean).join(' ')}
           >
-            {(title || !hideCloseButton) && (
+            {(title || subtitle || !hideCloseButton) && (
               <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 shrink-0">
-                <h3 className="text-base font-bold text-slate-800 min-w-0 truncate">{title}</h3>
+                <div className="min-w-0">
+                  {title && <h3 className="text-base font-bold text-slate-800 truncate">{title}</h3>}
+                  {subtitle && <p className="text-sm text-slate-500 mt-0.5 truncate">{subtitle}</p>}
+                </div>
                 {!hideCloseButton && (
                   <IconButton icon={X} label="إغلاق" shape="circle" size="sm" onClick={onClose} className="shrink-0" />
                 )}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import IconButton from '../ui/IconButton';
-import { X, Loader2, Plus, Trash2 } from 'lucide-react';
+import Modal from '../ui/Modal';
+import { Loader2, Plus, Trash2 } from 'lucide-react';
 import type { EmergencyFinalDecision } from '@golden-crm/shared';
 import {
   EMERGENCY_FINAL_DECISION_LABELS,
@@ -105,8 +105,6 @@ export default function EmergencyResultModal({ isOpen, saving, error, onClose, o
 
   const [validationError, setValidationError] = useState('');
 
-  if (!isOpen) return null;
-
   const warrantyTheme = activeWarranty ? WARRANTY_THEME[activeWarranty.type] : null;
 
   const addPart = () => setParts((p) => [...p, { partNameSnapshot: '', quantity: 1, unitPrice: '' }]);
@@ -170,23 +168,38 @@ export default function EmergencyResultModal({ isOpen, saving, error, onClose, o
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" dir="rtl">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        {/* Header — colour-coded by active warranty (DEC-CT-17) */}
-        <div className={`flex items-center justify-between border-b px-6 py-4 shrink-0 ${warrantyTheme ? warrantyTheme.band : 'border-slate-100 bg-slate-50'}`}>
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة زيارة الصيانة</h2>
-            {warrantyTheme && (
-              <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold ${warrantyTheme.badge}`}>
-                {warrantyTheme.label}
-                {activeWarranty?.endDate ? ` · حتى ${activeWarranty.endDate}` : ''}
-              </span>
-            )}
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="2xl"
+      closeOnBackdrop={false}
+      closeOnEsc={!saving}
+      title={
+        <span className="flex items-center gap-3">
+          تسجيل نتيجة زيارة الصيانة
+          {warrantyTheme && (
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold ${warrantyTheme.badge}`}>
+              {warrantyTheme.label}
+              {activeWarranty?.endDate ? ` · حتى ${activeWarranty.endDate}` : ''}
+            </span>
+          )}
+        </span>
+      }
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={saving}
+            className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors">
+            إلغاء
+          </button>
+          <button type="button" onClick={handleSubmit} disabled={saving}
+            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {saving ? 'جاري الحفظ...' : 'تسجيل النتيجة'}
+          </button>
+        </>
+      }
+    >
+        <div className="p-6 space-y-6">
           {/* Final Decision */}
           <div className="space-y-2">
             <label className="text-sm font-bold text-slate-700">
@@ -362,20 +375,6 @@ export default function EmergencyResultModal({ isOpen, saving, error, onClose, o
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4 shrink-0">
-          <button type="button" onClick={onClose} disabled={saving}
-            className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors">
-            إلغاء
-          </button>
-          <button type="button" onClick={handleSubmit} disabled={saving}
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {saving ? 'جاري الحفظ...' : 'تسجيل النتيجة'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

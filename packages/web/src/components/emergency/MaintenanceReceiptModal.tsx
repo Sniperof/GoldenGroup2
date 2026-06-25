@@ -1,8 +1,8 @@
-import { Download, Loader2, MessageCircle, Printer, X } from 'lucide-react';
-import IconButton from '../ui/IconButton';
+import { Download, Loader2, MessageCircle, Printer } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
+import Modal from '../ui/Modal';
 
 // ── Receipt HTML builder ──────────────────────────────────────────────────────
 
@@ -219,8 +219,6 @@ export default function MaintenanceReceiptModal({ taskId, isOpen, onClose }: Pro
     }).catch(() => {}).finally(() => setLoading(false));
   }, [isOpen, taskId]);
 
-  if (!isOpen) return null;
-
   const html = (!loading && receiptData) ? buildReceiptHtml(receiptData) : '';
 
   const handlePrint = () => {
@@ -261,19 +259,29 @@ export default function MaintenanceReceiptModal({ taskId, isOpen, onClose }: Pro
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-3" dir="rtl">
-      <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl flex flex-col max-h-[92vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 bg-rose-50/50 px-6 py-4 shrink-0">
-          <div>
-            <h3 className="text-base font-bold text-slate-800">وصل الصيانة</h3>
-            <p className="mt-0.5 text-xs text-slate-500">مهمة #{taskId}</p>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} />
-        </div>
-
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="2xl"
+      closeOnBackdrop={false}
+      title="وصل الصيانة"
+      subtitle={`مهمة #${taskId}`}
+      footer={
+        <>
+          <Button variant="secondary" icon={Download} disabled={loading} onClick={handleDownload}>
+            تنزيل HTML
+          </Button>
+          <Button variant="secondary" icon={MessageCircle} disabled={loading || !whatsappText} onClick={handleWhatsapp}>
+            مشاركة واتساب
+          </Button>
+          <Button variant="danger" icon={Printer} disabled={loading} onClick={handlePrint}>
+            طباعة / PDF
+          </Button>
+        </>
+      }
+    >
         {/* Preview */}
-        <div className="flex-1 overflow-y-auto bg-slate-100 p-4">
+        <div className="bg-slate-100 p-4">
           {loading ? (
             <div className="flex justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-rose-500" />
@@ -287,20 +295,6 @@ export default function MaintenanceReceiptModal({ taskId, isOpen, onClose }: Pro
             />
           )}
         </div>
-
-        {/* Actions */}
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-6 py-4 shrink-0 bg-slate-50">
-          <Button variant="secondary" icon={Download} disabled={loading} onClick={handleDownload}>
-            تنزيل HTML
-          </Button>
-          <Button variant="secondary" icon={MessageCircle} disabled={loading || !whatsappText} onClick={handleWhatsapp}>
-            مشاركة واتساب
-          </Button>
-          <Button variant="danger" icon={Printer} disabled={loading} onClick={handlePrint}>
-            طباعة / PDF
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

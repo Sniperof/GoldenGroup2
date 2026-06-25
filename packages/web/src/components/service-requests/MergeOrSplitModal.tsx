@@ -3,10 +3,10 @@
 // Constitution: maintenance.md §EM-UNIQ-01..06
 // ============================================================
 import { useEffect, useState } from 'react';
-import IconButton from '../ui/IconButton';
-import { X, GitMerge, Split, AlertTriangle } from 'lucide-react';
+import { GitMerge, Split, AlertTriangle } from 'lucide-react';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
+import Modal from '../ui/Modal';
 
 interface Props {
   serviceRequestId: number;
@@ -84,16 +84,18 @@ export default function MergeOrSplitModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" dir="rtl">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-auto">
-        <header className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-yellow-600" />
-            الجهاز عليه مُهمة طارئة نشطة
-          </h2>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} />
-        </header>
-
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="2xl"
+      closeOnBackdrop={false}
+      title={
+        <span className="flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-yellow-600" />
+          الجهاز عليه مُهمة طارئة نشطة
+        </span>
+      }
+    >
         <div className="p-4 space-y-4">
           <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm">
             <p className="text-slate-700">
@@ -169,7 +171,6 @@ export default function MergeOrSplitModal({
             </button>
           </section>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

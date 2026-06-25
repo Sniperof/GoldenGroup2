@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import IconButton from '../ui/IconButton';
-import { AlertCircle, Loader2, RotateCcw, X, XCircle } from 'lucide-react';
+import Modal from '../ui/Modal';
+import { AlertCircle, Loader2, RotateCcw, XCircle } from 'lucide-react';
 import type {
   MarketingVisit,
   MarketingVisitCancelRequest,
@@ -163,7 +163,7 @@ export default function VisitLifecycleActionModal({
   const hasTasks = taskStates.length > 0;
   const combinedError = validationError || error || loadError;
 
-  if (!isOpen || !visit) return null;
+  if (!visit) return null;
 
   const updateTaskState = (openTaskId: number, patch: Partial<TaskFormState>) => {
     setTaskStates((current) =>
@@ -224,21 +224,67 @@ export default function VisitLifecycleActionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" dir="rtl">
-      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
-          <div className="flex items-start gap-3">
-            <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${meta.iconClassName}`}>
-              <Icon className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">{meta.title}</h2>
-              <p className="mt-1 text-sm text-slate-500">{meta.description}</p>
-            </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="5xl"
+      closeOnBackdrop={false}
+      closeOnEsc={!saving}
+      title={
+        <span className="flex items-center gap-3">
+          <span className={`flex h-11 w-11 items-center justify-center rounded-2xl shrink-0 ${meta.iconClassName}`}>
+            <Icon className="h-5 w-5" />
+          </span>
+          {meta.title}
+        </span>
+      }
+      subtitle={meta.description}
+      footer={
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-2xl bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-200 disabled:opacity-50"
+            >
+              إلغاء
+            </button>
+            {step > 0 ? (
+              <button
+                type="button"
+                onClick={goBack}
+                disabled={saving}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                رجوع
+              </button>
+            ) : null}
           </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
-        </div>
 
+          {step < 2 ? (
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={!canGoNext || saving}
+              className="rounded-2xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-sky-700 disabled:bg-sky-300"
+            >
+              التالي
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={saving || !hasTasks || !reasonId}
+              className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-bold text-white transition ${meta.buttonClassName}`}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {meta.confirmLabel}
+            </button>
+          )}
+        </div>
+      }
+    >
         <div className="border-b border-slate-100 px-6 py-4">
           <div className="flex flex-wrap gap-2">
             {(Object.keys(STEP_TITLES) as unknown as WizardStep[]).map((stepKey) => (
@@ -258,7 +304,7 @@ export default function VisitLifecycleActionModal({
           </div>
         </div>
 
-        <div className="max-h-[calc(90vh-13rem)] overflow-y-auto px-6 py-5">
+        <div className="px-6 py-5">
           {combinedError ? (
             <div className="mb-5 flex items-start gap-2 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -392,51 +438,6 @@ export default function VisitLifecycleActionModal({
             </div>
           ) : null}
         </div>
-
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={saving}
-              className="rounded-2xl bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-200 disabled:opacity-50"
-            >
-              إلغاء
-            </button>
-            {step > 0 ? (
-              <button
-                type="button"
-                onClick={goBack}
-                disabled={saving}
-                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                رجوع
-              </button>
-            ) : null}
-          </div>
-
-          {step < 2 ? (
-            <button
-              type="button"
-              onClick={goNext}
-              disabled={!canGoNext || saving}
-              className="rounded-2xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-sky-700 disabled:bg-sky-300"
-            >
-              التالي
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={saving || !hasTasks || !reasonId}
-              className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-bold text-white transition ${meta.buttonClassName}`}
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {meta.confirmLabel}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

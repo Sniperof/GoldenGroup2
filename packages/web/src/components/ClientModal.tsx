@@ -8,7 +8,7 @@ import MapPicker from './MapPicker';
 import GeoSmartSearch from './GeoSmartSearch';
 import type { GeoSelection } from './GeoSmartSearch';
 import Select from './ui/Select';
-import IconButton from './ui/IconButton';
+import Modal from './ui/Modal';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -717,28 +717,37 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         } as Client);
     };
 
-    if (!isOpen) return null;
-
     return (
-        <AnimatePresence>
-            {isOpen && (
-                <>
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40" onClick={onClose} />
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[860px] max-h-[96vh] bg-white rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col"
-                        style={{ direction: 'rtl' }}
-                    >
-                        {/* Header */}
-                        <div className="bg-white border-b border-slate-100 px-4 sm:px-5 py-4 flex items-center justify-between shrink-0">
-                            <h2 className="text-lg sm:text-lg font-bold text-slate-800">
-                                {isEditMode ? 'تعديل بيانات الزبون' : 'إضافة زبون جديد'}
-                            </h2>
-                            <IconButton icon={X} label="إغلاق" onClick={onClose} />
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="4xl"
+            title={isEditMode ? 'تعديل بيانات الزبون' : 'إضافة زبون جديد'}
+            footer={
+                <div className="w-full flex items-center justify-between gap-3">
+                    {primaryDup ? (
+                        <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            الرقم الأساسي مكرر — لا يمكن الحفظ
                         </div>
-
+                    ) : <div />}
+                    <div className="flex gap-3">
+                        <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-medium transition-all">
+                            إلغاء
+                        </button>
+                        <button
+                            onClick={handleSave}
+                            disabled={Boolean(primaryDup)}
+                            title={primaryDup ? `الرقم الأساسي مكرر عند: ${primaryDup.name}` : undefined}
+                            className="px-5 py-2 rounded-lg text-white bg-sky-600 hover:bg-sky-500 shadow-lg shadow-sky-500/20 font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+                        >
+                            <Save className="w-4 h-4" />
+                            <span>{isEditMode ? 'حفظ التعديلات' : 'إضافة'}</span>
+                        </button>
+                    </div>
+                </div>
+            }
+        >
                         {/* From-candidate banner */}
                         {fromCandidate && (
                             <div className="bg-amber-50 border-b border-amber-100 px-5 py-2.5 flex items-center gap-2 text-xs font-semibold text-amber-700 shrink-0">
@@ -748,7 +757,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         )}
 
                         {/* Tabs */}
-                        <div className="bg-slate-50 px-2 sm:px-4 pt-3 border-b border-slate-200 flex gap-1 overflow-x-auto shrink-0 scrollbar-none">
+                        <div className="bg-slate-50 px-2 sm:px-4 pt-3 border-b border-slate-200 flex gap-1 overflow-x-auto shrink-0 scrollbar-none sticky top-0 z-10">
                             {tabsDef.map(tab => (
                                 <button
                                     key={tab.id}
@@ -765,7 +774,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         </div>
 
                         {/* Content */}
-                        <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scroll bg-white">
+                        <div className="p-4 sm:p-6 custom-scroll bg-white">
 
                             {/* ============ IDENTITY TAB ============ */}
                             {activeTab === 'identity' && (
@@ -1616,33 +1625,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             }
 
                         </div >
-
-                        {/* Footer */}
-                        <div className="bg-slate-50 px-4 sm:px-5 py-3 sm:py-4 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
-                            {primaryDup ? (
-                                <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
-                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                    الرقم الأساسي مكرر — لا يمكن الحفظ
-                                </div>
-                            ) : <div />}
-                            <div className="flex gap-3">
-                                <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-medium transition-all">
-                                    إلغاء
-                                </button>
-                                <button
-                                    onClick={handleSave}
-                                    disabled={Boolean(primaryDup)}
-                                    title={primaryDup ? `الرقم الأساسي مكرر عند: ${primaryDup.name}` : undefined}
-                                    className="px-5 py-2 rounded-lg text-white bg-sky-600 hover:bg-sky-500 shadow-lg shadow-sky-500/20 font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
-                                >
-                                    <Save className="w-4 h-4" />
-                                    <span>{isEditMode ? 'حفظ التعديلات' : 'إضافة'}</span>
-                                </button>
-                            </div>
-                        </div>
-                    </motion.div >
-                </>
-            )}
-        </AnimatePresence >
+        </Modal>
     );
 }

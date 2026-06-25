@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, PlusCircle, X, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from 'lucide-react';
+import { UserPlus, PlusCircle, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from 'lucide-react';
 import { CandidateStatus, ReferralType, ReferralOriginChannel, Client, ContactEntry, Candidate, ContactType, ContactStatus } from '../../lib/types';
 import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import Select from '../ui/Select';
-import IconButton from '../ui/IconButton';
+import Modal from '../ui/Modal';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -515,28 +515,36 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         onClose();
     };
 
-    if (!isOpen) return null;
-
     return (
         <>
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" dir="rtl">
-                <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-
-                    {/* Header */}
-                    <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center">
-                                <UserPlus className="w-5 h-5 text-sky-600" />
-                            </div>
-                            <div>
-                                <h2 className="text-lg font-bold text-slate-800">{title || 'إضافة اسم مرشح جديد'}</h2>
-                            </div>
-                        </div>
-                        <IconButton icon={X} label="إغلاق" onClick={resetAndClose} />
-                    </div>
-
+            <Modal
+                isOpen={isOpen}
+                onClose={resetAndClose}
+                size="2xl"
+                title={
+                    <span className="flex items-center gap-2">
+                        <UserPlus className="w-5 h-5 text-sky-600" />
+                        {title || 'إضافة اسم مرشح جديد'}
+                    </span>
+                }
+                footer={
+                    <>
+                        <button onClick={resetAndClose} className="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-100 transition-all">إلغاء</button>
+                        {!initialData && (
+                            <button onClick={() => handleSave(true)} className="px-5 py-2 rounded-xl text-sky-600 bg-sky-50 border border-sky-100 font-bold hover:bg-sky-100 transition-all flex items-center gap-2">
+                                <PlusCircle className="w-4 h-4" />
+                                <span>حفظ وإضافة آخر</span>
+                            </button>
+                        )}
+                        <button onClick={() => handleSave(false)} className="px-8 py-2 rounded-xl text-white bg-sky-600 font-bold hover:bg-sky-700 shadow-lg shadow-sky-500/20 transition-all flex items-center gap-2">
+                            <Save className="w-4 h-4" />
+                            <span>{initialData ? 'حفظ التغييرات' : 'حفظ الاسم'}</span>
+                        </button>
+                    </>
+                }
+            >
                     {/* Body */}
-                    <div className="p-6 overflow-y-auto flex-1 space-y-8 custom-scrollbar">
+                    <div className="p-6 space-y-8">
                         {error && (
                             <div className="p-3 mb-4 rounded-xl bg-red-50 text-red-600 text-sm font-medium border border-red-100">
                                 {error}
@@ -980,23 +988,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                             </div>
                         </div>
                     </div>
-
-                    <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-end gap-3 shrink-0">
-                        <button onClick={resetAndClose} className="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-100 transition-all">إلغاء</button>
-                        {!initialData && (
-                            <button onClick={() => handleSave(true)} className="px-5 py-2 rounded-xl text-sky-600 bg-sky-50 border border-sky-100 font-bold hover:bg-sky-100 transition-all flex items-center gap-2">
-                                <PlusCircle className="w-4 h-4" />
-                                <span>حفظ وإضافة آخر</span>
-                            </button>
-                        )}
-                        <button onClick={() => handleSave(false)} className="px-8 py-2 rounded-xl text-white bg-sky-600 font-bold hover:bg-sky-700 shadow-lg shadow-sky-500/20 transition-all flex items-center gap-2">
-                            <Save className="w-4 h-4" />
-                            <span>{initialData ? 'حفظ التغييرات' : 'حفظ الاسم'}</span>
-                        </button>
-                    </div>
-
-                </div>
-            </div >
+            </Modal>
 
             <CreateReferralSheetModal
                 isOpen={isCreateSheetOpen}

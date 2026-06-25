@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { X, Loader2, Search, MapPin, Zap, AlertTriangle, Phone } from 'lucide-react';
+import { Loader2, Search, MapPin, Zap, AlertTriangle, Phone } from 'lucide-react';
 import { api } from '../../lib/api';
+import Modal from '../ui/Modal';
 
 // DEC-011 — Field-Initiated Instant Visit. The supervisor picks one of her
 // branch's customers and starts an off-plan visit on the spot (in_progress now).
@@ -64,8 +65,6 @@ export default function InstantVisitModal({
     ).slice(0, 50);
   }, [clients, query]);
 
-  if (!open) return null;
-
   const handleCreate = async () => {
     if (selectedId == null) return;
     setSubmitting(true);
@@ -90,19 +89,32 @@ export default function InstantVisitModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose} dir="rtl">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      size="lg"
+      title={
+        <span className="flex items-center gap-2">
           <Zap className="w-5 h-5 text-amber-500" />
-          <h2 className="text-sm font-bold text-slate-800">زيارة فورية</h2>
-          <span className="text-xs text-slate-400">اختر زبوناً من فرعك ضمن منطقتك اليوم</span>
-          <button onClick={onClose} className="mr-auto text-slate-400 hover:text-slate-600">
-            <X className="w-5 h-5" />
+          زيارة فورية
+        </span>
+      }
+      subtitle="اختر زبوناً من فرعك ضمن منطقتك اليوم"
+      footer={
+        <div className="w-full flex items-center justify-between gap-3">
+          <p className="text-[11px] text-slate-400 flex items-center gap-1">
+            <MapPin className="w-3 h-3" /> سيُلتقط موقعك تلقائياً عند الإنشاء
+          </p>
+          <button
+            onClick={handleCreate}
+            disabled={selectedId == null || submitting}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-bold hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            إنشاء وبدء الزيارة
           </button>
         </div>
-
+      }
+    >
         {/* Search */}
         <div className="px-5 pt-4">
           <div className="relative">
@@ -117,7 +129,7 @@ export default function InstantVisitModal({
         </div>
 
         {/* Body */}
-        <div className="p-5 overflow-y-auto custom-scroll flex-1">
+        <div className="p-5">
           {error && (
             <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span>
@@ -156,21 +168,6 @@ export default function InstantVisitModal({
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
-          <p className="text-[11px] text-slate-400 flex items-center gap-1">
-            <MapPin className="w-3 h-3" /> سيُلتقط موقعك تلقائياً عند الإنشاء
-          </p>
-          <button
-            onClick={handleCreate}
-            disabled={selectedId == null || submitting}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-bold hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-            إنشاء وبدء الزيارة
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

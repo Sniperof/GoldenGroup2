@@ -8,13 +8,12 @@ import {
   RotateCcw,
   ShoppingCart,
   Trash2,
-  X,
   XCircle,
   type LucideIcon,
 } from 'lucide-react';
-import IconButton from '../ui/IconButton';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
+import Modal from '../ui/Modal';
 import type {
   DeviceModel,
   Employee,
@@ -987,19 +986,93 @@ export default function MarketingVisitOutcomeModal({
   const progressIndex = isOfferFlow ? wizardState.step : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" dir="rtl">
-      <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-6 py-4">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">سجّل نتيجة المهمة</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              {visit.customerName || '—'} · {visit.scheduledDate || '—'}
-            </p>
+    <>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="5xl"
+      title="سجّل نتيجة المهمة"
+      subtitle={`${visit.customerName || '—'} · ${visit.scheduledDate || '—'}`}
+      bodyClassName="bg-slate-50/50"
+      footer={
+        <div className="w-full flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {useOfferUI && wizardState.step > 0 && (
+              <button
+                type="button"
+                onClick={handleBack}
+                disabled={saving}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {wizardState.step === 2 ? 'رجوع لتعديل العروض »' : 'السابق »'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              إلغاء
+            </button>
           </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
-        </div>
 
-        <div className="border-b border-slate-100 bg-white px-6 py-4">
+          <div className="flex items-center gap-3">
+            {/* Next button: for offer_presented (steps 0–3) and device_sold (step 0 and 1) */}
+            {useOfferUI && wizardState.step < 4 && (
+              <button
+                type="button"
+                onClick={handleNext}
+                disabled={saving}
+                className="rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {wizardState.step === 2 ? 'تأكيد وتابع لردود الزبون «' : 'التالي «'}
+              </button>
+            )}
+
+            {/* Submit: offer_presented step 4 */}
+            {isOfferFlow && wizardState.step === 4 && (
+              <button
+                type="button"
+                onClick={handleOfferFlowSubmit}
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                حفظ النتيجة ✅
+              </button>
+            )}
+
+            {/* Submit: device_sold step 4 */}
+            {isDeviceSoldFlow && wizardState.step === 4 && (
+              <button
+                type="button"
+                onClick={handleDeviceSoldSubmit}
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                تأكيد البيع ✅
+              </button>
+            )}
+
+            {/* Submit: needs_reschedule / cancelled (simple outcomes) */}
+            {!useOfferUI && wizardState.overallOutcome && (
+              <button
+                type="button"
+                onClick={handleSimpleSubmit}
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                حفظ النتيجة
+              </button>
+            )}
+          </div>
+        </div>
+      }
+    >
+        <div className="border-b border-slate-100 bg-white px-6 py-4 sticky top-0 z-10">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
               {[0, 1, 2, 3, 4].map((step) => (
@@ -1017,7 +1090,7 @@ export default function MarketingVisitOutcomeModal({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-slate-50/50 p-6">
+        <div className="p-6">
           <div className="space-y-6">
             {/* Step 0: outcome selector — hidden once user enters a multi-step flow */}
             {wizardState.step === 0 && (
@@ -1511,99 +1584,26 @@ export default function MarketingVisitOutcomeModal({
             )}
           </div>
         </div>
-
-        <div className="flex items-center justify-between border-t border-slate-100 bg-white px-6 py-4">
-          <div className="flex items-center gap-3">
-            {useOfferUI && wizardState.step > 0 && (
-              <button
-                type="button"
-                onClick={handleBack}
-                disabled={saving}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {wizardState.step === 2 ? 'رجوع لتعديل العروض »' : 'السابق »'}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={saving}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              إلغاء
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Next button: for offer_presented (steps 0–3) and device_sold (step 0 and 1) */}
-            {useOfferUI && wizardState.step < 4 && (
-              <button
-                type="button"
-                onClick={handleNext}
-                disabled={saving}
-                className="rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {wizardState.step === 2 ? 'تأكيد وتابع لردود الزبون «' : 'التالي «'}
-              </button>
-            )}
-
-            {/* Submit: offer_presented step 4 */}
-            {isOfferFlow && wizardState.step === 4 && (
-              <button
-                type="button"
-                onClick={handleOfferFlowSubmit}
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                حفظ النتيجة ✅
-              </button>
-            )}
-
-            {/* Submit: device_sold step 4 */}
-            {isDeviceSoldFlow && wizardState.step === 4 && (
-              <button
-                type="button"
-                onClick={handleDeviceSoldSubmit}
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                تأكيد البيع ✅
-              </button>
-            )}
-
-            {/* Submit: needs_reschedule / cancelled (simple outcomes) */}
-            {!useOfferUI && wizardState.overallOutcome && (
-              <button
-                type="button"
-                onClick={handleSimpleSubmit}
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                حفظ النتيجة
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+    </Modal>
 
       {offerEditor && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <div>
-                <h3 className="text-base font-bold text-slate-800">
-                  {offerEditor.offerId ? 'تعديل العرض' : 'إضافة عرض جديد'}
-                </h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  {wizardState.deviceOffers.find((group) => group.deviceModelId === offerEditor.deviceModelId)?.deviceModelName}
-                </p>
-              </div>
-              <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setOfferEditor(null)} />
-            </div>
-
+        <Modal
+          isOpen={!!offerEditor}
+          onClose={() => setOfferEditor(null)}
+          size="lg"
+          title={offerEditor.offerId ? 'تعديل العرض' : 'إضافة عرض جديد'}
+          subtitle={wizardState.deviceOffers.find((group) => group.deviceModelId === offerEditor.deviceModelId)?.deviceModelName}
+          footer={
+            <>
+              <Button type="button" variant="secondary" onClick={() => setOfferEditor(null)}>
+                إلغاء
+              </Button>
+              <Button type="button" onClick={handleSaveOffer} disabled={deviceModels.length === 0}>
+                تثبيت العرض
+              </Button>
+            </>
+          }
+        >
             <div className="space-y-4 px-5 py-5">
               {deviceModels.length === 0 ? (
                 <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-6 text-center text-sm text-amber-700">
@@ -1906,18 +1906,8 @@ export default function MarketingVisitOutcomeModal({
                 </>
               )}
             </div>
-
-            <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4">
-              <Button type="button" variant="secondary" onClick={() => setOfferEditor(null)}>
-                إلغاء
-              </Button>
-              <Button type="button" onClick={handleSaveOffer} disabled={deviceModels.length === 0}>
-                تثبيت العرض
-              </Button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
-    </div>
+    </>
   );
 }

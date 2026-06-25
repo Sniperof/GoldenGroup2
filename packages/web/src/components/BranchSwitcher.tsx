@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Building2, ChevronDown, Check } from 'lucide-react';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
@@ -23,6 +23,23 @@ export default function BranchSwitcher() {
   const { branchId, setBranchId } = useBranchContextStore();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click / Escape — the dropdown previously only closed when an
+  // option was chosen, which felt stuck.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   useEffect(() => {
     // Super admins need full list for the switcher dropdown.
@@ -57,7 +74,7 @@ export default function BranchSwitcher() {
   }
 
   return (
-    <div className="relative mx-3 my-2">
+    <div ref={rootRef} className="relative mx-3 my-2">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -71,11 +88,11 @@ export default function BranchSwitcher() {
       </button>
 
       {open && (
-        <div className="absolute z-40 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+        <div className="absolute z-40 mt-1.5 w-full bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 max-h-64 overflow-y-auto">
           <button
             type="button"
             onClick={() => handleSelect(null)}
-            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-right text-sm"
+            className="no-pill w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-50 text-right text-sm transition-colors"
           >
             {branchId == null ? <Check className="w-4 h-4 text-sky-600" /> : <span className="w-4" />}
             <div className="flex-1 text-right">
@@ -88,7 +105,7 @@ export default function BranchSwitcher() {
               key={b.id}
               type="button"
               onClick={() => handleSelect(b.id)}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-right text-sm"
+              className="no-pill w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-50 text-right text-sm transition-colors"
             >
               {b.id === branchId ? <Check className="w-4 h-4 text-sky-600" /> : <span className="w-4" />}
               <span className="flex-1 text-slate-700">{b.name}</span>

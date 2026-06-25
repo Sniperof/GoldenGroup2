@@ -11,11 +11,11 @@
 // ============================================================
 
 import { useEffect, useState } from 'react';
-import IconButton from '../ui/IconButton';
-import { X, ListPlus, Save } from 'lucide-react';
+import { ListPlus, Save } from 'lucide-react';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
+import Modal from '../ui/Modal';
 
 interface Props {
   visitId: number;
@@ -68,21 +68,27 @@ export default function ReferralSheetModal({ visitId, open, onClose, onSaved }: 
     }
   }
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
-        <header className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50">
-          <div className="flex items-center gap-2">
-            <ListPlus className="w-4 h-4 text-sky-700" />
-            <h2 className="text-lg font-bold text-slate-800">
-              {existingSheetId == null ? 'إضافة لائحة جديدة' : 'تعديل عدد اللائحة'}
-            </h2>
-          </div>
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-        </header>
-
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      closeOnEsc={!busy}
+      closeOnBackdrop={!busy}
+      title={
+        <span className="flex items-center gap-2">
+          <ListPlus className="w-4 h-4 text-sky-700" />
+          {existingSheetId == null ? 'إضافة لائحة جديدة' : 'تعديل عدد اللائحة'}
+        </span>
+      }
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>إلغاء</Button>
+          <Button size="sm" onClick={() => void save()} disabled={busy} icon={Save}>
+            {existingSheetId == null ? 'إنشاء اللائحة' : 'حفظ التعديل'}
+          </Button>
+        </>
+      }
+    >
         <div className="px-5 py-4 space-y-3">
           {error && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-2 text-xs font-bold text-red-700">
@@ -104,14 +110,6 @@ export default function ReferralSheetModal({ visitId, open, onClose, onSaved }: 
             inputSize="sm"
           />
         </div>
-
-        <footer className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
-          <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>إلغاء</Button>
-          <Button size="sm" onClick={() => void save()} disabled={busy} icon={Save}>
-            {existingSheetId == null ? 'إنشاء اللائحة' : 'حفظ التعديل'}
-          </Button>
-        </footer>
-      </div>
-    </div>
+    </Modal>
   );
 }
