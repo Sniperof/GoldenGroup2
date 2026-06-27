@@ -459,7 +459,7 @@ export default function TelemarketerWorkspace() {
                 ? (geoUnitsById.get(stationId)?.name || cg.addressText || null)
                 : (cg.addressText || null);
             const classification = client?.candidateStatus ?? null;
-            const classKey = classificationKey(classification, cg.entityType);
+            const classKey = classificationKey(classification, cg.entityType) as 'FOP' | 'OP' | 'LEAD' | null;
             const ratingKey = client?.rating === 'Committed' || client?.rating === 'NotCommitted' ? client.rating : null;
             const ownershipLabel = cg.entityType === 'client'
                 ? (cg.primaryItem.ownership?.ownerLabel || 'عامة')
