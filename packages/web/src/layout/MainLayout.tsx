@@ -16,7 +16,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug,
 } from 'lucide-react';
 
 const navItems = [
@@ -44,8 +44,6 @@ const recordsChildren = [
 // Each table is gated by its own view permission (migration 288) so a role can
 // be granted some operations tables and denied others.
 const operationsChildren = [
-    { path: '/tasks/evaluation-lab',            label: 'مختبر تقييم المهام',                   icon: Beaker,      permission: 'open_tasks.view' },
-    { path: '/gifts',                          label: 'إدارة الهدايا',                icon: Gift,        permission: 'tasks.gifts.view' },
     { path: '/tasks/group/device-demo',         label: 'مهام عرض الجهاز',        icon: Monitor,     permission: 'tasks.demo.view' },
     { path: '/tasks/group/maintenance',         label: 'مهام الصيانة',           icon: Wrench,      permission: 'tasks.maintenance.view' },
     { path: '/tasks/group/collection',          label: 'مهام تسديد الذمم',       icon: DollarSign,  permission: 'tasks.collection.view' },
@@ -161,7 +159,8 @@ export default function MainLayout() {
         navigate('/login');
     }
     const isPlanningActive = location.pathname.startsWith('/planning');
-    const isOperationsActive = location.pathname.startsWith('/tasks') || location.pathname.startsWith('/gifts');
+    const isOperationsActive = location.pathname.startsWith('/tasks');
+    const isGiftsActive = location.pathname.startsWith('/gifts');
     const isRequestsActive = location.pathname.startsWith('/service-requests');
     const isVisitsActive = location.pathname.startsWith('/field-visits');
     const isContractsActive = location.pathname.startsWith('/contracts');
@@ -578,6 +577,25 @@ export default function MainLayout() {
                         >
                             <CalendarCheck className="w-5 h-5" />
                             <span className="flex-1">زياراتي</span>
+                        </NavLink>
+                    </div>
+                    )}
+
+                    {/* 5d. Gifts management — standalone, outside Operations & Tasks */}
+                    {canSeeBranchModules && can('tasks.gifts.view') && (
+                    <div className={isCollapsed ? 'lg:hidden' : 'block'}>
+                        <NavLink
+                            to="/gifts"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive || isGiftsActive
+                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                }`
+                            }
+                        >
+                            <Gift className="w-5 h-5" />
+                            <span className="flex-1">إدارة الهدايا</span>
                         </NavLink>
                     </div>
                     )}
