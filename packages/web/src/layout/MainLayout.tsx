@@ -7,7 +7,6 @@ import { isGlobalOnlyPath } from '../lib/branchContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import FloatingActionButton from '../components/FloatingActionButton';
 import logoMark from '../assets/logo-mark.png';
-import NewEmergencyTicketModal from '../components/NewEmergencyTicketModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import BranchSwitcher from '../components/BranchSwitcher';
@@ -182,14 +181,8 @@ export default function MainLayout() {
 
     const toggleSidebar = () => setIsMobileMenuOpen(!isMobileMenuOpen);
     const toggleCollapse = () => setIsCollapsed(!isCollapsed);
-    const [showEmergencyModal, setShowEmergencyModal] = useState(false);
     const [showCandidateModal, setShowCandidateModal] = useState(false);
-    // Phase 5 — service_requests intake. Feature-gated via localStorage so
-    // ops can flip it on per-user during staging without a deploy.
     const [showServiceRequestModal, setShowServiceRequestModal] = useState(false);
-    const serviceRequestsUiEnabled =
-        typeof window !== 'undefined' &&
-        localStorage.getItem('gc_service_requests_ui') === 'on';
     const [candidateInitialMode, setCandidateInitialMode] = useState(false);
 
     return (
@@ -857,7 +850,6 @@ export default function MainLayout() {
 
             {/* Global FAB */}
             <FloatingActionButton
-                onEmergencyClick={() => setShowEmergencyModal(true)}
                 onAddSuggested={() => {
                     setCandidateInitialMode(false);
                     setShowCandidateModal(true);
@@ -866,9 +858,7 @@ export default function MainLayout() {
                     setCandidateInitialMode(true);
                     setShowCandidateModal(true);
                 }}
-                onServiceRequestClick={
-                    serviceRequestsUiEnabled ? () => setShowServiceRequestModal(true) : undefined
-                }
+                onServiceRequestClick={() => setShowServiceRequestModal(true)}
             />
             {showServiceRequestModal && (
                 <NewServiceRequestModal
@@ -876,12 +866,6 @@ export default function MainLayout() {
                     onClose={() => setShowServiceRequestModal(false)}
                 />
             )}
-
-            {/* Emergency Ticket Modal */}
-            <NewEmergencyTicketModal
-                isOpen={showEmergencyModal}
-                onClose={() => setShowEmergencyModal(false)}
-            />
 
             {/* Add Candidate Modal */}
             <AddCandidateModal

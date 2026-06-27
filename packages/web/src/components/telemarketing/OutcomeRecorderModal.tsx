@@ -1031,6 +1031,5 @@ export default function OutcomeRecorderModal({
                     </div>{/* ── END TWO-PANE GRID ── */}
                 </div>
         </Modal>
-        </Modal>
     );
 }

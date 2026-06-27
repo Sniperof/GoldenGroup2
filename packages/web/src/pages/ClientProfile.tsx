@@ -32,7 +32,6 @@ import ContactControlCard from '../components/clients/ContactControlCard';
 import CustomerCallLog from '../components/customers/CustomerCallLog';
 import PhoneCallLog from '../components/customers/PhoneCallLog';
 import DeviceOfferModal from '../components/clients/DeviceOfferModal';
-import RequestEmergencyModal from '../components/emergency/RequestEmergencyModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import { usePermissions } from '../hooks/usePermissions';
 
@@ -1269,14 +1268,9 @@ export function VisitsTab({ client }: { client: Client }) {
     const navigate = useNavigate();
     const [visits, setVisits] = useState<any[]>([]);
     const [tasks, setTasks] = useState<any[]>([]);
-    const [contracts, setContracts] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
-    const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
     const [serviceRequestModalOpen, setServiceRequestModalOpen] = useState(false);
-    const serviceRequestsUiEnabled =
-        typeof window !== 'undefined' &&
-        localStorage.getItem('gc_service_requests_ui') === 'on';
     const hasActiveDeviceDemo = tasks.some((task) => {
         const taskType = task.taskType ?? task.task_type ?? task.openTaskType;
         return taskType === 'device_demo' && !['completed', 'cancelled', 'closed'].includes(task.status);
@@ -1297,13 +1291,6 @@ export function VisitsTab({ client }: { client: Client }) {
         } catch (err) {
             console.error('Failed to fetch visits:', err);
             setVisits([]);
-        }
-        try {
-            const contractData = await api.contracts.list();
-            setContracts((contractData as any[]).filter((c: any) => c.customerId === client.id && c.status !== 'cancelled'));
-        } catch (err) {
-            console.error('Failed to fetch contracts:', err);
-            setContracts([]);
         }
         setLoading(false);
     }, [client.id]);
@@ -1329,19 +1316,11 @@ export function VisitsTab({ client }: { client: Client }) {
                 <h3 className="text-base font-bold text-slate-800">سجل الزيارات والمهام</h3>
                 <div className="flex items-center gap-2">
                     <button
-                        onClick={() => setEmergencyModalOpen(true)}
-                        className="px-4 py-2 border border-rose-200 text-rose-600 font-bold rounded-xl hover:bg-rose-50 transition-all flex items-center gap-1.5 text-sm"
+                        onClick={() => setServiceRequestModalOpen(true)}
+                        className="px-4 py-2 bg-red-600 text-white font-bold rounded-xl shadow-sm hover:bg-red-500 transition-all flex items-center gap-1.5 text-sm"
                     >
-                        <Zap className="w-4 h-4" /> صيانة طارئة
+                        <Zap className="w-4 h-4" /> طلب صيانة
                     </button>
-                    {serviceRequestsUiEnabled && (
-                        <button
-                            onClick={() => setServiceRequestModalOpen(true)}
-                            className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl shadow-sm hover:bg-emerald-500 transition-all flex items-center gap-1.5 text-sm"
-                        >
-                            <Zap className="w-4 h-4" /> طلب صيانة جديد
-                        </button>
-                    )}
                     <button
                         onClick={() => setModalOpen(true)}
                         disabled={hasActiveDeviceDemo}
@@ -1394,27 +1373,6 @@ export function VisitsTab({ client }: { client: Client }) {
                     beneficiaryClientId={client.id}
                     beneficiaryClientName={client.name}
                     onClose={() => setServiceRequestModalOpen(false)}
-                />
-            )}
-
-            {emergencyModalOpen && (
-                <RequestEmergencyModal
-                    clientId={client.id}
-                    clientName={client.name}
-                    clientRating={(client as any).rating}
-                    contracts={contracts.map((c: any) => ({
-                        id: c.id,
-                        contractNumber: c.contractNumber,
-                        deviceModelName: c.deviceModelName,
-                        installationAddressText: c.installationAddressText || null,
-                        status: c.status,
-                    }))}
-                    onClose={() => setEmergencyModalOpen(false)}
-                    onCreated={(ticketId) => {
-                        setEmergencyModalOpen(false);
-                        fetchData();
-                        navigate(`/tasks/emergency/${ticketId}`);
-                    }}
                 />
             )}
 
