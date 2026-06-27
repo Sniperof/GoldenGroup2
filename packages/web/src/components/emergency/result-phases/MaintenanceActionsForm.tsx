@@ -53,6 +53,7 @@ type DraftPart = {
   retrieved: boolean;
   placementState: 'installed' | 'customer_stock';
   noRetrievalReasonId: string;
+  noRetrievalReasonText: string;
   recommendationStatus: 'required' | 'optional';
   customerDecision: 'approved' | 'refused' | 'not_required';
   executionStatus: 'replaced' | 'delivered_to_customer_stock' | 'not_replaced_customer_refused' | 'not_replaced_unavailable' | 'not_replaced_technician_decision';
@@ -92,6 +93,7 @@ function emptyDraft(): DraftPart {
   return { sparePartId: '', partNameSnapshot: '', partCodeSnapshot: '',
            maintenanceType: '', unitPrice: '0', quantity: '1',
            retrieved: true, placementState: 'installed', noRetrievalReasonId: '',
+           noRetrievalReasonText: '',
            recommendationStatus: 'required', customerDecision: 'approved',
            executionStatus: 'replaced', customerRefusalReasonId: '', customerRefusalReasonText: '' };
 }
@@ -518,6 +520,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
       retrieved:           p.retrieved,
       placementState:      p.placementState,
       noRetrievalReasonId: p.noRetrievalReasonId ? String(p.noRetrievalReasonId) : '',
+      noRetrievalReasonText: p.noRetrievalReasonText || '',
       recommendationStatus: p.recommendationStatus,
       customerDecision: p.customerDecision,
       executionStatus: p.executionStatus,
