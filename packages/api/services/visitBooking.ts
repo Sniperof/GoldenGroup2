@@ -61,6 +61,7 @@ class BookingError extends Error {
 
 const POST_SALE_TASK_TYPES = new Set([
   'device_delivery',
+  'gift_delivery',
   'device_installation',
   'device_activation',
   'device_disconnection',

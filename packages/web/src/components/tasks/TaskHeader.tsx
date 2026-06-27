@@ -33,6 +33,13 @@ const TASK_STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-slate-200 text-slate-600 border-slate-300',
 };
 
+function getPeriodicSupersessionLabel(task: any): string | null {
+  const reason = task.periodicSupersession?.reason;
+  if (reason === 'superseded_within_emergency') return 'مُكتفى عنها بطارئة';
+  if (reason === 'superseded_within_periodic') return 'مُكتفى عنها بدورية';
+  return null;
+}
+
 export interface TaskHeaderProps {
   task: any;
   /** Icon for this task type */
@@ -52,6 +59,7 @@ export default function TaskHeader({ task, typeIcon: TypeIcon, typeIconColor = '
   const statusLabel = OPEN_TASK_STATUS_LABELS[task.status as keyof typeof OPEN_TASK_STATUS_LABELS] ?? task.status;
   const statusColor = TASK_STATUS_COLORS[task.status] ?? 'bg-slate-100 text-slate-600 border-slate-200';
   const typeLabel = OPEN_TASK_TYPE_LABELS[task.taskType as keyof typeof OPEN_TASK_TYPE_LABELS] ?? task.taskType;
+  const periodicSupersessionLabel = getPeriodicSupersessionLabel(task);
 
   return (
     <div className="bg-white border-b border-slate-200 px-6 py-4 shrink-0">
@@ -70,6 +78,12 @@ export default function TaskHeader({ task, typeIcon: TypeIcon, typeIconColor = '
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border ${statusColor}`}>
               {statusLabel}
             </span>
+            {periodicSupersessionLabel && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <Link2 className="w-3 h-3" />
+                {periodicSupersessionLabel}
+              </span>
+            )}
             {task.taskFamily && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
                 {TASK_FAMILY_LABELS[task.taskFamily] ?? task.taskFamily}

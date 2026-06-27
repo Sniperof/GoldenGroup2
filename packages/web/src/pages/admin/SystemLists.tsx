@@ -4,12 +4,13 @@ import { useRoleStore } from '../../hooks/useRoleStore';
 import type { SystemList } from '../../lib/types';
 import {
   Settings2, Plus, Edit, Trash2, Save, X, ListPlus,
-  Search, ChevronLeft, GraduationCap,
+  Search, ChevronLeft, ChevronDown, GraduationCap,
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
   Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu, Phone,
   Wrench, ClipboardList, DollarSign, MapPin, Bug, Package,
   RotateCcw, Ban, Truck, Clock, Percent, Star, Snowflake, Receipt,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import IconButton from '../../components/ui/IconButton';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
@@ -164,6 +165,16 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'low' as const,
     usedIn: [
       { label: 'مودال نتيجة التواصل — متابعة لاحقاً', route: 'التيلماركتر ← تسجيل نتيجة', icon: <Phone className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'water_source',
+    label: 'مصادر المياه',
+    description: 'خيارات مصدر المياه المعتمدة عند إنشاء أو تعديل زبون، وعند حجز موعد تسويقي لمهمة عرض جهاز من التيلماركتر.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل إنشاء/تعديل زبون', route: 'الزبائن > معلومات إضافية', icon: <Users className="w-3 h-3" /> },
+      { label: 'التيلماركتر - حجز موعد زيارة', route: 'التيلماركتر > نتيجة التواصل/جدولة موعد', icon: <Phone className="w-3 h-3" /> },
     ],
   },
   {
@@ -355,6 +366,33 @@ const CATEGORIES: CategoryMeta[] = [
   // قوائم العقود والبيع والمَدفوعات
   // ══════════════════════════════════════════════════════════════
   {
+    id: 'periodic_manual_creation_reasons',
+    label: 'أسباب إنشاء صيانة دورية يدويا',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة صيانة دورية بشكل يدوي لجهاز قائم أو لتصحيح جدول الصيانة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة صيانة دورية', route: 'المهام > إنشاء صيانة دورية', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'periodic_partially_performed_reason',
+    label: 'أسباب تنفيذ الصيانة الدورية جزئيا',
+    description: 'الأسباب المعتمدة عند تسجيل نتيجة صيانة دورية كمنفذة جزئيا، مثل رفض قطعة أو عدم توفرها.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل نتيجة الصيانة الدورية - تنفيذ جزئي', route: 'الزيارات > مهمة صيانة دورية', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'periodic_not_performed_reason',
+    label: 'أسباب عدم تنفيذ الصيانة الدورية',
+    description: 'الأسباب المعتمدة عند تسجيل نتيجة صيانة دورية كغير منفذة، مثل رفض الزبون أو عدم توفر الجهاز للفحص.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل نتيجة الصيانة الدورية - لم تنفذ', route: 'الزيارات > مهمة صيانة دورية', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'contract_sale_source',
     label: 'مَصادر البيع (للعقود)',
     description: 'القَناة التي أَتى منها البيع (إحالة، مَعرض، حَملة...). يُسَجَّل على `contracts.sale_source` لتَحليل قَنوات البيع.',
@@ -436,9 +474,365 @@ const CATEGORIES: CategoryMeta[] = [
       { label: 'بَطاقة التَحَكُّم بالتَواصل', route: 'الزبائن ← تفاصيل الزبون ← Cooldown', icon: <Snowflake className="w-3 h-3" /> },
     ],
   },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم مهام الأجهزة (التركيب / السحب / الإرجاع / التشغيل / الفك)
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'device_retrieval_refusal_reasons',
+    label: 'أسباب رَفض السحب',
+    description: 'الأسباب المعتمدة عند اختيار "رفض السحب" في مودال نتيجة مهمة سحب الجهاز. تُحفظ مرجعياً على نتيجة المهمة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة السحب — رفض', route: 'الزيارات ← مهمة سحب', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_retrieval_reschedule_reasons',
+    label: 'أسباب إعادة جَدوَلَة السحب',
+    description: 'الأسباب المعتمدة عند اختيار "إعادة جدولة" في مودال نتيجة مهمة سحب الجهاز.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة السحب — إعادة جدولة', route: 'الزيارات ← مهمة سحب', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_return_refusal_reasons',
+    label: 'أسباب رَفض الإرجاع',
+    description: 'الأسباب المعتمدة عند اختيار "رفض الإرجاع" في مودال نتيجة مهمة إرجاع الجهاز بعد الصيانة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الإرجاع — رفض', route: 'الزيارات ← مهمة إرجاع', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_return_reschedule_reasons',
+    label: 'أسباب إعادة جَدوَلَة الإرجاع',
+    description: 'الأسباب المعتمدة عند اختيار "إعادة جدولة" في مودال نتيجة مهمة إرجاع الجهاز.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة الإرجاع — إعادة جدولة', route: 'الزيارات ← مهمة إرجاع', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_transfer_refusal_reasons',
+    label: 'أسباب رَفض النقل',
+    description: 'الأسباب المعتمدة عند اختيار "رفض النقل" في مودال نتيجة مهمة نقل الجهاز.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة النقل — رفض', route: 'الزيارات ← مهمة نقل', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_transfer_reschedule_reasons',
+    label: 'أسباب إعادة جَدوَلَة النقل',
+    description: 'الأسباب المعتمدة عند اختيار "إعادة جدولة" في مودال نتيجة مهمة نقل الجهاز.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة النقل — إعادة جدولة', route: 'الزيارات ← مهمة نقل', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_checkup_refusal_reasons',
+    label: 'أسباب رفض التشييك',
+    description: 'الأسباب المعتمدة عند اختيار "رفض التشييك" في مودال نتيجة مهمة تشييك الجهاز.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التشييك — رفض', route: 'الزيارات → مهمة تشييك الجهاز', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_checkup_reschedule_reasons',
+    label: 'أسباب إعادة جدولة التشييك',
+    description: 'الأسباب المعتمدة عند اختيار "إعادة جدولة" في مودال نتيجة مهمة تشييك الجهاز.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة التشييك — إعادة جدولة', route: 'الزيارات → مهمة تشييك الجهاز', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_delivery_reschedule_reasons',
+    label: 'أسباب إعادة جدولة تسليم الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "إعادة الجدولة" في مودل نتيجة مهمة تسليم الجهاز. تحفظ كسبب مستقل عن نتيجة التسليم.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودل نتيجة التسليم - إعادة الجدولة', route: 'الزيارات > مهمة تسليم جهاز', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_delivery_failure_reasons',
+    label: 'أسباب فشل تسليم الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "فشل التسليم" في مودل نتيجة مهمة تسليم الجهاز. تحفظ كسبب إغلاق مستقل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل نتيجة التسليم - فشل التسليم', route: 'الزيارات > مهمة تسليم جهاز', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_activation_followup_reasons',
+    label: 'أسباب متابعة التشغيل',
+    description: 'الأسباب المختصرة عند فشل التشغيل أو وجود مشكلة بالجهاز — تُختار في مودال نتيجة التشغيل وتنقل المهمة للمتابعة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التشغيل — متابعة', route: 'الزيارات ← مهمة تشغيل', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_disconnection_reasons',
+    label: 'أسباب فَك الجهاز',
+    description: 'سبب تنفيذ فك/فصل الجهاز (إلغاء عقد، إيقاف مؤقت، تحضير تبديل...). يُختار في مودال نتيجة الفك.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة الفك — سبب الفك', route: 'الزيارات ← مهمة فك', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_disconnection_retrieval_reasons',
+    label: 'أسباب السحب اللاحق للفك',
+    description: 'سبب الحاجة لمهمة سحب مستقلة بعد الفك (صيانة في الورشة، تبديل، استرجاع نهائي...).',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة الفك — يحتاج سحباً', route: 'الزيارات ← مهمة فك', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم التَحصيل
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'collection_partial_payment_reasons',
+    label: 'أسباب الدَفع الجُزئي (التَحصيل)',
+    description: 'الأسباب المعتمدة عند تَسجيل دَفعة جُزئية في مهمة تَحصيل الأقساط — تُحفظ مرجعياً على نتيجة المهمة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التَحصيل — دَفع جُزئي', route: 'الزيارات ← مهمة تَحصيل', icon: <DollarSign className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_disconnection_reschedule_reasons',
+    label: 'أسباب إعادة جدولة فك الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "إعادة الجدولة" في مودل نتيجة مهمة فك الجهاز. تحفظ كسبب مستقل عن نتيجة الفك.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودل نتيجة الفك - إعادة الجدولة', route: 'الزيارات > مهمة فك جهاز', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_disconnection_failure_reasons',
+    label: 'أسباب فشل فك الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "فشل الفك" في مودل نتيجة مهمة فك الجهاز. تحفظ كسبب إغلاق مستقل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل نتيجة الفك - فشل الفك', route: 'الزيارات > مهمة فك جهاز', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'collection_refusal_reasons',
+    label: 'أسباب رَفض التَحصيل',
+    description: 'الأسباب المعتمدة عند رَفض الزبون الدَفع في مهمة تَحصيل الأقساط.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التَحصيل — رَفض', route: 'الزيارات ← مهمة تَحصيل', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'collection_reschedule_reasons',
+    label: 'أسباب إعادة جَدوَلَة التَحصيل',
+    description: 'الأسباب المعتمدة عند إعادة جَدوَلَة مهمة تَحصيل الأقساط لموعد لاحق.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة التَحصيل — إعادة جَدوَلَة', route: 'الزيارات ← مهمة تَحصيل', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم الهَدايا
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'gift_delivery_refusal_reasons',
+    label: 'أسباب رَفض تَسليم الهَدية',
+    description: 'الأسباب المعتمدة عند رَفض الزبون استلام الهدية في مهمة تسليم الهدايا.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة تسليم الهدية — رفض', route: 'الزيارات ← مهمة تسليم هدية', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'gift_delivery_reschedule_reasons',
+    label: 'أسباب إعادة جَدوَلَة تَسليم الهَدية',
+    description: 'الأسباب المعتمدة عند إعادة جَدوَلَة مهمة تسليم الهدية لموعد لاحق.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة تسليم الهدية — إعادة جدولة', route: 'الزيارات ← مهمة تسليم هدية', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'gift_promise_conditions',
+    label: 'شُروط وَعد الهَدية',
+    description: 'الشروط المعتمدة التي يجب تحقّقها لاستحقاق الزبون هدية — تُستخدم عند ربط وعد هدية بعقد.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'ربط هدية بالعقد', route: 'الهدايا ← شروط الوعد', icon: <Tag className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم الضَمان الذَهبي (العَرض والبِطاقة)
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'golden_offer_creation_reasons',
+    label: 'أسباب إنشاء العَرض الذَهبي',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة عَرض ضَمان ذَهبي جَديدة للزبون.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إنشاء عَرض ذَهبي', route: 'المهام ← إنشاء عرض ذهبي', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'golden_offer_followup_reasons',
+    label: 'أسباب مُتابعة العَرض الذَهبي',
+    description: 'الأسباب المعتمدة عند تأجيل قرار الزبون بخصوص العَرض الذَهبي — تنقل المهمة للمُتابعة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة العَرض الذَهبي — مُتابعة', route: 'الزيارات ← مهمة عرض ذهبي', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'golden_offer_rejection_reasons',
+    label: 'أسباب رَفض العَرض الذَهبي',
+    description: 'الأسباب المعتمدة عند رَفض الزبون للعَرض الذَهبي نهائياً.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة العَرض الذَهبي — رَفض', route: 'الزيارات ← مهمة عرض ذهبي', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'golden_card_creation_reasons',
+    label: 'أسباب إنشاء مهمة بِطاقة VIP',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة تَسليم بِطاقة VIP ذَهبية للزبون.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إنشاء مهمة بِطاقة VIP', route: 'المهام ← إنشاء بطاقة VIP', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'golden_card_followup_reasons',
+    label: 'أسباب مُتابعة بِطاقة VIP',
+    description: 'الأسباب المعتمدة عند تأجيل تَسليم بِطاقة VIP — تنقل المهمة للمُتابعة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة بِطاقة VIP — مُتابعة', route: 'الزيارات ← مهمة بطاقة VIP', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'golden_card_rejection_reasons',
+    label: 'أسباب رَفض بِطاقة VIP',
+    description: 'الأسباب المعتمدة عند رَفض الزبون استلام بِطاقة VIP.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة بِطاقة VIP — رَفض', route: 'الزيارات ← مهمة بطاقة VIP', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // أخرى
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'open_task_reasons',
+    label: 'أسباب فَتح مَهمة',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة مفتوحة يدوياً من شاشة الزبون (مثل عرض جهاز).',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عَرض جهاز للزبون', route: 'الزبائن ← عرض جهاز', icon: <Cpu className="w-3 h-3" /> },
+    ],
+  },
 ];
 
 const MAJOR_PREFIX = 'major:';
+
+// ─── Sidebar grouping (presentation only — no DB impact) ─────────────────────
+interface ListGroup { id: string; label: string; }
+
+const LIST_GROUPS: ListGroup[] = [
+  { id: 'hr',            label: 'التوظيف والموظفون' },
+  { id: 'telemarketing', label: 'التيلماركتر والتواصل' },
+  { id: 'visits',        label: 'الزيارات والاستطلاع' },
+  { id: 'emergency',     label: 'الصيانة الطارئة' },
+  { id: 'periodic',      label: 'الصيانة الدورية' },
+  { id: 'contracts',     label: 'العقود والبيع' },
+  { id: 'device_delivery',       label: 'تسليم الجهاز' },
+  { id: 'device_installation',   label: 'تركيب الجهاز' },
+  { id: 'device_activation',     label: 'تشغيل الجهاز' },
+  { id: 'device_retrieval',      label: 'سحب الجهاز' },
+  { id: 'device_return',         label: 'إرجاع الجهاز' },
+  { id: 'device_transfer',       label: 'نقل الجهاز' },
+  { id: 'device_checkup',        label: 'تشييك الجهاز' },
+  { id: 'device_disconnection',  label: 'فك الجهاز' },
+  { id: 'collection',    label: 'التَحصيل' },
+  { id: 'gifts',         label: 'الهَدايا' },
+  { id: 'golden',        label: 'الضَمان الذَهبي (العَرض والبِطاقة)' },
+  { id: 'custom',        label: 'فئات مخصّصة' },
+];
+
+// Maps each known category to its sidebar group. Unmapped (admin-created)
+// categories fall back to the "custom" group via groupOf().
+const CATEGORY_GROUP: Record<string, string> = {
+  occupation: 'hr', job_title: 'hr', certificate: 'hr', work_type: 'hr',
+  nationality: 'hr', marital_status: 'hr', gender: 'hr', driving_license: 'hr',
+  application_source: 'hr', department_type: 'hr', military_service: 'hr',
+  contract_type: 'hr', foreign_language: 'hr',
+
+  telemarketing_rejection_reason: 'telemarketing', telemarketing_reschedule_reason: 'telemarketing',
+  water_source: 'telemarketing',
+  not_interested_reasons: 'telemarketing', cooldown_manual_reasons: 'telemarketing',
+
+  area_evaluation_options: 'visits', survey_skip_reasons: 'visits',
+  location_missing_reasons: 'visits', visit_cancellation_reasons: 'visits',
+  visit_not_completed_reasons: 'visits', visit_task_reasons: 'visits',
+  customer_followup_reasons: 'visits',
+
+  diagnosis_problem_types: 'emergency', emergency_resolved_reason: 'emergency',
+  emergency_unresolved_reason: 'emergency', emergency_followup_reason: 'emergency',
+  emergency_cancelled_reason: 'emergency', service_unresolved_reasons: 'emergency',
+  service_partial_reasons: 'emergency', reopen_reasons: 'emergency',
+  emergency_uniqueness_override_reasons: 'emergency', part_no_retrieval_reason: 'emergency',
+
+  periodic_manual_creation_reasons: 'periodic',
+  periodic_partially_performed_reason: 'periodic',
+  periodic_not_performed_reason: 'periodic',
+
+  contract_sale_source: 'contracts', discount_reason: 'contracts',
+  transfer_company: 'contracts', no_closing_reasons: 'contracts',
+
+  device_delivery_reschedule_reasons: 'device_delivery', device_delivery_failure_reasons: 'device_delivery',
+  installation_incomplete_reason: 'device_installation', installation_refusal_reason: 'device_installation',
+  device_activation_followup_reasons: 'device_activation',
+  device_retrieval_refusal_reasons: 'device_retrieval', device_retrieval_reschedule_reasons: 'device_retrieval',
+  device_return_refusal_reasons: 'device_return', device_return_reschedule_reasons: 'device_return',
+  device_transfer_refusal_reasons: 'device_transfer', device_transfer_reschedule_reasons: 'device_transfer',
+  device_checkup_refusal_reasons: 'device_checkup', device_checkup_reschedule_reasons: 'device_checkup',
+  device_disconnection_reasons: 'device_disconnection', device_disconnection_retrieval_reasons: 'device_disconnection',
+  device_disconnection_reschedule_reasons: 'device_disconnection', device_disconnection_failure_reasons: 'device_disconnection',
+
+  collection_partial_payment_reasons: 'collection',
+  collection_refusal_reasons: 'collection',
+  collection_reschedule_reasons: 'collection',
+
+  gift_delivery_refusal_reasons: 'gifts',
+  gift_delivery_reschedule_reasons: 'gifts',
+  gift_promise_conditions: 'gifts',
+
+  golden_offer_creation_reasons: 'golden',
+  golden_offer_followup_reasons: 'golden',
+  golden_offer_rejection_reasons: 'golden',
+  golden_card_creation_reasons: 'golden',
+  golden_card_followup_reasons: 'golden',
+  golden_card_rejection_reasons: 'golden',
+
+  open_task_reasons: 'contracts',
+};
+
+const groupOf = (catId: string) => CATEGORY_GROUP[catId] ?? 'custom';
 
 const IMPACT_CONFIG = {
   high: { label: 'تأثير عالٍ', cls: 'bg-rose-50 text-rose-600 border-rose-200', dot: 'bg-rose-500' },
@@ -484,9 +878,15 @@ export default function SystemLists() {
   const [newCatId, setNewCatId] = useState('');
   const [newCatLabel, setNewCatLabel] = useState('');
   const [activeCertificate, setActiveCertificate] = useState<string | null>(null);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set([groupOf(CATEGORIES[0].id)]));
 
   useEffect(() => { fetchLists(); fetchRoles(); }, []);
-  useEffect(() => { setSearch(''); setActiveCertificate(null); }, [activeCategory]);
+  useEffect(() => {
+    setSearch('');
+    setActiveCertificate(null);
+    // Ensure the group holding the active category is expanded.
+    setOpenGroups(prev => new Set(prev).add(groupOf(activeCategory)));
+  }, [activeCategory]);
 
   if (!user || (!user.isSuperAdmin && !hasPermission('admin.system_lists.view'))) return <Navigate to="/" replace />;
 
@@ -498,7 +898,7 @@ export default function SystemLists() {
       ? `${MAJOR_PREFIX}${activeCertificate}` : activeCategory;
     return lists
       .filter(l => l.category === cat)
-      .filter(l => search === '' || l.value.includes(search))
+      .filter(l => search === '' || l.value.includes(search) || ((l.metadata as any)?.label ?? '').includes(search))
       .sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
   }, [lists, activeCategory, activeCertificate, isCertificateView, search]);
 
@@ -584,8 +984,15 @@ export default function SystemLists() {
 
   const impactCfg = IMPACT_CONFIG[activeMeta?.impact ?? 'low'];
 
+  // Expand / collapse all groups — convenience for scanning every list at once.
+  const populatedGroupIds = LIST_GROUPS
+    .filter(g => sidebarCategories.some(c => groupOf(c.id) === g.id))
+    .map(g => g.id);
+  const allGroupsOpen = populatedGroupIds.length > 0 && populatedGroupIds.every(id => openGroups.has(id));
+  const toggleAllGroups = () => setOpenGroups(allGroupsOpen ? new Set() : new Set(populatedGroupIds));
+
   return (
-    <div className="p-6 max-w-7xl mx-auto h-[calc(100vh-4rem)] flex flex-col" dir="rtl">
+    <div className="p-6 max-w-[100rem] mx-auto h-[calc(100vh-4rem)] flex flex-col" dir="rtl">
       {/* Header */}
       <PageHeader
         className="mb-6 flex-shrink-0"
@@ -596,34 +1003,81 @@ export default function SystemLists() {
 
       <div className="flex gap-5 flex-1 min-h-0">
         {/* ── Sidebar ── */}
-        <Card padding="none" className="w-60 overflow-y-auto flex-shrink-0">
-          <div className="p-3.5 border-b border-slate-100 bg-slate-50 sticky top-0">
-            <h3 className="font-bold text-slate-600 text-base uppercase tracking-wider">الفئات</h3>
+        <Card padding="none" className="w-96 overflow-y-auto flex-shrink-0">
+          <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 flex items-center justify-between gap-2">
+            <h3 className="font-bold text-slate-600 text-sm uppercase tracking-wider">الفئات</h3>
+            <button
+              onClick={toggleAllGroups}
+              className="text-[11px] font-bold px-2 py-1 rounded-md text-slate-500 hover:bg-slate-100 transition-colors flex-shrink-0"
+            >
+              {allGroupsOpen ? 'طي الكل' : 'توسيع الكل'}
+            </button>
           </div>
-          <div className="p-2 space-y-0.5">
-            {sidebarCategories.map(cat => {
-              const count = lists.filter(l => l.category === cat.id).length;
-              const isActive = activeCategory === cat.id;
-              const cfg = IMPACT_CONFIG[cat.impact];
+          <div className="p-2 space-y-1">
+            {LIST_GROUPS.map(grp => {
+              const cats = sidebarCategories.filter(c => groupOf(c.id) === grp.id);
+              if (cats.length === 0) return null;
+              const isOpen = openGroups.has(grp.id);
+              const groupCount = cats.reduce((sum, c) => sum + lists.filter(l => l.category === c.id).length, 0);
+              const toggleGroup = () => setOpenGroups(prev => {
+                const next = new Set(prev);
+                if (next.has(grp.id)) next.delete(grp.id); else next.add(grp.id);
+                return next;
+              });
               return (
-                <button
-                  key={cat.id}
-                  onClick={() => { setActiveCategory(cat.id); setActiveCertificate(null); }}
-                  className={`w-full text-right px-3 py-2.5 rounded-xl text-sm transition-all flex items-center justify-between gap-2 group ${isActive
-                      ? 'bg-sky-50 text-sky-700 font-semibold'
-                      : 'text-slate-600 hover:bg-slate-50 font-medium'
-                    }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
-                    <span className="truncate">{cat.label}</span>
-                    {cat.isParent && (
-                      <Link2 className="w-3 h-3 text-violet-400 flex-shrink-0" />
+                <div key={grp.id}>
+                  <button
+                    onClick={toggleGroup}
+                    title={grp.label}
+                    className="w-full text-right px-2.5 py-2 rounded-lg flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 hover:bg-slate-50 transition-colors"
+                  >
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <motion.span animate={{ rotate: isOpen ? 0 : -90 }} transition={{ duration: 0.15 }} className="flex">
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </motion.span>
+                      <span className="truncate">{grp.label}</span>
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 font-mono flex-shrink-0">{groupCount}</span>
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {isOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden space-y-0.5 mt-0.5"
+                      >
+                        {cats.map(cat => {
+                          const count = lists.filter(l => l.category === cat.id).length;
+                          const isActive = activeCategory === cat.id;
+                          const cfg = IMPACT_CONFIG[cat.impact];
+                          return (
+                            <button
+                              key={cat.id}
+                              onClick={() => { setActiveCategory(cat.id); setActiveCertificate(null); }}
+                              title={cat.label}
+                              className={`w-full text-right pr-4 pl-3 py-2 rounded-xl text-sm transition-all flex items-center justify-between gap-2 group ${isActive
+                                  ? 'bg-sky-50 text-sky-700 font-semibold'
+                                  : 'text-slate-600 hover:bg-slate-50 font-medium'
+                                }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                                <span className="truncate">{cat.label}</span>
+                                {cat.isParent && (
+                                  <Link2 className="w-3 h-3 text-violet-400 flex-shrink-0" />
+                                )}
+                              </div>
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 font-mono ${isActive ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-400'
+                                }`}>{count}</span>
+                            </button>
+                          );
+                        })}
+                      </motion.div>
                     )}
-                  </div>
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 font-mono ${isActive ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-400'
-                    }`}>{count}</span>
-                </button>
+                  </AnimatePresence>
+                </div>
               );
             })}
           </div>
@@ -796,7 +1250,7 @@ export default function SystemLists() {
                           {item.displayOrder}
                         </div>
                         <div className="min-w-0">
-                          <span className={`font-semibold ${item.isActive ? 'text-slate-800' : 'text-slate-500 line-through'}`}>{item.value}</span>
+                          <span className={`font-semibold ${item.isActive ? 'text-slate-800' : 'text-slate-500 line-through'}`}>{(item.metadata as any)?.label || item.value}</span>
                           {!item.isActive && <span className="text-xs text-red-500 mr-2 bg-red-50 px-2 py-0.5 rounded-full">معطل</span>}
                           {activeCategory === 'job_title' && (
                             <div className="mt-1">

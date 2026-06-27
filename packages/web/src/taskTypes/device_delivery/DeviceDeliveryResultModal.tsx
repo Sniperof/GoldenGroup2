@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CalendarClock, CheckCircle2, Clock, Loader2, MapPin, PackageX, Route, Truck, X } from 'lucide-react';
+import { AlertCircle, CalendarClock, CheckCircle2, Clock, Loader2, MapPin, PackageX, Truck, X } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
 import Select from '../../components/ui/Select';
 import { api } from '../../lib/api';
@@ -8,9 +8,8 @@ import MapPicker from '../../components/MapPicker';
 
 type DeliveryDecision =
   | 'delivered_successfully'
-  | 'customer_not_available'
-  | 'wrong_address'
-  | 'refused_delivery';
+  | 'rescheduled'
+  | 'delivery_failed';
 
 type AddressDraft = {
   geoSelection: GeoSelection;
@@ -23,10 +22,13 @@ const emptyGeoSelection: GeoSelection = { govId: '', regionId: '', subId: '', ne
 
 const DECISION_CARDS: Array<{ value: DeliveryDecision; title: string; desc: string; Icon: any; cls: string }> = [
   { value: 'delivered_successfully', title: 'تم التسليم', desc: 'الجهاز أصبح عند الزبون', Icon: CheckCircle2, cls: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
-  { value: 'customer_not_available', title: 'الزبون غير متوفر', desc: 'تحتاج متابعة لاحقة', Icon: Clock, cls: 'border-amber-200 bg-amber-50 text-amber-700' },
-  { value: 'wrong_address', title: 'عنوان خاطئ', desc: 'تحتاج تصحيح العنوان', Icon: Route, cls: 'border-orange-200 bg-orange-50 text-orange-700' },
-  { value: 'refused_delivery', title: 'رفض التسليم', desc: 'إغلاق المهمة كملغاة', Icon: PackageX, cls: 'border-rose-200 bg-rose-50 text-rose-700' },
+  { value: 'rescheduled', title: 'إعادة جدولة', desc: 'لم يتم التسليم وتحتاج المهمة لموعد جديد', Icon: Clock, cls: 'border-amber-200 bg-amber-50 text-amber-700' },
+  { value: 'delivery_failed', title: 'فشل التسليم', desc: 'تعذر إنهاء التسليم وإغلاق المهمة', Icon: PackageX, cls: 'border-rose-200 bg-rose-50 text-rose-700' },
 ];
+
+function listLabel(item: any) {
+  return item?.metadata?.label || item?.label || item?.value || `#${item?.id}`;
+}
 
 function deepestGeoId(selection: GeoSelection) {
   return selection.neighborhoodId || selection.subId || selection.regionId || selection.govId || '';
@@ -142,6 +144,10 @@ export default function DeviceDeliveryResultModal({
   const [installationRequiredDate, setInstallationRequiredDate] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
   const [expectedTime, setExpectedTime] = useState('');
+  const [rescheduleReasonId, setRescheduleReasonId] = useState('');
+  const [failureReasonId, setFailureReasonId] = useState('');
+  const [rescheduleReasons, setRescheduleReasons] = useState<any[]>([]);
+  const [failureReasons, setFailureReasons] = useState<any[]>([]);
   const [updateDeviceMainAddress, setUpdateDeviceMainAddress] = useState(false);
   const [geoUnits, setGeoUnits] = useState<any[]>([]);
   const [notes, setNotes] = useState('');
@@ -153,11 +159,27 @@ export default function DeviceDeliveryResultModal({
   }, []);
 
   useEffect(() => {
+    Promise.allSettled([
+      api.systemLists.getItemsByCode('device_delivery_reschedule_reasons'),
+      api.systemLists.getItemsByCode('device_delivery_failure_reasons'),
+    ]).then(([reschedule, failure]) => {
+      const rescheduleRows = reschedule.status === 'fulfilled' ? reschedule.value.filter((r: any) => r.isActive !== false) : [];
+      const failureRows = failure.status === 'fulfilled' ? failure.value.filter((r: any) => r.isActive !== false) : [];
+      setRescheduleReasons(rescheduleRows);
+      setFailureReasons(failureRows);
+      setRescheduleReasonId(rescheduleRows[0]?.id ? String(rescheduleRows[0].id) : '');
+      setFailureReasonId(failureRows[0]?.id ? String(failureRows[0].id) : '');
+    });
+  }, []);
+
+  useEffect(() => {
     if (installationSameAddress) setInstallationAddress(deliveryAddress);
   }, [installationSameAddress, deliveryAddress]);
 
-  const needsFollowUp = decision === 'customer_not_available' || decision === 'wrong_address';
-  const canUpdateDeviceAddress = decision === 'delivered_successfully' && isPostMaintenanceReturn;
+  const isDelivered = decision === 'delivered_successfully';
+  const isRescheduled = decision === 'rescheduled';
+  const isFailed = decision === 'delivery_failed';
+  const canUpdateDeviceAddress = isDelivered && isPostMaintenanceReturn;
   const activeGeoUnits = useMemo(() => geoUnits.filter((unit) => unit?.status !== 'inactive'), [geoUnits]);
 
   async function submit() {
@@ -174,16 +196,26 @@ export default function DeviceDeliveryResultModal({
       setError('عنوان التسليم الفعلي يتطلب منطقة وعنوانا تفصيليا');
       return;
     }
-    if (afterDeliveryAction === 'create_installation_task' && !installationRequiredDate) {
+    if (isRescheduled) {
+      if (!rescheduleReasonId) {
+        setError('سبب إعادة الجدولة مطلوب');
+        return;
+      }
+      if (!expectedDate) {
+        setError('تاريخ إعادة الجدولة مطلوب');
+        return;
+      }
+    }
+    if (isFailed && !failureReasonId) {
+      setError('سبب فشل التسليم مطلوب');
+      return;
+    }
+    if (isDelivered && afterDeliveryAction === 'create_installation_task' && !installationRequiredDate) {
       setError('تاريخ التركيب مطلوب عند إنشاء مهمة تركيب');
       return;
     }
-    if (afterDeliveryAction === 'create_installation_task' && (!installationGeoUnitId || !installationAddressText)) {
+    if (isDelivered && afterDeliveryAction === 'create_installation_task' && (!installationGeoUnitId || !installationAddressText)) {
       setError('عنوان التركيب يتطلب منطقة وعنوانا تفصيليا');
-      return;
-    }
-    if (needsFollowUp && !expectedDate) {
-      setError('موعد المتابعة مطلوب');
       return;
     }
 
@@ -196,27 +228,29 @@ export default function DeviceDeliveryResultModal({
         delivery_address_text: deliveryAddressText,
         delivery_lat: deliveryAddress.mapPosition?.[0] ?? null,
         delivery_lng: deliveryAddress.mapPosition?.[1] ?? null,
-        delivery_condition: decision === 'delivered_successfully' ? deliveryCondition : null,
-        customer_acknowledged: decision === 'delivered_successfully' ? customerAcknowledged : false,
+        delivery_condition: isDelivered ? deliveryCondition : null,
+        customer_acknowledged: isDelivered ? customerAcknowledged : false,
+        reschedule_reason_id: isRescheduled ? Number(rescheduleReasonId) : null,
+        failure_reason_id: isFailed ? Number(failureReasonId) : null,
         notes: notes.trim() || null,
         closing_notes: notes.trim() || null,
-        after_delivery_action: decision === 'delivered_successfully' ? afterDeliveryAction : 'none',
+        after_delivery_action: isDelivered ? afterDeliveryAction : 'none',
         installation_address_same_as_delivery:
-          afterDeliveryAction === 'create_installation_task' ? installationSameAddress : null,
+          isDelivered && afterDeliveryAction === 'create_installation_task' ? installationSameAddress : null,
         installation_address:
-          afterDeliveryAction === 'create_installation_task' ? installationAddressLabel : null,
+          isDelivered && afterDeliveryAction === 'create_installation_task' ? installationAddressLabel : null,
         installation_geo_unit_id:
-          afterDeliveryAction === 'create_installation_task' ? Number(installationGeoUnitId) : null,
+          isDelivered && afterDeliveryAction === 'create_installation_task' ? Number(installationGeoUnitId) : null,
         installation_address_text:
-          afterDeliveryAction === 'create_installation_task' ? installationAddressText : null,
+          isDelivered && afterDeliveryAction === 'create_installation_task' ? installationAddressText : null,
         installation_lat:
-          afterDeliveryAction === 'create_installation_task' ? installationDraft.mapPosition?.[0] ?? null : null,
+          isDelivered && afterDeliveryAction === 'create_installation_task' ? installationDraft.mapPosition?.[0] ?? null : null,
         installation_lng:
-          afterDeliveryAction === 'create_installation_task' ? installationDraft.mapPosition?.[1] ?? null : null,
+          isDelivered && afterDeliveryAction === 'create_installation_task' ? installationDraft.mapPosition?.[1] ?? null : null,
         installation_required_date:
-          afterDeliveryAction === 'create_installation_task' ? installationRequiredDate : null,
-        expected_date: needsFollowUp ? expectedDate : null,
-        expected_time: needsFollowUp && expectedTime ? expectedTime : null,
+          isDelivered && afterDeliveryAction === 'create_installation_task' ? installationRequiredDate : null,
+        expected_date: isRescheduled ? expectedDate : null,
+        expected_time: isRescheduled && expectedTime ? expectedTime : null,
         update_device_main_address: canUpdateDeviceAddress ? updateDeviceMainAddress : false,
         new_installation_geo_unit_id:
           canUpdateDeviceAddress && updateDeviceMainAddress ? Number(deliveryGeoUnitId) : null,
@@ -254,7 +288,7 @@ export default function DeviceDeliveryResultModal({
             </div>
           )}
 
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-3">
             {DECISION_CARDS.map(({ value, title, desc, Icon, cls }) => {
               const selected = decision === value;
               return (
@@ -282,20 +316,37 @@ export default function DeviceDeliveryResultModal({
             required
           />
 
-          {needsFollowUp && (
+          {isRescheduled && (
             <div className="grid gap-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4 md:grid-cols-2">
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-xs font-bold text-slate-500">سبب إعادة الجدولة</span>
+                <select value={rescheduleReasonId} onChange={(e) => setRescheduleReasonId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  {rescheduleReasons.map((reason) => <option key={reason.id ?? reason.value} value={String(reason.id)}>{listLabel(reason)}</option>)}
+                </select>
+              </label>
               <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">تاريخ المتابعة القادم</span>
+                <span className="text-xs font-bold text-slate-500">تاريخ الموعد القادم</span>
                 <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
               </label>
               <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">وقت المتابعة القادم</span>
+                <span className="text-xs font-bold text-slate-500">وقت الموعد القادم</span>
                 <input type="time" value={expectedTime} onChange={(e) => setExpectedTime(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
               </label>
             </div>
           )}
 
-          {decision === 'delivered_successfully' && (
+          {isFailed && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-4">
+              <label className="space-y-1.5">
+                <span className="text-xs font-bold text-slate-500">سبب فشل التسليم</span>
+                <select value={failureReasonId} onChange={(e) => setFailureReasonId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  {failureReasons.map((reason) => <option key={reason.id ?? reason.value} value={String(reason.id)}>{listLabel(reason)}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
+
+          {isDelivered && (
             <div className="grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">حالة الجهاز عند التسليم</span>
@@ -317,7 +368,7 @@ export default function DeviceDeliveryResultModal({
             </div>
           )}
 
-          {decision === 'delivered_successfully' && (
+          {isDelivered && (
             <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center gap-2">
                 <CalendarClock className="h-4 w-4 text-slate-500" />

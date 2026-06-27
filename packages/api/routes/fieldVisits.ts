@@ -3,11 +3,12 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
+import { HIDDEN_OPERATIONAL_TASK_TYPES } from '@golden-crm/shared';
 import type { AuthContext } from '@golden-crm/shared';
 import { canViewFieldVisit, canEditFieldVisit, getFieldVisitListAccessPlan } from '../policies/fieldVisitPolicy.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
-import { applyDeviceActivationResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceDisconnectionResult, applyDeviceInstallationResult, applyEmergencyMaintenanceLifecycleResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, applyInstallmentCollectionResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { applyDeviceActivationResult, applyDeviceCheckupResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceDisconnectionResult, applyDeviceInstallationResult, applyDeviceRetrievalResult, applyDeviceReturnResult, applyDeviceTransferResult, applyEmergencyMaintenanceLifecycleResult, applyGiftDeliveryResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, applyInstallmentCollectionResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
 import {
   buildClientLifecycleStatusSql,
   buildCustomerOwnershipSql,
@@ -18,9 +19,56 @@ import { createInstantVisit, BookingError } from '../services/visitBooking.js';
 const router = Router();
 router.use(requireAuth);
 
+const MY_VISITS_PERMISSION = 'field_visits.my_visits.view';
+
 function getAuthContext(req: any) {
   if (!req.authContext) throw new Error('AuthContext is required');
   return req.authContext as AuthContext;
+}
+
+function toPositiveInteger(value: unknown): number | null {
+  const numeric = typeof value === 'string' ? Number(value) : value;
+  return Number.isInteger(numeric) && (numeric as number) > 0 ? (numeric as number) : null;
+}
+
+function readTeamEmployeeId(snapshot: unknown, key: string): number | null {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  return toPositiveInteger((snapshot as Record<string, unknown>)[key]);
+}
+
+function getVisitTeamEmployeeIds(visit: any): number[] {
+  const ids = [
+    toPositiveInteger(visit.reassigned_supervisor_id) ?? readTeamEmployeeId(visit.team_snapshot, 'supervisorEmployeeId'),
+    toPositiveInteger(visit.reassigned_technician_id) ?? readTeamEmployeeId(visit.team_snapshot, 'technicianEmployeeId'),
+    toPositiveInteger(visit.reassigned_trainee_id) ?? readTeamEmployeeId(visit.team_snapshot, 'traineeEmployeeId'),
+  ].filter((id): id is number => id != null);
+
+  return [...new Set(ids)];
+}
+
+async function canViewOwnFieldVisit(authContext: AuthContext, visit: any): Promise<boolean> {
+  if (!authorize(authContext, { permission: MY_VISITS_PERMISSION, branchId: visit.branch_id }).allowed) {
+    return false;
+  }
+
+  const { rows } = await pool.query(
+    `SELECT employee_id AS "employeeId"
+       FROM hr_users
+      WHERE id = $1
+        AND is_active = TRUE
+      LIMIT 1`,
+    [authContext.userId],
+  );
+  const employeeId = toPositiveInteger(rows[0]?.employeeId);
+  return employeeId != null && getVisitTeamEmployeeIds(visit).includes(employeeId);
+}
+
+async function canViewFieldVisitOrOwn(authContext: AuthContext, visit: any): Promise<boolean> {
+  if (canViewFieldVisit(authContext, visit.branch_id).allowed) {
+    return true;
+  }
+
+  return canViewOwnFieldVisit(authContext, visit);
 }
 
 // Haversine distance in metres between two lat/lng points
@@ -1350,6 +1398,8 @@ router.get('/task-type-summary', requirePermission('field_visits.view'), async (
       params.push(typeSummaryPlan.allowedBranchIds);
       branchClause = `AND fv.branch_id = ANY($${params.length}::int[])`;
     }
+    params.push(Array.from(HIDDEN_OPERATIONAL_TASK_TYPES));
+    const hiddenTaskTypesParam = params.length;
 
     const { rows } = await pool.query(
       `WITH visit_tasks_in_period AS (
@@ -1405,6 +1455,7 @@ router.get('/task-type-summary', requirePermission('field_visits.view'), async (
        FROM task_type_config ttc
        LEFT JOIN visit_tasks_in_period vtp ON vtp.task_type = ttc.task_type
        WHERE ttc.is_active = TRUE
+         AND ttc.task_type <> ALL($${hiddenTaskTypesParam}::text[])
        GROUP BY ttc.task_type, ttc.task_family, ttc.arabic_label, ttc.display_order
        ORDER BY ttc.display_order ASC, ttc.task_type ASC`,
       params,
@@ -1417,7 +1468,7 @@ router.get('/task-type-summary', requirePermission('field_visits.view'), async (
   }
 });
 
-router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
+router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
@@ -1471,7 +1522,7 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!canViewFieldVisit(authContext, fvRows[0].branch_id).allowed) {
+    if (!(await canViewFieldVisitOrOwn(authContext, fvRows[0]))) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
     const fv = fvRows[0];
@@ -1486,7 +1537,13 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
                 vtr.closing_notes, vtr.closed_at,
                 ot.reason,
                 ${hasDeliveryAddressColumn ? 'ot.delivery_address' : 'idev.installation_address_text'} AS delivery_address,
-                ot.device_id, ot.contract_snapshot AS "contractSnapshot",
+                ot.device_id, ot.service_branch_id, ot.retrieval_purpose,
+                ot.transfer_kind, ot.target_client_id,
+                ot.planned_transfer_geo_unit_id, ot.planned_transfer_address_text,
+                ot.planned_transfer_lat, ot.planned_transfer_lng,
+                service_branch.name AS service_branch_name,
+                target_client.name AS target_client_name,
+                ot.contract_snapshot AS "contractSnapshot",
                 idev.installation_address_text AS current_device_address,
                 idev.installation_geo_unit_id AS current_device_geo_unit_id,
                 ct.contract_number, ct.device_model_name
@@ -1494,11 +1551,14 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
          LEFT JOIN task_type_config ttc ON ttc.task_type = vt.task_type
          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
          LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         LEFT JOIN branches service_branch ON service_branch.id = ot.service_branch_id
+         LEFT JOIN clients target_client ON target_client.id = ot.target_client_id
          LEFT JOIN installed_devices idev ON idev.id = ot.device_id
          LEFT JOIN contracts ct ON ct.id = COALESCE(vt.contract_id, ot.contract_id)
          WHERE vt.field_visit_id = $1
+           AND vt.task_type <> ALL($2::text[])
          ORDER BY vt.sequence_no`,
-        [visitId],
+        [visitId, Array.from(HIDDEN_OPERATIONAL_TASK_TYPES)],
       ),
       pool.query('SELECT * FROM visit_geo_logs WHERE visit_id = $1', [visitId]),
       pool.query('SELECT * FROM visit_sources WHERE visit_id = $1', [visitId]),
@@ -1512,8 +1572,9 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
                 JOIN task_type_config ttc ON ttc.task_type = vt.task_type
                 LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
                 LEFT JOIN contracts ct ON ct.id = COALESCE(vt.contract_id, ot.contract_id)
-                JOIN installed_devices idev ON idev.id = COALESCE(ot.device_id, ct.installed_device_id)
+               JOIN installed_devices idev ON idev.id = COALESCE(ot.device_id, ct.installed_device_id)
                WHERE vt.field_visit_id = $1
+                 AND vt.task_type <> ALL($3::text[])
                  AND ttc.location_basis IN ('contract', 'device')
                  AND idev.installation_geo_unit_id IS NOT NULL
                LIMIT 1),
@@ -1528,7 +1589,7 @@ router.get('/:id', requirePermission('field_visits.view'), async (req, res) => {
              FROM geo_units p JOIN ancestors a ON p.id = a.parent_id
          )
          SELECT id, name, level FROM ancestors ORDER BY level`,
-        [visitId, fv.client_id],
+        [visitId, fv.client_id, Array.from(HIDDEN_OPERATIONAL_TASK_TYPES)],
       ),
       pool.query(
         `SELECT id, status, target_candidates, total_candidates, owner_user_id
@@ -2848,6 +2909,11 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
       return res.json({ success: true, ...result });
     }
 
+    if (taskType === 'device_checkup') {
+      const result = await applyDeviceCheckupResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
     if (taskType === 'device_delivery') {
       const result = await applyDeviceDeliveryResult(taskId, body, authContext.userId);
       return res.json({ success: true, ...result });
@@ -2868,7 +2934,22 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
       return res.json({ success: true, ...result });
     }
 
-    if (taskType === 'emergency_maintenance') {
+    if (taskType === 'device_retrieval') {
+      const result = await applyDeviceRetrievalResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'device_return') {
+      const result = await applyDeviceReturnResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'device_transfer') {
+      const result = await applyDeviceTransferResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'emergency_maintenance' || taskType === 'periodic_maintenance') {
       // Lifecycle-only path (reschedule / cancel). The "apply maintenance"
       // outcome continues to use the dedicated /api/emergency-result wizard.
       const result = await applyEmergencyMaintenanceLifecycleResult(taskId, body, authContext.userId);
@@ -2882,6 +2963,11 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
 
     if (taskType === 'golden_warranty_card_delivery') {
       const result = await applyGoldenWarrantyCardDeliveryResult(taskId, body, authContext.userId);
+      return res.json({ success: true, ...result });
+    }
+
+    if (taskType === 'gift_delivery') {
+      const result = await applyGiftDeliveryResult(taskId, body, authContext.userId);
       return res.json({ success: true, ...result });
     }
 

@@ -9,6 +9,7 @@ import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, to
 import Select from '../ui/Select';
 import Input from '../ui/Input';
 import Modal from '../ui/Modal';
+import GiftPromiseInlinePanel from '../gifts/GiftPromiseInlinePanel';
 
 interface Props {
     isOpen: boolean;
@@ -496,6 +497,12 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
 
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">ملاحظات عامة</label>
+                        <GiftPromiseInlinePanel
+                            enabled={referralType === 'Client' && Boolean(selectedClientId)}
+                            sourceType="name_list"
+                            beneficiaryName={nameSnapshot}
+                            disabledReason="وعد الهدية من اللائحة يحتاج أن يكون وسيط اللائحة زبونا مرتبطا بسجل معروف."
+                        />
                         <textarea
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}

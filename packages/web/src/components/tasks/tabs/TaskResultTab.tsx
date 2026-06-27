@@ -55,6 +55,18 @@ function renderFinalDecision(value?: string | null) {
   );
 }
 
+function renderPeriodicSupersession(value: any) {
+  if (!value?.reason) return null;
+  const label = value.reason === 'superseded_within_emergency'
+    ? 'مُكتفى عنها ضمن صيانة طارئة'
+    : 'مُكتفى عنها ضمن صيانة دورية';
+  return (
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border bg-emerald-50 text-emerald-700 border-emerald-200">
+      {label}
+    </span>
+  );
+}
+
 function renderDerivedOutcome(finalDecision: string | null, task: any, preOffers: any[] = []) {
   const offers = Array.isArray(task.offers) && task.offers.length > 0
     ? task.offers
@@ -127,6 +139,8 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
   // as the task's final result — that's the diagnostic fix this tab is built
   // around.
   const isTerminal = TERMINAL_STATUSES.has(task.status);
+  const periodicSupersession = task.periodicSupersession ?? null;
+  const effectiveHasResult = hasResult || Boolean(periodicSupersession);
   const lastAttempt = task.lastAttempt ?? null;
   const lastAttemptDetail = task.lastAttemptDetail ?? null;
   // Task-level decision: only the last attempt's decision counts as the task's
@@ -149,7 +163,7 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
 
   return (
     <>
-      <TabAlert title="ملاحظات على النتيجة" items={hasResult ? [] : ['لا توجد نتيجة مسجلة بعد']} />
+      <TabAlert title="ملاحظات على النتيجة" items={effectiveHasResult ? [] : ['لا توجد نتيجة مسجلة بعد']} />
 
       {canRecordResult && (
         <div className="flex justify-end">
@@ -163,19 +177,38 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1.5">
           <InfoLine
             label="نتيجة المهمة"
-            value={isTerminal
+            value={periodicSupersession
+              ? renderPeriodicSupersession(periodicSupersession)
+              : isTerminal
               ? renderFinalDecision(taskFinalDecision)
               : <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">قيد المتابعة</span>}
           />
           <InfoLine
             label="المحصلة"
-            value={renderDerivedOutcome(taskFinalDecision, task, rendererProps?.preOffers ?? [])}
+            value={periodicSupersession
+              ? renderPeriodicSupersession(periodicSupersession)
+              : renderDerivedOutcome(taskFinalDecision, task, rendererProps?.preOffers ?? [])}
           />
           <InfoLine label="الحالة" value={statusLabel} />
           <InfoLine
             label="تاريخ الإتمام"
-            value={isTerminal && lastAttempt?.closedAt ? formatDateTime(lastAttempt.closedAt) : '—'}
+            value={periodicSupersession?.at
+              ? formatDateTime(periodicSupersession.at)
+              : isTerminal && lastAttempt?.closedAt ? formatDateTime(lastAttempt.closedAt) : '—'}
           />
+          {periodicSupersession?.byOpenTaskId && (
+            <InfoLine
+              label="مهمة التغطية"
+              value={
+                <Link
+                  to={`/tasks/group/maintenance/${periodicSupersession.byOpenTaskId}`}
+                  className="text-emerald-700 font-bold hover:underline"
+                >
+                  #{periodicSupersession.byOpenTaskId}
+                </Link>
+              }
+            />
+          )}
           {lastAttempt && (
             <div className="md:col-span-2 mt-2 pt-2 border-t border-slate-100">
               <InfoLine

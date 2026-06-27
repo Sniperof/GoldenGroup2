@@ -1545,6 +1545,22 @@ export const OPEN_TASK_PHASE_COLORS: Record<OpenTaskPhase, string> = {
   closure:   'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 
+export const HIDDEN_OPERATIONAL_TASK_TYPES = [
+  'device_purchase',
+  'maintenance_collection',
+  'device_repair',
+  'parts_sale',
+  'golden_warranty',
+  'warranty_cancellation',
+  'warranty_reactivation',
+] as const;
+
+export type HiddenOperationalTaskType = typeof HIDDEN_OPERATIONAL_TASK_TYPES[number];
+
+export function isHiddenOperationalTaskType(taskType: string | null | undefined): boolean {
+  return taskType != null && (HIDDEN_OPERATIONAL_TASK_TYPES as readonly string[]).includes(taskType);
+}
+
 export interface OpenTask {
   id: number;
   clientId: number;

@@ -43,9 +43,11 @@ import {
 import {
   promote,
   mergeIntoExistingTask,
+  attachToPeriodicTask,
 } from '../services/serviceRequests/promoteService.js';
 import { reopen } from '../services/serviceRequests/reopenService.js';
 import { suggestRecords } from '../services/serviceRequests/fuzzyMatching.js';
+import { findPeriodicAttachmentCandidate } from '../services/periodicMaintenanceTasks.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -72,6 +74,7 @@ function statusFromCode(code: string): number {
     case 'promoted_cannot_be_reopened':
       return 403;
     case 'merge_or_split_required':
+    case 'periodic_attachment_candidate_not_available':
       return 409;
     default:
       return 400;
@@ -438,6 +441,19 @@ router.get('/:id/suggested-matches', requirePermission('service_requests.review'
   res.json(suggestions);
 });
 
+router.get('/:id/periodic-attachment-candidate', requirePermission('service_requests.review'), async (req, res) => {
+  const { rows } = await pool.query<{ installed_device_id: number | null }>(
+    `SELECT installed_device_id
+       FROM service_requests
+      WHERE id = $1`,
+    [Number(req.params.id)],
+  );
+  if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
+
+  const candidate = await findPeriodicAttachmentCandidate(pool, rows[0].installed_device_id);
+  res.json({ candidate });
+});
+
 // ------------------------------------------------------------
 // LIFECYCLE TRANSITIONS via stateMachine
 // ------------------------------------------------------------
@@ -591,6 +607,21 @@ router.post('/:id/merge', requirePermission('service_requests.promote'), async (
     existingOpenTaskId: Number(req.body.existingOpenTaskId),
     operatorUserId: actor.userId,
     mergeNote: req.body.note ?? null,
+  });
+  if (result.ok !== true) return sendErr(res, result);
+  res.json(result.data);
+});
+
+router.post('/:id/attach-periodic', requirePermission('service_requests.promote'), async (req, res) => {
+  const actor = getActor(req);
+  if (!req.body.periodicOpenTaskId) {
+    return res.status(400).json({ error: 'periodicOpenTaskId_required' });
+  }
+  const result = await attachToPeriodicTask({
+    serviceRequestId: Number(req.params.id),
+    periodicOpenTaskId: Number(req.body.periodicOpenTaskId),
+    operatorUserId: actor.userId,
+    note: req.body.note ?? null,
   });
   if (result.ok !== true) return sendErr(res, result);
   res.json(result.data);

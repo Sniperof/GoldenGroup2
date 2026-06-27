@@ -16,6 +16,7 @@ import {
 } from '../services/telemarketingScope.js';
 import {
   CLOSES_TARGET_OUTCOMES,
+  HIDDEN_OPERATIONAL_TASK_TYPES,
   normaliseOutcomeCode,
   TelemarketingOutcomeCode,
 } from '@golden-crm/shared';
@@ -31,6 +32,28 @@ import {
   ContactTargetLockError,
   markContactTargetFirstContact,
 } from '../services/contactTargetLocks.js';
+import { authorize } from '../services/authorizationService.js';
+
+// ── Task-type-scoped contact visibility (migration 333) ─────────────────────
+// A role may hold `telemarketing.lists.view` (all contacts) or only
+// `telemarketing.lists.view_device_demo` (contacts that have a device_demo task,
+// shown with ALL their tasks — grain أ).
+function getTelemarketingTaskTypeScope(authContext: any): 'all' | 'device_demo' {
+  if (!authContext) return 'all';
+  if (authorize(authContext, { permission: 'telemarketing.lists.view' }).allowed) return 'all';
+  if (authorize(authContext, { permission: 'telemarketing.lists.view_device_demo' }).allowed) return 'device_demo';
+  return 'all';
+}
+
+/** Visibility key for a device-demo-scoped role: does this client have a device_demo task? */
+async function clientHasDeviceDemoTask(clientId: number): Promise<boolean> {
+  if (!Number.isInteger(clientId) || clientId <= 0) return false;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM open_tasks WHERE client_id = $1 AND task_type = 'device_demo' LIMIT 1`,
+    [clientId],
+  );
+  return rows.length > 0;
+}
 
 // DEC-005 D29: outcomes that auto-activate cooldown on the client. After
 // DEC-006 D39 the 4 "not interested" variants are unified into not_interested.
@@ -685,7 +708,7 @@ const mapTaskListRows = (rows: any[]) => {
  *       500:
  *         description: Internal Server Error
  */
-router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (req, res) => {
+router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarketing.lists.view_device_demo'), async (req, res) => {
   const branchId = getBranchId(req);
   const dateParam = req.query.date as string | undefined;
 
@@ -779,6 +802,21 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view'), async (re
     taskListWhere += ` tl.date = $${paramIdx}`;
     taskListParams.push(dateParam);
     paramIdx++;
+  }
+
+  // Task-type scope (migr 333): a device-demo-only role sees a customer only if
+  // that customer has a device_demo task in the same list — but with ALL of
+  // their tasks (grain أ), so the whole-customer EXISTS keeps non-device tasks.
+  if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo') {
+    taskListWhere += taskListWhere ? ' AND' : ' WHERE';
+    taskListWhere += ` EXISTS (
+      SELECT 1 FROM telemarketing_task_list_items i2
+      JOIN open_tasks ot2 ON ot2.id = i2.open_task_id
+      WHERE i2.task_list_id = i.task_list_id
+        AND i2.entity_type = i.entity_type
+        AND i2.entity_id = i.entity_id
+        AND ot2.task_type = 'device_demo'
+    )`;
   }
 
   const taskListRes = await pool.query(
@@ -1592,6 +1630,20 @@ router.patch(
     const taskList = await verifyTaskListAccess(req, res, String(req.params.taskListId));
     if (!taskList) return; // verifyTaskListAccess already sent 403/404
 
+    // Task-type scope guard (migr 333): a device-demo-only role may only act on
+    // a contact whose customer has a device_demo task.
+    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo') {
+      const { rows: itemRows } = await pool.query(
+        `SELECT entity_type, entity_id FROM telemarketing_task_list_items WHERE id = $1 AND task_list_id = $2`,
+        [req.params.itemId, req.params.taskListId],
+      );
+      const it = itemRows[0];
+      const ok = it && it.entity_type === 'client' && await clientHasDeviceDemoTask(Number(it.entity_id));
+      if (!ok) {
+        return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
+      }
+    }
+
     const { rows } = await pool.query(
       `
         UPDATE telemarketing_task_list_items
@@ -1635,6 +1687,18 @@ router.post('/contact-targets/:id/claim', requirePermission('telemarketing.calls
       return res.status(401).json({ error: 'لا يمكن تحديد المستخدم الحالي' });
     }
 
+    // Task-type scope guard (migr 333): device-demo-only roles may only claim a
+    // contact whose customer has a device_demo task.
+    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo') {
+      const { rows: ctRows } = await pool.query(
+        `SELECT target_id FROM contact_targets WHERE id = $1`, [contactTargetId],
+      );
+      const clientId = Number(ctRows[0]?.target_id);
+      if (!clientId || !(await clientHasDeviceDemoTask(clientId))) {
+        return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
+      }
+    }
+
     await claimContactTarget(pool, contactTargetId, callerId);
 
     const { rows } = await pool.query(
@@ -1657,7 +1721,7 @@ router.post('/contact-targets/:id/claim', requirePermission('telemarketing.calls
   }
 });
 
-router.get('/customer/:customerId/all-targets-today', requirePermission('telemarketing.lists.view'), async (req, res) => {
+router.get('/customer/:customerId/all-targets-today', requirePermission('telemarketing.lists.view', 'telemarketing.lists.view_device_demo'), async (req, res) => {
   try {
     const customerId = Number(req.params.customerId);
     const branchId = getBranchId(req);
@@ -2043,6 +2107,12 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
       return res.status(400).json({ error: 'clientId مطلوب أو taskListItemId يحلّ مكانه' });
     }
 
+    // Task-type scope guard (migr 333): device-demo-only roles may only book for
+    // a customer that has a device_demo task.
+    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo' && !(await clientHasDeviceDemoTask(clientId))) {
+      return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
+    }
+
     const selectedTasks: Array<{ openTaskId: number; taskType: string }> = Array.isArray(body.selectedOpenTasks)
       ? body.selectedOpenTasks.map((t: any) => ({
           openTaskId: Number(t.openTaskId),
@@ -2348,7 +2418,9 @@ router.get('/task-type-options', requirePermission('telemarketing.calls.create')
       `SELECT task_type AS "taskType", arabic_label AS "arabicLabel", task_family AS "taskFamily"
          FROM task_type_config
         WHERE is_active = TRUE
+          AND task_type <> ALL($1::text[])
         ORDER BY display_order ASC, task_type ASC`,
+      [Array.from(HIDDEN_OPERATIONAL_TASK_TYPES)],
     );
     return res.json(rows);
   } catch (err: any) {

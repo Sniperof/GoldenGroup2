@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck } from 'lucide-react';
+import { Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck, Gift, Plus, Trash2 } from 'lucide-react';
 import QualificationModal from './QualificationModal';
 import ClientModal from '../ClientModal';
 import { Candidate, Client, GeoUnit } from '../../lib/types';
@@ -9,11 +9,27 @@ import { formatGeoUnitLastLevels } from '../GeoSmartSearch';
 import { usePermissions } from '../../hooks/usePermissions';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
+import {
+    giftConditionStatusLabels,
+    type GiftConditionStatus,
+    type GiftDefinitionPrototype,
+} from '../../data/giftsPrototype';
 
 interface Props {
     isOpen: boolean;
     onClose: () => void;
     sheetId: number | null;
+}
+
+interface SheetGiftPromiseDraft {
+    giftDefinitionId: string;
+    conditionLabel: string;
+    conditionStatus: GiftConditionStatus;
+    quantity: number;
+}
+
+interface SheetGiftPromisePreview extends SheetGiftPromiseDraft {
+    id: string;
 }
 
 export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: Props) {
@@ -30,6 +46,17 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
     const [clientInitialData, setClientInitialData] = useState<Client | null>(null);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
+    const [operationError, setOperationError] = useState<string | null>(null);
+    const [activeGiftDefinitions, setActiveGiftDefinitions] = useState<GiftDefinitionPrototype[]>([]);
+    const [giftDefinitionsLoading, setGiftDefinitionsLoading] = useState(false);
+    const [sheetGiftPromises, setSheetGiftPromises] = useState<SheetGiftPromisePreview[]>([]);
+    const [isGiftPromiseModalOpen, setIsGiftPromiseModalOpen] = useState(false);
+    const [giftPromiseDraft, setGiftPromiseDraft] = useState<SheetGiftPromiseDraft>({
+        giftDefinitionId: '',
+        conditionLabel: 'شراء زبون من لائحة الأسماء',
+        conditionStatus: 'pending',
+        quantity: 1,
+    });
     const canEditCandidates = hasPermission('candidates.edit');
     const canEditNameLists = hasAnyPermission('candidates.name_lists.edit');
 
@@ -39,10 +66,23 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
         api.geoUnits.list()
             .then(units => { if (active) setGeoUnits(units); })
             .catch(() => {});
+        setGiftDefinitionsLoading(true);
+        api.gifts.definitions.list()
+            .then(definitions => {
+                if (!active) return;
+                const activeDefinitions = definitions.filter(definition => definition.isActive);
+                setActiveGiftDefinitions(activeDefinitions);
+                setGiftPromiseDraft(prev => prev.giftDefinitionId
+                    ? prev
+                    : { ...prev, giftDefinitionId: activeDefinitions[0]?.id != null ? String(activeDefinitions[0].id) : '' });
+            })
+            .catch(() => { if (active) setActiveGiftDefinitions([]); })
+            .finally(() => { if (active) setGiftDefinitionsLoading(false); });
         return () => { active = false; };
     }, [isOpen]);
 
     const handleOpenQualify = (candidate: Candidate) => {
+        setOperationError(null);
         setActiveCandidateForQualify(candidate);
         setIsQualifyModalOpen(true);
     };
@@ -75,15 +115,17 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
         setIsClientModalOpen(true);
     };
 
-    const handleSaveClient = (clientData: Client) => {
+    const handleSaveClient = async (clientData: Client) => {
         if (!activeCandidateForQualify) return;
         try {
-            qualifyCandidate(activeCandidateForQualify.id, clientData);
+            setOperationError(null);
+            await qualifyCandidate(activeCandidateForQualify.id, clientData);
             setIsClientModalOpen(false);
             setClientInitialData(null);
             setActiveCandidateForQualify(null);
         } catch (err: any) {
             console.error('Failed to qualify candidate:', err);
+            setOperationError(err?.message ?? 'فشل تحويل الاسم المقترح إلى زبون');
         }
     };
 
@@ -95,9 +137,38 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     const sheetCandidates = candidates
         .filter(c => c.referralSheetId === sheetId)
         .sort((a, b) => b.id - a.id);
+    const selectedGiftDefinition = activeGiftDefinitions.find(definition => String(definition.id) === giftPromiseDraft.giftDefinitionId);
+    const sheetReferralType = String(sheet.referralType ?? '').toLowerCase();
+    const canCreateGiftPromiseForSheet = Boolean(
+        sheet.referralEntityId && (sheetReferralType === 'client' || sheetReferralType === 'customer')
+    );
     const getCandidateAddressDisplay = (candidate: Candidate) => {
         const savedText = candidate.addressText && candidate.addressText !== 'غير محدد' ? candidate.addressText : '';
         return formatGeoUnitLastLevels(geoUnits, candidate.geoUnitId) || savedText || '--';
+    };
+
+    const openGiftPromiseModal = () => {
+        setGiftPromiseDraft({
+            giftDefinitionId: activeGiftDefinitions[0]?.id != null ? String(activeGiftDefinitions[0].id) : '',
+            conditionLabel: 'شراء زبون من لائحة الأسماء',
+            conditionStatus: 'pending',
+            quantity: 1,
+        });
+        setIsGiftPromiseModalOpen(true);
+    };
+
+    const addGiftPromise = () => {
+        if (!selectedGiftDefinition || !canCreateGiftPromiseForSheet) return;
+        setSheetGiftPromises(prev => [{
+            ...giftPromiseDraft,
+            id: `sheet-gift-${Date.now()}`,
+            quantity: Math.max(1, giftPromiseDraft.quantity || 1),
+        }, ...prev]);
+        setIsGiftPromiseModalOpen(false);
+    };
+
+    const removeGiftPromise = (id: string) => {
+        setSheetGiftPromises(prev => prev.filter(promise => promise.id !== id));
     };
 
     return (
@@ -153,7 +224,63 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                     </div>
                 </div>
 
-                <div className="border-t border-slate-100 pt-4">
+                <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                <Gift className="w-4 h-4 text-amber-600" />
+                                وعود الهدايا من لائحة الأسماء
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                                {canCreateGiftPromiseForSheet
+                                    ? 'هذه اللائحة مرتبطة بوسيط زبون معروف، ويمكن إنشاء وعد هدية له عند تحقق شرط الشراء.'
+                                    : 'إنشاء وعد قابل لمهمة تسليم يتطلب أن يكون وسيط اللائحة من نوع زبون مرتبط بسجل معروف.'}
+                            </p>
+                        </div>
+                        <Button
+                            size="sm"
+                            variant="gold"
+                            icon={Plus}
+                            disabled={!canCreateGiftPromiseForSheet}
+                            onClick={openGiftPromiseModal}
+                        >
+                            إضافة وعد هدية
+                        </Button>
+                    </div>
+                    {sheetGiftPromises.length > 0 && (
+                        <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            {sheetGiftPromises.map(promise => {
+                                const definition = activeGiftDefinitions.find(item => String(item.id) === promise.giftDefinitionId);
+                                return (
+                                    <div key={promise.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-bold text-slate-800 truncate">{definition?.name ?? 'هدية'}</p>
+                                            <p className="text-xs text-slate-500 truncate">
+                                                {promise.conditionLabel} · {giftConditionStatusLabels[promise.conditionStatus]} · {promise.quantity}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeGiftPromise(promise.id)}
+                                            className="rounded-full p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                            title="حذف الوعد"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {operationError && (
+                    <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                        {operationError}
+                    </div>
+                )}
+
+                <div className="border-t border-slate-100 pt-4 overflow-hidden flex flex-col flex-1">
                     <h3 className="text-base font-bold text-slate-800 mb-3 px-1">قائمة الأسماء في هذه الورقة</h3>
                     <div className="overflow-x-auto rounded-xl border border-slate-200">
                         <table className="w-full text-right bg-white">
@@ -274,9 +401,16 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                 onQualified={handleQualificationConfirmed}
                 onJunk={(id) => { markJunk(id); setIsQualifyModalOpen(false); }}
                 onLink={(candidateId, client) => {
-                    linkCandidateToClient(candidateId, client.id);
-                    setIsQualifyModalOpen(false);
-                    setActiveCandidateForQualify(null);
+                    setOperationError(null);
+                    linkCandidateToClient(candidateId, client.id)
+                        .then(() => {
+                            setIsQualifyModalOpen(false);
+                            setActiveCandidateForQualify(null);
+                        })
+                        .catch((err: any) => {
+                            console.error('Failed to link candidate to client:', err);
+                            setOperationError(err?.message ?? 'فشل ربط الاسم المقترح بالزبون');
+                        });
                 }}
             />
 
@@ -288,6 +422,75 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                 geoUnits={geoUnits}
                 fromCandidate={true}
             />
+
+            <Modal
+                isOpen={isGiftPromiseModalOpen}
+                onClose={() => setIsGiftPromiseModalOpen(false)}
+                title="إضافة وعد هدية للائحة أسماء"
+                size="lg"
+                footer={(
+                    <>
+                        <Button variant="secondary" onClick={() => setIsGiftPromiseModalOpen(false)}>إلغاء</Button>
+                        <Button variant="gold" icon={Gift} onClick={addGiftPromise} disabled={!selectedGiftDefinition}>
+                            حفظ الوعد
+                        </Button>
+                    </>
+                )}
+            >
+                <div className="space-y-4 p-5" dir="rtl">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                        المستفيد من الوعد: <span className="font-bold text-slate-800">{sheet.referralNameSnapshot}</span>
+                    </div>
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-bold text-slate-500">نوع الهدية</span>
+                        <select
+                            value={giftPromiseDraft.giftDefinitionId}
+                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, giftDefinitionId: e.target.value }))}
+                            disabled={giftDefinitionsLoading || activeGiftDefinitions.length === 0}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                        >
+                            {activeGiftDefinitions.length === 0 && (
+                                <option value="">{giftDefinitionsLoading ? 'جاري تحميل التعريفات...' : 'لا توجد تعريفات هدايا فعالة'}</option>
+                            )}
+                            {activeGiftDefinitions.map(definition => (
+                                <option key={definition.id} value={String(definition.id)}>{definition.name}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-bold text-slate-500">شرط الوعد</span>
+                        <input
+                            value={giftPromiseDraft.conditionLabel}
+                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, conditionLabel: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        />
+                    </label>
+                    <div className="grid gap-3 md:grid-cols-2">
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-bold text-slate-500">حالة تحقق الشرط</span>
+                            <select
+                                value={giftPromiseDraft.conditionStatus}
+                                onChange={e => setGiftPromiseDraft(prev => ({ ...prev, conditionStatus: e.target.value as GiftConditionStatus }))}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                            >
+                                {Object.entries(giftConditionStatusLabels).map(([value, label]) => (
+                                    <option key={value} value={value}>{label}</option>
+                                ))}
+                            </select>
+                        </label>
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-bold text-slate-500">العدد عند الاعتماد</span>
+                            <input
+                                type="number"
+                                min={1}
+                                value={giftPromiseDraft.quantity}
+                                onChange={e => setGiftPromiseDraft(prev => ({ ...prev, quantity: Number(e.target.value) || 1 }))}
+                                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                            />
+                        </label>
+                    </div>
+                </div>
+            </Modal>
         </>
     );
 }

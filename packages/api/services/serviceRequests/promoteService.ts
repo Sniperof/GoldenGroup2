@@ -34,6 +34,10 @@ import {
   type ServiceResult,
 } from './_shared.js';
 import { persistOpenTaskSnapshots } from '../../routes/openTasks.js';
+import {
+  findPeriodicAttachmentCandidate,
+  type PeriodicAttachmentCandidate,
+} from '../periodicMaintenanceTasks.js';
 
 export interface PromoteInput {
   serviceRequestId: number;
@@ -51,6 +55,7 @@ export interface PromoteOutput {
   installedDeviceId: number;
   externalDeviceCreated: boolean;
   branchId: number;
+  periodicAttachmentCandidate: PeriodicAttachmentCandidate | null;
 }
 
 export interface PromoteCollision {
@@ -239,6 +244,11 @@ export async function promote(
     );
     const newOpenTaskId = taskRows[0].id;
 
+    const periodicAttachmentCandidate = await findPeriodicAttachmentCandidate(
+      tx.client,
+      installedDeviceId,
+    );
+
     // 7. Snapshots (reuse existing helper).
     await persistOpenTaskSnapshots(
       tx.client,
@@ -310,6 +320,7 @@ export async function promote(
         installedDeviceId,
         externalDeviceCreated,
         branchId,
+        periodicAttachmentCandidate,
       },
     };
   } catch (err) {
@@ -329,6 +340,13 @@ export interface MergeInput {
   existingOpenTaskId: number;
   operatorUserId: number;
   mergeNote?: string | null;
+}
+
+export interface AttachToPeriodicInput {
+  serviceRequestId: number;
+  periodicOpenTaskId: number;
+  operatorUserId: number;
+  note?: string | null;
 }
 
 export async function mergeIntoExistingTask(
@@ -448,6 +466,150 @@ export async function mergeIntoExistingTask(
 
     await commitTx(tx);
     return { ok: true, data: { mergedIntoOpenTaskId: input.existingOpenTaskId } };
+  } catch (err) {
+    await rollbackTx(tx);
+    throw err;
+  } finally {
+    tx.release();
+  }
+}
+
+export async function attachToPeriodicTask(
+  input: AttachToPeriodicInput,
+  db?: PoolClient,
+): Promise<ServiceResult<{ attachedToOpenTaskId: number; installedDeviceId: number; branchId: number }>> {
+  const tx = await acquireTx(db);
+  try {
+    const { rows: srRows } = await tx.client.query<{
+      id: number;
+      status: string;
+      problem_description: string;
+      beneficiary_client_id: number | null;
+      installed_device_id: number | null;
+    }>(
+      `SELECT id, status, problem_description, beneficiary_client_id, installed_device_id
+         FROM service_requests
+        WHERE id = $1
+        FOR UPDATE`,
+      [input.serviceRequestId],
+    );
+    if (srRows.length === 0) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'not_found' };
+    }
+    const sr = srRows[0];
+    if (sr.status !== 'in_review') {
+      await rollbackTx(tx);
+      return { ok: false, code: 'invalid_status_for_periodic_attach', details: { status: sr.status } };
+    }
+    if (sr.beneficiary_client_id == null) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'beneficiary_client_required' };
+    }
+    if (sr.installed_device_id == null) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'installed_device_id_required' };
+    }
+
+    const candidate = await findPeriodicAttachmentCandidate(tx.client, sr.installed_device_id);
+    if (!candidate || candidate.taskId !== input.periodicOpenTaskId) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'periodic_attachment_candidate_not_available' };
+    }
+
+    const { rows: otRows } = await tx.client.query<{
+      id: number;
+      task_type: string;
+      status: string;
+      client_id: number;
+      branch_id: number;
+      device_id: number | null;
+    }>(
+      `SELECT id, task_type, status, client_id, branch_id, device_id
+         FROM open_tasks
+        WHERE id = $1
+        FOR UPDATE`,
+      [input.periodicOpenTaskId],
+    );
+    if (otRows.length === 0) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'existing_open_task_not_found' };
+    }
+    const ot = otRows[0];
+    if (ot.task_type !== 'periodic_maintenance') {
+      await rollbackTx(tx);
+      return { ok: false, code: 'existing_task_not_periodic' };
+    }
+    if (ot.client_id !== sr.beneficiary_client_id || ot.device_id !== sr.installed_device_id) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'periodic_attachment_subject_mismatch' };
+    }
+
+    await tx.client.query(
+      `UPDATE service_request_problems
+          SET open_task_id = $2, updated_at = NOW()
+        WHERE service_request_id = $1
+          AND deleted_at IS NULL
+          AND open_task_id IS NULL`,
+      [sr.id, input.periodicOpenTaskId],
+    );
+
+    await tx.client.query(
+      `UPDATE service_requests
+          SET status = 'promoted',
+              triage_outcome = 'needs_field_intervention',
+              linked_open_task_id = $2,
+              closed_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [sr.id, input.periodicOpenTaskId],
+    );
+
+    await tx.client.query(
+      `INSERT INTO task_activity_log
+         (task_id, event_type, performed_by, role, new_value, reason)
+       VALUES ($1, 'note_added', $2, 'operator', $3, $4)`,
+      [
+        input.periodicOpenTaskId,
+        input.operatorUserId,
+        sr.problem_description,
+        `service_request #${sr.id} attached to nearby periodic task`,
+      ],
+    );
+
+    await appendAudit(tx.client, {
+      serviceRequestId: sr.id,
+      eventType: 'status_changed',
+      actorUserId: input.operatorUserId,
+      actorRole: 'operator',
+      payload: { from: 'in_review', to: 'promoted', via: 'attach_periodic' },
+    });
+    await appendAudit(tx.client, {
+      serviceRequestId: sr.id,
+      eventType: 'promoted_to_task',
+      actorUserId: input.operatorUserId,
+      actorRole: 'operator',
+      payload: {
+        open_task_id: input.periodicOpenTaskId,
+        task_type: 'periodic_maintenance',
+        installed_device_id: sr.installed_device_id,
+        branch_id: ot.branch_id,
+        attach_window_days: candidate.attachWindowDays,
+        days_until_due: candidate.daysUntilDue,
+        note: input.note ?? null,
+        via: 'attach_periodic',
+      },
+    });
+
+    await commitTx(tx);
+    return {
+      ok: true,
+      data: {
+        attachedToOpenTaskId: input.periodicOpenTaskId,
+        installedDeviceId: Number(sr.installed_device_id),
+        branchId: Number(ot.branch_id),
+      },
+    };
   } catch (err) {
     await rollbackTx(tx);
     throw err;

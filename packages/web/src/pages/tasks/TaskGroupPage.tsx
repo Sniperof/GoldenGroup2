@@ -12,6 +12,7 @@ import {
   OPEN_TASK_STATUS_LABELS,
   OPEN_TASK_PHASE_LABELS,
   OPEN_TASK_PHASE_COLORS,
+  OPEN_TASK_TYPE_LABELS,
   getTaskPhase,
   type OpenTaskStatus,
   type CustomerOwnership,
@@ -74,7 +75,7 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   'collection': {
     label: 'مهام تسديد الذمم',
     subtitle: 'تسديد الذمم المفتوحة المرتبطة بالأقساط ومصادرها',
-    taskTypes: ['installment_collection', 'maintenance_collection'],
+    taskTypes: ['installment_collection'],
     Icon: DollarSign,
     accentBg: 'bg-emerald-500',
     accentRing: 'shadow-emerald-500/20',
@@ -82,8 +83,8 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   },
   'after-sale-services': {
     label: 'مهام خدمات ما بعد البيع',
-    subtitle: 'الفحص والإصلاح والسحب والإرجاع والنقل وبيع القطع',
-    taskTypes: ['device_repair', 'device_retrieval', 'device_return', 'device_transfer', 'parts_sale'],
+    subtitle: 'الفحص والسحب والإرجاع والنقل',
+    taskTypes: ['device_checkup', 'device_retrieval', 'device_return', 'device_transfer'],
     Icon: RefreshCw,
     accentBg: 'bg-sky-500',
     accentRing: 'shadow-sky-500/20',
@@ -100,8 +101,8 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   },
   'warranty-services': {
     label: 'مهام خدمات الكفالة',
-    subtitle: 'الكفالة الذهبية، إعادة تفعيل الكفالة, وإلغاؤها',
-    taskTypes: ['golden_warranty', 'golden_warranty_offer', 'golden_warranty_card_delivery', 'warranty_reactivation', 'warranty_cancellation'],
+    subtitle: 'عروض الكفالة الذهبية وتسليم بطاقاتها',
+    taskTypes: ['golden_warranty_offer', 'golden_warranty_card_delivery'],
     Icon: ShieldCheck,
     accentBg: 'bg-violet-500',
     accentRing: 'shadow-violet-500/20',
@@ -309,6 +310,8 @@ function getLocation(row: any, geoMap: Map<number, GeoUnit>): string {
 }
 
 function getTaskTypeLabel(taskType: string): string {
+  const sharedLabel = (OPEN_TASK_TYPE_LABELS as Record<string, string>)[taskType];
+  if (sharedLabel) return sharedLabel;
   switch (taskType) {
     case 'device_demo':
       return 'عرض جهاز';
@@ -328,16 +331,10 @@ function getTaskTypeLabel(taskType: string): string {
       return 'تحصيل';
     case 'gift_delivery':
       return 'تسليم هدية';
-    case 'golden_warranty':
-      return 'كفالة ذهبية';
     case 'golden_warranty_offer':
       return 'عرض كفالة ذهبية';
     case 'golden_warranty_card_delivery':
       return 'تسليم كرت كفالة ذهبية';
-    case 'warranty_reactivation':
-      return 'إعادة تفعيل كفالة';
-    case 'warranty_cancellation':
-      return 'إلغاء كفالة';
     default:
       return taskType;
   }
@@ -367,6 +364,13 @@ function getCreatorLabel(row: any): string {
 
 function getDateCounterReference(row: any): string | null {
   return row.taskStatus === 'completed' ? (row.completedAt ?? row.updatedAt ?? null) : null;
+}
+
+function getPeriodicSupersessionLabel(row: any): string | null {
+  const reason = row.periodicSupersession?.reason;
+  if (reason === 'superseded_within_emergency') return 'مُكتفى عنها بطارئة';
+  if (reason === 'superseded_within_periodic') return 'مُكتفى عنها بدورية';
+  return null;
 }
 
 // ============================================================
@@ -527,11 +531,21 @@ export default function TaskGroupPage() {
     },
     {
       key: 'status', label: 'الحالة',
-      render: (row) => (
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${TASK_STATUS_COLORS[row.taskStatus] || 'bg-slate-100 text-slate-600'}`}>
-          {(OPEN_TASK_STATUS_LABELS as Record<string, string>)[row.taskStatus] || row.taskStatus}
-        </span>
-      ),
+      render: (row) => {
+        const supersessionLabel = getPeriodicSupersessionLabel(row);
+        return (
+          <div className="flex flex-col items-start gap-1">
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${TASK_STATUS_COLORS[row.taskStatus] || 'bg-slate-100 text-slate-600'}`}>
+              {(OPEN_TASK_STATUS_LABELS as Record<string, string>)[row.taskStatus] || row.taskStatus}
+            </span>
+            {supersessionLabel && (
+              <span className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                {supersessionLabel}
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'priority', label: 'الأولوية',

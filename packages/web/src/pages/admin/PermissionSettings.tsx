@@ -218,6 +218,7 @@ const PERM_LABELS: Record<string, string> = {
   'spare_parts.task_lookup':        'قراءة قطع غيار العمليات',
   'open_tasks.view':                'عرض المهام والعمليات',
   'open_tasks.edit':                'إدارة المهام وتحديث حالاتها',
+  'tasks.periodic.create_manual':   'إنشاء صيانة دورية يدوياً',
   'planning.view':                  'عرض خطط وجداول الفرع',
   'planning.manage':                'إدارة الجدولة وتعيين المسارات',
   'planning.schedule.appear':       'الظهور في جدولة الفرق',

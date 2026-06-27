@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import {
   ArrowRight,
   ArrowUpCircle,
+  CalendarClock,
   ClipboardCheck,
   Clock,
   Hash,
@@ -49,6 +50,14 @@ const STATUS_COLORS: Record<string, string> = {
 
 type Tab = 'overview' | 'problems' | 'audit' | 'linkage';
 
+type PeriodicAttachmentCandidate = {
+  taskId: number;
+  status: string;
+  dueDate: string;
+  daysUntilDue: number;
+  attachWindowDays: number;
+};
+
 export default function ServiceRequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const requestId = Number(id);
@@ -59,6 +68,7 @@ export default function ServiceRequestDetailPage() {
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<{ request: any; auditLog: any[]; problems: any[] } | null>(null);
+  const [periodicCandidate, setPeriodicCandidate] = useState<PeriodicAttachmentCandidate | null>(null);
   const [collision, setCollision] = useState<{ existingOpenTaskId: number; installedDeviceId: number } | null>(null);
   const [busy, setBusy] = useState(false);
   // Phase 4 polish — modal for the 4 in_review actions; toasts via sonner
@@ -68,7 +78,17 @@ export default function ServiceRequestDetailPage() {
     setLoading(true);
     try {
       const res = await api.serviceRequests.get(requestId);
+      let candidate: PeriodicAttachmentCandidate | null = null;
+      if (res.request?.installedDeviceId) {
+        try {
+          const candidateRes = await api.serviceRequests.periodicAttachmentCandidate(requestId);
+          candidate = candidateRes.candidate;
+        } catch {
+          candidate = null;
+        }
+      }
       setData(res);
+      setPeriodicCandidate(candidate);
     } finally {
       setLoading(false);
     }
@@ -157,6 +177,21 @@ export default function ServiceRequestDetailPage() {
       }
     } catch (e: any) {
       alert(e?.message ?? 'فَشل الترقية');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function attachToPeriodicCandidate() {
+    if (!periodicCandidate) return;
+    const note = prompt('ملاحظة الإلحاق بالدورية (اختياري):') ?? null;
+    setBusy(true);
+    try {
+      await api.serviceRequests.attachPeriodic(requestId, periodicCandidate.taskId, note);
+      showToast(`تم ربط البلاغ بالدورية #${periodicCandidate.taskId}`, 'success');
+      await reload();
+    } catch (e: any) {
+      showToast(e?.message ?? 'فشل ربط البلاغ بالدورية', 'error');
     } finally {
       setBusy(false);
     }
@@ -315,6 +350,39 @@ export default function ServiceRequestDetailPage() {
               إلغاء إداري
             </Button>
           )}
+        </div>
+      )}
+      {req.status === 'in_review' && canPromote && periodicCandidate && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded p-3 mb-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="text-sm text-emerald-900">
+              <div className="font-bold flex items-center gap-2">
+                <CalendarClock className="h-4 w-4" />
+                توجد صيانة دورية قريبة لهذا الجهاز
+              </div>
+              <div className="mt-1 text-emerald-800">
+                المهمة #{periodicCandidate.taskId}، تاريخها {periodicCandidate.dueDate}،
+                الفارق {periodicCandidate.daysUntilDue} يوم ضمن نافذة {periodicCandidate.attachWindowDays} يوم.
+              </div>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={attachToPeriodicCandidate}
+              >
+                الاكتفاء بالدورية وربط البلاغ
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={busy || !canDoPromote}
+                onClick={doPromote}
+              >
+                إنشاء طارئة مستقلة
+              </Button>
+            </div>
+          </div>
         </div>
       )}
       {isTerminal && canArchive && !req.archivedAt && (

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { HIDDEN_OPERATIONAL_TASK_TYPES } from '@golden-crm/shared';
 
 const router = Router();
 
@@ -90,13 +91,15 @@ const SELECT_COLS = `
 router.get('/', requireAuth, async (req, res) => {
   try {
     const activeOnly = req.query.activeOnly === 'true';
+    const params = [Array.from(HIDDEN_OPERATIONAL_TASK_TYPES)];
     const query = `
       SELECT ${SELECT_COLS}
       FROM task_type_config
-      ${activeOnly ? 'WHERE is_active = TRUE' : ''}
+      WHERE task_type <> ALL($1::text[])
+      ${activeOnly ? 'AND is_active = TRUE' : ''}
       ORDER BY display_order ASC
     `;
-    const { rows } = await pool.query(query);
+    const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (err: any) {
     console.error('Error fetching task type configs:', err);

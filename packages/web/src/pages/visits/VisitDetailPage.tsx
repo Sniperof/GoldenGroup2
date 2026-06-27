@@ -18,20 +18,29 @@ import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceA
 import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
 import DeviceDisconnectionResultModal from '../../taskTypes/device_delivery/DeviceDisconnectionResultModal';
 import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
+import DeviceRetrievalResultModal from '../../taskTypes/device_delivery/DeviceRetrievalResultModal';
+import DeviceReturnResultModal from '../../taskTypes/device_delivery/DeviceReturnResultModal';
+import DeviceTransferResultModal from '../../taskTypes/device_delivery/DeviceTransferResultModal';
 import EmergencyResultModal from '../../taskTypes/emergency_maintenance/EmergencyResultModal';
 import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';
 import GoldenWarrantyCardDeliveryModal from '../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardDeliveryModal';
 import InstallmentCollectionResultModal from '../../taskTypes/installment_collection/InstallmentCollectionResultModal';
 import ClientSnapshot from '../../components/ClientSnapshot';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import DeviceCheckupResultModal from '../../taskTypes/device_delivery/DeviceCheckupResultModal';
 
 const RESULT_MODAL_TASK_TYPES = new Set([
     'device_demo',
+    'device_checkup',
     'device_delivery',
     'device_installation',
     'device_activation',
     'device_disconnection',
+    'device_retrieval',
+    'device_return',
+    'device_transfer',
     'emergency_maintenance',
+    'periodic_maintenance',
     'golden_warranty_offer',
     'golden_warranty_card_delivery',
     'installment_collection',
@@ -842,6 +851,16 @@ export default function VisitDetailPage() {
                     onSaved={() => { setResultTask(null); load(); }}
                 />
             )}
+            {resultTask?.task_type === 'device_checkup' && (
+                <DeviceCheckupResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
             {resultTask?.task_type === 'device_delivery' && (
                 <DeviceDeliveryResultModal
                     key={`${visit.id}:${resultTask.id}`}
@@ -882,12 +901,43 @@ export default function VisitDetailPage() {
                     onSaved={() => { setResultTask(null); load(); }}
                 />
             )}
-            {resultTask?.task_type === 'emergency_maintenance' && (
+            {resultTask?.task_type === 'device_retrieval' && (
+                <DeviceRetrievalResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'device_return' && (
+                <DeviceReturnResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'device_transfer' && (
+                <DeviceTransferResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {(resultTask?.task_type === 'emergency_maintenance' || resultTask?.task_type === 'periodic_maintenance') && (
                 <EmergencyResultModal
                     key={`${visit.id}:${resultTask.id}`}
                     taskId={resultTask.source_open_task_id ?? resultTask.open_task_id ?? resultTask.id}
                     visitId={visit.id}
                     visitTaskId={resultTask.id}
+                    maintenanceKind={resultTask.task_type === 'periodic_maintenance' ? 'periodic' : 'emergency'}
                     contractId={resultTask.contract_id ?? null}
                     visitTechnicianEmployeeId={primaryTeam?.technician?.id ?? backupTeam?.technician?.id ?? null}
                     visitTechnicianName={primaryTeam?.technician?.name ?? backupTeam?.technician?.name ?? null}

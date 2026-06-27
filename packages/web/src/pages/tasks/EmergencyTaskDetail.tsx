@@ -18,7 +18,7 @@ function overviewIssuesFor(data: TaskDetailData): string[] {
 }
 
 function hasResultFor(data: TaskDetailData): boolean {
-  return Boolean(data.task.em_costs_id);
+  return Boolean(data.task.em_costs_id || data.task.periodicSupersession);
 }
 
 export default function EmergencyTaskDetail() {

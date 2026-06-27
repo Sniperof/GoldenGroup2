@@ -9,6 +9,7 @@ import { promoteClientToLifecycleStatus } from '../services/clientLifecycleServi
 import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
 import { persistOpenTaskSnapshots } from './openTasks.js';
 import { createInstallmentCollectionTasksForContract } from '../services/installmentCollectionTasks.js';
+import { syncContractMovements, recordMovement } from '../services/financialMovements.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -2053,6 +2054,9 @@ router.post('/:id/approve', async (req, res) => {
 
     await createInstallmentCollectionTasksForContract(pgClient, contractId);
 
+    // سجل الحركات المالية: استحقاق التوقيع + الأقساط + الدفعات (idempotent).
+    await syncContractMovements(pgClient, contractId);
+
     if (refreshed.customerId) {
       await promoteClientToLifecycleStatus(pgClient, Number(refreshed.customerId), 'OP');
     }
@@ -2078,6 +2082,108 @@ router.post('/:id/approve', async (req, res) => {
     await pgClient.query('ROLLBACK');
     console.error('[contracts] approve failed:', err);
     res.status(500).json({ error: 'فشل اعتماد العقد', detail: err?.message });
+  } finally {
+    pgClient.release();
+  }
+});
+
+// POST /api/contracts/:id/cancel — إلغاء عقد نشِط (التسكير العكسي).
+// عملية صريحة لأن PUT يرفض تعديل غير المسوّدة. تتكفّل triggers الـDB بأثر
+// الأجهزة/الكفالات عند تغيّر الحالة.
+router.post('/:id/cancel', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
+  const authContext = await getOrBuildAuthContext(req as any);
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId <= 0) {
+    return res.status(400).json({ error: 'id غير صالح' });
+  }
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const { rows: cur } = await pgClient.query(
+      `SELECT id, status, branch_id, customer_id, final_price, created_at,
+              COALESCE((SELECT SUM(amount_syp) FROM contract_installments WHERE contract_id = contracts.id), 0) AS installments_total,
+              COALESCE((SELECT SUM(CASE WHEN entry_type = 'refund' THEN -amount_syp ELSE amount_syp END)
+                          FROM contract_payment_entries
+                         WHERE contract_id = contracts.id AND installment_id IS NULL), 0) AS signing_paid
+         FROM contracts WHERE id = $1 FOR UPDATE`,
+      [contractId],
+    );
+    if (!cur[0]) { await pgClient.query('ROLLBACK'); return res.status(404).json({ error: 'العقد غير موجود' }); }
+    const c = cur[0];
+
+    const access = authorize(authContext, { permission: 'contracts.close', branchId: c.branch_id });
+    if (!access.allowed) { await pgClient.query('ROLLBACK'); return res.status(403).json({ error: 'غير مسموح' }); }
+
+    if (c.status !== 'active') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ error: `لا يمكن إلغاء عقد بحالة "${c.status}". الإلغاء متاح للعقود النشطة فقط.` });
+    }
+
+    const userId = (authContext as any).userId ?? null;
+
+    // 1) status → cancelled.
+    await pgClient.query(
+      `UPDATE contracts
+          SET status = 'cancelled', cancellation_reason = NULLIF($2, ''), cancelled_at = NOW(), cancelled_by = $3
+        WHERE id = $1`,
+      [contractId, reason, userId],
+    );
+
+    // 2) إلغاء مهام تسديد الذمم المفتوحة للعقد + زياراتها غير المنتهية.
+    const { rows: cancelledTasks } = await pgClient.query(
+      `UPDATE open_tasks
+          SET status = 'cancelled',
+              cancellation_reason = COALESCE(NULLIF($2, ''), cancellation_reason, 'إلغاء العقد'),
+              updated_at = NOW()
+        WHERE task_type = 'installment_collection' AND contract_id = $1
+          AND status NOT IN ('completed', 'cancelled')
+        RETURNING id`,
+      [contractId, reason],
+    );
+    const cancelledTaskIds = cancelledTasks.map((r: any) => Number(r.id));
+    if (cancelledTaskIds.length > 0) {
+      await pgClient.query(
+        `UPDATE visit_tasks SET status = 'cancelled', updated_at = NOW()
+          WHERE source_open_task_id = ANY($1::int[]) AND status NOT IN ('completed', 'cancelled')`,
+        [cancelledTaskIds],
+      );
+    }
+
+    // 3) إبطال المتبقّي مالياً (discount) بتاريخ كل التزام حتى يصبح المستحق والقادم = 0.
+    if (c.customer_id) {
+      const signingRemaining = Number(c.final_price) - Number(c.installments_total) - Number(c.signing_paid);
+      if (signingRemaining > 0) {
+        await recordMovement(pgClient, {
+          clientId: Number(c.customer_id), occurredAt: c.created_at, kind: 'discount', amountSyp: signingRemaining,
+          sourceType: 'contract', sourceId: contractId, sourceRefId: contractId, contractId,
+          description: 'إبطال متبقّي قيمة العقد عند الإلغاء', occurredBranchId: c.branch_id ?? null,
+          recordedBy: userId, notes: reason || null,
+        });
+      }
+      const { rows: openInstallments } = await pgClient.query(
+        `SELECT id, due_date, remaining_balance FROM contract_installments
+          WHERE contract_id = $1 AND remaining_balance > 0`,
+        [contractId],
+      );
+      for (const inst of openInstallments) {
+        await recordMovement(pgClient, {
+          clientId: Number(c.customer_id), occurredAt: inst.due_date, kind: 'discount', amountSyp: Number(inst.remaining_balance),
+          sourceType: 'contract_installment', sourceId: contractId, sourceRefId: Number(inst.id), contractId,
+          description: 'إبطال قسط عند إلغاء العقد', occurredBranchId: c.branch_id ?? null,
+          recordedBy: userId, notes: reason || null,
+        });
+      }
+    }
+
+    await pgClient.query('COMMIT');
+    res.json({ success: true, contractId, status: 'cancelled', cancelledCollectionTasks: cancelledTaskIds.length });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[contracts] cancel failed:', err);
+    res.status(500).json({ error: 'فشل إلغاء العقد', detail: err?.message });
   } finally {
     pgClient.release();
   }

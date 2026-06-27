@@ -12,21 +12,24 @@ export const API_BASE = '/api';
 export interface AccountStatementEntry {
   id: number;
   entry_date: string;
-  entry_type: 'contract_payment' | 'maintenance_payment' | 'contract_installment' | 'contract_discount' | 'refund' | 'opening_balance';
-  source_type: 'contract' | 'maintenance_request' | null;
+  entry_type: string;            // = source_type (لفلاتر العرض)
+  kind: 'charge' | 'payment' | 'refund' | 'discount';
+  source_type: string;
   source_id: number | null;
+  contract_id: number | null;
   description: string;
   reference_no: string | null;
   debit_amount: number;
   credit_amount: number;
   running_balance: number;
+  is_upcoming: boolean;
 }
 
 export interface AccountStatementResponse {
   summary: {
-    total_owed: number;
+    current_balance: number;     // المستحق الآن (حتى اليوم)
     total_paid: number;
-    current_balance: number;
+    upcoming_total: number;      // الاستحقاقات القادمة
     overdue_amount: number;
   };
   entries: AccountStatementEntry[];
@@ -83,7 +86,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`API Error ${res.status}: ${text}`);
+    try {
+      const parsed = JSON.parse(text);
+      throw new Error(parsed.error || parsed.message || `API Error ${res.status}`);
+    } catch (error) {
+      if (error instanceof Error && !error.message.startsWith('Unexpected')) {
+        throw error;
+      }
+      throw new Error(`API Error ${res.status}: ${text}`);
+    }
   }
   return res.json();
 }
@@ -91,6 +102,35 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   dashboard: {
     get: () => request<any>('/dashboard'),
+  },
+  gifts: {
+    definitions: {
+      list: () => request<any[]>('/gifts/definitions'),
+      create: (data: any) => request<any>('/gifts/definitions', { method: 'POST', body: JSON.stringify(data) }),
+      update: (id: number | string, data: any) => request<any>(`/gifts/definitions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (id: number | string) => request<any>(`/gifts/definitions/${id}`, { method: 'DELETE' }),
+    },
+    records: {
+      list: (params?: Record<string, string | number | null | undefined>) => {
+        const query = new URLSearchParams();
+        Object.entries(params ?? {}).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+        });
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return request<any[]>(`/gifts/records${suffix}`);
+      },
+      create: (data: any) => request<any>('/gifts/records', { method: 'POST', body: JSON.stringify(data) }),
+      updateCondition: (id: number | string, data: { conditionStatus: string }) =>
+        request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),
+      approve: (id: number | string, data?: { approvedQuantity?: number; approvalNotes?: string }) =>
+        request<any>(`/gifts/records/${id}/approve`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+      createDeliveryTask: (id: number | string, data?: { giftRecordIds?: Array<number | string>; dueDate?: string; priority?: 'low' | 'medium' | 'high'; notes?: string }) =>
+        request<any>(`/gifts/records/${id}/create-delivery-task`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+      manualDelivery: (id: number | string, data?: { notes?: string }) =>
+        request<any>(`/gifts/records/${id}/manual-delivery`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+      cancel: (id: number | string, data?: { reason?: string }) =>
+        request<any>(`/gifts/records/${id}/cancel`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+    },
   },
   geoUnits: {
     list: (branchId?: number | null) => request<any[]>(
@@ -177,6 +217,9 @@ export const api = {
     ),
     get: (id: number) => request<any>(`/clients/${id}`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
+    getRatingHistory: (id: number) => request<any[]>(`/clients/${id}/rating-history`),
+    updateRating: (id: number, data: { rating: 'Committed' | 'NotCommitted' | 'Undefined'; notes?: string | null }) =>
+      request<any>(`/clients/${id}/rating-history`, { method: 'POST', body: JSON.stringify(data) }),
     getAccountStatement: (
       id: number,
       params?: { from?: string; to?: string; types?: string },
@@ -207,9 +250,6 @@ export const api = {
       request<any>(`/customers/${customerId}/purchase-history`),
     getPartsStock: (customerId: number) =>
       request<any>(`/customers/${customerId}/parts-stock`),
-    // DEC-CT-10: chronological merge of installments + payment entries.
-    getStatement: (customerId: number) =>
-      request<{ customerId: number; entries: any[] }>(`/customers/${customerId}/statement`),
     // Pre-offers tab — every device-demo pre-offer with its outcome.
     getPreOffers: (customerId: number) =>
       request<{ customerId: number; entries: any[]; summary: any }>(`/customers/${customerId}/pre-offers`),
@@ -297,6 +337,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
       }),
+    cancel: (contractId: number, body?: { reason?: string }) =>
+      request<any>(`/contracts/${contractId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+      }),
     // DEC-CT-14/15: fetch the legal printable HTML with the auth header
     // attached. Returns the raw HTML; callers turn it into a Blob URL so
     // it can be opened in a new tab without exposing the JWT.
@@ -339,6 +384,8 @@ export const api = {
     get: (id: number) => request<any>(`/installed-devices/${id}`),
     createExternal: (data: any) => request<any>('/installed-devices/external', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/installed-devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    createPeriodicMaintenance: (id: number, data: any) =>
+      request<any>(`/installed-devices/${id}/periodic-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
     problems: (id: number) => request<any[]>(`/installed-devices/${id}/problems`),
     technicalStates: (id: number) => request<any[]>(`/installed-devices/${id}/technical-states`),
   },
@@ -905,6 +952,10 @@ export const api = {
       '/system-settings/contact-target-cleanup-time',
       { method: 'PUT', body: JSON.stringify({ time }) },
     ),
+    update: (key: string, value: unknown) => request<{ key: string; value: string }>(
+      `/system-settings/${encodeURIComponent(key)}`,
+      { method: 'PUT', body: JSON.stringify({ value }) },
+    ),
   },
   departments: {
     // branchId narrows a GLOBAL viewer to one branch (sent as X-Branch-Id, the
@@ -937,6 +988,8 @@ export const api = {
     },
     get: (id: number) =>
       request<{ request: any; auditLog: any[]; problems: any[] }>(`/service-requests/${id}`),
+    periodicAttachmentCandidate: (id: number) =>
+      request<{ candidate: any | null }>(`/service-requests/${id}/periodic-attachment-candidate`),
     claim: (id: number) =>
       request<any>(`/service-requests/${id}/claim`, { method: 'POST', body: '{}' }),
     takeOver: (id: number, reason?: string | null) =>
@@ -1014,6 +1067,11 @@ export const api = {
       request<any>(`/service-requests/${id}/merge`, {
         method: 'POST',
         body: JSON.stringify({ existingOpenTaskId, note: note ?? null }),
+      }),
+    attachPeriodic: (id: number, periodicOpenTaskId: number, note?: string | null) =>
+      request<any>(`/service-requests/${id}/attach-periodic`, {
+        method: 'POST',
+        body: JSON.stringify({ periodicOpenTaskId, note: note ?? null }),
       }),
     archive: (id: number, reason?: string | null) =>
       request<any>(`/service-requests/${id}/archive`, {

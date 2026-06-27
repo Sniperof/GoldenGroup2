@@ -16,20 +16,29 @@ const PHASES = [
 ] as const;
 
 type PhaseKey = typeof PHASES[number]['key'];
+type MaintenanceKind = 'emergency' | 'periodic';
 
-// DEC-CT-17: colour the maintenance flow by the device's ACTIVE warranty —
-// blue=contract, gold=golden. Informational only; never locks costs (DEC-CT-16 §3).
+// DEC-CT-17: colour the maintenance flow by the device's ACTIVE warranty.
+// DEC-CT-16: covered costs default to zero, but the technician can override.
 type WarrantyKind = 'contract' | 'golden';
 const WARRANTY_THEME: Record<WarrantyKind, { banner: string; label: string }> = {
   contract: { banner: 'border-sky-300 bg-sky-50 text-sky-800',     label: 'كفالة عقد' },
   golden:   { banner: 'border-amber-300 bg-amber-50 text-amber-800', label: 'كفالة ذهبية' },
 };
 
+function coverageText(warranty: { type: WarrantyKind; endDate?: string | null } | null, maintenanceKind: MaintenanceKind) {
+  if (!warranty) return null;
+  if (warranty.type === 'golden') return 'التكلفة معدومة افتراضياً للطارئة والدورية — ويمكن إدخال قيمة عند الحاجة';
+  if (maintenanceKind === 'emergency') return 'قطع الطوارئ معدومة التكلفة افتراضياً ضمن كفالة العقد — ويمكن إدخال قيمة عند الحاجة';
+  return 'كفالة العقد لا تغطي قطع الدورية؛ الدورية تبقى مدفوعة افتراضياً';
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
   taskId: number;
   contractId?: number | null;
+  maintenanceKind?: MaintenanceKind;
   readOnly?: boolean;
   /** Visit-level technician (executing team). Overrides open_task.team_snapshot for problem auto-fill. */
   visitTechnicianEmployeeId?: number | null;
@@ -38,7 +47,7 @@ interface Props {
   onCostsSaved?: () => void;
 }
 
-export default function EmergencyResultWizard({ taskId, contractId, readOnly = false, visitTechnicianEmployeeId = null, visitTechnicianName = null, onCostsSaved }: Props) {
+export default function EmergencyResultWizard({ taskId, contractId, maintenanceKind = 'emergency', readOnly = false, visitTechnicianEmployeeId = null, visitTechnicianName = null, onCostsSaved }: Props) {
   const [result, setResult]       = useState<any>(null);
   const [loading, setLoading]     = useState(true);
   const [activePhase, setActive]  = useState<PhaseKey>('preState');
@@ -81,8 +90,10 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
 
   const completed = result?.completedPhases ?? {};
   const phases    = result?.phases ?? {};
+  const problemServiceRequestId = result?.taskMeta?.problemServiceRequestId ?? result?.taskMeta?.sourceServiceRequestId ?? null;
 
   const warrantyTheme = activeWarranty ? WARRANTY_THEME[activeWarranty.type] : null;
+  const warrantyCoverageText = coverageText(activeWarranty, maintenanceKind);
 
   return (
     <div className="space-y-5">
@@ -93,7 +104,7 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
             الجهاز ضمن {warrantyTheme.label}
             {activeWarranty?.endDate ? ` · حتى ${activeWarranty.endDate}` : ''}
           </span>
-          <span className="text-xs font-normal">التكلفة معدومة افتراضيًا — يمكن إدخال قيمة عند الحاجة (لا إقفال)</span>
+          <span className="text-xs font-normal">{warrantyCoverageText}</span>
         </div>
       )}
 
@@ -141,10 +152,10 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
       {activePhase === 'actions' && (
         <>
           {/* Phase 6c.1 — Problems list visible only for new-path tasks */}
-          {result?.taskMeta?.sourceServiceRequestId && (
+          {problemServiceRequestId && (
             <EmergencyProblemsSection
               taskId={taskId}
-              serviceRequestId={result.taskMeta.sourceServiceRequestId}
+              serviceRequestId={problemServiceRequestId}
               installedDeviceId={result.taskMeta.installedDeviceId ?? null}
               defaultTechnicianEmployeeId={visitTechnicianEmployeeId ?? result.taskMeta.technicianEmployeeId ?? null}
               defaultTechnicianName={visitTechnicianName ?? result.taskMeta.technicianName ?? null}
@@ -157,6 +168,8 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
           <MaintenanceActionsForm
             taskId={taskId}
             initialData={phases.actions}
+            maintenanceKind={maintenanceKind}
+            activeWarranty={activeWarranty}
             readOnly={readOnly}
             onSaved={() => load()}
             onNext={() => setActive('postState')}
@@ -180,6 +193,7 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
         <CostsForm
           taskId={taskId}
           initialData={phases.costs}
+          maintenanceKind={maintenanceKind}
           readOnly={readOnly}
           onSaved={() => {
             load();
@@ -187,8 +201,9 @@ export default function EmergencyResultWizard({ taskId, contractId, readOnly = f
           }}
           onBack={() => setActive('postState')}
           // Phase 6c.2 — new-path props
-          sourceServiceRequestId={result?.taskMeta?.sourceServiceRequestId ?? null}
+          sourceServiceRequestId={problemServiceRequestId}
           derivedOutcome={result?.derivedOutcome ?? null}
+          periodicAttachmentCandidate={result?.periodicAttachmentCandidate ?? null}
         />
       )}
     </div>

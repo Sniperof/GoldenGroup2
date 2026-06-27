@@ -7,6 +7,7 @@ import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';
+import GiftPromiseInlinePanel from '../gifts/GiftPromiseInlinePanel';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -363,6 +364,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         () => activeSheets.find((sheet: any) => sheet.id === selectedSheetId),
         [activeSheets, selectedSheetId],
     );
+    const selectedSheetReferralType = String(selectedSheet?.referralType ?? '').toLowerCase();
+    const canCreateSheetGiftPromise = Boolean(
+        selectedSheet?.referralEntityId && (selectedSheetReferralType === 'client' || selectedSheetReferralType === 'customer')
+    );
+    const canCreateDirectGiftPromise = isDirectMode && referralType === 'Client' && Boolean(selectedClientId);
     // When the name belongs to an existing sheet, its branch and responsible are
     // INHERITED from the sheet and must be locked (a name cannot diverge from its
     // sheet's owner). The server already enforces this on save.
@@ -761,6 +767,24 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                         </div>
                                     )}
                                 </div>
+                            )}
+
+                            {!isDirectMode && selectedSheet && (
+                                <GiftPromiseInlinePanel
+                                    enabled={canCreateSheetGiftPromise}
+                                    sourceType="name_list"
+                                    beneficiaryName={selectedSheet.referralNameSnapshot}
+                                    disabledReason="وعد الهدية من اللائحة يحتاج أن يكون وسيط اللائحة زبونا مرتبطا بسجل معروف."
+                                />
+                            )}
+
+                            {isDirectMode && (
+                                <GiftPromiseInlinePanel
+                                    enabled={canCreateDirectGiftPromise}
+                                    sourceType="direct_referral"
+                                    beneficiaryName={referralNameSnapshot}
+                                    disabledReason="وعد الهدية من الاقتراح المباشر يحتاج وسيطا من نوع زبون مرتبط بسجل معروف."
+                                />
                             )}
                         </div>
 

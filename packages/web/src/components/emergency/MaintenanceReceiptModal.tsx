@@ -21,8 +21,13 @@ function buildReceiptHtml(data: ReceiptData): string {
   };
   const decisionColor = DECISION_COLOR[finalDecision] ?? '#334155';
 
-  const partsRows = parts.length > 0
-    ? parts.map(p => `
+  const executedParts = parts.filter((p: any) => {
+    const status = p.executionStatus ?? (p.placementState === 'customer_stock' ? 'delivered_to_customer_stock' : 'replaced');
+    return status === 'replaced' || status === 'delivered_to_customer_stock';
+  });
+
+  const partsRows = executedParts.length > 0
+    ? executedParts.map(p => `
         <tr>
           <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9">${p.partNameSnapshot}</td>
           <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:center">${p.quantity}</td>
@@ -40,7 +45,7 @@ function buildReceiptHtml(data: ReceiptData): string {
   const payTypeLabel: Record<string, string> = { cash: 'كاش', installment: 'تقسيط' };
 
   // Compute discount from actual subtotal (not reverse-engineering from grandTotal)
-  const subtotal = parts.reduce((s: number, p: any) => s + Number(p.lineTotal || 0), 0) + transportFee + assemblyFee;
+  const subtotal = executedParts.reduce((s: number, p: any) => s + Number(p.lineTotal || 0), 0) + transportFee + assemblyFee;
   const discountAmt = discountPct > 0 ? Math.round(subtotal * discountPct / 100) : 0;
 
   const entryRows = paymentEntries.length > 0
@@ -109,7 +114,7 @@ function buildReceiptHtml(data: ReceiptData): string {
 
     <div class="section">
       <h2>التكاليف</h2>
-      <div class="cost-line"><span>قطع الغيار</span><strong>${parts.reduce((s: number, p: any) => s + Number(p.lineTotal||0), 0).toLocaleString('ar-SY')} ل.س</strong></div>
+      <div class="cost-line"><span>قطع الغيار</span><strong>${executedParts.reduce((s: number, p: any) => s + Number(p.lineTotal||0), 0).toLocaleString('ar-SY')} ل.س</strong></div>
       ${transportFee > 0 ? `<div class="cost-line"><span>أجور مواصلات وخدمة</span><strong>${transportFee.toLocaleString('ar-SY')} ل.س</strong></div>` : ''}
       ${assemblyFee > 0 ? `<div class="cost-line"><span>أجور فك وتركيب</span><strong>${assemblyFee.toLocaleString('ar-SY')} ل.س</strong></div>` : ''}
       ${discountPct > 0 ? `<div class="cost-line"><span>الحسم (${discountPct}%)</span><strong style="color:#d97706">− ${discountAmt.toLocaleString('ar-SY')} ل.س</strong></div>` : ''}
