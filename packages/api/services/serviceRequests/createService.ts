@@ -25,6 +25,10 @@ import {
   type ServiceRequestChannel,
 } from './_shared.js';
 import { detectDuplicates } from './duplicateDetection.js';
+import {
+  findPeriodicAttachmentCandidate,
+  type PeriodicAttachmentCandidate,
+} from '../periodicMaintenanceTasks.js';
 
 export interface CreateServiceRequestInput {
   channel: ServiceRequestChannel;
@@ -74,6 +78,7 @@ export interface CreatedServiceRequest {
   duplicateFlag: boolean;
   duplicateOfRequestId: number | null;
   reviewRequiredFlag: boolean;
+  periodicAttachmentCandidate: PeriodicAttachmentCandidate | null;
 }
 
 /**
@@ -261,6 +266,11 @@ export async function createServiceRequest(
       input.actorRole,
     );
 
+    const periodicAttachmentCandidate = await findPeriodicAttachmentCandidate(
+      tx.client,
+      input.installedDeviceId ?? null,
+    );
+
     await commitTx(tx);
 
     return {
@@ -272,6 +282,7 @@ export async function createServiceRequest(
         duplicateFlag: dup.flagged,
         duplicateOfRequestId: dup.bestMatch?.candidateId ?? null,
         reviewRequiredFlag: dup.flagged,
+        periodicAttachmentCandidate,
       },
     };
   } catch (err) {

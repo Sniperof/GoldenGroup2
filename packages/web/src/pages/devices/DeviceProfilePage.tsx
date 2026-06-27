@@ -237,7 +237,7 @@ export default function DeviceProfilePage() {
           <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
           <LinkedContractSection contract={contract} apiBase={API_BASE} />
           <FinancialSection contract={contract} customerId={device.customerId ?? null} />
-          <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} />
+          <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} device={device} onTaskCreated={fetchAll} />
           <ProblemsHistorySection deviceId={deviceId} />
           <TechnicalHealthSection deviceId={deviceId} />
         </main>

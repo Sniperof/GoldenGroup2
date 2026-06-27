@@ -37,6 +37,9 @@ export type DeviceDemoFinalDecision =
 
 export type DeviceDeliveryFinalDecision =
   | 'delivered_successfully'
+  | 'rescheduled'
+  | 'delivery_failed'
+  // Legacy values accepted for backward compatibility.
   | 'customer_not_available'
   | 'wrong_address'
   | 'refused_delivery';
@@ -53,6 +56,9 @@ export type DeviceActivationFinalDecision =
 
 export type DeviceDisconnectionFinalDecision =
   | 'disconnected_successfully'
+  | 'rescheduled'
+  | 'disconnection_failed'
+  // Legacy values accepted for backward compatibility.
   | 'not_disconnected'
   | 'customer_refused_disconnection'
   | 'requires_retrieval'
@@ -159,6 +165,8 @@ export interface DeviceDeliveryResultBody {
   notes?: string | null;
   expected_date?: string | null;
   expected_time?: string | null;
+  reschedule_reason_id?: number | string | null;
+  failure_reason_id?: number | string | null;
   after_delivery_action?: 'none' | 'create_installation_task' | null;
   installation_address_same_as_delivery?: boolean | null;
   installation_address?: string | null;
@@ -255,6 +263,8 @@ export interface DeviceDisconnectionResultBody {
   reason_code?: string | null;
   expected_date?: string | null;
   expected_time?: string | null;
+  reschedule_reason_id?: number | string | null;
+  failure_reason_id?: number | string | null;
   device_left_on_site?: boolean | null;
   water_disconnected?: boolean | null;
   electricity_disconnected?: boolean | null;
@@ -441,7 +451,14 @@ function assertDeliveryShape(body: DeviceDeliveryResultBody, openTask: any): {
   afterDeliveryAction: 'none' | 'create_installation_task';
 } {
   const decision = body.final_decision;
-  if (!['delivered_successfully', 'customer_not_available', 'wrong_address', 'refused_delivery'].includes(decision)) {
+  if (![
+    'delivered_successfully',
+    'rescheduled',
+    'delivery_failed',
+    'customer_not_available',
+    'wrong_address',
+    'refused_delivery',
+  ].includes(decision)) {
     throw new ResultValidationError(`final_decision ط؛ظٹط± طµط§ظ„ط­: ${decision}`);
   }
 
@@ -483,8 +500,15 @@ function assertDeliveryShape(body: DeviceDeliveryResultBody, openTask: any): {
     }
   }
 
-  if ((decision === 'customer_not_available' || decision === 'wrong_address') && !optionalDate(body.expected_date)) {
+  if ((decision === 'rescheduled' || decision === 'customer_not_available' || decision === 'wrong_address') && !optionalDate(body.expected_date)) {
     throw new ResultValidationError('expected_date مطلوب عند إعادة المتابعة');
+  }
+
+  if (decision === 'rescheduled' && !isPositiveInteger(body.reschedule_reason_id)) {
+    throw new ResultValidationError('سبب إعادة جدولة التسليم مطلوب');
+  }
+  if (decision === 'delivery_failed' && !isPositiveInteger(body.failure_reason_id)) {
+    throw new ResultValidationError('سبب فشل التسليم مطلوب');
   }
 
   if (decision === 'delivered_successfully') {
@@ -496,7 +520,7 @@ function assertDeliveryShape(body: DeviceDeliveryResultBody, openTask: any): {
       afterDeliveryAction,
     };
   }
-  if (decision === 'refused_delivery') {
+  if (decision === 'delivery_failed' || decision === 'refused_delivery') {
     return {
       decision,
       openTaskNewStatus: 'cancelled',
@@ -590,6 +614,8 @@ function assertDisconnectionShape(body: DeviceDisconnectionResultBody): {
   const decision = body.final_decision;
   if (![
     'disconnected_successfully',
+    'rescheduled',
+    'disconnection_failed',
     'not_disconnected',
     'customer_refused_disconnection',
     'requires_retrieval',
@@ -598,13 +624,16 @@ function assertDisconnectionShape(body: DeviceDisconnectionResultBody): {
     throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
   }
 
-  if (!optionalText(body.reason_code)) {
+  if (!optionalText(body.reason_code) && decision !== 'disconnected_successfully' && decision !== 'rescheduled' && decision !== 'disconnection_failed') {
     throw new ResultValidationError('سبب نتيجة فك الجهاز مطلوب');
   }
 
   if (decision === 'disconnected_successfully') {
     if (body.water_disconnected !== true && body.electricity_disconnected !== true && body.accessories_removed !== true) {
       throw new ResultValidationError('يجب توثيق إجراء فني واحد على الأقل عند نجاح فك الجهاز');
+    }
+    if (body.requires_retrieval_task === true && !optionalText(body.retrieval_reason)) {
+      throw new ResultValidationError('سبب السحب اللاحق مطلوب عند طلب سحب بعد الفك');
     }
     return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'out_of_service' };
   }
@@ -616,12 +645,22 @@ function assertDisconnectionShape(body: DeviceDisconnectionResultBody): {
     return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'out_of_service' };
   }
 
+  if (decision === 'disconnection_failed') {
+    if (!isPositiveInteger(body.failure_reason_id)) {
+      throw new ResultValidationError('سبب فشل فك الجهاز مطلوب');
+    }
+    return { decision, openTaskNewStatus: 'cancelled', deviceNewStatus: 'unchanged' };
+  }
+
   if (decision === 'customer_refused_disconnection') {
     return { decision, openTaskNewStatus: 'cancelled', deviceNewStatus: 'unchanged' };
   }
 
   if (!optionalDate(body.expected_date)) {
     throw new ResultValidationError('تاريخ المتابعة مطلوب عند عدم تنفيذ فك الجهاز');
+  }
+  if (decision === 'rescheduled' && !isPositiveInteger(body.reschedule_reason_id)) {
+    throw new ResultValidationError('سبب إعادة جدولة فك الجهاز مطلوب');
   }
   return { decision, openTaskNewStatus: 'needs_follow_up', deviceNewStatus: 'unchanged' };
 }
@@ -1605,6 +1644,28 @@ export async function applyDeviceDeliveryResult(
     }
 
     const shape = assertDeliveryShape(body, vt);
+    let rescheduleReasonId: number | null = null;
+    let failureReasonId: number | null = null;
+    if (shape.decision === 'rescheduled') {
+      rescheduleReasonId = await assertSystemListCategory(
+        db,
+        body.reschedule_reason_id,
+        'device_delivery_reschedule_reasons',
+        'سبب إعادة جدولة التسليم',
+      );
+    }
+    if (shape.decision === 'delivery_failed') {
+      failureReasonId = await assertSystemListCategory(
+        db,
+        body.failure_reason_id,
+        'device_delivery_failure_reasons',
+        'سبب فشل التسليم',
+      );
+    }
+    const reasonCode =
+      rescheduleReasonId != null ? String(rescheduleReasonId)
+        : failureReasonId != null ? String(failureReasonId)
+          : optionalText(body.reason_code);
 
     const { rows: vtrRows } = await db.query(
       `INSERT INTO visit_task_results
@@ -1621,7 +1682,7 @@ export async function applyDeviceDeliveryResult(
       [
         visitTaskId,
         shape.decision,
-        optionalText(body.reason_code),
+        reasonCode,
         body.closing_notes ?? body.notes ?? null,
         performedByUserId,
       ],
@@ -1637,10 +1698,12 @@ export async function applyDeviceDeliveryResult(
           notes, after_delivery_action, installation_address_same_as_delivery,
           installation_address, installation_geo_unit_id, installation_address_text,
           installation_lat, installation_lng,
-          installation_required_date, update_device_main_address,
-          new_installation_geo_unit_id, new_installation_address_text,
-          new_installation_lat, new_installation_lng, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::date,$24,$25,$26,$27,$28,NOW(),NOW())
+           installation_required_date, update_device_main_address,
+           new_installation_geo_unit_id, new_installation_address_text,
+           new_installation_lat, new_installation_lng,
+           reschedule_reason_id, failure_reason_id, rescheduled_at,
+           created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::date,$24,$25,$26,$27,$28,$29,$30,$31::date,NOW(),NOW())
        ON CONFLICT (visit_task_result_id) DO UPDATE SET
           serial_number = EXCLUDED.serial_number,
           device_model_id = EXCLUDED.device_model_id,
@@ -1666,10 +1729,13 @@ export async function applyDeviceDeliveryResult(
           installation_required_date = EXCLUDED.installation_required_date,
           update_device_main_address = EXCLUDED.update_device_main_address,
           new_installation_geo_unit_id = EXCLUDED.new_installation_geo_unit_id,
-          new_installation_address_text = EXCLUDED.new_installation_address_text,
-          new_installation_lat = EXCLUDED.new_installation_lat,
-          new_installation_lng = EXCLUDED.new_installation_lng,
-          updated_at = NOW()
+           new_installation_address_text = EXCLUDED.new_installation_address_text,
+           new_installation_lat = EXCLUDED.new_installation_lat,
+           new_installation_lng = EXCLUDED.new_installation_lng,
+           reschedule_reason_id = EXCLUDED.reschedule_reason_id,
+           failure_reason_id = EXCLUDED.failure_reason_id,
+           rescheduled_at = EXCLUDED.rescheduled_at,
+           updated_at = NOW()
        RETURNING id`,
       [
         visitTaskResultId,
@@ -1700,6 +1766,9 @@ export async function applyDeviceDeliveryResult(
         optionalText(body.new_installation_address_text),
         optionalNumber(body.new_installation_lat),
         optionalNumber(body.new_installation_lng),
+        rescheduleReasonId,
+        failureReasonId,
+        optionalDate(body.expected_date),
       ],
     );
     const deviceDeliveryResultId = Number(deliveryRows[0].id);
@@ -1719,7 +1788,7 @@ export async function applyDeviceDeliveryResult(
                 cancellation_reason = COALESCE($2, cancellation_reason),
                 updated_at = NOW()
           WHERE id = $1`,
-        [vt.open_task_id, body.closing_notes ?? body.notes ?? 'refused_delivery'],
+        [vt.open_task_id, body.closing_notes ?? body.notes ?? reasonCode ?? 'delivery_failed'],
       );
     } else if (shape.openTaskNewStatus === 'needs_follow_up') {
       await db.query(
@@ -2407,6 +2476,29 @@ export async function applyDeviceDisconnectionResult(
 
     const shape = assertDisconnectionShape(body);
     const notes = body.closing_notes ?? body.notes ?? null;
+    let rescheduleReasonId: number | null = null;
+    let failureReasonId: number | null = null;
+    if (shape.decision === 'rescheduled') {
+      rescheduleReasonId = await assertSystemListCategory(
+        db,
+        body.reschedule_reason_id,
+        'device_disconnection_reschedule_reasons',
+        'سبب إعادة جدولة فك الجهاز',
+      );
+    }
+    if (shape.decision === 'disconnection_failed') {
+      failureReasonId = await assertSystemListCategory(
+        db,
+        body.failure_reason_id,
+        'device_disconnection_failure_reasons',
+        'سبب فشل فك الجهاز',
+      );
+    }
+    const reasonCode =
+      rescheduleReasonId != null ? String(rescheduleReasonId)
+        : failureReasonId != null ? String(failureReasonId)
+          : optionalText(body.reason_code);
+    const requiresRetrieval = shape.decision === 'disconnected_successfully' && body.requires_retrieval_task === true;
 
     const { rows: vtrRows } = await db.query(
       `INSERT INTO visit_task_results
@@ -2423,7 +2515,7 @@ export async function applyDeviceDisconnectionResult(
       [
         visitTaskId,
         shape.decision,
-        optionalText(body.reason_code),
+        reasonCode,
         notes,
         performedByUserId,
       ],
@@ -2441,12 +2533,14 @@ export async function applyDeviceDisconnectionResult(
     }
 
     const { rows: disconnectionRows } = await db.query(
-      `INSERT INTO visit_task_device_disconnection_results
-         (visit_task_result_id, outcome, device_left_on_site,
-          water_disconnected, electricity_disconnected, accessories_removed,
-          customer_acknowledged, requires_retrieval_task, retrieval_reason,
-          disconnected_by_employee_id, technical_notes, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
+       `INSERT INTO visit_task_device_disconnection_results
+          (visit_task_result_id, outcome, device_left_on_site,
+           water_disconnected, electricity_disconnected, accessories_removed,
+           customer_acknowledged, requires_retrieval_task, retrieval_reason,
+           disconnected_by_employee_id, technical_notes,
+           reschedule_reason_id, failure_reason_id, rescheduled_at,
+           created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::date,NOW(),NOW())
        ON CONFLICT (visit_task_result_id) DO UPDATE SET
           outcome = EXCLUDED.outcome,
           device_left_on_site = EXCLUDED.device_left_on_site,
@@ -2456,9 +2550,12 @@ export async function applyDeviceDisconnectionResult(
           customer_acknowledged = EXCLUDED.customer_acknowledged,
           requires_retrieval_task = EXCLUDED.requires_retrieval_task,
           retrieval_reason = EXCLUDED.retrieval_reason,
-          disconnected_by_employee_id = EXCLUDED.disconnected_by_employee_id,
-          technical_notes = EXCLUDED.technical_notes,
-          updated_at = NOW()
+           disconnected_by_employee_id = EXCLUDED.disconnected_by_employee_id,
+           technical_notes = EXCLUDED.technical_notes,
+           reschedule_reason_id = EXCLUDED.reschedule_reason_id,
+           failure_reason_id = EXCLUDED.failure_reason_id,
+           rescheduled_at = EXCLUDED.rescheduled_at,
+           updated_at = NOW()
        RETURNING id`,
       [
         visitTaskResultId,
@@ -2468,10 +2565,13 @@ export async function applyDeviceDisconnectionResult(
         body.electricity_disconnected === true,
         body.accessories_removed === true,
         body.customer_acknowledged === true ? true : (body.customer_acknowledged === false ? false : null),
-        shape.decision === 'requires_retrieval' || body.requires_retrieval_task === true,
-        optionalText(body.retrieval_reason),
+        requiresRetrieval,
+        requiresRetrieval ? optionalText(body.retrieval_reason) : null,
         isPositiveInteger(body.disconnected_by_employee_id) ? Number(body.disconnected_by_employee_id) : null,
         optionalText(body.technical_notes),
+        rescheduleReasonId,
+        failureReasonId,
+        optionalDate(body.expected_date),
       ],
     );
     const deviceDisconnectionResultId = Number(disconnectionRows[0].id);
@@ -2505,7 +2605,7 @@ export async function applyDeviceDisconnectionResult(
                 cancellation_reason = COALESCE($2, cancellation_reason),
                 updated_at = NOW()
           WHERE id = $1`,
-        [Number(vt.open_task_id), notes ?? optionalText(body.reason_code)],
+        [Number(vt.open_task_id), notes ?? reasonCode ?? 'disconnection_failed'],
       );
     } else {
       await db.query(

@@ -18,11 +18,19 @@ const sel = `${inp} appearance-none cursor-pointer`;
 const DECISIONS = [
   { value: 'resolved',      label: 'تمت المعالجة',  description: 'المشكلة حُلّت بالكامل',    cls: 'border-emerald-400 bg-emerald-500', reasonKey: 'emergency_resolved_reason' },
   { value: 'unresolved',    label: 'لم تُحل',        description: 'تعذّر حلّ المشكلة',          cls: 'border-red-400 bg-red-500',        reasonKey: 'emergency_unresolved_reason' },
-  { value: 'needs_followup',label: 'تحتاج متابعة',  description: 'تُنشئ مهمة طوارئ جديدة',    cls: 'border-violet-400 bg-violet-500',  reasonKey: 'emergency_followup_reason' },
+  { value: 'needs_followup',label: 'تحتاج متابعة',  description: 'تحتاج إجراء متابعة لاحق',    cls: 'border-violet-400 bg-violet-500',  reasonKey: 'emergency_followup_reason' },
   { value: 'cancelled',     label: 'ملغاة',           description: 'رفض الخدمة نهائياً',        cls: 'border-slate-400 bg-slate-500',    reasonKey: 'emergency_cancelled_reason' },
 ] as const;
 
-type DecisionValue = typeof DECISIONS[number]['value'];
+const PERIODIC_DECISIONS = [
+  { value: 'performed',             label: 'نُفذت',         description: 'تم تنفيذ الصيانة الدورية بالكامل', cls: 'border-emerald-400 bg-emerald-500' },
+  { value: 'partially_performed',   label: 'نُفذت جزئياً',  description: 'بقي جزء جوهري غير منفذ',           cls: 'border-amber-400 bg-amber-500', reasonKey: 'periodic_partially_performed_reason' },
+  { value: 'not_performed',         label: 'لم تُنفذ',       description: 'تمت الزيارة دون تنفيذ الصيانة',     cls: 'border-red-400 bg-red-500', reasonKey: 'periodic_not_performed_reason' },
+] as const;
+
+type DecisionOption = (typeof DECISIONS[number] | typeof PERIODIC_DECISIONS[number]) & { reasonKey?: string };
+type DecisionValue = typeof DECISIONS[number]['value'] | typeof PERIODIC_DECISIONS[number]['value'];
+type MaintenanceKind = 'emergency' | 'periodic';
 
 const PRIORITY_META = [
   { value: 'Critical', label: 'حرجة',  cls: 'border-red-300 bg-red-50 text-red-700' },
@@ -42,11 +50,18 @@ interface Props {
   readOnly?: boolean;
   onSaved: () => void;
   onBack?: () => void;
+  maintenanceKind?: MaintenanceKind;
   // Phase 6c.2 — new-path props. When sourceServiceRequestId is set,
   // the manual DECISIONS picker is replaced by a readonly derived_outcome
   // badge and finalDecision is auto-mapped to a legacy CHECK value.
   sourceServiceRequestId?: number | null;
   derivedOutcome?: { outcome: string; counts: Record<string, number>; total: number } | null;
+  periodicAttachmentCandidate?: {
+    taskId: number;
+    dueDate: string;
+    daysUntilDue: number;
+    attachWindowDays: number;
+  } | null;
 }
 
 /** Maps the §٠.١٩.ح derived outcome to one of the 4 legacy
@@ -92,10 +107,14 @@ export default function CostsForm({
   readOnly = false,
   onSaved,
   onBack,
+  maintenanceKind = 'emergency',
   sourceServiceRequestId = null,
   derivedOutcome = null,
+  periodicAttachmentCandidate = null,
 }: Props) {
   const isNewPath = sourceServiceRequestId != null;
+  const isPeriodic = maintenanceKind === 'periodic';
+  const decisionOptions: DecisionOption[] = isPeriodic ? [...PERIODIC_DECISIONS] : [...DECISIONS];
 
   // ── Decision ───────────────────────────────────────────────────────────────
   const [finalDecision, setFinalDecision]       = useState<DecisionValue | ''>(initialData?.finalDecision ?? '');
@@ -103,6 +122,7 @@ export default function CostsForm({
   const [followUpPriority, setFollowUpPriority] = useState(initialData?.followUpPriority ?? 'High');
   const [followUpExpectedDate, setFollowUpExpectedDate] = useState(initialData?.followUpExpectedDate ?? '');
   const [closingNotes, setClosingNotes]         = useState(initialData?.closingNotes ?? '');
+  const [coverPeriodic, setCoverPeriodic]       = useState(false);
 
   // ── Costs breakdown ────────────────────────────────────────────────────────
   const [transportFee, setTransportFee]         = useState(String(initialData?.transportFee ?? ''));
@@ -130,15 +150,25 @@ export default function CostsForm({
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
   const [saved, setSaved]   = useState(false);
+  const isFollowupDecision = finalDecision === 'needs_followup'
+    || finalDecision === 'partially_performed'
+    || finalDecision === 'not_performed';
+  const requiresDecisionReason = finalDecision === 'partially_performed'
+    || finalDecision === 'not_performed';
 
-  const activeDecision  = DECISIONS.find(d => d.value === finalDecision);
+  const activeDecision  = decisionOptions.find(d => d.value === finalDecision);
   const decisionReasons = useSystemListItems(activeDecision?.reasonKey ?? '');
   const discountReasons = useSystemListItems('discount_reason');
 
   // ── Load on mount ──────────────────────────────────────────────────────────
   useEffect(() => {
     api.emergencyResult.getParts(taskId)
-      .then(parts => setPartsCostTotal(parts.reduce((s: number, p: any) => s + Number(p.lineTotal ?? 0), 0)))
+      .then(parts => setPartsCostTotal(parts.reduce((s: number, p: any) => {
+        const status = p.executionStatus ?? (p.placementState === 'customer_stock' ? 'delivered_to_customer_stock' : 'replaced');
+        return status === 'replaced' || status === 'delivered_to_customer_stock'
+          ? s + Number(p.lineTotal ?? 0)
+          : s;
+      }, 0)))
       .catch(() => {});
     api.employees.list().then(setEmployees).catch(() => {});
     if (initialData) {
@@ -157,15 +187,23 @@ export default function CostsForm({
     }
   }, [taskId]);
 
+  // Reset incompatible saved selections if the same component is reused for another maintenance kind.
+  useEffect(() => {
+    if (finalDecision && !decisionOptions.some(d => d.value === finalDecision)) {
+      setFinalDecision('');
+      setDecisionReasonId('');
+    }
+  }, [maintenanceKind]);
+
   // Phase 6c.2 — On the new path, auto-map derivedOutcome to a legacy
   // final_decision value so the existing save logic + CHECK constraint
   // stay happy. Re-runs whenever the outcome changes.
   useEffect(() => {
-    if (isNewPath && derivedOutcome) {
+    if (isNewPath && !isPeriodic && derivedOutcome) {
       const mapped = DERIVED_TO_LEGACY[derivedOutcome.outcome] ?? 'resolved';
       setFinalDecision(mapped);
     }
-  }, [isNewPath, derivedOutcome?.outcome]);
+  }, [isNewPath, isPeriodic, derivedOutcome?.outcome]);
 
   // ── Calculations ───────────────────────────────────────────────────────────
   const transport  = Number(transportFee) || 0;
@@ -204,6 +242,9 @@ export default function CostsForm({
       paymentType:         paymentType || null,
       hasFirstPayment:     paymentType === 'installment' ? hasFirstPayment : null,
       closingEmployeeId:   closingEmployeeId ? Number(closingEmployeeId) : null,
+      coveredPeriodicTaskId: !isPeriodic && coverPeriodic && periodicAttachmentCandidate
+        ? periodicAttachmentCandidate.taskId
+        : null,
     });
     const validEntries = paymentEntries.filter(e => e.method && Number(e.amountValue) > 0);
     if (validEntries.length) await api.emergencyResult.savePaymentEntries(taskId, validEntries);
@@ -212,6 +253,7 @@ export default function CostsForm({
   // ── Save (with onSaved trigger) ───────────────────────────────────────────
   const handleSave = async () => {
     if (!finalDecision) { setError('يجب تحديد القرار النهائي'); return; }
+    if (requiresDecisionReason && !decisionReasonId) { setError('يجب تحديد سبب القرار'); return; }
     setSaving(true); setError('');
     try {
       await saveCostsAndEntries();
@@ -259,7 +301,7 @@ export default function CostsForm({
       <div className="p-5 space-y-5">
 
         {/* ══ القرار النهائي ══ */}
-        {isNewPath ? (
+        {isNewPath && !isPeriodic ? (
           // Phase 6c.2 — readonly derived_outcome badge (§٠.١٩.ح).
           // The user no longer picks one of the 4 manual DECISIONS; the
           // result is computed from the problems list. The legacy
@@ -291,7 +333,7 @@ export default function CostsForm({
           <div>
             <SectionLabel>القرار النهائي <span className="text-red-500 normal-case">*</span></SectionLabel>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {DECISIONS.map(d => (
+              {decisionOptions.map(d => (
                 <button key={d.value} type="button" disabled={readOnly}
                   onClick={() => { setFinalDecision(d.value); setDecisionReasonId(''); }}
                   className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-bold transition-all ${
@@ -307,10 +349,34 @@ export default function CostsForm({
         )}
 
         {/* ══ سبب القرار ══ */}
-        {finalDecision && (
+        {!isPeriodic && periodicAttachmentCandidate && (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={coverPeriodic}
+                disabled={readOnly}
+                onChange={(e) => setCoverPeriodic(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-emerald-900">
+                <span className="block font-black">أُنجزت الدورية المستحقة ضمن هذه الطارئة</span>
+                <span className="mt-1 block text-xs text-emerald-800">
+                  الدورية #{periodicAttachmentCandidate.taskId}، تاريخها {periodicAttachmentCandidate.dueDate}،
+                  الفارق {periodicAttachmentCandidate.daysUntilDue} يوم ضمن نافذة {periodicAttachmentCandidate.attachWindowDays} يوم.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
+
+        {finalDecision && activeDecision?.reasonKey && (
           <div className="space-y-1">
             <label className="block text-xs font-bold text-slate-600">
-              سبب {activeDecision?.label} <span className="font-normal text-slate-400">(اختياري)</span>
+              سبب {activeDecision?.label}
+              {requiresDecisionReason
+                ? <span className="text-red-500 normal-case"> *</span>
+                : <span className="font-normal text-slate-400"> (اختياري)</span>}
             </label>
             <Select
               value={decisionReasonId}
@@ -364,7 +430,7 @@ export default function CostsForm({
         {/* ══ التكاليف ══ */}
         <div className="rounded-2xl border border-slate-200 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
-            <span className="text-xs font-bold text-slate-600">إجمالي القطع المستبدلة</span>
+            <span className="text-xs font-bold text-slate-600">إجمالي القطع المنفذة</span>
             <span className="font-black text-slate-800">{partsCostTotal.toLocaleString('ar-SY')} ل.س</span>
           </div>
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
@@ -545,10 +611,10 @@ export default function CostsForm({
               </button>
             )}
             <button type="button" onClick={handleSave}
-              disabled={saving || !finalDecision || (finalDecision === 'needs_followup' && !isNewPath && !followUpExpectedDate)}
+              disabled={saving || !finalDecision || (requiresDecisionReason && !decisionReasonId) || (finalDecision === 'needs_followup' && !isNewPath && !followUpExpectedDate)}
               className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60 shadow-sm">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {saving ? 'جاري الحفظ...' : finalDecision === 'needs_followup' ? 'حفظ وإنشاء مهمة متابعة' : 'حفظ وإنهاء'}
+              {saving ? 'جاري الحفظ...' : isFollowupDecision ? 'حفظ مع متابعة' : 'حفظ وإنهاء'}
             </button>
           </div>
         )}

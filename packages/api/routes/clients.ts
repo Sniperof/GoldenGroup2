@@ -1146,12 +1146,9 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
     }
 
     const allowedTypes = new Set([
-      'contract_payment',
-      'maintenance_payment',
-      'contract_installment',
-      'contract_discount',
-      'refund',
-      'opening_balance',
+      'contract', 'contract_installment', 'contract_payment',
+      'emergency_maintenance', 'periodic_maintenance', 'installation',
+      'golden_warranty', 'opening_balance',
     ]);
     const types = typeof req.query.types === 'string'
       ? req.query.types.split(',').map(type => type.trim()).filter(Boolean)
@@ -1160,62 +1157,56 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
       return res.status(400).json({ error: 'نوع الحركة المالية غير صالح' });
     }
 
-    const filters = ['client_id = $1'];
+    // DEC-CT-10 (موسّع): كشف الحساب مشتق مباشرةً من سجل الحركات الموحّد
+    // financial_movements. الرصيد الجاري يُحسب على كامل تاريخ الزبون ثم يُطبَّق
+    // فلتر العرض (المدى/النوع)، فيبقى الرصيد التراكمي صحيحاً مع الفلترة.
+    const displayFilters: string[] = [];
     const params: Array<string | string[]> = [clientId!];
     if (from) {
       params.push(from);
-      filters.push(`entry_date >= $${params.length}::date`);
+      displayFilters.push(`occurred_at >= $${params.length}::date`);
     }
     if (to) {
       params.push(to);
-      filters.push(`entry_date < ($${params.length}::date + INTERVAL '1 day')`);
+      displayFilters.push(`occurred_at < ($${params.length}::date + INTERVAL '1 day')`);
     }
     if (types.length > 0) {
       params.push(types);
-      filters.push(`entry_type = ANY($${params.length}::varchar[])`);
+      displayFilters.push(`source_type = ANY($${params.length}::varchar[])`);
     }
+    const displayWhere = displayFilters.length ? `WHERE ${displayFilters.join(' AND ')}` : '';
 
     const [entriesResult, summaryResult] = await Promise.all([
       pool.query(
-        `SELECT
-           id,
-           entry_date,
-           entry_type,
-           source_type,
-           source_id,
-           description,
-           reference_no,
-           debit_amount,
-           credit_amount,
-           running_balance
-         FROM client_ledger_entries
-         WHERE ${filters.join(' AND ')}
-         ORDER BY entry_date ASC, id ASC`,
+        `WITH ordered AS (
+           SELECT
+             id, occurred_at, kind, source_type, source_id, contract_id,
+             description, reference_no,
+             CASE WHEN kind IN ('charge','refund')    THEN amount_syp ELSE 0 END AS debit_amount,
+             CASE WHEN kind IN ('payment','discount') THEN amount_syp ELSE 0 END AS credit_amount,
+             SUM(CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
+               OVER (ORDER BY occurred_at, id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_balance,
+             (kind = 'charge' AND occurred_at > NOW()) AS is_upcoming
+           FROM financial_movements
+           WHERE client_id = $1
+         )
+         SELECT * FROM ordered
+         ${displayWhere}
+         ORDER BY occurred_at ASC, id ASC`,
         params,
       ),
       pool.query(
         `SELECT
-           COALESCE(SUM(l.debit_amount), 0) AS total_owed,
-           COALESCE(SUM(l.credit_amount), 0) AS total_paid,
-           COALESCE((
-             SELECT running_balance
-             FROM client_ledger_entries
-             WHERE client_id = $1
-             ORDER BY entry_date DESC, id DESC
-             LIMIT 1
-           ), 0) AS current_balance,
-           COALESCE(SUM(
-             CASE
-               WHEN l.entry_type = 'contract_installment' AND l.entry_date < NOW()
-                 THEN GREATEST(l.debit_amount - COALESCE(i.paid_amount, 0), 0)
-               ELSE 0
-             END
-           ), 0) AS overdue_amount
-         FROM client_ledger_entries l
-         LEFT JOIN contract_installments i
-           ON l.entry_type = 'contract_installment'
-          AND i.id = l.source_entry_id
-         WHERE l.client_id = $1`,
+           COALESCE(SUM(CASE WHEN occurred_at <= NOW()
+                             THEN (CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
+                             ELSE 0 END), 0) AS current_balance,
+           COALESCE(SUM(CASE WHEN kind IN ('payment','discount') THEN amount_syp ELSE 0 END), 0) AS total_paid,
+           COALESCE(SUM(CASE WHEN kind = 'charge' AND occurred_at > NOW() THEN amount_syp ELSE 0 END), 0) AS upcoming_total,
+           GREATEST(COALESCE(SUM(CASE WHEN occurred_at < date_trunc('day', NOW())
+                             THEN (CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
+                             ELSE 0 END), 0), 0) AS overdue_amount
+         FROM financial_movements
+         WHERE client_id = $1`,
         [clientId],
       ),
     ]);
@@ -1223,16 +1214,25 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
     const summary = summaryResult.rows[0];
     res.json({
       summary: {
-        total_owed: Number(summary.total_owed),
         total_paid: Number(summary.total_paid),
         current_balance: Number(summary.current_balance),
+        upcoming_total: Number(summary.upcoming_total),
         overdue_amount: Number(summary.overdue_amount),
       },
       entries: entriesResult.rows.map(row => ({
-        ...row,
+        id: row.id,
+        entry_date: row.occurred_at,
+        entry_type: row.source_type,
+        kind: row.kind,
+        source_type: row.source_type,
+        source_id: row.source_id,
+        contract_id: row.contract_id,
+        description: row.description,
+        reference_no: row.reference_no,
         debit_amount: Number(row.debit_amount),
         credit_amount: Number(row.credit_amount),
         running_balance: Number(row.running_balance),
+        is_upcoming: row.is_upcoming === true,
       })),
     });
   } catch (err: any) {

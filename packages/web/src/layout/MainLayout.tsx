@@ -17,7 +17,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker,
 } from 'lucide-react';
 
 const navItems = [
@@ -45,6 +45,8 @@ const recordsChildren = [
 // Each table is gated by its own view permission (migration 288) so a role can
 // be granted some operations tables and denied others.
 const operationsChildren = [
+    { path: '/tasks/evaluation-lab',            label: 'مختبر تقييم المهام',                   icon: Beaker,      permission: 'open_tasks.view' },
+    { path: '/gifts',                          label: 'إدارة الهدايا',                icon: Gift,        permission: 'tasks.gifts.view' },
     { path: '/tasks/group/device-demo',         label: 'مهام عرض الجهاز',        icon: Monitor,     permission: 'tasks.demo.view' },
     { path: '/tasks/group/maintenance',         label: 'مهام الصيانة',           icon: Wrench,      permission: 'tasks.maintenance.view' },
     { path: '/tasks/group/collection',          label: 'مهام تسديد الذمم',       icon: DollarSign,  permission: 'tasks.collection.view' },
@@ -160,7 +162,7 @@ export default function MainLayout() {
         navigate('/login');
     }
     const isPlanningActive = location.pathname.startsWith('/planning');
-    const isOperationsActive = location.pathname.startsWith('/tasks');
+    const isOperationsActive = location.pathname.startsWith('/tasks') || location.pathname.startsWith('/gifts');
     const isRequestsActive = location.pathname.startsWith('/service-requests');
     const isVisitsActive = location.pathname.startsWith('/field-visits');
     const isContractsActive = location.pathname.startsWith('/contracts');

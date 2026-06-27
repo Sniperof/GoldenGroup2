@@ -11,6 +11,10 @@ import {
 
 type ActivationDecision = 'activated_successfully' | 'activation_failed' | 'device_issue';
 
+function listLabel(item: any) {
+  return item?.metadata?.label || item?.label || item?.value || `#${item?.id}`;
+}
+
 const DECISION_CARDS: Array<{ value: ActivationDecision; title: string; desc: string; Icon: any; cls: string }> = [
   { value: 'activated_successfully', title: 'تم التشغيل', desc: 'الجهاز أصبح فعالاً وجاهزاً للخدمة', Icon: CheckCircle2, cls: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
   { value: 'activation_failed', title: 'فشل التشغيل', desc: 'تبقى المهمة للمتابعة الفنية', Icon: Clock, cls: 'border-amber-200 bg-amber-50 text-amber-700' },
@@ -38,6 +42,7 @@ export default function DeviceActivationResultModal({
   const [expectedDate, setExpectedDate] = useState('');
   const [expectedTime, setExpectedTime] = useState('');
   const [reasonCode, setReasonCode] = useState('');
+  const [followupReasons, setFollowupReasons] = useState<any[]>([]);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +55,14 @@ export default function DeviceActivationResultModal({
       .then((d: any) => setHasSterilization(d?.hasSterilization !== false))
       .catch(() => { /* default: show the block */ });
   }, [deviceId]);
+
+  // Admin-managed follow-up reasons (migration 325). The selected item's
+  // `value` is sent as `reason_code` — same text contract as before.
+  useEffect(() => {
+    api.systemLists.getItemsByCode('device_activation_followup_reasons')
+      .then((rows: any[]) => setFollowupReasons(Array.isArray(rows) ? rows.filter((r) => r.isActive !== false) : []))
+      .catch(() => setFollowupReasons([]));
+  }, []);
 
   const needsFollowUp = decision !== 'activated_successfully';
 
@@ -161,7 +174,10 @@ export default function DeviceActivationResultModal({
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">سبب مختصر</span>
-                <input value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="ضغط، كهرباء، عطل..." />
+                <select value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <option value="">— اختر سبباً —</option>
+                  {followupReasons.map((reason) => <option key={reason.id} value={reason.value}>{listLabel(reason)}</option>)}
+                </select>
               </label>
             </div>
           )}

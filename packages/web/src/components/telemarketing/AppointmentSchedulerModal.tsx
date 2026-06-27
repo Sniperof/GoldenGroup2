@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import IconButton from '../ui/IconButton';
 import { motion } from 'framer-motion';
-import { Calendar, Clock, Droplets, FileText, CheckCircle2, X, Loader2 } from 'lucide-react';
+import { Calendar, Droplets, FileText, CheckCircle2, X, Loader2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
 import type { OpenTaskType } from '@golden-crm/shared';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
+import VisitTimePicker, { isVisitTimeConflict, normalizeVisitTime } from './VisitTimePicker';
 
 export interface CustomerOpenTask {
     taskListItemId: string;
@@ -30,6 +31,8 @@ interface AppointmentSchedulerModalProps {
     customerName: string;
     defaultDate: string;
     defaultTime?: string;
+    /** HH:MM times already booked for the same team on this date (conflict guard). */
+    bookedTimes?: string[];
     /** All open tasks belonging to this customer in the current task list */
     customerOpenTasks: CustomerOpenTask[];
     entityDetails: any;
@@ -55,29 +58,19 @@ function getTomorrow(): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const getHourlyVisitSlots = () => Array.from({ length: 24 }, (_, index) => {
-    const hour = (9 + index) % 24;
-    return `${String(hour).padStart(2, '0')}:00`;
-});
-
-const normalizeTimeSlot = (value: string | null | undefined) => String(value || '').slice(0, 5);
-const normalizeHourlySlot = (value: string | null | undefined) => {
-    const normalized = normalizeTimeSlot(value);
-    return getHourlyVisitSlots().includes(normalized) ? normalized : '09:00';
-};
-
 export default function AppointmentSchedulerModal({
     isOpen,
     onClose,
     customerName,
     defaultDate,
     defaultTime,
+    bookedTimes = [],
     customerOpenTasks,
     entityDetails,
     onSave,
 }: AppointmentSchedulerModalProps) {
     const [visitDate, setVisitDate] = useState(defaultDate || getTomorrow());
-    const [visitTime, setVisitTime] = useState('09:00');
+    const [visitTime, setVisitTime] = useState('');
     const [waterSource, setWaterSource] = useState('');
     const [technicianNotes, setTechnicianNotes] = useState('');
     const [saving, setSaving] = useState(false);
@@ -87,7 +80,7 @@ export default function AppointmentSchedulerModal({
     useEffect(() => {
         if (isOpen) {
             setVisitDate(defaultDate || getTomorrow());
-            setVisitTime(normalizeHourlySlot(defaultTime));
+            setVisitTime(normalizeVisitTime(defaultTime));
             setWaterSource(entityDetails?.waterSource || '');
             setTechnicianNotes('');
 
@@ -114,8 +107,10 @@ export default function AppointmentSchedulerModal({
     const selectedTasks = customerOpenTasks;
     const includesDeviceDemo = selectedTasks.some(t => t.openTaskType === 'device_demo');
 
+    const timeConflict = isVisitTimeConflict(visitTime, bookedTimes);
     const isValid =
         visitTime &&
+        !timeConflict &&
         selectedTasks.length > 0 &&
         (!includesDeviceDemo || !!waterSource);
 
@@ -171,17 +166,11 @@ export default function AppointmentSchedulerModal({
                 <div className="p-5 overflow-y-auto flex-1 space-y-5 custom-scrollbar">
 
                     {/* Visit time. The scheduling date is locked by the workspace. */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                            <Clock className="w-4 h-4 text-emerald-500" />وقت الزيارة <span className="text-red-500">*</span>
-                        </label>
-                        <Select
-                            value={visitTime}
-                            onChange={setVisitTime}
-                            className="w-full"
-                            options={getHourlyVisitSlots().map(slot => ({ value: slot, label: slot }))}
-                        />
-                    </div>
+                    <VisitTimePicker
+                        value={visitTime}
+                        onChange={setVisitTime}
+                        bookedTimes={bookedTimes}
+                    />
 
                     <div className="space-y-2">
                         <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">

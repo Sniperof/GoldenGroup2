@@ -2,23 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, FileSearch, ReceiptText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-import { api, type AccountStatementResponse } from '../../lib/api';
+import { api, type AccountStatementEntry, type AccountStatementResponse } from '../../lib/api';
 
 interface Props {
   client: { id: number };
 }
 
-type TypeFilter = 'all' | 'contracts' | 'maintenance' | 'installments';
+type TypeFilter = 'all' | 'contracts' | 'maintenance' | 'installation';
 
 const TYPE_FILTERS: Array<{ id: TypeFilter; label: string; types?: string }> = [
   { id: 'all', label: 'الكل' },
-  {
-    id: 'contracts',
-    label: 'عقود',
-    types: 'contract_payment,contract_discount,refund',
-  },
-  { id: 'maintenance', label: 'مهمات', types: 'maintenance_payment' },
-  { id: 'installments', label: 'أقساط', types: 'contract_installment' },
+  { id: 'contracts', label: 'عقود', types: 'contract,contract_installment,contract_payment' },
+  { id: 'maintenance', label: 'صيانة', types: 'emergency_maintenance,periodic_maintenance' },
+  { id: 'installation', label: 'تركيب', types: 'installation' },
 ];
 
 function toInputDate(date: Date): string {
@@ -99,11 +95,10 @@ export function AccountStatementTab({ client }: Props) {
     };
   }, [client.id, from, to, typeFilter]);
 
-  const openSource = (sourceType: string | null, sourceId: number | null) => {
-    if (!sourceId) return;
-    if (sourceType === 'contract') {
-      navigate(`/contracts/${sourceId}`);
-    } else if (sourceType === 'maintenance_request') {
+  const openSource = (entry: AccountStatementEntry) => {
+    if (entry.contract_id) {
+      navigate(`/contracts/${entry.contract_id}`);
+    } else if (entry.source_type === 'emergency_maintenance' || entry.source_type === 'periodic_maintenance') {
       navigate('/tasks/group/maintenance');
     }
   };
@@ -113,9 +108,9 @@ export function AccountStatementTab({ client }: Props) {
   }
 
   const summary = data?.summary ?? {
-    total_owed: 0,
-    total_paid: 0,
     current_balance: 0,
+    total_paid: 0,
+    upcoming_total: 0,
     overdue_amount: 0,
   };
 
@@ -123,25 +118,25 @@ export function AccountStatementTab({ client }: Props) {
     <div className="space-y-5" dir="rtl">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
-          <p className="text-sm font-bold text-slate-500">إجمالي العليه</p>
-          <p className="mt-2 text-2xl font-black text-red-600">{formatMoney(summary.total_owed)}</p>
-          {summary.overdue_amount > 0 && (
-            <p className="mt-2 text-xs font-bold text-red-500">
-              المتأخر: {formatMoney(summary.overdue_amount)}
-            </p>
-          )}
-        </div>
-        <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
-          <p className="text-sm font-bold text-slate-500">إجمالي الدفع</p>
-          <p className="mt-2 text-2xl font-black text-emerald-600">{formatMoney(summary.total_paid)}</p>
-        </div>
-        <div className="rounded-2xl border border-sky-100 bg-white p-5 shadow-sm">
-          <p className="text-sm font-bold text-slate-500">الرصيد الحالي</p>
+          <p className="text-sm font-bold text-slate-500">المستحق الآن</p>
           <p className={`mt-2 text-2xl font-black ${
             summary.current_balance > 0 ? 'text-red-600' : 'text-emerald-600'
           }`}>
             {formatMoney(summary.current_balance)}
           </p>
+          {summary.overdue_amount > 0 && (
+            <p className="mt-2 text-xs font-bold text-red-500">
+              منه متأخر: {formatMoney(summary.overdue_amount)}
+            </p>
+          )}
+        </div>
+        <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+          <p className="text-sm font-bold text-slate-500">إجمالي المدفوع</p>
+          <p className="mt-2 text-2xl font-black text-emerald-600">{formatMoney(summary.total_paid)}</p>
+        </div>
+        <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm">
+          <p className="text-sm font-bold text-slate-500">الاستحقاقات القادمة</p>
+          <p className="mt-2 text-2xl font-black text-amber-600">{formatMoney(summary.upcoming_total)}</p>
         </div>
       </div>
 
@@ -217,20 +212,22 @@ export function AccountStatementTab({ client }: Props) {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {data.entries.map(entry => {
-                  const isFutureInstallment =
-                    entry.entry_type === 'contract_installment' &&
-                    new Date(entry.entry_date).getTime() > today.getTime();
-                  const canNavigate = Boolean(entry.source_id);
+                  const isUpcoming = entry.is_upcoming;
+                  const canNavigate = Boolean(
+                    entry.contract_id ||
+                    entry.source_type === 'emergency_maintenance' ||
+                    entry.source_type === 'periodic_maintenance',
+                  );
                   return (
                     <tr
                       key={entry.id}
-                      onClick={() => openSource(entry.source_type, entry.source_id)}
+                      onClick={() => openSource(entry)}
                       onContextMenu={event => {
                         if (!canNavigate) return;
                         event.preventDefault();
-                        openSource(entry.source_type, entry.source_id);
+                        openSource(entry);
                       }}
-                      className={`${isFutureInstallment ? 'bg-slate-50' : 'bg-white'} ${
+                      className={`${isUpcoming ? 'bg-amber-50/50' : 'bg-white'} ${
                         canNavigate ? 'cursor-pointer hover:bg-sky-50' : ''
                       }`}
                     >

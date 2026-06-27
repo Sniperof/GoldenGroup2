@@ -7,13 +7,14 @@ import {
     History, ArrowLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
     X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle,
-    Cpu, Package, Sparkles
+    Cpu, Package, Sparkles, Gift
 } from 'lucide-react';
 import { DevicesTab } from './clientProfile/DevicesTab'; // plan §1 — replaces legacy ContractsTab
 import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
 import { PartsStockTab } from './clientProfile/PartsStockTab';
 import { PreOffersTab } from './clientProfile/PreOffersTab'; // plan B — device-demo pre-offers audit
 import { AccountStatementTab } from './clientProfile/AccountStatementTab';
+import GiftsTab from './clientProfile/GiftsTab';
 import { api } from '../lib/api';
 import type { Client, GeoUnit } from '../lib/types';
 import { buildGeoPath, geoLevelLabel } from '../lib/geoPath';
@@ -38,6 +39,7 @@ type ClientProfileTabId =
     | 'purchase_history'
     | 'parts_stock'
     | 'pre_offers'
+    | 'gifts'
     | 'account_statement';
 
 const referrerTypesAr: Record<string, string> = {
@@ -406,6 +408,7 @@ export default function ClientProfile() {
         ...(canViewPurchaseHistory ? [{ id: 'purchase_history' as const, label: 'ط³ط¬ظ„ ط§ظ„ظ…ط´طھط±ظٹط§طھ', icon: History }] : []),
         ...(canViewPartsStock ? [{ id: 'parts_stock' as const, label: 'ط§ظ„ظ…ط®ط²ظˆظ†', icon: Package }] : []),
         ...(canViewPreOffers ? [{ id: 'pre_offers' as const, label: 'ط§ظ„ط¹ط±ظˆط¶ ط§ظ„ظ…ط³ط¨ظ‚ط©', icon: Sparkles }] : []),
+        { id: 'gifts' as const, label: 'الهدايا', icon: Gift },
         ...(canViewNetwork ? [{ id: 'network' as const, label: 'ط§ظ„ط´ط¨ظƒط©', icon: Share2 }] : []),
         ...(canViewAccountStatement ? [{ id: 'account_statement' as const, label: 'ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨', icon: FileText }] : []),
     ];
@@ -442,6 +445,7 @@ export default function ClientProfile() {
                                 { id: 'purchase_history', label: 'سجل المشتريات', icon: History },
                                 { id: 'parts_stock', label: 'المخزون', icon: Package },
                                 { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
+                                { id: 'gifts', label: 'الهدايا', icon: Gift },
                                 { id: 'network', label: 'الشبكة', icon: Share2 },
                                 { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
                             ].filter((tab) => tabs.some(allowedTab => allowedTab.id === tab.id)).map((tab) => (
@@ -504,6 +508,7 @@ export default function ClientProfile() {
                                 {safeActiveTab === 'purchase_history' && <PurchaseHistoryTab client={client} />}
                                 {safeActiveTab === 'parts_stock' && <PartsStockTab client={client} />}
                                 {safeActiveTab === 'pre_offers' && <PreOffersTab client={client} />}
+                                {safeActiveTab === 'gifts' && <GiftsTab client={client} />}
                                 {safeActiveTab === 'network' && <NetworkTab client={client} />}
                                 {safeActiveTab === 'account_statement' && <AccountStatementTab client={client} />}
                             </motion.div>
@@ -800,7 +805,7 @@ function ContactsTab({
     );
 }
 
-function VisitsTab({ client }: { client: Client }) {
+export function VisitsTab({ client }: { client: Client }) {
     const navigate = useNavigate();
     const [visits, setVisits] = useState<any[]>([]);
     const [tasks, setTasks] = useState<any[]>([]);

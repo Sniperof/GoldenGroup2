@@ -31,7 +31,7 @@ import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import { usePermissions } from '../../hooks/usePermissions';
-import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
+import { OPEN_TASK_TYPE_LABELS, isHiddenOperationalTaskType } from '@golden-crm/shared';
 
 type VisitView = 'daily' | 'branch' | 'team' | 'documentation' | 'tasks';
 
@@ -832,8 +832,12 @@ export default function VisitsListPage() {
 
   const taskOptions = useMemo(() => {
     const found = new Set<string>();
-    rows.forEach((row) => row.tasksSummary?.forEach((task) => found.add(task.taskType)));
-    Object.keys(OPEN_TASK_TYPE_LABELS as Record<string, string>).forEach((key) => found.add(key));
+    rows.forEach((row) => row.tasksSummary?.forEach((task) => {
+      if (!isHiddenOperationalTaskType(task.taskType)) found.add(task.taskType);
+    }));
+    Object.keys(OPEN_TASK_TYPE_LABELS as Record<string, string>).forEach((key) => {
+      if (!isHiddenOperationalTaskType(key)) found.add(key);
+    });
     return Array.from(found).sort();
   }, [rows]);
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { getTaskPhase, type OpenTaskStatus, type AuthContext } from '@golden-crm/shared';
+import { HIDDEN_OPERATIONAL_TASK_TYPES, getTaskPhase, isHiddenOperationalTaskType, type OpenTaskStatus, type AuthContext } from '@golden-crm/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, getOrBuildAuthContext } from '../middleware/permission.js';
 import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
@@ -35,6 +35,8 @@ const PLANNING_WINDOW_DAYS: Record<string, number> = {
   device_installation: 3,
   device_activation: 3,
   device_disconnection: 3,
+  device_retrieval: 3,
+  device_return: 3,
   device_transfer: 3,
 };
 const DEFAULT_PLANNING_WINDOW = 7;
@@ -44,7 +46,7 @@ const DEFAULT_PLANNING_WINDOW = 7;
 // tables and denied others. Editing stays on the unified open_tasks.edit.
 const TASK_GROUP_CONFIG: Record<string, { taskTypes: string[]; emptyLabel: string; permission: string }> = {
   'device-demo': {
-    taskTypes: ['device_demo', 'device_checkup'],
+    taskTypes: ['device_demo'],
     emptyLabel: 'مهام عروض الأجهزة',
     permission: 'tasks.demo.view',
   },
@@ -57,14 +59,14 @@ const TASK_GROUP_CONFIG: Record<string, { taskTypes: string[]; emptyLabel: strin
     permission: 'tasks.maintenance.view',
   },
   'collection': {
-    taskTypes: ['installment_collection', 'maintenance_collection'],
+    taskTypes: ['installment_collection'],
     emptyLabel: 'مهام تحصيل الأقساط',
     permission: 'tasks.collection.view',
   },
   // After-sales = post-delivery service tasks. Device delivery/installation/
   // activation are their own tables below (product decision 2026-06-15).
   'after-sale-services': {
-    taskTypes: ['device_repair', 'device_retrieval', 'device_return', 'device_transfer', 'parts_sale'],
+    taskTypes: ['device_checkup', 'device_retrieval', 'device_return', 'device_transfer'],
     emptyLabel: 'مهام خدمات ما بعد البيع',
     permission: 'tasks.after_sales.view',
   },
@@ -74,7 +76,7 @@ const TASK_GROUP_CONFIG: Record<string, { taskTypes: string[]; emptyLabel: strin
     permission: 'tasks.gifts.view',
   },
   'warranty-services': {
-    taskTypes: ['golden_warranty', 'golden_warranty_offer', 'golden_warranty_card_delivery', 'warranty_cancellation', 'warranty_reactivation'],
+    taskTypes: ['golden_warranty_offer', 'golden_warranty_card_delivery'],
     emptyLabel: 'مهام خدمات الكفالة',
     permission: 'tasks.warranty.view',
   },
@@ -154,6 +156,7 @@ const OPEN_TASK_SELECT = `
     -- Level 2 §أ — lifecycle classification: LEAD / FOP / OP (computed live).
     ${buildClientLifecycleStatusSql('c')} AS "clientClassification",
     b.name AS "branchName",
+    service_branch.name AS "serviceBranchName",
     creator.name AS "createdByName",
     -- Active visit: a booked visit not yet resulted (story is "live"). Null otherwise.
     CASE WHEN active_visit.id IS NOT NULL THEN json_build_object(
@@ -174,6 +177,12 @@ const OPEN_TASK_SELECT = `
     ) END AS "lastAttempt",
     COALESCE(attempts_agg.count, 0) AS "attemptsCount",
     completed_activity.completed_at AS "completedAt",
+    CASE WHEN otp.superseded_reason IS NOT NULL THEN json_build_object(
+      'reason',       otp.superseded_reason,
+      'byOpenTaskId', otp.superseded_by_open_task_id,
+      'at',           otp.superseded_at,
+      'byUserId',     otp.superseded_by_user_id
+    ) END AS "periodicSupersession",
     COALESCE(
       (SELECT json_agg(json_build_object(
          'userId', u2.id,
@@ -190,8 +199,10 @@ const OPEN_TASK_SELECT = `
   FROM open_tasks ot
   JOIN clients c ON c.id = ot.client_id
   LEFT JOIN branches b ON b.id = ot.branch_id
+  LEFT JOIN branches service_branch ON service_branch.id = ot.service_branch_id
   LEFT JOIN branches cb ON cb.id = c.branch_id
   LEFT JOIN hr_users creator ON creator.id = ot.created_by
+  LEFT JOIN open_task_periodic_payload otp ON otp.open_task_id = ot.id
   -- Active visit: at most one booking that hasn't been resulted yet.
   -- A booking is "scheduled" before start, "in_progress" during the field, "ended" after end
   -- but before result is saved. Once final_decision lands, the booking is no longer "active".
@@ -288,6 +299,15 @@ function mapOpenTaskRow(row: any) {
     contactTargetId: row.contact_target_id,
     notes: row.notes,
     deliveryAddress: row.delivery_address ?? null,
+    serviceBranchId: row.service_branch_id ?? null,
+    serviceBranchName: row.serviceBranchName ?? null,
+    retrievalPurpose: row.retrieval_purpose ?? null,
+    transferKind: row.transfer_kind ?? null,
+    targetClientId: row.target_client_id ?? null,
+    plannedTransferGeoUnitId: row.planned_transfer_geo_unit_id ?? null,
+    plannedTransferAddressText: row.planned_transfer_address_text ?? null,
+    plannedTransferLat: row.planned_transfer_lat == null ? null : Number(row.planned_transfer_lat),
+    plannedTransferLng: row.planned_transfer_lng == null ? null : Number(row.planned_transfer_lng),
     sourceContextType: row.source_context_type ?? null,
     sourceContextId: row.source_context_id ?? null,
     dispatchOriginType: row.dispatch_origin_type ?? null,
@@ -298,6 +318,7 @@ function mapOpenTaskRow(row: any) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completedAt ?? null,
+    periodicSupersession: row.periodicSupersession ?? null,
     clientSnapshot: row.clientSnapshot ?? null,
     contractSnapshot: row.contractSnapshot ?? null,
     deviceSnapshot: row.deviceSnapshot ?? null,
@@ -351,7 +372,12 @@ function mapOpenTaskRow(row: any) {
 }
 
 async function loadOpenTaskById(db: Queryable, id: number) {
-  const { rows } = await db.query(`${OPEN_TASK_SELECT} WHERE ot.id = $1`, [id]);
+  const { rows } = await db.query(
+    `${OPEN_TASK_SELECT}
+     WHERE ot.id = $1
+       AND ot.task_type <> ALL($2::text[])`,
+    [id, Array.from(HIDDEN_OPERATIONAL_TASK_TYPES)],
+  );
   return rows[0] ? mapOpenTaskRow(rows[0]) : null;
 }
 
@@ -833,6 +859,8 @@ router.get('/', requirePermission('open_tasks.view'), async (req, res) => {
 
     const params: any[] = [];
     const conditions: string[] = [];
+    params.push(Array.from(HIDDEN_OPERATIONAL_TASK_TYPES));
+    conditions.push(`ot.task_type <> ALL($${params.length}::text[])`);
 
     // Branch predicate from grant scope (engineering standard §3-5/§3-6):
     // GLOBAL sees every branch (optionally narrowed by ?branchId); BRANCH and
@@ -863,6 +891,9 @@ router.get('/', requirePermission('open_tasks.view'), async (req, res) => {
 
     const taskTypeFilter = req.query.taskType as string | undefined;
     if (taskTypeFilter) {
+      if (isHiddenOperationalTaskType(taskTypeFilter)) {
+        return res.json([]);
+      }
       params.push(taskTypeFilter);
       conditions.push(`ot.task_type = $${params.length}`);
     }
@@ -956,6 +987,9 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   const devices = req.body?.devices as any[] | undefined;
   const preOffers = req.body?.preOffers as any[] | undefined;
   const taskType = typeof req.body?.taskType === 'string' ? req.body.taskType.trim() : 'device_demo';
+  if (isHiddenOperationalTaskType(taskType)) {
+    return res.status(400).json({ error: `نوع المهمة "${taskType}" غير مفعل حاليا` });
+  }
   const taskFamily = typeof req.body?.taskFamily === 'string' ? req.body.taskFamily.trim() : 'marketing';
   let contractId = Number(req.body?.contractId) || null;
   const installedDeviceId = Number(req.body?.installedDeviceId ?? req.body?.deviceId) || null;
@@ -976,6 +1010,20 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   const sourceContextId = Number(req.body?.sourceContextId) || null;
   const dispatchOriginType = typeof req.body?.dispatchOriginType === 'string' ? req.body.dispatchOriginType.trim() || null : null;
   const dispatchOriginLabel = typeof req.body?.dispatchOriginLabel === 'string' ? req.body.dispatchOriginLabel.trim() || null : null;
+  const serviceBranchId = Number(req.body?.serviceBranchId ?? req.body?.service_branch_id) || null;
+  const retrievalPurpose = typeof req.body?.retrievalPurpose === 'string'
+    ? req.body.retrievalPurpose.trim()
+    : (typeof req.body?.retrieval_purpose === 'string' ? req.body.retrieval_purpose.trim() : null);
+  const transferKind = typeof req.body?.transferKind === 'string'
+    ? req.body.transferKind.trim()
+    : (typeof req.body?.transfer_kind === 'string' ? req.body.transfer_kind.trim() : null);
+  const targetClientId = Number(req.body?.targetClientId ?? req.body?.target_client_id) || null;
+  const plannedTransferGeoUnitId = Number(req.body?.plannedTransferGeoUnitId ?? req.body?.planned_transfer_geo_unit_id ?? req.body?.transferGeoUnitId) || null;
+  const plannedTransferAddressText = typeof (req.body?.plannedTransferAddressText ?? req.body?.planned_transfer_address_text ?? req.body?.transferAddressText) === 'string'
+    ? String(req.body?.plannedTransferAddressText ?? req.body?.planned_transfer_address_text ?? req.body?.transferAddressText).trim() || null
+    : null;
+  const plannedTransferLat = req.body?.plannedTransferLat ?? req.body?.planned_transfer_lat ?? req.body?.transferLat;
+  const plannedTransferLng = req.body?.plannedTransferLng ?? req.body?.planned_transfer_lng ?? req.body?.transferLng;
   const creationOriginInput = typeof req.body?.creationOrigin === 'string' ? req.body.creationOrigin.trim() : '';
   const allowedCreationOrigins = new Set([
     'branch_plan',
@@ -1024,7 +1072,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   if (!taskTypeConfig.isActive) {
     return res.status(400).json({ error: `نوع المهمة "${taskType}" غير مفعل حاليا` });
   }
-  if (!taskTypeConfig.allowMultiple && !['device_delivery', 'device_installation', 'device_activation', 'device_disconnection'].includes(taskType)) {
+  if (!taskTypeConfig.allowMultiple && !['device_delivery', 'device_installation', 'device_activation', 'device_checkup', 'device_disconnection', 'device_retrieval', 'device_return', 'device_transfer'].includes(taskType)) {
     const { rows: activeDuplicateRows } = await pool.query(
       `SELECT id, status
        FROM open_tasks
@@ -1048,11 +1096,14 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   let deviceBranchIdFromContract: number | null = null;
   let deviceAddressFromCurrentDevice: string | null = null;
   let deviceGeoUnitIdFromCurrentDevice: number | null = null;
+  let deviceLatFromCurrentDevice: number | null = null;
+  let deviceLngFromCurrentDevice: number | null = null;
   let deviceStatusFromCurrentDevice: string | null = null;
   if (installedDeviceId) {
     const { rows: devRows } = await pool.query(
       `SELECT id, branch_id AS "branchId", customer_id, contract_id,
-              status, installation_geo_unit_id, installation_address_text
+              status, installation_geo_unit_id, installation_address_text,
+              installation_lat, installation_lng
          FROM installed_devices
         WHERE id = $1
         LIMIT 1`,
@@ -1072,16 +1123,20 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     deviceBranchIdFromContract = dev.branchId ?? null;
     deviceAddressFromCurrentDevice = dev.installation_address_text ?? null;
     deviceGeoUnitIdFromCurrentDevice = dev.installation_geo_unit_id ?? null;
+    deviceLatFromCurrentDevice = dev.installation_lat == null ? null : Number(dev.installation_lat);
+    deviceLngFromCurrentDevice = dev.installation_lng == null ? null : Number(dev.installation_lng);
     deviceStatusFromCurrentDevice = dev.status ?? null;
   } else if (contractId) {
     const { rows: devRows } = await pool.query(
-      'SELECT id, branch_id AS "branchId", status, installation_geo_unit_id, installation_address_text FROM installed_devices WHERE contract_id = $1 LIMIT 1',
+      'SELECT id, branch_id AS "branchId", status, installation_geo_unit_id, installation_address_text, installation_lat, installation_lng FROM installed_devices WHERE contract_id = $1 LIMIT 1',
       [contractId],
     );
     deviceIdFromContract = devRows[0]?.id ?? null;
     deviceBranchIdFromContract = devRows[0]?.branchId ?? null;
     deviceAddressFromCurrentDevice = devRows[0]?.installation_address_text ?? null;
     deviceGeoUnitIdFromCurrentDevice = devRows[0]?.installation_geo_unit_id ?? null;
+    deviceLatFromCurrentDevice = devRows[0]?.installation_lat == null ? null : Number(devRows[0].installation_lat);
+    deviceLngFromCurrentDevice = devRows[0]?.installation_lng == null ? null : Number(devRows[0].installation_lng);
     deviceStatusFromCurrentDevice = devRows[0]?.status ?? null;
   }
 
@@ -1178,6 +1233,35 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     }
   }
 
+  if (taskType === 'device_checkup') {
+    if (!deviceIdFromContract) {
+      return res.status(400).json({ error: 'device_checkup يتطلب installedDeviceId' });
+    }
+    if (!['delivered', 'installed', 'active'].includes(String(deviceStatusFromCurrentDevice))) {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة تشييك إلا لجهاز موجود عند الزبون' });
+    }
+    if (!dueDate) {
+      return res.status(400).json({ error: 'تاريخ المهمة مطلوب عند إنشاء مهمة تشييك الجهاز' });
+    }
+    const { rows: activeDuplicateRows } = await pool.query(
+      `SELECT id, status
+         FROM open_tasks
+        WHERE device_id = $1
+          AND task_type = 'device_checkup'
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (activeDuplicateRows.length > 0) {
+      return res.status(409).json({
+        error: 'لا يمكن إنشاء أكثر من مهمة تشييك نشطة لنفس الجهاز',
+        existingTaskId: activeDuplicateRows[0].id,
+        existingTaskStatus: activeDuplicateRows[0].status,
+      });
+    }
+  }
+
   if (taskType === 'device_disconnection') {
     if (!deviceIdFromContract) {
       return res.status(400).json({ error: 'device_disconnection يتطلب installedDeviceId أو عقدا مرتبطا بجهاز' });
@@ -1210,7 +1294,196 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     }
   }
 
-  if (deviceBranchIdFromContract && shouldUseDeviceBranch(taskFamily, taskType)) {
+  if (taskType === 'device_retrieval') {
+    if (!deviceIdFromContract) {
+      return res.status(400).json({ error: 'device_retrieval يتطلب installedDeviceId أو عقدا مرتبطا بجهاز' });
+    }
+    if (deviceStatusFromCurrentDevice !== 'out_of_service') {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة سحب إلا لجهاز حالته out_of_service' });
+    }
+    if (retrievalPurpose !== 'maintenance' && retrievalPurpose !== 'replacement') {
+      return res.status(400).json({ error: 'غرض السحب مطلوب ويجب أن يكون maintenance أو replacement' });
+    }
+    if (!serviceBranchId || !Number.isInteger(serviceBranchId)) {
+      return res.status(400).json({ error: 'serviceBranchId مطلوب لمهمة سحب الجهاز' });
+    }
+    if (!dueDate) {
+      return res.status(400).json({ error: 'التاريخ المطلوب مطلوب عند إنشاء مهمة سحب الجهاز' });
+    }
+
+    const { rows: disconnectionRows } = await pool.query(
+      `SELECT vtr.id
+         FROM visit_tasks vt
+         JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+        WHERE vt.task_type = 'device_disconnection'
+          AND vt.source_open_task_id IN (
+            SELECT id FROM open_tasks WHERE device_id = $1 AND task_type = 'device_disconnection'
+          )
+          AND vtr.final_decision IN ('disconnected_successfully', 'requires_retrieval')
+        ORDER BY vtr.closed_at DESC NULLS LAST, vtr.id DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (disconnectionRows.length === 0) {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة سحب قبل وجود مهمة فك ناجحة سابقة لهذا الجهاز' });
+    }
+
+    const { rows: serviceBranchRows } = await pool.query(
+      `SELECT id, status
+         FROM branches
+        WHERE id = $1
+        LIMIT 1`,
+      [serviceBranchId],
+    );
+    if (!serviceBranchRows[0]) {
+      return res.status(400).json({ error: 'فرع الخدمة المحدد غير موجود' });
+    }
+    if (serviceBranchRows[0].status === 'inactive') {
+      return res.status(400).json({ error: 'لا يمكن سحب الجهاز إلى فرع خدمة موقوف' });
+    }
+
+    const { rows: activeDuplicateRows } = await pool.query(
+      `SELECT id, status
+         FROM open_tasks
+        WHERE device_id = $1
+          AND task_type = 'device_retrieval'
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (activeDuplicateRows.length > 0) {
+      return res.status(409).json({
+        error: 'لا يمكن إنشاء أكثر من مهمة سحب نشطة لنفس الجهاز',
+        existingTaskId: activeDuplicateRows[0].id,
+        existingTaskStatus: activeDuplicateRows[0].status,
+      });
+    }
+
+    branchId = serviceBranchId;
+  }
+
+  if (taskType === 'device_return') {
+    if (!deviceIdFromContract) {
+      return res.status(400).json({ error: 'device_return يتطلب installedDeviceId أو عقدا مرتبطا بجهاز' });
+    }
+    if (deviceStatusFromCurrentDevice !== 'in_workshop') {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة إرجاع إلا لجهاز حالته in_workshop' });
+    }
+    if (!dueDate) {
+      return res.status(400).json({ error: 'التاريخ المطلوب مطلوب عند إنشاء مهمة إرجاع الجهاز' });
+    }
+
+    const { rows: retrievalRows } = await pool.query(
+      `SELECT ot.id
+         FROM open_tasks ot
+         JOIN visit_tasks vt ON vt.source_open_task_id = ot.id
+         JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+         JOIN visit_task_device_retrieval_results rr ON rr.visit_task_result_id = vtr.id
+        WHERE ot.device_id = $1
+          AND ot.task_type = 'device_retrieval'
+          AND vtr.final_decision = 'retrieved_successfully'
+          AND rr.retrieval_purpose = 'maintenance'
+        ORDER BY vtr.closed_at DESC NULLS LAST, vtr.id DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (retrievalRows.length === 0) {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة إرجاع قبل وجود سحب ناجح للصيانة لهذا الجهاز' });
+    }
+
+    const { rows: activeDuplicateRows } = await pool.query(
+      `SELECT id, status
+         FROM open_tasks
+        WHERE device_id = $1
+          AND task_type = 'device_return'
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (activeDuplicateRows.length > 0) {
+      return res.status(409).json({
+        error: 'لا يمكن إنشاء أكثر من مهمة إرجاع نشطة لنفس الجهاز',
+        existingTaskId: activeDuplicateRows[0].id,
+        existingTaskStatus: activeDuplicateRows[0].status,
+      });
+    }
+  }
+
+  if (taskType === 'device_transfer') {
+    if (!deviceIdFromContract) {
+      return res.status(400).json({ error: 'device_transfer يتطلب installedDeviceId' });
+    }
+    if (!['delivered', 'installed', 'active'].includes(String(deviceStatusFromCurrentDevice))) {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة نقل إلا لجهاز موجود عند الزبون' });
+    }
+    if (transferKind !== 'same_customer_new_address' && transferKind !== 'another_customer') {
+      return res.status(400).json({ error: 'نوع النقل مطلوب ويجب أن يكون same_customer_new_address أو another_customer' });
+    }
+    if (!dueDate) {
+      return res.status(400).json({ error: 'التاريخ المطلوب مطلوب عند إنشاء مهمة نقل الجهاز' });
+    }
+    if (!plannedTransferGeoUnitId || !plannedTransferAddressText) {
+      return res.status(400).json({ error: 'العنوان المبدئي الجديد يتطلب حيّاً وعنواناً تفصيلياً' });
+    }
+
+    const { rows: geoRows } = await pool.query(
+      `SELECT id, level, status
+         FROM geo_units
+        WHERE id = $1
+        LIMIT 1`,
+      [plannedTransferGeoUnitId],
+    );
+    if (!geoRows[0]) {
+      return res.status(400).json({ error: 'الحي المحدد في العنوان المبدئي غير موجود' });
+    }
+    if (Number(geoRows[0].level) !== 4) {
+      return res.status(400).json({ error: 'العنوان المبدئي يجب أن يحدد الحي حصراً' });
+    }
+    if (geoRows[0].status === 'inactive') {
+      return res.status(400).json({ error: 'لا يمكن اختيار حي موقوف' });
+    }
+
+    if (transferKind === 'another_customer') {
+      if (!targetClientId || !Number.isInteger(targetClientId)) {
+        return res.status(400).json({ error: 'الزبون الجديد مطلوب عند نقل الجهاز إلى زبون آخر' });
+      }
+      if (targetClientId === clientId) {
+        return res.status(400).json({ error: 'الزبون الجديد يجب أن يختلف عن الزبون الحالي' });
+      }
+      const { rows: targetRows } = await pool.query(
+        `SELECT id
+           FROM clients
+          WHERE id = $1
+          LIMIT 1`,
+        [targetClientId],
+      );
+      if (!targetRows[0]) {
+        return res.status(400).json({ error: 'الزبون الجديد غير موجود' });
+      }
+    }
+
+    const { rows: activeDuplicateRows } = await pool.query(
+      `SELECT id, status
+         FROM open_tasks
+        WHERE device_id = $1
+          AND task_type = 'device_transfer'
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (activeDuplicateRows.length > 0) {
+      return res.status(409).json({
+        error: 'لا يمكن إنشاء أكثر من مهمة نقل نشطة لنفس الجهاز',
+        existingTaskId: activeDuplicateRows[0].id,
+        existingTaskStatus: activeDuplicateRows[0].status,
+      });
+    }
+  }
+
+  if (deviceBranchIdFromContract && taskType !== 'device_retrieval' && shouldUseDeviceBranch(taskFamily, taskType)) {
     branchId = deviceBranchIdFromContract;
   }
   if (!branchId || !Number.isInteger(branchId)) {
@@ -1248,8 +1521,24 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     ['sale_delivery', 'post_maintenance_return', 'temporary_swap_delivery', 'replacement_delivery', 'manual_delivery']
       .forEach((value) => allowedReasons.add(value));
   }
+  if (taskType === 'device_checkup') {
+    ['device_checkup', 'manual_checkup', 'other']
+      .forEach((value) => allowedReasons.add(value));
+  }
   if (taskType === 'device_disconnection') {
     ['contract_cancelled', 'temporary_stop', 'customer_request', 'technical_safety', 'replacement_preparation', 'maintenance_preparation', 'other']
+      .forEach((value) => allowedReasons.add(value));
+  }
+  if (taskType === 'device_retrieval') {
+    ['device_retrieval_maintenance', 'device_retrieval_replacement', 'maintenance_preparation', 'replacement_preparation', 'other']
+      .forEach((value) => allowedReasons.add(value));
+  }
+  if (taskType === 'device_return') {
+    ['device_return_after_maintenance', 'post_maintenance_return', 'other']
+      .forEach((value) => allowedReasons.add(value));
+  }
+  if (taskType === 'device_transfer') {
+    ['device_transfer_same_customer_new_address', 'device_transfer_another_customer', 'other']
       .forEach((value) => allowedReasons.add(value));
   }
   if (!reason || !allowedReasons.has(reason)) {
@@ -1273,7 +1562,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
 
     // Phase 3: resolve device_id from installed_devices when contract_id is known
     const deviceId: number | null = deviceIdFromContract;
-    const deliveryAddress = taskType === 'device_delivery' || taskType === 'device_installation' || taskType === 'device_activation' || taskType === 'device_disconnection'
+    const deliveryAddress = taskType === 'device_delivery' || taskType === 'device_installation' || taskType === 'device_activation' || taskType === 'device_checkup' || taskType === 'device_disconnection' || taskType === 'device_retrieval' || taskType === 'device_return' || taskType === 'device_transfer'
       ? (deliveryAddressInput || deviceAddressFromCurrentDevice)
       : null;
     if (taskType === 'device_delivery' && !deliveryAddress) {
@@ -1381,26 +1670,57 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       }
     }
 
+    const openTaskColumns: string[] = [
+      'client_id', 'branch_id', 'task_type', 'task_family', 'reason', 'status',
+      'due_date', 'expected_date', 'priority', 'source', 'notes', 'created_by', 'origin',
+      'contract_id', 'device_id', 'installment_id',
+      'delivery_address', 'source_context_type', 'source_context_id',
+      'dispatch_origin_type', 'dispatch_origin_label', 'creation_origin', 'creation_reason',
+      'receivable_source_type', 'receivable_source_id', 'receivable_source_label',
+      'expected_amount_syp',
+    ];
+    const openTaskValues: any[] = [
+      clientId, branchId, taskType, taskFamily, reason, 'open',
+      dueDate, expectedDate, priority, 'manual', notes, authContext.userId ?? null, 'manual_entry',
+      contractId, deviceId, installmentId,
+      deliveryAddress, sourceContextType, sourceContextId,
+      dispatchOriginType, dispatchOriginLabel, creationOrigin, creationReason,
+      receivableSourceType, receivableSourceId, receivableSourceLabel,
+      expectedAmountSyp,
+    ];
+    const addOptionalOpenTaskColumn = async (columnName: string, value: any) => {
+      if (await hasOpenTaskColumn(columnName)) {
+        openTaskColumns.push(columnName);
+        openTaskValues.push(value);
+      }
+    };
+
+    await addOptionalOpenTaskColumn('service_branch_id', taskType === 'device_retrieval' ? serviceBranchId : null);
+    await addOptionalOpenTaskColumn('retrieval_purpose', taskType === 'device_retrieval' ? retrievalPurpose : null);
+    await addOptionalOpenTaskColumn('pre_retrieval_branch_id', taskType === 'device_retrieval' ? deviceBranchIdFromContract : null);
+    await addOptionalOpenTaskColumn('pre_retrieval_geo_unit_id', taskType === 'device_retrieval' ? deviceGeoUnitIdFromCurrentDevice : null);
+    await addOptionalOpenTaskColumn('pre_retrieval_address_text', taskType === 'device_retrieval' ? deviceAddressFromCurrentDevice : null);
+    await addOptionalOpenTaskColumn('pre_retrieval_lat', taskType === 'device_retrieval' ? deviceLatFromCurrentDevice : null);
+    await addOptionalOpenTaskColumn('pre_retrieval_lng', taskType === 'device_retrieval' ? deviceLngFromCurrentDevice : null);
+    await addOptionalOpenTaskColumn('transfer_kind', taskType === 'device_transfer' ? transferKind : null);
+    await addOptionalOpenTaskColumn('target_client_id', taskType === 'device_transfer' ? targetClientId : null);
+    await addOptionalOpenTaskColumn('planned_transfer_geo_unit_id', taskType === 'device_transfer' ? plannedTransferGeoUnitId : null);
+    await addOptionalOpenTaskColumn('planned_transfer_address_text', taskType === 'device_transfer' ? plannedTransferAddressText : null);
+    await addOptionalOpenTaskColumn(
+      'planned_transfer_lat',
+      taskType === 'device_transfer' && plannedTransferLat !== '' && plannedTransferLat != null ? Number(plannedTransferLat) : null,
+    );
+    await addOptionalOpenTaskColumn(
+      'planned_transfer_lng',
+      taskType === 'device_transfer' && plannedTransferLng !== '' && plannedTransferLng != null ? Number(plannedTransferLng) : null,
+    );
+
+    const placeholders = openTaskValues.map((_, index) => `$${index + 1}`);
     const { rows: taskRows } = await pgClient.query(
-      `INSERT INTO open_tasks (
-         client_id, branch_id, task_type, task_family, reason, status,
-         due_date, expected_date, priority, source, notes, created_by, origin,
-         contract_id, device_id, installment_id,
-         delivery_address, source_context_type, source_context_id,
-         dispatch_origin_type, dispatch_origin_label, creation_origin, creation_reason,
-         receivable_source_type, receivable_source_id, receivable_source_label,
-         expected_amount_syp
-       ) VALUES ($1, $2, $3, $4, $5, 'open',
-         $6::date, $7::date, $8, 'manual', $9, $10, 'manual_entry',
-         $11, $12, $13,
-         $14, $15, $16, $17, $18, $19, $20,
-         $21, $22, $23, $24)
+      `INSERT INTO open_tasks (${openTaskColumns.join(', ')})
+       VALUES (${placeholders.join(', ')})
        RETURNING id`,
-      [clientId, branchId, taskType, taskFamily, reason, dueDate, expectedDate, priority, notes,
-       authContext.userId ?? null, contractId, deviceId, installmentId,
-       deliveryAddress, sourceContextType, sourceContextId, dispatchOriginType, dispatchOriginLabel,
-       creationOrigin, creationReason, receivableSourceType, receivableSourceId, receivableSourceLabel,
-       expectedAmountSyp],
+      openTaskValues,
     );
     const openTaskId = taskRows[0].id;
 
@@ -1852,6 +2172,12 @@ function buildTaskRowsSelectFrom(hasDeliveryAddressColumn: boolean): string {
         ot.created_at AS "createdAt",
         ot.updated_at AS "updatedAt",
         completed_activity.completed_at AS "completedAt",
+        CASE WHEN otp.superseded_reason IS NOT NULL THEN json_build_object(
+          'reason',       otp.superseded_reason,
+          'byOpenTaskId', otp.superseded_by_open_task_id,
+          'at',           otp.superseded_at,
+          'byUserId',     otp.superseded_by_user_id
+        ) END AS "periodicSupersession",
         ot.client_id AS "clientId",
         ot.due_date AS "dueDate",
         ot.expected_date AS "expectedDate",
@@ -1904,6 +2230,7 @@ function buildTaskRowsSelectFrom(hasDeliveryAddressColumn: boolean): string {
       LEFT JOIN branches b ON b.id = ot.branch_id
       LEFT JOIN branches cb ON cb.id = c.branch_id
       LEFT JOIN hr_users creator ON creator.id = ot.created_by
+      LEFT JOIN open_task_periodic_payload otp ON otp.open_task_id = ot.id
       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
       LEFT JOIN installed_devices idev ON idev.id = ot.device_id
       LEFT JOIN LATERAL (
@@ -2148,6 +2475,9 @@ router.get('/my-customers', requirePermission('tasks.my_customers.view'), async 
     // Optional read filters — mirror the group tables so the same UI controls work.
     const conditions: string[] = [];
     let paramIdx = params.length + 1;
+    conditions.push(`ot.task_type <> ALL($${paramIdx}::text[])`);
+    params.push(Array.from(HIDDEN_OPERATIONAL_TASK_TYPES));
+    paramIdx++;
     const statusFilter = req.query.status as string | undefined;
     if (statusFilter) {
       conditions.push(`ot.status = $${paramIdx}`);
@@ -2156,6 +2486,9 @@ router.get('/my-customers', requirePermission('tasks.my_customers.view'), async 
     }
     const taskTypeFilter = req.query.taskType as string | undefined;
     if (taskTypeFilter) {
+      if (isHiddenOperationalTaskType(taskTypeFilter)) {
+        return res.json([]);
+      }
       conditions.push(`ot.task_type = $${paramIdx}`);
       params.push(taskTypeFilter);
       paramIdx++;
@@ -2235,6 +2568,25 @@ router.get('/my-customers', requirePermission('tasks.my_customers.view'), async 
  *       500:
  *         description: Internal Server Error
  */
+router.use(/^\/(\d+)(?:\/|$)/, async (req, res, next) => {
+  try {
+    const id = Number(req.params[0]);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+    }
+    const { rows } = await pool.query(
+      'SELECT task_type FROM open_tasks WHERE id = $1',
+      [id],
+    );
+    if (rows.length === 0 || isHiddenOperationalTaskType(rows[0].task_type)) {
+      return res.status(404).json({ error: 'المهمة غير موجودة' });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/:id/assign-team', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -2421,17 +2773,14 @@ router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
       return res.status(400).json({ error: 'معرف المهمة غير صالح' });
     }
 
-    const { rows } = await pool.query(`${OPEN_TASK_SELECT} WHERE ot.id = $1`, [id]);
-    if (rows.length === 0) {
+    const taskData = await loadOpenTaskById(pool, id);
+    if (!taskData) {
       return res.status(404).json({ error: 'المهمة غير موجودة' });
     }
 
-    const row = rows[0];
-    if (!canViewOpenTask(authContext, row.branch_id).allowed) {
+    if (!canViewOpenTask(authContext, taskData.branchId).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
     }
-
-    const taskData = mapOpenTaskRow(row);
 
     // Defensive live-rebuild: if a task is linked to a contract/device but its
     // frozen snapshot is missing (e.g. created by a path that forgot to persist

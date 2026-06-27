@@ -7,6 +7,22 @@ import { api } from '../lib/api';
 import Button from '../components/ui/Button';
 import PageHeader from '../components/ui/PageHeader';
 
+const PERIODIC_STATUS_OPTIONS = [
+    { value: 'open', label: 'مفتوحة' },
+    { value: 'assigned', label: 'مسندة' },
+    { value: 'in_scheduling', label: 'قيد الجدولة' },
+    { value: 'scheduled', label: 'مجدولة' },
+    { value: 'waiting_execution', label: 'بانتظار التنفيذ' },
+];
+
+const DEFAULT_PERIODIC_SETTINGS = {
+    periodic_auto_generate_enabled: 'true',
+    periodic_manual_creation_enabled: 'true',
+    periodic_default_interval_months: '6',
+    periodic_attach_warning_days: '14',
+    periodic_attach_allowed_statuses: '["open","assigned","in_scheduling","scheduled","waiting_execution"]',
+};
+
 export default function SystemSettings() {
     const { hasPermission } = usePermissions();
     const [isClearing, setIsClearing] = useState(false);
@@ -20,6 +36,10 @@ export default function SystemSettings() {
     const [cleanupLoading, setCleanupLoading] = useState(true);
     const [cleanupSaving, setCleanupSaving] = useState(false);
     const [cleanupMsg, setCleanupMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+    const [periodicSettings, setPeriodicSettings] = useState(DEFAULT_PERIODIC_SETTINGS);
+    const [savedPeriodicSettings, setSavedPeriodicSettings] = useState(DEFAULT_PERIODIC_SETTINGS);
+    const [periodicSavingKey, setPeriodicSavingKey] = useState<string | null>(null);
+    const [periodicMsg, setPeriodicMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -30,6 +50,12 @@ export default function SystemSettings() {
                 const value = (row?.value ?? '22:00').slice(0, 5);
                 setCleanupTime(value);
                 setSavedCleanupTime(value);
+                const nextPeriodic = { ...DEFAULT_PERIODIC_SETTINGS };
+                for (const key of Object.keys(nextPeriodic) as Array<keyof typeof nextPeriodic>) {
+                    nextPeriodic[key] = res.settings.find((s) => s.key === key)?.value ?? nextPeriodic[key];
+                }
+                setPeriodicSettings(nextPeriodic);
+                setSavedPeriodicSettings(nextPeriodic);
             })
             .catch(() => { if (!cancelled) setCleanupMsg({ type: 'err', text: 'تعذّر تحميل الإعداد.' }); })
             .finally(() => { if (!cancelled) setCleanupLoading(false); });
@@ -48,6 +74,47 @@ export default function SystemSettings() {
             setCleanupMsg({ type: 'err', text: err?.message ?? 'فشل الحفظ.' });
         } finally {
             setCleanupSaving(false);
+        }
+    };
+
+    const updatePeriodicSetting = (key: keyof typeof DEFAULT_PERIODIC_SETTINGS, value: string) => {
+        setPeriodicSettings(prev => ({ ...prev, [key]: value }));
+    };
+
+    const periodicStatuses = (() => {
+        try {
+            const parsed = JSON.parse(periodicSettings.periodic_attach_allowed_statuses);
+            return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
+        } catch {
+            return [];
+        }
+    })();
+
+    const setPeriodicStatus = (status: string, checked: boolean) => {
+        const next = checked
+            ? [...new Set([...periodicStatuses, status])]
+            : periodicStatuses.filter(s => s !== status);
+        updatePeriodicSetting('periodic_attach_allowed_statuses', JSON.stringify(next));
+    };
+
+    const savePeriodicSetting = async (key: keyof typeof DEFAULT_PERIODIC_SETTINGS) => {
+        setPeriodicSavingKey(key);
+        setPeriodicMsg(null);
+        try {
+            const raw = periodicSettings[key];
+            const value = key === 'periodic_attach_allowed_statuses'
+                ? JSON.parse(raw)
+                : key.endsWith('_enabled')
+                    ? raw === 'true'
+                    : Number(raw);
+            const res = await api.systemSettings.update(key, value);
+            setPeriodicSettings(prev => ({ ...prev, [key]: res.value }));
+            setSavedPeriodicSettings(prev => ({ ...prev, [key]: res.value }));
+            setPeriodicMsg({ type: 'ok', text: 'تم حفظ إعدادات الصيانة الدورية.' });
+        } catch (err: any) {
+            setPeriodicMsg({ type: 'err', text: err?.message ?? 'فشل حفظ إعداد الصيانة الدورية.' });
+        } finally {
+            setPeriodicSavingKey(null);
         }
     };
 
@@ -122,6 +189,117 @@ export default function SystemSettings() {
                         )}
                         {!canManageSettings && (
                             <p className="text-xs text-slate-400 mt-3">للعرض فقط — تعديل الإعداد يحتاج صلاحية «تعديل إعدادات النظام».</p>
+                        )}
+                    </div>
+                </motion.div>
+
+                {/* Periodic maintenance operational settings */}
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
+                >
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
+                        <Settings className="w-5 h-5 text-emerald-600" />
+                        <h2 className="text-lg font-bold text-slate-800">إعدادات الصيانة الدورية</h2>
+                    </div>
+
+                    <div className="p-6 space-y-5">
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {([
+                                ['periodic_auto_generate_enabled', 'توليد الدوريات تلقائياً'],
+                                ['periodic_manual_creation_enabled', 'السماح بالإنشاء اليدوي'],
+                            ] as const).map(([key, label]) => (
+                                <div key={key} className="border border-slate-100 rounded-xl p-4 flex items-center justify-between gap-3">
+                                    <label className="text-sm font-bold text-slate-700">{label}</label>
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={periodicSettings[key] === 'true'}
+                                            disabled={!canManageSettings || periodicSavingKey === key}
+                                            onChange={(e) => updatePeriodicSetting(key, e.target.checked ? 'true' : 'false')}
+                                            className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
+                                        />
+                                        <Button
+                                            variant="secondary"
+                                            icon={Save}
+                                            onClick={() => savePeriodicSetting(key)}
+                                            loading={periodicSavingKey === key}
+                                            disabled={!canManageSettings || periodicSettings[key] === savedPeriodicSettings[key]}
+                                        >
+                                            حفظ
+                                        </Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {([
+                                ['periodic_default_interval_months', 'الفترة الافتراضية بالأشهر', 1],
+                                ['periodic_attach_warning_days', 'تنبيه الربط قبل عدد أيام', 0],
+                            ] as const).map(([key, label, min]) => (
+                                <div key={key} className="border border-slate-100 rounded-xl p-4">
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">{label}</label>
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="number"
+                                            min={min}
+                                            value={periodicSettings[key]}
+                                            onChange={(e) => updatePeriodicSetting(key, e.target.value)}
+                                            disabled={!canManageSettings || periodicSavingKey === key}
+                                            className="w-28 px-3 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:bg-slate-50 disabled:text-slate-400"
+                                        />
+                                        <Button
+                                            variant="secondary"
+                                            icon={Save}
+                                            onClick={() => savePeriodicSetting(key)}
+                                            loading={periodicSavingKey === key}
+                                            disabled={!canManageSettings || periodicSettings[key] === savedPeriodicSettings[key]}
+                                        >
+                                            حفظ
+                                        </Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="border border-slate-100 rounded-xl p-4">
+                            <div className="flex items-center justify-between gap-3 mb-3">
+                                <label className="text-sm font-bold text-slate-700">حالات الدورية المسموح ربط البلاغ بها</label>
+                                <Button
+                                    variant="secondary"
+                                    icon={Save}
+                                    onClick={() => savePeriodicSetting('periodic_attach_allowed_statuses')}
+                                    loading={periodicSavingKey === 'periodic_attach_allowed_statuses'}
+                                    disabled={!canManageSettings || periodicSettings.periodic_attach_allowed_statuses === savedPeriodicSettings.periodic_attach_allowed_statuses || periodicStatuses.length === 0}
+                                >
+                                    حفظ
+                                </Button>
+                            </div>
+                            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {PERIODIC_STATUS_OPTIONS.map(opt => (
+                                    <label key={opt.value} className="flex items-center gap-2 rounded-xl border border-slate-100 px-3 py-2 text-xs font-bold text-slate-600">
+                                        <input
+                                            type="checkbox"
+                                            checked={periodicStatuses.includes(opt.value)}
+                                            disabled={!canManageSettings || periodicSavingKey === 'periodic_attach_allowed_statuses'}
+                                            onChange={(e) => setPeriodicStatus(opt.value, e.target.checked)}
+                                            className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
+                                        />
+                                        {opt.label}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        {periodicMsg && (
+                            <p className={`text-xs font-bold ${periodicMsg.type === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {periodicMsg.text}
+                            </p>
+                        )}
+                        {!canManageSettings && (
+                            <p className="text-xs text-slate-400">للعرض فقط — تعديل الإعداد يحتاج صلاحية «تعديل إعدادات النظام».</p>
                         )}
                     </div>
                 </motion.div>
