@@ -217,6 +217,9 @@ export const api = {
     ),
     get: (id: number) => request<any>(`/clients/${id}`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
+    getRatingHistory: (id: number) => request<any[]>(`/clients/${id}/rating-history`),
+    updateRating: (id: number, data: { rating: 'Committed' | 'NotCommitted' | 'Undefined'; notes?: string | null }) =>
+      request<any>(`/clients/${id}/rating-history`, { method: 'POST', body: JSON.stringify(data) }),
     getAccountStatement: (
       id: number,
       params?: { from?: string; to?: string; types?: string },

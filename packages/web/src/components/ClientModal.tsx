@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock, ChevronDown } from 'lucide-react';
-import type { Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel, ClientRating } from '../lib/types';
+import type { Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel } from '../lib/types';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import MapPicker from './MapPicker';
@@ -161,7 +161,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [waterSource, setWaterSource] = useState('');
     const [dataQuality, setDataQuality] = useState<string>('');
     const [notes, setNotes] = useState('');
-    const [rating, setRating] = useState<ClientRating>('Undefined');
     const clientSearchRef = useRef<HTMLDivElement>(null);
     const currentUserDisplayName = authUser?.name?.trim() || '';
 
@@ -384,7 +383,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setWaterSource(initialData.waterSource || '');
                 setDataQuality(initialData.dataQuality || '');
                 setNotes(initialData.notes || '');
-                setRating(initialData.rating || 'Undefined');
             } else {
                 const initialBranchId = fixedOperationalBranchId ?? '';
                 setFormData({
@@ -412,7 +410,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setWaterSource('');
                 setDataQuality('');
                 setNotes('');
-                setRating('Undefined');
                 setEmployeeIdInput('');
                 setClientSearch('');
                 setSelectedClientId(null);
@@ -713,7 +710,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             notes: notes.trim() || undefined,
             branchId: effectiveBranchId == null ? undefined : Number(effectiveBranchId),
             assignmentUserIds: canChooseAssignedOwner && assignmentUserIds.length > 0 ? assignmentUserIds : undefined,
-            ...(isEditMode ? { rating } : {}),
         } as Client);
     };
 
@@ -1521,22 +1517,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             {
                                 activeTab === 'additional' && (
                                     <div className="space-y-6">
-                                        {isEditMode && (
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-semibold text-slate-500">تقييم الزبون</label>
-                                            <Select<ClientRating>
-                                                value={rating}
-                                                onChange={setRating}
-                                                ariaLabel="التقييم"
-                                                className="w-full"
-                                                options={[
-                                                    { value: 'Undefined', label: 'غير محدد' },
-                                                    { value: 'Committed', label: 'ملتزم' },
-                                                    { value: 'NotCommitted', label: 'غير ملتزم' },
-                                                ]}
-                                            />
-                                        </div>
-                                        )}
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">صحة البيانات</label>
                                             <Select

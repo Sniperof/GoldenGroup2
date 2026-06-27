@@ -168,6 +168,16 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'water_source',
+    label: 'مصادر المياه',
+    description: 'خيارات مصدر المياه المعتمدة عند إنشاء أو تعديل زبون، وعند حجز موعد تسويقي لمهمة عرض جهاز من التيلماركتر.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل إنشاء/تعديل زبون', route: 'الزبائن > معلومات إضافية', icon: <Users className="w-3 h-3" /> },
+      { label: 'التيلماركتر - حجز موعد زيارة', route: 'التيلماركتر > نتيجة التواصل/جدولة موعد', icon: <Phone className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'contract_type',
     label: 'أنواع العقود',
     description: 'نوع العقد المعتمد للموظف مثل دائم أو مؤقت أو تجربة. هذه القائمة أصبحت جزءاً إلزامياً من النموذج الموحد للموظفين.',
@@ -356,6 +366,33 @@ const CATEGORIES: CategoryMeta[] = [
   // قوائم العقود والبيع والمَدفوعات
   // ══════════════════════════════════════════════════════════════
   {
+    id: 'periodic_manual_creation_reasons',
+    label: 'أسباب إنشاء صيانة دورية يدويا',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة صيانة دورية بشكل يدوي لجهاز قائم أو لتصحيح جدول الصيانة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة صيانة دورية', route: 'المهام > إنشاء صيانة دورية', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'periodic_partially_performed_reason',
+    label: 'أسباب تنفيذ الصيانة الدورية جزئيا',
+    description: 'الأسباب المعتمدة عند تسجيل نتيجة صيانة دورية كمنفذة جزئيا، مثل رفض قطعة أو عدم توفرها.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل نتيجة الصيانة الدورية - تنفيذ جزئي', route: 'الزيارات > مهمة صيانة دورية', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'periodic_not_performed_reason',
+    label: 'أسباب عدم تنفيذ الصيانة الدورية',
+    description: 'الأسباب المعتمدة عند تسجيل نتيجة صيانة دورية كغير منفذة، مثل رفض الزبون أو عدم توفر الجهاز للفحص.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل نتيجة الصيانة الدورية - لم تنفذ', route: 'الزيارات > مهمة صيانة دورية', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'contract_sale_source',
     label: 'مَصادر البيع (للعقود)',
     description: 'القَناة التي أَتى منها البيع (إحالة، مَعرض، حَملة...). يُسَجَّل على `contracts.sale_source` لتَحليل قَنوات البيع.',
@@ -514,6 +551,24 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'device_delivery_reschedule_reasons',
+    label: 'أسباب إعادة جدولة تسليم الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "إعادة الجدولة" في مودل نتيجة مهمة تسليم الجهاز. تحفظ كسبب مستقل عن نتيجة التسليم.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودل نتيجة التسليم - إعادة الجدولة', route: 'الزيارات > مهمة تسليم جهاز', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_delivery_failure_reasons',
+    label: 'أسباب فشل تسليم الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "فشل التسليم" في مودل نتيجة مهمة تسليم الجهاز. تحفظ كسبب إغلاق مستقل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل نتيجة التسليم - فشل التسليم', route: 'الزيارات > مهمة تسليم جهاز', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'device_activation_followup_reasons',
     label: 'أسباب متابعة التشغيل',
     description: 'الأسباب المختصرة عند فشل التشغيل أو وجود مشكلة بالجهاز — تُختار في مودال نتيجة التشغيل وتنقل المهمة للمتابعة.',
@@ -551,6 +606,24 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'medium',
     usedIn: [
       { label: 'مودال نتيجة التَحصيل — دَفع جُزئي', route: 'الزيارات ← مهمة تَحصيل', icon: <DollarSign className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_disconnection_reschedule_reasons',
+    label: 'أسباب إعادة جدولة فك الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "إعادة الجدولة" في مودل نتيجة مهمة فك الجهاز. تحفظ كسبب مستقل عن نتيجة الفك.',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودل نتيجة الفك - إعادة الجدولة', route: 'الزيارات > مهمة فك جهاز', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_disconnection_failure_reasons',
+    label: 'أسباب فشل فك الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "فشل الفك" في مودل نتيجة مهمة فك الجهاز. تحفظ كسبب إغلاق مستقل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودل نتيجة الفك - فشل الفك', route: 'الزيارات > مهمة فك جهاز', icon: <Ban className="w-3 h-3" /> },
     ],
   },
   {
@@ -685,8 +758,16 @@ const LIST_GROUPS: ListGroup[] = [
   { id: 'telemarketing', label: 'التيلماركتر والتواصل' },
   { id: 'visits',        label: 'الزيارات والاستطلاع' },
   { id: 'emergency',     label: 'الصيانة الطارئة' },
+  { id: 'periodic',      label: 'الصيانة الدورية' },
   { id: 'contracts',     label: 'العقود والبيع' },
-  { id: 'device_tasks',  label: 'مهام الأجهزة (تسليم/تركيب/تشغيل/سحب/فك)' },
+  { id: 'device_delivery',       label: 'تسليم الجهاز' },
+  { id: 'device_installation',   label: 'تركيب الجهاز' },
+  { id: 'device_activation',     label: 'تشغيل الجهاز' },
+  { id: 'device_retrieval',      label: 'سحب الجهاز' },
+  { id: 'device_return',         label: 'إرجاع الجهاز' },
+  { id: 'device_transfer',       label: 'نقل الجهاز' },
+  { id: 'device_checkup',        label: 'تشييك الجهاز' },
+  { id: 'device_disconnection',  label: 'فك الجهاز' },
   { id: 'collection',    label: 'التَحصيل' },
   { id: 'gifts',         label: 'الهَدايا' },
   { id: 'golden',        label: 'الضَمان الذَهبي (العَرض والبِطاقة)' },
@@ -702,6 +783,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   contract_type: 'hr', foreign_language: 'hr',
 
   telemarketing_rejection_reason: 'telemarketing', telemarketing_reschedule_reason: 'telemarketing',
+  water_source: 'telemarketing',
   not_interested_reasons: 'telemarketing', cooldown_manual_reasons: 'telemarketing',
 
   area_evaluation_options: 'visits', survey_skip_reasons: 'visits',
@@ -715,16 +797,22 @@ const CATEGORY_GROUP: Record<string, string> = {
   service_partial_reasons: 'emergency', reopen_reasons: 'emergency',
   emergency_uniqueness_override_reasons: 'emergency', part_no_retrieval_reason: 'emergency',
 
+  periodic_manual_creation_reasons: 'periodic',
+  periodic_partially_performed_reason: 'periodic',
+  periodic_not_performed_reason: 'periodic',
+
   contract_sale_source: 'contracts', discount_reason: 'contracts',
   transfer_company: 'contracts', no_closing_reasons: 'contracts',
 
-  installation_incomplete_reason: 'device_tasks', installation_refusal_reason: 'device_tasks',
-  device_retrieval_refusal_reasons: 'device_tasks', device_retrieval_reschedule_reasons: 'device_tasks',
-  device_return_refusal_reasons: 'device_tasks', device_return_reschedule_reasons: 'device_tasks',
-  device_transfer_refusal_reasons: 'device_tasks', device_transfer_reschedule_reasons: 'device_tasks',
-  device_checkup_refusal_reasons: 'device_tasks', device_checkup_reschedule_reasons: 'device_tasks',
-  device_activation_followup_reasons: 'device_tasks', device_disconnection_reasons: 'device_tasks',
-  device_disconnection_retrieval_reasons: 'device_tasks',
+  device_delivery_reschedule_reasons: 'device_delivery', device_delivery_failure_reasons: 'device_delivery',
+  installation_incomplete_reason: 'device_installation', installation_refusal_reason: 'device_installation',
+  device_activation_followup_reasons: 'device_activation',
+  device_retrieval_refusal_reasons: 'device_retrieval', device_retrieval_reschedule_reasons: 'device_retrieval',
+  device_return_refusal_reasons: 'device_return', device_return_reschedule_reasons: 'device_return',
+  device_transfer_refusal_reasons: 'device_transfer', device_transfer_reschedule_reasons: 'device_transfer',
+  device_checkup_refusal_reasons: 'device_checkup', device_checkup_reschedule_reasons: 'device_checkup',
+  device_disconnection_reasons: 'device_disconnection', device_disconnection_retrieval_reasons: 'device_disconnection',
+  device_disconnection_reschedule_reasons: 'device_disconnection', device_disconnection_failure_reasons: 'device_disconnection',
 
   collection_partial_payment_reasons: 'collection',
   collection_refusal_reasons: 'collection',

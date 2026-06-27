@@ -27,6 +27,7 @@
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
 import { checkAndCompleteVisit } from './visitCompletion.js';
+import { recordContractPaymentMovement, recordMovement } from './financialMovements.js';
 import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
 
 export type DeviceDemoFinalDecision =
@@ -53,6 +54,31 @@ export type DeviceActivationFinalDecision =
   | 'activated_successfully'
   | 'activation_failed'
   | 'device_issue';
+
+export type DeviceCheckupFinalDecision =
+  | 'checked_successfully'
+  | 'reschedule'
+  | 'customer_refused_checkup';
+
+export type DeviceRetrievalFinalDecision =
+  | 'retrieved_successfully'
+  | 'reschedule'
+  | 'customer_refused_retrieval';
+
+export type DeviceReturnFinalDecision =
+  | 'returned_successfully'
+  | 'reschedule'
+  | 'customer_refused_return';
+
+export type DeviceTransferFinalDecision =
+  | 'transferred_successfully'
+  | 'reschedule'
+  | 'customer_refused_transfer';
+
+export type GiftDeliveryFinalDecision =
+  | 'delivered_successfully'
+  | 'refused_gift'
+  | 'rescheduled';
 
 export type DeviceDisconnectionFinalDecision =
   | 'disconnected_successfully'
@@ -256,6 +282,98 @@ export interface DeviceActivationReflectionResult {
   visitCompleted: boolean;
 }
 
+export interface DeviceCheckupResultBody {
+  final_decision: DeviceCheckupFinalDecision;
+  technical_state?: Record<string, unknown> | null;
+  technical_notes?: string | null;
+  refusal_reason_id?: number | null;
+  reschedule_reason_id?: number | null;
+  expected_date?: string | null;
+  expected_time?: string | null;
+  closing_notes?: string | null;
+  notes?: string | null;
+}
+
+export interface DeviceCheckupReflectionResult {
+  visitTaskResultId: number;
+  deviceCheckupResultId: number;
+  technicalStateId: number | null;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  visitCompleted: boolean;
+}
+
+export interface DeviceRetrievalResultBody {
+  final_decision: DeviceRetrievalFinalDecision;
+  retrieval_purpose?: 'maintenance' | 'replacement' | null;
+  service_branch_id?: number | null;
+  refusal_reason_id?: number | null;
+  reschedule_reason_id?: number | null;
+  expected_date?: string | null;
+  expected_time?: string | null;
+  customer_acknowledged?: boolean | null;
+  technical_notes?: string | null;
+  closing_notes?: string | null;
+  notes?: string | null;
+}
+
+export interface DeviceRetrievalReflectionResult {
+  visitTaskResultId: number;
+  deviceRetrievalResultId: number;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'in_workshop' | 'retrieved' | 'unchanged';
+  cancelledOpenTaskIds: number[];
+  visitCompleted: boolean;
+}
+
+export interface DeviceReturnResultBody {
+  final_decision: DeviceReturnFinalDecision;
+  refusal_reason_id?: number | null;
+  reschedule_reason_id?: number | null;
+  expected_date?: string | null;
+  expected_time?: string | null;
+  actual_return_date?: string | null;
+  customer_acknowledged?: boolean | null;
+  technical_notes?: string | null;
+  closing_notes?: string | null;
+  notes?: string | null;
+}
+
+export interface DeviceReturnReflectionResult {
+  visitTaskResultId: number;
+  deviceReturnResultId: number;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'delivered' | 'unchanged';
+  visitCompleted: boolean;
+}
+
+export interface DeviceTransferResultBody {
+  final_decision: DeviceTransferFinalDecision;
+  transfer_kind?: 'same_customer_new_address' | 'another_customer' | null;
+  target_client_id?: number | null;
+  planned_geo_unit_id?: number | null;
+  planned_address_text?: string | null;
+  planned_lat?: number | null;
+  planned_lng?: number | null;
+  refusal_reason_id?: number | null;
+  reschedule_reason_id?: number | null;
+  expected_date?: string | null;
+  expected_time?: string | null;
+  customer_acknowledged?: boolean | null;
+  target_customer_acknowledged?: boolean | null;
+  technical_notes?: string | null;
+  closing_notes?: string | null;
+  notes?: string | null;
+}
+
+export interface DeviceTransferReflectionResult {
+  visitTaskResultId: number;
+  deviceTransferResultId: number;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'delivered' | 'unchanged';
+  ownershipTransferred: boolean;
+  visitCompleted: boolean;
+}
+
 export interface DeviceDisconnectionResultBody {
   final_decision: DeviceDisconnectionFinalDecision;
   closing_notes?: string | null;
@@ -284,9 +402,22 @@ export interface DeviceDisconnectionReflectionResult {
   visitCompleted: boolean;
 }
 
+// جزء دفع واحد ضمن تسديد ذمة — يد/حوالة/مقايضة، بالليرة أو الدولار بسعر صرف.
+// (نموذج العقد بدون تقسيط؛ نفس بنية PaymentEntriesList في الواجهة.)
+export interface CollectionPaymentPart {
+  method: 'hand' | 'transfer' | 'barter';
+  amountValue: number | string;
+  currency?: 'syp' | 'usd';
+  exchangeRate?: number | string | null;
+  transferCompanyId?: number | string | null;
+  barterDescription?: string | null;
+}
+
 export interface InstallmentCollectionResultBody {
   final_decision: InstallmentCollectionFinalDecision;
   closing_notes?: string | null;
+  // دفعات متعددة (المسار الموحّد). إن وُجدت تُعتمد بدل paid_amount_syp المفرد.
+  payment_parts?: CollectionPaymentPart[] | null;
   paid_amount_syp?: number | string | null;
   payment_method?: string | null;
   payment_reference?: string | null;
@@ -306,6 +437,14 @@ export interface InstallmentCollectionReflectionResult {
   createdFollowupTaskId: number | null;
   remainingAfterSyp: number;
   visitCompleted: boolean;
+}
+
+// قيمة جزء الدفع بالليرة: المقايضة = قيمتها مباشرة، الدولار = القيمة × سعر الصرف.
+function collectionPartSyp(p: CollectionPaymentPart): number {
+  const v = Number(p.amountValue) || 0;
+  if (p.method === 'barter') return v;
+  if (p.currency === 'usd') return v * (Number(p.exchangeRate) || 0);
+  return v;
 }
 
 class ResultValidationError extends Error {
@@ -347,6 +486,11 @@ function optionalNumber(value: unknown): number | null {
 
 function normalizePriority(value: unknown): 'high' | 'medium' | 'low' | null {
   return value === 'high' || value === 'medium' || value === 'low' ? value : null;
+}
+
+function hasAnyReading(reading: unknown): reading is Record<string, unknown> {
+  if (!reading || typeof reading !== 'object') return false;
+  return Object.values(reading).some((value) => value !== null && value !== undefined && value !== '');
 }
 
 async function assertSystemListCategory(
@@ -663,6 +807,185 @@ function assertDisconnectionShape(body: DeviceDisconnectionResultBody): {
     throw new ResultValidationError('سبب إعادة جدولة فك الجهاز مطلوب');
   }
   return { decision, openTaskNewStatus: 'needs_follow_up', deviceNewStatus: 'unchanged' };
+}
+
+function assertRetrievalShape(
+  body: DeviceRetrievalResultBody,
+  openTask: { retrieval_purpose?: string | null; service_branch_id?: number | null },
+): {
+  decision: DeviceRetrievalFinalDecision;
+  retrievalPurpose: 'maintenance' | 'replacement';
+  serviceBranchId: number;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'in_workshop' | 'retrieved' | 'unchanged';
+} {
+  const decision = body.final_decision;
+  if (!['retrieved_successfully', 'reschedule', 'customer_refused_retrieval'].includes(decision)) {
+    throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+  }
+
+  const purpose = body.retrieval_purpose ?? openTask.retrieval_purpose;
+  if (purpose !== 'maintenance' && purpose !== 'replacement') {
+    throw new ResultValidationError('غرض السحب مطلوب ويجب أن يكون maintenance أو replacement');
+  }
+
+  const serviceBranchId = Number(body.service_branch_id ?? openTask.service_branch_id);
+  if (!Number.isInteger(serviceBranchId) || serviceBranchId <= 0) {
+    throw new ResultValidationError('فرع الخدمة مطلوب لمهمة سحب الجهاز');
+  }
+
+  if (decision === 'retrieved_successfully') {
+    if (body.customer_acknowledged !== true) {
+      throw new ResultValidationError('تأكيد الزبون مطلوب عند نجاح سحب الجهاز');
+    }
+    return {
+      decision,
+      retrievalPurpose: purpose,
+      serviceBranchId,
+      openTaskNewStatus: 'completed',
+      deviceNewStatus: purpose === 'maintenance' ? 'in_workshop' : 'retrieved',
+    };
+  }
+
+  if (decision === 'reschedule') {
+    if (!optionalDate(body.expected_date)) {
+      throw new ResultValidationError('تاريخ إعادة الجدولة مطلوب');
+    }
+    return {
+      decision,
+      retrievalPurpose: purpose,
+      serviceBranchId,
+      openTaskNewStatus: 'needs_follow_up',
+      deviceNewStatus: 'unchanged',
+    };
+  }
+
+  return {
+    decision,
+    retrievalPurpose: purpose,
+    serviceBranchId,
+    openTaskNewStatus: 'cancelled',
+    deviceNewStatus: 'unchanged',
+  };
+}
+
+function assertReturnShape(body: DeviceReturnResultBody): {
+  decision: DeviceReturnFinalDecision;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'delivered' | 'unchanged';
+} {
+  const decision = body.final_decision;
+  if (!['returned_successfully', 'reschedule', 'customer_refused_return'].includes(decision)) {
+    throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+  }
+
+  if (decision === 'returned_successfully') {
+    if (body.customer_acknowledged !== true) {
+      throw new ResultValidationError('تأكيد الزبون مطلوب عند نجاح إرجاع الجهاز');
+    }
+    return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'delivered' };
+  }
+
+  if (decision === 'reschedule') {
+    if (!optionalDate(body.expected_date)) {
+      throw new ResultValidationError('تاريخ إعادة الجدولة مطلوب');
+    }
+    return { decision, openTaskNewStatus: 'needs_follow_up', deviceNewStatus: 'unchanged' };
+  }
+
+  return { decision, openTaskNewStatus: 'cancelled', deviceNewStatus: 'unchanged' };
+}
+
+function assertTransferShape(
+  body: DeviceTransferResultBody,
+  openTask: {
+    transfer_kind?: string | null;
+    target_client_id?: number | null;
+    planned_transfer_geo_unit_id?: number | null;
+    planned_transfer_address_text?: string | null;
+    planned_transfer_lat?: number | null;
+    planned_transfer_lng?: number | null;
+  },
+): {
+  decision: DeviceTransferFinalDecision;
+  transferKind: 'same_customer_new_address' | 'another_customer';
+  targetClientId: number | null;
+  plannedGeoUnitId: number;
+  plannedAddressText: string;
+  plannedLat: number | null;
+  plannedLng: number | null;
+  openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
+  deviceNewStatus: 'delivered' | 'unchanged';
+} {
+  const decision = body.final_decision;
+  if (!['transferred_successfully', 'reschedule', 'customer_refused_transfer'].includes(decision)) {
+    throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+  }
+
+  const transferKind = body.transfer_kind ?? openTask.transfer_kind;
+  if (transferKind !== 'same_customer_new_address' && transferKind !== 'another_customer') {
+    throw new ResultValidationError('نوع النقل مطلوب ويجب أن يكون same_customer_new_address أو another_customer');
+  }
+
+  const targetClientId = Number(body.target_client_id ?? openTask.target_client_id) || null;
+  if (transferKind === 'another_customer' && (!targetClientId || !Number.isInteger(targetClientId))) {
+    throw new ResultValidationError('الزبون الجديد مطلوب عند نقل الجهاز إلى زبون آخر');
+  }
+
+  const plannedGeoUnitId = Number(body.planned_geo_unit_id ?? openTask.planned_transfer_geo_unit_id);
+  const plannedAddressText = optionalText(body.planned_address_text) ?? optionalText(openTask.planned_transfer_address_text);
+  if (!Number.isInteger(plannedGeoUnitId) || plannedGeoUnitId <= 0 || !plannedAddressText) {
+    throw new ResultValidationError('العنوان المبدئي الجديد يتطلب حيّاً وعنواناً تفصيلياً');
+  }
+
+  if (decision === 'transferred_successfully') {
+    if (body.customer_acknowledged !== true) {
+      throw new ResultValidationError('تأكيد الزبون مطلوب عند نجاح نقل الجهاز');
+    }
+    if (transferKind === 'another_customer' && body.target_customer_acknowledged !== true) {
+      throw new ResultValidationError('تأكيد الزبون الجديد مطلوب عند نقل الجهاز إلى زبون آخر');
+    }
+    return {
+      decision,
+      transferKind,
+      targetClientId,
+      plannedGeoUnitId,
+      plannedAddressText,
+      plannedLat: optionalNumber(body.planned_lat) ?? optionalNumber(openTask.planned_transfer_lat),
+      plannedLng: optionalNumber(body.planned_lng) ?? optionalNumber(openTask.planned_transfer_lng),
+      openTaskNewStatus: 'completed',
+      deviceNewStatus: 'delivered',
+    };
+  }
+
+  if (decision === 'reschedule') {
+    if (!optionalDate(body.expected_date)) {
+      throw new ResultValidationError('تاريخ إعادة الجدولة مطلوب');
+    }
+    return {
+      decision,
+      transferKind,
+      targetClientId,
+      plannedGeoUnitId,
+      plannedAddressText,
+      plannedLat: optionalNumber(body.planned_lat) ?? optionalNumber(openTask.planned_transfer_lat),
+      plannedLng: optionalNumber(body.planned_lng) ?? optionalNumber(openTask.planned_transfer_lng),
+      openTaskNewStatus: 'needs_follow_up',
+      deviceNewStatus: 'unchanged',
+    };
+  }
+
+  return {
+    decision,
+    transferKind,
+    targetClientId,
+    plannedGeoUnitId,
+    plannedAddressText,
+    plannedLat: optionalNumber(body.planned_lat) ?? optionalNumber(openTask.planned_transfer_lat),
+    plannedLng: optionalNumber(body.planned_lng) ?? optionalNumber(openTask.planned_transfer_lng),
+    openTaskNewStatus: 'cancelled',
+    deviceNewStatus: 'unchanged',
+  };
 }
 
 function normalizeInstallationParts(parts: unknown): DeviceInstallationPartInput[] {
@@ -1272,6 +1595,220 @@ interface GoldenOfferResultBody {
   expected_date?: string | null;
   expected_time?: string | null;
   closing_notes?: string | null;
+}
+
+interface GiftDeliveryResultBody {
+  final_decision: GiftDeliveryFinalDecision;
+  customer_acknowledged?: boolean;
+  refusal_reason_id?: number | string | null;
+  reschedule_reason_id?: number | string | null;
+  rescheduled_date?: string | null;
+  notes?: string | null;
+  closing_notes?: string | null;
+}
+
+export async function applyGiftDeliveryResult(
+  visitTaskId: number,
+  body: GiftDeliveryResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<{ visitTaskResultId: number; openTaskNewStatus: string; giftRecordIds: number[]; visitCompleted: boolean }> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+        WHERE vt.id = $1
+        LIMIT 1`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير موجود');
+    const vt = vtRows[0];
+    if (vt.task_type !== 'gift_delivery') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" غير مدعوم في نتيجة تسليم الهدية`);
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!vt.source_open_task_id) {
+      throw new ResultValidationError('مهمة تسليم الهدية يجب أن ترتبط بمهمة مفتوحة');
+    }
+
+    const decision = body.final_decision;
+    if (!['delivered_successfully', 'refused_gift', 'rescheduled'].includes(decision)) {
+      throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
+    }
+    if (decision === 'delivered_successfully' && body.customer_acknowledged !== true) {
+      throw new ResultValidationError('إقرار الزبون بالاستلام مطلوب عند نجاح تسليم الهدية');
+    }
+    if (decision === 'refused_gift' && !isPositiveInteger(body.refusal_reason_id)) {
+      throw new ResultValidationError('سبب رفض الهدية مطلوب');
+    }
+    if (decision === 'rescheduled') {
+      if (!isPositiveInteger(body.reschedule_reason_id)) throw new ResultValidationError('سبب إعادة الجدولة مطلوب');
+      if (!optionalDate(body.rescheduled_date)) throw new ResultValidationError('تاريخ إعادة الجدولة مطلوب');
+    }
+
+    const refusalReasonId = decision === 'refused_gift'
+      ? await assertSystemListCategory(db, body.refusal_reason_id, 'gift_delivery_refusal_reasons', 'سبب رفض الهدية')
+      : null;
+    const rescheduleReasonId = decision === 'rescheduled'
+      ? await assertSystemListCategory(db, body.reschedule_reason_id, 'gift_delivery_reschedule_reasons', 'سبب إعادة الجدولة')
+      : null;
+
+    const { rows: recordRows } = await db.query(
+      `SELECT gr.id,
+              gr.gift_definition_id,
+              gr.approved_quantity,
+              gd.default_unit_label
+         FROM gift_records gr
+         JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+        WHERE gr.delivery_task_id = $1
+          AND gr.status = 'delivery_task_created'
+        ORDER BY gr.id`,
+      [vt.source_open_task_id],
+    );
+    if (recordRows.length === 0) {
+      throw new ResultValidationError('لا توجد سجلات هدايا نشطة مرتبطة بمهمة التسليم');
+    }
+    const giftRecordIds = recordRows.map((row: any) => Number(row.id));
+    const closingNotes = optionalText(body.closing_notes) ?? optionalText(body.notes);
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code = EXCLUDED.reason_code,
+         closing_notes = EXCLUDED.closing_notes,
+         closed_by = EXCLUDED.closed_by,
+         closed_at = NOW(),
+         updated_at = NOW()
+       RETURNING id`,
+      [
+        visitTaskId,
+        decision,
+        decision === 'refused_gift'
+          ? String(body.refusal_reason_id)
+          : decision === 'rescheduled'
+            ? String(body.reschedule_reason_id)
+            : null,
+        closingNotes,
+        performedByUserId,
+      ],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    await db.query(
+      `INSERT INTO visit_task_gift_delivery_results (
+         visit_task_result_id, gift_record_id, gift_definition_id,
+         approved_quantity_snapshot, unit_label_snapshot,
+         final_decision, customer_acknowledged,
+         refusal_reason_id, reschedule_reason_id, rescheduled_date, notes,
+         created_at, updated_at
+       )
+       SELECT $1, gr.id, gr.gift_definition_id, gr.approved_quantity, gd.default_unit_label,
+              $2, $3, $4, $5, $6::date, $7, NOW(), NOW()
+         FROM gift_records gr
+         JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+        WHERE gr.id = ANY($8::int[])
+       ON CONFLICT (visit_task_result_id, gift_record_id) DO UPDATE SET
+         gift_definition_id = EXCLUDED.gift_definition_id,
+         approved_quantity_snapshot = EXCLUDED.approved_quantity_snapshot,
+         unit_label_snapshot = EXCLUDED.unit_label_snapshot,
+         final_decision = EXCLUDED.final_decision,
+         customer_acknowledged = EXCLUDED.customer_acknowledged,
+         refusal_reason_id = EXCLUDED.refusal_reason_id,
+         reschedule_reason_id = EXCLUDED.reschedule_reason_id,
+         rescheduled_date = EXCLUDED.rescheduled_date,
+         notes = EXCLUDED.notes,
+         updated_at = NOW()`,
+      [
+        visitTaskResultId,
+        decision,
+        body.customer_acknowledged === true,
+        refusalReasonId,
+        rescheduleReasonId,
+        optionalDate(body.rescheduled_date),
+        closingNotes,
+        giftRecordIds,
+      ],
+    );
+
+    let openTaskNewStatus: 'completed' | 'cancelled' | 'needs_follow_up';
+    if (decision === 'delivered_successfully') {
+      openTaskNewStatus = 'completed';
+      await db.query(
+        `UPDATE gift_records
+            SET status = 'delivered', updated_by = $2, updated_at = NOW()
+          WHERE id = ANY($1::int[])`,
+        [giftRecordIds, performedByUserId],
+      );
+    } else if (decision === 'refused_gift') {
+      openTaskNewStatus = 'cancelled';
+      await db.query(
+        `UPDATE gift_records
+            SET status = 'refused', updated_by = $2, updated_at = NOW()
+          WHERE id = ANY($1::int[])`,
+        [giftRecordIds, performedByUserId],
+      );
+    } else {
+      openTaskNewStatus = 'needs_follow_up';
+    }
+
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = 'completed', updated_at = NOW()
+        WHERE id = $1`,
+      [visitTaskId],
+    );
+
+    if (openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [vt.source_open_task_id, optionalDate(body.rescheduled_date)],
+      );
+    } else if (openTaskNewStatus === 'cancelled') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [vt.source_open_task_id, closingNotes ?? 'refused_gift'],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'completed', updated_at = NOW()
+          WHERE id = $1`,
+        [vt.source_open_task_id],
+      );
+    }
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+    if (!useExternal) await db.query('COMMIT');
+    return { visitTaskResultId, openTaskNewStatus, giftRecordIds, visitCompleted: completion.completed };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
 }
 
 export async function applyGoldenWarrantyOfferResult(
@@ -2168,6 +2705,24 @@ export async function applyDeviceInstallationResult(
     );
     const deviceInstallationResultId = Number(installationRows[0].id);
 
+    // سجل الحركات المالية: بيع قطع التركيب (charge) والمبلغ المحصّل (payment).
+    if (vt.client_id) {
+      const partsCharge = Number((installationPayment as any).total_parts_amount) || 0;
+      const collected = Number((installationPayment as any).total_paid_syp) || 0;
+      await recordMovement(db, {
+        clientId: Number(vt.client_id), occurredAt: installationDate, kind: 'charge', amountSyp: partsCharge,
+        sourceType: 'installation', sourceId: Number(vt.open_task_id), sourceRefId: deviceInstallationResultId,
+        contractId: vt.contract_id ?? null, description: `بيع قطع عند التركيب (مهمة #${vt.open_task_id})`,
+        occurredBranchId: vt.branch_id ?? null, recordedBy: performedByUserId,
+      });
+      await recordMovement(db, {
+        clientId: Number(vt.client_id), occurredAt: installationDate, kind: 'payment', amountSyp: collected,
+        sourceType: 'installation', sourceId: Number(vt.open_task_id), sourceRefId: deviceInstallationResultId,
+        contractId: vt.contract_id ?? null, description: `تحصيل عند التركيب (مهمة #${vt.open_task_id})`,
+        occurredBranchId: vt.branch_id ?? null, recordedBy: performedByUserId,
+      });
+    }
+
     await db.query(
       `UPDATE visit_tasks
           SET status = $1,
@@ -2648,6 +3203,1024 @@ export async function applyDeviceDisconnectionResult(
 // reschedule close the current task and spawn a fresh collection task for the
 // same installment after the current task is terminal.
 // ════════════════════════════════════════════════════════════════
+export async function applyDeviceRetrievalResult(
+  visitTaskId: number,
+  body: DeviceRetrievalResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<DeviceRetrievalReflectionResult> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status,
+              ot.id AS open_task_id, ot.status AS open_task_status, ot.device_id,
+              ot.retrieval_purpose, ot.service_branch_id,
+              idev.status AS device_status,
+              idev.branch_id AS current_device_branch_id,
+              idev.installation_geo_unit_id AS current_device_geo_unit_id,
+              idev.installation_address_text AS current_device_address_text,
+              idev.installation_lat AS current_device_lat,
+              idev.installation_lng AS current_device_lng,
+              br.location_geo_id AS service_branch_geo_id,
+              br.detailed_address AS service_branch_address,
+              br.status AS service_branch_status
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         JOIN installed_devices idev ON idev.id = ot.device_id
+         JOIN branches br ON br.id = ot.service_branch_id
+        WHERE vt.id = $1
+        LIMIT 1
+        FOR UPDATE OF vt, ot, idev`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة سحب جهاز');
+
+    const vt = vtRows[0];
+    if (vt.task_type !== 'device_retrieval') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بسحب الجهاز فقط`);
+    }
+    if (!isPositiveInteger(vt.device_id)) {
+      throw new ResultValidationError('مهمة سحب الجهاز يجب أن ترتبط بجهاز مثبت');
+    }
+    if (vt.device_status !== 'out_of_service') {
+      throw new ResultValidationError('لا يمكن تسجيل سحب إلا لجهاز حالته out_of_service');
+    }
+    if (vt.service_branch_status === 'inactive') {
+      throw new ResultValidationError('فرع الخدمة المحدد موقوف عن العمل');
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+
+    const shape = assertRetrievalShape(body, vt);
+    let refusalReasonId: number | null = null;
+    let rescheduleReasonId: number | null = null;
+
+    if (shape.decision === 'customer_refused_retrieval') {
+      refusalReasonId = await assertSystemListCategory(
+        db,
+        body.refusal_reason_id,
+        'device_retrieval_refusal_reasons',
+        'سبب رفض سحب الجهاز',
+      );
+    }
+    if (shape.decision === 'reschedule') {
+      rescheduleReasonId = await assertSystemListCategory(
+        db,
+        body.reschedule_reason_id,
+        'device_retrieval_reschedule_reasons',
+        'سبب إعادة جدولة سحب الجهاز',
+      );
+    }
+
+    const notes = body.closing_notes ?? body.notes ?? null;
+    const reasonCode =
+      refusalReasonId != null ? String(refusalReasonId)
+      : rescheduleReasonId != null ? String(rescheduleReasonId)
+      : shape.retrievalPurpose;
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = EXCLUDED.closing_notes,
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [visitTaskId, shape.decision, reasonCode, notes, performedByUserId],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    const { rows: retrievalRows } = await db.query(
+      `INSERT INTO visit_task_device_retrieval_results
+         (visit_task_result_id, final_decision, retrieval_purpose, service_branch_id,
+          refusal_reason_id, reschedule_reason_id, rescheduled_at,
+          customer_acknowledged, technical_notes, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,NOW(),NOW())
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+          final_decision = EXCLUDED.final_decision,
+          retrieval_purpose = EXCLUDED.retrieval_purpose,
+          service_branch_id = EXCLUDED.service_branch_id,
+          refusal_reason_id = EXCLUDED.refusal_reason_id,
+          reschedule_reason_id = EXCLUDED.reschedule_reason_id,
+          rescheduled_at = EXCLUDED.rescheduled_at,
+          customer_acknowledged = EXCLUDED.customer_acknowledged,
+          technical_notes = EXCLUDED.technical_notes,
+          updated_at = NOW()
+       RETURNING id`,
+      [
+        visitTaskResultId,
+        shape.decision,
+        shape.retrievalPurpose,
+        shape.serviceBranchId,
+        refusalReasonId,
+        rescheduleReasonId,
+        optionalDate(body.expected_date),
+        body.customer_acknowledged === true ? true : (body.customer_acknowledged === false ? false : null),
+        optionalText(body.technical_notes),
+      ],
+    );
+    const deviceRetrievalResultId = Number(retrievalRows[0].id);
+
+    if (shape.deviceNewStatus !== 'unchanged') {
+      await db.query(
+        `UPDATE open_tasks
+            SET pre_retrieval_branch_id = COALESCE(pre_retrieval_branch_id, $2),
+                pre_retrieval_geo_unit_id = COALESCE(pre_retrieval_geo_unit_id, $3),
+                pre_retrieval_address_text = COALESCE(pre_retrieval_address_text, $4),
+                pre_retrieval_lat = COALESCE(pre_retrieval_lat, $5),
+                pre_retrieval_lng = COALESCE(pre_retrieval_lng, $6),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [
+          Number(vt.open_task_id),
+          vt.current_device_branch_id ?? null,
+          vt.current_device_geo_unit_id ?? null,
+          vt.current_device_address_text ?? null,
+          vt.current_device_lat == null ? null : Number(vt.current_device_lat),
+          vt.current_device_lng == null ? null : Number(vt.current_device_lng),
+        ],
+      );
+
+      await db.query(
+        `UPDATE installed_devices
+            SET status = $2,
+                branch_id = $3,
+                installation_geo_unit_id = $4,
+                installation_address_text = COALESCE($5, installation_address_text),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [
+          Number(vt.device_id),
+          shape.deviceNewStatus,
+          shape.serviceBranchId,
+          vt.service_branch_geo_id ?? null,
+          vt.service_branch_address ?? null,
+        ],
+      );
+    }
+
+    const cancelledOpenTaskIds: number[] = [];
+    if (shape.decision === 'retrieved_successfully' && shape.retrievalPurpose === 'replacement') {
+      const employeeId = await resolveEmployeeIdForUser(db, performedByUserId);
+
+      await db.query(
+        `UPDATE device_possession_log
+            SET end_at = NOW()
+          WHERE device_id = $1
+            AND end_at IS NULL`,
+        [Number(vt.device_id)],
+      );
+      await db.query(
+        `INSERT INTO device_possession_log
+           (device_id, holder_type, holder_id, start_at, reason, notes, created_by)
+         VALUES ($1, 'workshop', $2, NOW(), 'retrieval', $3, $4)`,
+        [
+          Number(vt.device_id),
+          shape.serviceBranchId,
+          notes ?? 'سحب الجهاز للتبديل',
+          employeeId,
+        ],
+      );
+
+      const { rows: cancelledRows } = await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE(cancellation_reason, 'device_retrieved_for_replacement'),
+                updated_at = NOW()
+          WHERE device_id = $1
+            AND id <> $2
+            AND status NOT IN ('completed', 'closed', 'cancelled')
+          RETURNING id`,
+        [Number(vt.device_id), Number(vt.open_task_id)],
+      );
+      cancelledOpenTaskIds.push(...cancelledRows.map((row: any) => Number(row.id)));
+
+      for (const cancelledId of cancelledOpenTaskIds) {
+        await db.query(
+          `INSERT INTO task_activity_log
+             (task_id, event_type, performed_by, old_value, new_value, reason, reference_id, created_at)
+           VALUES ($1, 'status_change', $2, NULL, 'cancelled', 'device_retrieved_for_replacement', $3, NOW())`,
+          [cancelledId, performedByUserId, visitTaskResultId],
+        );
+      }
+    }
+
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [shape.openTaskNewStatus === 'cancelled' ? 'cancelled' : 'completed', visitTaskId],
+    );
+
+    if (shape.openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                expected_time = $3,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), optionalDate(body.expected_date), optionalText(body.expected_time)],
+      );
+    } else if (shape.openTaskNewStatus === 'cancelled') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), notes ?? reasonCode],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id)],
+      );
+    }
+
+    await db.query(
+      `INSERT INTO task_activity_log
+         (task_id, event_type, performed_by, old_value, new_value, reason, reference_id, created_at)
+       VALUES ($1, 'status_change', $2, $3, $4, $5, $6, NOW())`,
+      [
+        Number(vt.open_task_id),
+        performedByUserId,
+        String(vt.open_task_status ?? ''),
+        shape.openTaskNewStatus,
+        shape.decision,
+        visitTaskResultId,
+      ],
+    );
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+
+    if (!useExternal) await db.query('COMMIT');
+
+    return {
+      visitTaskResultId,
+      deviceRetrievalResultId,
+      openTaskNewStatus: shape.openTaskNewStatus,
+      deviceNewStatus: shape.deviceNewStatus,
+      cancelledOpenTaskIds,
+      visitCompleted: completion.completed,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// applyInstallmentCollectionResult
+export async function applyDeviceCheckupResult(
+  visitTaskId: number,
+  body: DeviceCheckupResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<DeviceCheckupReflectionResult> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status,
+              ot.id AS open_task_id, ot.status AS open_task_status, ot.device_id, ot.contract_id,
+              idev.status AS device_status
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         JOIN installed_devices idev ON idev.id = ot.device_id
+        WHERE vt.id = $1
+        LIMIT 1
+        FOR UPDATE OF vt, ot, idev`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة تشييك جهاز');
+
+    const vt = vtRows[0];
+    if (vt.task_type !== 'device_checkup') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بتشييك الجهاز فقط`);
+    }
+    if (!isPositiveInteger(vt.device_id)) {
+      throw new ResultValidationError('مهمة تشييك الجهاز يجب أن ترتبط بجهاز مثبت');
+    }
+    if (!['delivered', 'installed', 'active'].includes(String(vt.device_status))) {
+      throw new ResultValidationError('لا يمكن تسجيل تشييك إلا لجهاز موجود عند الزبون');
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+    if (body.final_decision !== 'checked_successfully') {
+      throw new ResultValidationError(`final_decision غير صالح: ${body.final_decision}`);
+    }
+    if (!hasAnyReading(body.technical_state)) {
+      throw new ResultValidationError('الحالة الفنية مطلوبة لتسجيل تشييك الجهاز');
+    }
+
+    const notes = body.closing_notes ?? body.notes ?? body.technical_notes ?? null;
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, 'checked_successfully', 'device_checkup', $2, $3, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = EXCLUDED.closing_notes,
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [visitTaskId, notes, performedByUserId],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    const technicalStateId = await insertTechnicalState(db, {
+      installedDeviceId: Number(vt.device_id),
+      openTaskId: Number(vt.open_task_id),
+      contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
+      taskTypeSnapshot: 'device_checkup',
+      phase: 'diagnostic',
+      recordedBy: performedByUserId,
+      reading: body.technical_state ?? null,
+    });
+    if (!technicalStateId) {
+      throw new ResultValidationError('الحالة الفنية مطلوبة لتسجيل تشييك الجهاز');
+    }
+
+    const { rows: checkupRows } = await db.query(
+      `INSERT INTO visit_task_device_checkup_results
+         (visit_task_result_id, technical_state_id, technical_notes, created_at, updated_at)
+       VALUES ($1, $2, $3, NOW(), NOW())
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+         technical_state_id = EXCLUDED.technical_state_id,
+         technical_notes = EXCLUDED.technical_notes,
+         updated_at = NOW()
+       RETURNING id`,
+      [visitTaskResultId, technicalStateId, optionalText(body.technical_notes)],
+    );
+    const deviceCheckupResultId = Number(checkupRows[0].id);
+
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = 'completed',
+              updated_at = NOW()
+        WHERE id = $1`,
+      [visitTaskId],
+    );
+    await db.query(
+      `UPDATE open_tasks
+          SET last_waiting_status = CASE
+                WHEN status IN ('open', 'needs_follow_up') THEN status
+                ELSE last_waiting_status
+              END,
+              status = 'completed',
+              updated_at = NOW()
+        WHERE id = $1`,
+      [Number(vt.open_task_id)],
+    );
+    await db.query(
+      `INSERT INTO task_activity_log
+         (task_id, event_type, performed_by, old_value, new_value, reason, reference_id, created_at)
+       VALUES ($1, 'status_change', $2, $3, 'completed', 'checked_successfully', $4, NOW())`,
+      [Number(vt.open_task_id), performedByUserId, String(vt.open_task_status ?? ''), visitTaskResultId],
+    );
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+    if (!useExternal) await db.query('COMMIT');
+
+    return {
+      visitTaskResultId,
+      deviceCheckupResultId,
+      technicalStateId,
+      openTaskNewStatus: 'completed',
+      visitCompleted: completion.completed,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// Records "تسديد ذمة" outcomes for the existing installment_collection task.
+// One result targets one contract_installments row. Partial payment and
+// reschedule close the current task and spawn a fresh collection task for the
+// same installment after the current task is terminal.
+// ════════════════════════════════════════════════════════════════
+export async function applyDeviceReturnResult(
+  visitTaskId: number,
+  body: DeviceReturnResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<DeviceReturnReflectionResult> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status, fv.scheduled_date AS visit_date,
+              ot.id AS open_task_id, ot.status AS open_task_status, ot.device_id,
+              idev.status AS device_status,
+              retr.retrieval_task_id,
+              retr.pre_retrieval_branch_id,
+              retr.pre_retrieval_geo_unit_id,
+              retr.pre_retrieval_address_text,
+              retr.pre_retrieval_lat,
+              retr.pre_retrieval_lng
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN LATERAL (
+           SELECT otret.id AS retrieval_task_id,
+                  otret.pre_retrieval_branch_id,
+                  otret.pre_retrieval_geo_unit_id,
+                  otret.pre_retrieval_address_text,
+                  otret.pre_retrieval_lat,
+                  otret.pre_retrieval_lng
+             FROM open_tasks otret
+             JOIN visit_tasks vtret ON vtret.source_open_task_id = otret.id
+             JOIN visit_task_results vtr ON vtr.visit_task_id = vtret.id
+             JOIN visit_task_device_retrieval_results rr ON rr.visit_task_result_id = vtr.id
+            WHERE otret.device_id = ot.device_id
+              AND otret.task_type = 'device_retrieval'
+              AND vtr.final_decision = 'retrieved_successfully'
+              AND rr.retrieval_purpose = 'maintenance'
+            ORDER BY vtr.closed_at DESC NULLS LAST, vtr.id DESC
+            LIMIT 1
+         ) retr ON TRUE
+        WHERE vt.id = $1
+        LIMIT 1
+        FOR UPDATE OF vt, ot, idev`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة إرجاع جهاز');
+
+    const vt = vtRows[0];
+    if (vt.task_type !== 'device_return') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بإرجاع الجهاز فقط`);
+    }
+    if (!isPositiveInteger(vt.device_id)) {
+      throw new ResultValidationError('مهمة إرجاع الجهاز يجب أن ترتبط بجهاز مثبت');
+    }
+    if (vt.device_status !== 'in_workshop') {
+      throw new ResultValidationError('لا يمكن تسجيل إرجاع إلا لجهاز حالته in_workshop');
+    }
+    if (!vt.retrieval_task_id) {
+      throw new ResultValidationError('لا يمكن تسجيل إرجاع قبل وجود سحب صيانة ناجح للجهاز');
+    }
+    if (!vt.pre_retrieval_geo_unit_id || !optionalText(vt.pre_retrieval_address_text)) {
+      throw new ResultValidationError('عنوان التركيب السابق قبل السحب غير محفوظ ولا يمكن إرجاع الجهاز بدونه');
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+
+    const shape = assertReturnShape(body);
+    let refusalReasonId: number | null = null;
+    let rescheduleReasonId: number | null = null;
+
+    if (shape.decision === 'customer_refused_return') {
+      refusalReasonId = await assertSystemListCategory(
+        db,
+        body.refusal_reason_id,
+        'device_return_refusal_reasons',
+        'سبب رفض إرجاع الجهاز',
+      );
+    }
+    if (shape.decision === 'reschedule') {
+      rescheduleReasonId = await assertSystemListCategory(
+        db,
+        body.reschedule_reason_id,
+        'device_return_reschedule_reasons',
+        'سبب إعادة جدولة إرجاع الجهاز',
+      );
+    }
+
+    const notes = body.closing_notes ?? body.notes ?? null;
+    const reasonCode =
+      refusalReasonId != null ? String(refusalReasonId)
+      : rescheduleReasonId != null ? String(rescheduleReasonId)
+      : 'device_return_after_maintenance';
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = EXCLUDED.closing_notes,
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [visitTaskId, shape.decision, reasonCode, notes, performedByUserId],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    const actualReturnDate =
+      optionalDate(body.actual_return_date)
+      ?? optionalDate(vt.visit_date)
+      ?? new Date().toISOString().slice(0, 10);
+
+    const { rows: returnRows } = await db.query(
+      `INSERT INTO visit_task_device_return_results
+         (visit_task_result_id, final_decision, source_retrieval_task_id,
+          restored_branch_id, restored_geo_unit_id, restored_address_text,
+          restored_lat, restored_lng, actual_return_date,
+          refusal_reason_id, reschedule_reason_id, rescheduled_at,
+          customer_acknowledged, technical_notes, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::date,$10,$11,$12::date,$13,$14,NOW(),NOW())
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+          final_decision = EXCLUDED.final_decision,
+          source_retrieval_task_id = EXCLUDED.source_retrieval_task_id,
+          restored_branch_id = EXCLUDED.restored_branch_id,
+          restored_geo_unit_id = EXCLUDED.restored_geo_unit_id,
+          restored_address_text = EXCLUDED.restored_address_text,
+          restored_lat = EXCLUDED.restored_lat,
+          restored_lng = EXCLUDED.restored_lng,
+          actual_return_date = EXCLUDED.actual_return_date,
+          refusal_reason_id = EXCLUDED.refusal_reason_id,
+          reschedule_reason_id = EXCLUDED.reschedule_reason_id,
+          rescheduled_at = EXCLUDED.rescheduled_at,
+          customer_acknowledged = EXCLUDED.customer_acknowledged,
+          technical_notes = EXCLUDED.technical_notes,
+          updated_at = NOW()
+       RETURNING id`,
+      [
+        visitTaskResultId,
+        shape.decision,
+        Number(vt.retrieval_task_id),
+        vt.pre_retrieval_branch_id ?? null,
+        vt.pre_retrieval_geo_unit_id ?? null,
+        vt.pre_retrieval_address_text ?? null,
+        vt.pre_retrieval_lat == null ? null : Number(vt.pre_retrieval_lat),
+        vt.pre_retrieval_lng == null ? null : Number(vt.pre_retrieval_lng),
+        shape.decision === 'returned_successfully' ? actualReturnDate : null,
+        refusalReasonId,
+        rescheduleReasonId,
+        optionalDate(body.expected_date),
+        body.customer_acknowledged === true ? true : (body.customer_acknowledged === false ? false : null),
+        optionalText(body.technical_notes),
+      ],
+    );
+    const deviceReturnResultId = Number(returnRows[0].id);
+
+    if (shape.deviceNewStatus === 'delivered') {
+      await db.query(
+        `UPDATE installed_devices
+            SET status = 'delivered',
+                branch_id = COALESCE($2, branch_id),
+                installation_geo_unit_id = $3,
+                installation_address_text = $4,
+                installation_lat = $5,
+                installation_lng = $6,
+                delivery_date = COALESCE($7::date, delivery_date),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [
+          Number(vt.device_id),
+          vt.pre_retrieval_branch_id ?? null,
+          vt.pre_retrieval_geo_unit_id,
+          vt.pre_retrieval_address_text,
+          vt.pre_retrieval_lat == null ? null : Number(vt.pre_retrieval_lat),
+          vt.pre_retrieval_lng == null ? null : Number(vt.pre_retrieval_lng),
+          actualReturnDate,
+        ],
+      );
+    }
+
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [shape.openTaskNewStatus === 'cancelled' ? 'cancelled' : 'completed', visitTaskId],
+    );
+
+    if (shape.openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                expected_time = $3,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), optionalDate(body.expected_date), optionalText(body.expected_time)],
+      );
+    } else if (shape.openTaskNewStatus === 'cancelled') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), notes ?? reasonCode],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id)],
+      );
+    }
+
+    await db.query(
+      `INSERT INTO task_activity_log
+         (task_id, event_type, performed_by, old_value, new_value, reason, reference_id, created_at)
+       VALUES ($1, 'status_change', $2, $3, $4, $5, $6, NOW())`,
+      [
+        Number(vt.open_task_id),
+        performedByUserId,
+        String(vt.open_task_status ?? ''),
+        shape.openTaskNewStatus,
+        shape.decision,
+        visitTaskResultId,
+      ],
+    );
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+
+    if (!useExternal) await db.query('COMMIT');
+
+    return {
+      visitTaskResultId,
+      deviceReturnResultId,
+      openTaskNewStatus: shape.openTaskNewStatus,
+      deviceNewStatus: shape.deviceNewStatus,
+      visitCompleted: completion.completed,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
+export async function applyDeviceTransferResult(
+  visitTaskId: number,
+  body: DeviceTransferResultBody,
+  performedByUserId: number,
+  externalDb?: PoolClient,
+): Promise<DeviceTransferReflectionResult> {
+  const useExternal = externalDb != null;
+  const db = useExternal ? (externalDb as PoolClient) : await pool.connect();
+
+  try {
+    if (!useExternal) await db.query('BEGIN');
+
+    const { rows: vtRows } = await db.query(
+      `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
+              fv.status AS visit_status,
+              ot.id AS open_task_id, ot.status AS open_task_status, ot.device_id,
+              ot.client_id AS from_client_id,
+              ot.transfer_kind, ot.target_client_id,
+              ot.planned_transfer_geo_unit_id, ot.planned_transfer_address_text,
+              ot.planned_transfer_lat, ot.planned_transfer_lng,
+              idev.status AS device_status,
+              idev.customer_id AS current_customer_id,
+              idev.branch_id AS current_device_branch_id,
+              gu.level AS planned_geo_level,
+              gu.status AS planned_geo_status,
+              target.id AS target_client_exists,
+              target.branch_id AS target_client_branch_id
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN geo_units gu ON gu.id = ot.planned_transfer_geo_unit_id
+         LEFT JOIN clients target ON target.id = ot.target_client_id
+        WHERE vt.id = $1
+        LIMIT 1
+        FOR UPDATE OF vt, ot, idev`,
+      [visitTaskId],
+    );
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة نقل جهاز');
+
+    const vt = vtRows[0];
+    if (vt.task_type !== 'device_transfer') {
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بنقل الجهاز فقط`);
+    }
+    if (!isPositiveInteger(vt.device_id)) {
+      throw new ResultValidationError('مهمة نقل الجهاز يجب أن ترتبط بجهاز مثبت');
+    }
+    if (!['delivered', 'installed', 'active'].includes(String(vt.device_status))) {
+      throw new ResultValidationError('لا يمكن نقل الجهاز إلا عندما يكون عند الزبون');
+    }
+    if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
+    }
+    if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
+    }
+
+    const shape = assertTransferShape(body, vt);
+
+    const { rows: geoRows } = await db.query(
+      `SELECT id, level, status
+         FROM geo_units
+        WHERE id = $1
+        LIMIT 1`,
+      [shape.plannedGeoUnitId],
+    );
+    if (!geoRows[0]) {
+      throw new ResultValidationError('الحي المحدد في العنوان المبدئي غير موجود');
+    }
+    if (Number(geoRows[0].level) !== 4) {
+      throw new ResultValidationError('العنوان المبدئي يجب أن يحدد الحي حصراً');
+    }
+    if (geoRows[0].status === 'inactive') {
+      throw new ResultValidationError('لا يمكن اختيار حي موقوف');
+    }
+
+    if (shape.transferKind === 'another_customer') {
+      const { rows: targetRows } = await db.query(
+        `SELECT id, branch_id
+           FROM clients
+          WHERE id = $1
+          LIMIT 1`,
+        [shape.targetClientId],
+      );
+      if (!targetRows[0]) {
+        throw new ResultValidationError('الزبون الجديد غير موجود');
+      }
+      if (Number(targetRows[0].id) === Number(vt.from_client_id)) {
+        throw new ResultValidationError('الزبون الجديد يجب أن يختلف عن الزبون الحالي عند نقل الملكية');
+      }
+    }
+
+    let refusalReasonId: number | null = null;
+    let rescheduleReasonId: number | null = null;
+
+    if (shape.decision === 'customer_refused_transfer') {
+      refusalReasonId = await assertSystemListCategory(
+        db,
+        body.refusal_reason_id,
+        'device_transfer_refusal_reasons',
+        'سبب رفض نقل الجهاز',
+      );
+    }
+    if (shape.decision === 'reschedule') {
+      rescheduleReasonId = await assertSystemListCategory(
+        db,
+        body.reschedule_reason_id,
+        'device_transfer_reschedule_reasons',
+        'سبب إعادة جدولة نقل الجهاز',
+      );
+    }
+
+    const notes = body.closing_notes ?? body.notes ?? null;
+    const reasonCode =
+      refusalReasonId != null ? String(refusalReasonId)
+      : rescheduleReasonId != null ? String(rescheduleReasonId)
+      : shape.transferKind;
+
+    const { rows: vtrRows } = await db.query(
+      `INSERT INTO visit_task_results
+         (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+       ON CONFLICT (visit_task_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
+         reason_code    = EXCLUDED.reason_code,
+         closing_notes  = EXCLUDED.closing_notes,
+         closed_by      = EXCLUDED.closed_by,
+         closed_at      = NOW(),
+         updated_at     = NOW()
+       RETURNING id`,
+      [visitTaskId, shape.decision, reasonCode, notes, performedByUserId],
+    );
+    const visitTaskResultId = Number(vtrRows[0].id);
+
+    const ownershipTransferred = shape.decision === 'transferred_successfully' && shape.transferKind === 'another_customer';
+    const toClientId = shape.transferKind === 'another_customer' ? shape.targetClientId : Number(vt.from_client_id);
+
+    const { rows: transferRows } = await db.query(
+      `INSERT INTO visit_task_device_transfer_results
+         (visit_task_result_id, final_decision, transfer_kind,
+          from_client_id, to_client_id, ownership_transferred,
+          planned_geo_unit_id, planned_address_text, planned_lat, planned_lng,
+          refusal_reason_id, reschedule_reason_id, rescheduled_at,
+          customer_acknowledged, target_customer_acknowledged, technical_notes,
+          created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$14,$15,$16,NOW(),NOW())
+       ON CONFLICT (visit_task_result_id) DO UPDATE SET
+          final_decision = EXCLUDED.final_decision,
+          transfer_kind = EXCLUDED.transfer_kind,
+          from_client_id = EXCLUDED.from_client_id,
+          to_client_id = EXCLUDED.to_client_id,
+          ownership_transferred = EXCLUDED.ownership_transferred,
+          planned_geo_unit_id = EXCLUDED.planned_geo_unit_id,
+          planned_address_text = EXCLUDED.planned_address_text,
+          planned_lat = EXCLUDED.planned_lat,
+          planned_lng = EXCLUDED.planned_lng,
+          refusal_reason_id = EXCLUDED.refusal_reason_id,
+          reschedule_reason_id = EXCLUDED.reschedule_reason_id,
+          rescheduled_at = EXCLUDED.rescheduled_at,
+          customer_acknowledged = EXCLUDED.customer_acknowledged,
+          target_customer_acknowledged = EXCLUDED.target_customer_acknowledged,
+          technical_notes = EXCLUDED.technical_notes,
+          updated_at = NOW()
+       RETURNING id`,
+      [
+        visitTaskResultId,
+        shape.decision,
+        shape.transferKind,
+        Number(vt.from_client_id),
+        toClientId,
+        ownershipTransferred,
+        shape.plannedGeoUnitId,
+        shape.plannedAddressText,
+        shape.plannedLat,
+        shape.plannedLng,
+        refusalReasonId,
+        rescheduleReasonId,
+        optionalDate(body.expected_date),
+        body.customer_acknowledged === true ? true : (body.customer_acknowledged === false ? false : null),
+        body.target_customer_acknowledged === true ? true : (body.target_customer_acknowledged === false ? false : null),
+        optionalText(body.technical_notes),
+      ],
+    );
+    const deviceTransferResultId = Number(transferRows[0].id);
+
+    if (shape.decision === 'transferred_successfully') {
+      await db.query(
+        `UPDATE installed_devices
+            SET status = 'delivered',
+                customer_id = $2,
+                branch_id = COALESCE($3, branch_id),
+                installation_geo_unit_id = $4,
+                installation_address_text = $5,
+                installation_lat = $6,
+                installation_lng = $7,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [
+          Number(vt.device_id),
+          toClientId,
+          ownershipTransferred ? (vt.target_client_branch_id ?? vt.current_device_branch_id ?? null) : vt.current_device_branch_id ?? null,
+          shape.plannedGeoUnitId,
+          shape.plannedAddressText,
+          shape.plannedLat,
+          shape.plannedLng,
+        ],
+      );
+
+      if (ownershipTransferred) {
+        const employeeId = await resolveEmployeeIdForUser(db, performedByUserId);
+        await db.query(
+          `UPDATE device_possession_log
+              SET end_at = NOW()
+            WHERE device_id = $1
+              AND end_at IS NULL`,
+          [Number(vt.device_id)],
+        );
+        await db.query(
+          `INSERT INTO device_possession_log
+             (device_id, holder_type, holder_id, start_at, reason, notes, created_by)
+           VALUES ($1, 'customer', $2, NOW(), 'transfer', $3, $4)`,
+          [
+            Number(vt.device_id),
+            toClientId,
+            notes ?? 'نقل ملكية الجهاز إلى زبون آخر',
+            employeeId,
+          ],
+        );
+      }
+    }
+
+    await db.query(
+      `UPDATE visit_tasks
+          SET status = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [shape.openTaskNewStatus === 'cancelled' ? 'cancelled' : 'completed', visitTaskId],
+    );
+
+    if (shape.openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                expected_time = $3,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), optionalDate(body.expected_date), optionalText(body.expected_time)],
+      );
+    } else if (shape.openTaskNewStatus === 'cancelled') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), notes ?? reasonCode],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id)],
+      );
+    }
+
+    await db.query(
+      `INSERT INTO task_activity_log
+         (task_id, event_type, performed_by, old_value, new_value, reason, reference_id, created_at)
+       VALUES ($1, 'status_change', $2, $3, $4, $5, $6, NOW())`,
+      [
+        Number(vt.open_task_id),
+        performedByUserId,
+        String(vt.open_task_status ?? ''),
+        shape.openTaskNewStatus,
+        shape.decision,
+        visitTaskResultId,
+      ],
+    );
+
+    const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
+
+    if (!useExternal) await db.query('COMMIT');
+
+    return {
+      visitTaskResultId,
+      deviceTransferResultId,
+      openTaskNewStatus: shape.openTaskNewStatus,
+      deviceNewStatus: shape.deviceNewStatus,
+      ownershipTransferred,
+      visitCompleted: completion.completed,
+    };
+  } catch (err) {
+    if (!useExternal) await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (!useExternal) (db as PoolClient).release();
+  }
+}
+
 export async function applyInstallmentCollectionResult(
   visitTaskId: number,
   body: InstallmentCollectionResultBody,
@@ -2702,16 +4275,36 @@ export async function applyInstallmentCollectionResult(
     const notes = body.closing_notes ?? null;
     const nextExpectedDate = optionalDate(body.next_expected_date);
     const nextPriority = normalizePriority(body.next_priority);
+    const parts = Array.isArray(body.payment_parts) ? body.payment_parts : [];
+    const usingParts = parts.length > 0;
     let paidAmount = optionalNumber(body.paid_amount_syp);
     let partialReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
     let refusalReasonId: number | null = null;
 
     if (decision === 'paid_full' || decision === 'paid_partial') {
+      if (usingParts) {
+        // كل جزء دفع يجب أن يكون مكتملاً قبل قبول الدفعة.
+        for (const p of parts) {
+          if (!['hand', 'transfer', 'barter'].includes(p.method)) {
+            throw new ResultValidationError('نوع جزء الدفع غير صالح');
+          }
+          if (!(Number(p.amountValue) > 0)) {
+            throw new ResultValidationError('قيمة كل جزء دفع مطلوبة');
+          }
+          if (p.method === 'barter' && !optionalText(p.barterDescription)) {
+            throw new ResultValidationError('وصف المقايضة مطلوب');
+          }
+          if (p.method !== 'barter' && p.currency === 'usd' && !(Number(p.exchangeRate) > 0)) {
+            throw new ResultValidationError('سعر الصرف مطلوب للدفع بالدولار');
+          }
+        }
+        paidAmount = parts.reduce((sum, p) => sum + collectionPartSyp(p), 0);
+      }
       if (!paidAmount || paidAmount <= 0) {
         throw new ResultValidationError('قيمة الدفعة مطلوبة');
       }
-      if (!optionalText(body.payment_method)) {
+      if (!usingParts && !optionalText(body.payment_method)) {
         throw new ResultValidationError('طريقة الدفع مطلوبة');
       }
       if (decision === 'paid_full' && paidAmount + 0.5 < amountBefore) {
@@ -2776,27 +4369,68 @@ export async function applyInstallmentCollectionResult(
     );
     const visitTaskResultId = Number(vtrRows[0].id);
 
+    const paymentContractId = Number(vt.installment_contract_id ?? vt.contract_id);
+    const receivedByEmployeeId = isPositiveInteger(body.received_by_employee_id)
+      ? Number(body.received_by_employee_id)
+      : performedByUserId;
     let paymentEntryId: number | null = null;
     if (paidAmount != null) {
-      const method = optionalText(body.payment_method)!;
-      const { rows: paymentRows } = await db.query(
-        `INSERT INTO contract_payment_entries (
-           contract_id, method, currency, amount_value, amount_syp,
-           reference_number, received_by_employee_id, notes, entry_type, installment_id
-         ) VALUES ($1, $2, 'SYP', $3, $3, $4, $5, $6, 'collection', $7)
-         RETURNING id`,
-        [
-          Number(vt.installment_contract_id ?? vt.contract_id),
-          method,
-          paidAmount,
-          optionalText(body.payment_reference),
-          isPositiveInteger(body.received_by_employee_id) ? Number(body.received_by_employee_id) : performedByUserId,
-          notes,
-          Number(vt.installment_id),
-        ],
-      );
-      paymentEntryId = Number(paymentRows[0].id);
-      await db.query('SELECT recompute_installment_balance($1)', [Number(vt.installment_id)]);
+      if (usingParts) {
+        // صف دفعة لكل جزء (يد/حوالة/مقايضة، بالليرة أو الدولار)، الكل مرتبط بالقسط.
+        for (const p of parts) {
+          const partSyp = collectionPartSyp(p);
+          const { rows: pr } = await db.query(
+            `INSERT INTO contract_payment_entries (
+               contract_id, method, currency, amount_value, exchange_rate, amount_syp,
+               reference_number, barter_name, barter_value_syp,
+               received_by_employee_id, notes, entry_type, installment_id
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'collection',$12)
+             RETURNING id`,
+            [
+              paymentContractId,
+              p.method,
+              p.method === 'barter' ? 'SYP' : (p.currency === 'usd' ? 'USD' : 'SYP'),
+              Number(p.amountValue),
+              p.method !== 'barter' && p.currency === 'usd' ? Number(p.exchangeRate) : null,
+              partSyp,
+              p.method === 'transfer' && p.transferCompanyId != null
+                ? String(p.transferCompanyId)
+                : optionalText(body.payment_reference),
+              p.method === 'barter' ? optionalText(p.barterDescription) : null,
+              p.method === 'barter' ? partSyp : null,
+              receivedByEmployeeId,
+              notes,
+              Number(vt.installment_id),
+            ],
+          );
+          const id = Number(pr[0].id);
+          if (paymentEntryId == null) paymentEntryId = id;
+          await recordContractPaymentMovement(db, id, performedByUserId);
+        }
+        await db.query('SELECT recompute_installment_balance($1)', [Number(vt.installment_id)]);
+      } else {
+        const method = optionalText(body.payment_method)!;
+        const { rows: paymentRows } = await db.query(
+          `INSERT INTO contract_payment_entries (
+             contract_id, method, currency, amount_value, amount_syp,
+             reference_number, received_by_employee_id, notes, entry_type, installment_id
+           ) VALUES ($1, $2, 'SYP', $3, $3, $4, $5, $6, 'collection', $7)
+           RETURNING id`,
+          [
+            paymentContractId,
+            method,
+            paidAmount,
+            optionalText(body.payment_reference),
+            receivedByEmployeeId,
+            notes,
+            Number(vt.installment_id),
+          ],
+        );
+        paymentEntryId = Number(paymentRows[0].id);
+        await db.query('SELECT recompute_installment_balance($1)', [Number(vt.installment_id)]);
+        // سجل الحركات المالية: دفعة تحصيل القسط.
+        await recordContractPaymentMovement(db, paymentEntryId, performedByUserId);
+      }
     }
 
     const { rows: afterRows } = await db.query(
@@ -2929,7 +4563,7 @@ export async function applyInstallmentCollectionResult(
         paidAmount,
         remainingAfter,
         paymentEntryId,
-        optionalText(body.payment_method),
+        usingParts ? (parts.length > 1 ? 'mixed' : parts[0].method) : optionalText(body.payment_method),
         optionalText(body.payment_reference),
         isPositiveInteger(body.received_by_employee_id) ? Number(body.received_by_employee_id) : (paidAmount != null ? performedByUserId : null),
         partialReasonId,

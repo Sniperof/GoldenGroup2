@@ -91,6 +91,20 @@ export function canEditClient(
   return authorizeClientPermission(context, 'clients.edit', client);
 }
 
+export function canViewClientRating(
+  context: AuthContext,
+  client: ClientPolicySubject,
+): AuthorizationResult {
+  return authorizeClientPermission(context, 'clients.rating.view', client);
+}
+
+export function canEditClientRating(
+  context: AuthContext,
+  client: ClientPolicySubject,
+): AuthorizationResult {
+  return authorizeClientPermission(context, 'clients.rating.edit', client);
+}
+
 export function canDeleteClient(
   context: AuthContext,
   client: ClientPolicySubject,

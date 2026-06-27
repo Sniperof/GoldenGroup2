@@ -2,28 +2,39 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CircleCheck, CircleX, CreditCard, Loader2, Wallet, X } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { TaskResultModalProps } from '../../components/tasks/types';
+import PaymentEntriesList, { newEntry, type PaymentEntry } from '../../components/emergency/PaymentEntriesList';
 
 type Mode = 'paid_full' | 'paid_partial' | 'rescheduled' | 'refused_to_pay';
-
-const PAYMENT_METHODS = [
-  ['cash', 'نقداً'],
-  ['sham_cash', 'شام كاش'],
-  ['syriatel_cash', 'سيريتل كاش'],
-  ['mtn_cash', 'MTN كاش'],
-  ['alharam', 'الهرم'],
-  ['bank_transfer', 'حوالة بنكية'],
-] as const;
 
 function num(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
 
+// قيمة جزء الدفع بالليرة (مطابقة للباك-إند): مقايضة = القيمة، دولار = القيمة × الصرف.
+function partSyp(e: PaymentEntry): number {
+  const v = Number(e.amountValue) || 0;
+  if (e.method === 'barter') return v;
+  return e.currency === 'usd' ? v * (Number(e.exchangeRate) || 0) : v;
+}
+
+// لا يُقبل الجزء إلا مكتملاً.
+function partComplete(e: PaymentEntry): boolean {
+  if (!e.method) return false;
+  if (!(Number(e.amountValue) > 0)) return false;
+  if (e.method === 'transfer' && !e.transferCompanyId) return false;
+  if (e.method !== 'barter' && e.currency === 'usd' && !(Number(e.exchangeRate) > 0)) return false;
+  if (e.method === 'barter' && !e.barterDescription.trim()) return false;
+  return true;
+}
+
+function money(n: number): string {
+  return n.toLocaleString('ar-SY');
+}
+
 export default function InstallmentCollectionResultModal({ visitId, taskId, task, onClose, onSaved }: TaskResultModalProps) {
   const [mode, setMode] = useState<Mode>('paid_full');
-  const [paidAmount, setPaidAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [paymentReference, setPaymentReference] = useState('');
+  const [entries, setEntries] = useState<PaymentEntry[]>([newEntry()]);
   const [partialReasons, setPartialReasons] = useState<any[]>([]);
   const [rescheduleReasons, setRescheduleReasons] = useState<any[]>([]);
   const [refusalReasons, setRefusalReasons] = useState<any[]>([]);
@@ -34,9 +45,16 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // المطلوب = الذمة (الرصيد المتبقي على القسط).
   const expectedAmount = useMemo(() => {
     return num(task?.expectedAmountSyp ?? task?.expected_amount_syp ?? task?.remainingBalance ?? task?.remaining_balance);
   }, [task]);
+
+  const isPayment = mode === 'paid_full' || mode === 'paid_partial';
+  const totalPaid = useMemo(() => entries.reduce((s, e) => s + partSyp(e), 0), [entries]);
+  const due = expectedAmount ?? 0;
+  const surplus = Math.max(totalPaid - due, 0);   // الباقي للزبون (الدفع الكامل)
+  const shortfall = Math.max(due - totalPaid, 0); // المتبقي على الذمة (الدفع الجزئي)
 
   useEffect(() => {
     api.systemLists.getItemsByCode('collection_partial_payment_reasons').then((r: any) => setPartialReasons(Array.isArray(r) ? r : [])).catch(() => setPartialReasons([]));
@@ -44,12 +62,7 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
     api.systemLists.getItemsByCode('collection_refusal_reasons').then((r: any) => setRefusalReasons(Array.isArray(r) ? r : [])).catch(() => setRefusalReasons([]));
   }, []);
 
-  useEffect(() => {
-    setReasonId('');
-    if ((mode === 'paid_full' || mode === 'paid_partial') && expectedAmount && !paidAmount) {
-      setPaidAmount(String(expectedAmount));
-    }
-  }, [mode, expectedAmount]);
+  useEffect(() => { setReasonId(''); }, [mode]);
 
   const chooser: Array<{ key: Mode; label: string; Icon: any; cls: string }> = [
     { key: 'paid_full', label: 'دفع كامل', Icon: CircleCheck, cls: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
@@ -66,24 +79,33 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
 
   async function submit() {
     setError('');
-    const amount = Number(paidAmount);
     const body: any = {
       final_decision: mode,
       closing_notes: notes.trim() || null,
     };
 
-    if (mode === 'paid_full' || mode === 'paid_partial') {
-      if (!Number.isFinite(amount) || amount <= 0) {
-        setError('قيمة الدفعة مطلوبة');
+    if (isPayment) {
+      if (entries.length === 0 || !entries.every(partComplete)) {
+        setError('أكمل بيانات كل جزء دفع قبل القبول');
         return;
       }
-      if (!paymentMethod) {
-        setError('طريقة الدفع مطلوبة');
+      if (totalPaid <= 0) { setError('قيمة الدفعة مطلوبة'); return; }
+      if (mode === 'paid_full' && expectedAmount != null && totalPaid + 0.5 < expectedAmount) {
+        setError('الدفع الكامل يجب أن يغطي كامل المطلوب');
         return;
       }
-      body.paid_amount_syp = amount;
-      body.payment_method = paymentMethod;
-      body.payment_reference = paymentReference.trim() || null;
+      if (mode === 'paid_partial' && expectedAmount != null && totalPaid >= expectedAmount) {
+        setError('الدفع الجزئي يجب أن يكون أقل من المطلوب');
+        return;
+      }
+      body.payment_parts = entries.map(e => ({
+        method: e.method,
+        amountValue: Number(e.amountValue),
+        currency: e.currency,
+        exchangeRate: e.exchangeRate ? Number(e.exchangeRate) : null,
+        transferCompanyId: e.transferCompanyId || null,
+        barterDescription: e.barterDescription || null,
+      }));
     }
 
     if (mode === 'paid_partial') {
@@ -134,8 +156,10 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
-          <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-xs text-emerald-800">
-            المبلغ المتوقع: {expectedAmount != null ? expectedAmount.toLocaleString('ar-SY') : '—'} ل.س
+          {/* الذمة واضحة */}
+          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center justify-between">
+            <span className="text-sm font-bold text-emerald-700">المطلوب (رصيد الذمة)</span>
+            <span className="text-lg font-black text-emerald-900">{expectedAmount != null ? money(expectedAmount) : '—'} ل.س</span>
           </div>
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -148,25 +172,28 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
             ))}
           </div>
 
-          {(mode === 'paid_full' || mode === 'paid_partial') && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">قيمة الدفعة *</span>
-                <input type="number" min="0" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">طريقة الدفع *</span>
-                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  {PAYMENT_METHODS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              <label className="space-y-1.5 sm:col-span-2">
-                <span className="text-xs font-bold text-slate-500">رقم المرجع</span>
-                <input value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </label>
+          {isPayment && (
+            <div className="space-y-3">
+              <PaymentEntriesList
+                entries={entries}
+                onChange={setEntries}
+                grandTotal={expectedAmount ?? undefined}
+                label="دفعات الزبون (يد / حوالة / مقايضة — ل.س أو $)"
+              />
+
+              {/* الباقي في الكامل، المتبقي في الجزئي */}
+              {mode === 'paid_full' && surplus > 0 && (
+                <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm font-bold text-amber-700">الباقي للزبون (فائض)</span>
+                  <span className="text-lg font-black text-amber-800">{money(surplus)} ل.س</span>
+                </div>
+              )}
+              {mode === 'paid_partial' && (
+                <div className="rounded-xl border-2 border-sky-200 bg-sky-50 px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm font-bold text-sky-700">المتبقي على الذمة (مهمة تسديد جديدة)</span>
+                  <span className="text-lg font-black text-sky-800">{money(shortfall)} ل.س</span>
+                </div>
+              )}
             </div>
           )}
 

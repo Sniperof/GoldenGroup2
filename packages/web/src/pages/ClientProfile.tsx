@@ -1,5 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -7,7 +6,7 @@ import {
     History, ArrowLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
     X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle,
-    Cpu, Package, Sparkles, Gift
+    Cpu, Package, Sparkles, Gift, Clock, DollarSign, Star
 } from 'lucide-react';
 import { DevicesTab } from './clientProfile/DevicesTab'; // plan §1 — replaces legacy ContractsTab
 import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
@@ -20,6 +19,14 @@ import type { Client, GeoUnit } from '../lib/types';
 import { buildGeoPath, geoLevelLabel } from '../lib/geoPath';
 import ClientAvatar from '../components/ClientAvatar';
 import { getOutcomeMeta, OUTCOMES_BY_GROUP, TelemarketingOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY, OUTCOME_MAP } from '@golden-crm/shared';
+import {
+    getTaskPhase,
+    OPEN_TASK_PHASE_LABELS,
+    OPEN_TASK_PHASE_COLORS,
+    OPEN_TASK_STATUS_LABELS,
+    OPEN_TASK_TYPE_LABELS,
+    type OpenTaskStatus,
+} from '@golden-crm/shared';
 import OutcomeRecorderModal, { SaveExtras } from '../components/telemarketing/OutcomeRecorderModal';
 import ContactControlCard from '../components/clients/ContactControlCard';
 import CustomerCallLog from '../components/customers/CustomerCallLog';
@@ -40,6 +47,7 @@ type ClientProfileTabId =
     | 'parts_stock'
     | 'pre_offers'
     | 'gifts'
+    | 'rating'
     | 'account_statement';
 
 const referrerTypesAr: Record<string, string> = {
@@ -314,6 +322,33 @@ function ProfileHeaderSection({ client, geoUnits }: { client: Client; geoUnits: 
                         )}
                     </section>
                 </div>
+
+                {/* ملاحظات الزبون — بوكس مستقل أسفل موقع الزبون (منقول من تبويب «نظرة عامة») */}
+                {client.notes ? (
+                    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                        <div className="mb-4 flex items-center gap-2">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                                <FileText className="h-4 w-4" />
+                            </div>
+                            <h3 className="text-base font-bold text-slate-800">ملاحظات الزبون</h3>
+                        </div>
+                        <div
+                            className="rich-notes prose prose-sm max-w-none leading-relaxed text-slate-600 prose-slate"
+                            dangerouslySetInnerHTML={{ __html: client.notes }}
+                        />
+                        <style>{`
+                            .rich-notes ul { list-style-type: disc; padding-inline-start: 1.5rem; margin: 1rem 0; }
+                            .rich-notes ol { list-style-type: decimal; padding-inline-start: 1.5rem; margin: 1rem 0; }
+                            .rich-notes p { margin: 0.5rem 0; }
+                            .rich-notes h1, .rich-notes h2, .rich-notes h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; font-weight: bold; }
+                        `}</style>
+                    </section>
+                ) : (
+                    <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-slate-400 shadow-sm">
+                        <FileText className="mx-auto mb-2 h-7 w-7 opacity-50" />
+                        <p className="text-sm font-bold">لا توجد ملاحظات مسجلة لهذا الزبون.</p>
+                    </section>
+                )}
             </div>
         </section>
     );
@@ -335,6 +370,8 @@ export default function ClientProfile() {
     const canViewPreOffers = hasAnyPermission('clients.pre_offers.view', 'contracts.view_list');
     const canViewNetwork = hasPermission('clients.network.view');
     const canViewAccountStatement = hasPermission('clients.account_statement.view');
+    const canViewRating = hasPermission('clients.rating.view');
+    const canEditRating = hasPermission('clients.rating.edit');
     const canEditContactControl = hasPermission('clients.contact_control.edit') || hasPermission('clients.cooldown_unlock');
     const [activeTab, setActiveTab] = useState<ClientProfileTabId>('overview');
     const [callLogRefreshKey, setCallLogRefreshKey] = useState(0);
@@ -400,7 +437,6 @@ export default function ClientProfile() {
     }
 
     const tabs: Array<{ id: ClientProfileTabId; label: string; icon: any }> = [
-        { id: 'overview', label: 'ظ†ط¸ط±ط© ط¹ط§ظ…ط©', icon: LayoutDashboard },
         ...(canViewContacts ? [{ id: 'contacts' as const, label: 'ط§ظ„طھظˆط§طµظ„', icon: Contact2 }] : []),
         ...(canViewCallLog ? [{ id: 'calllog' as const, label: 'ط³ط¬ظ„ ط§ظ„ط§طھطµط§ظ„', icon: PhoneCall }] : []),
         ...(canViewVisits ? [{ id: 'visits' as const, label: 'ط§ظ„ط²ظٹط§ط±ط§طھ', icon: Navigation }] : []),
@@ -409,10 +445,11 @@ export default function ClientProfile() {
         ...(canViewPartsStock ? [{ id: 'parts_stock' as const, label: 'ط§ظ„ظ…ط®ط²ظˆظ†', icon: Package }] : []),
         ...(canViewPreOffers ? [{ id: 'pre_offers' as const, label: 'ط§ظ„ط¹ط±ظˆط¶ ط§ظ„ظ…ط³ط¨ظ‚ط©', icon: Sparkles }] : []),
         { id: 'gifts' as const, label: 'الهدايا', icon: Gift },
+        ...(canViewRating ? [{ id: 'rating' as const, label: 'تقييم الالتزام', icon: Star }] : []),
         ...(canViewNetwork ? [{ id: 'network' as const, label: 'ط§ظ„ط´ط¨ظƒط©', icon: Share2 }] : []),
         ...(canViewAccountStatement ? [{ id: 'account_statement' as const, label: 'ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨', icon: FileText }] : []),
     ];
-    const safeActiveTab: ClientProfileTabId = tabs.some(tab => tab.id === activeTab) ? activeTab : 'overview';
+    const safeActiveTab: ClientProfileTabId = tabs.some(tab => tab.id === activeTab) ? activeTab : (tabs[0]?.id ?? 'contacts');
 
     return (
         <div className="h-full flex flex-col overflow-hidden bg-slate-50" style={{ direction: 'rtl' }}>
@@ -437,7 +474,6 @@ export default function ClientProfile() {
                         <div className="mx-auto max-w-7xl overflow-x-auto no-scrollbar">
                             <div className="flex w-max min-w-full items-center gap-1 border-b border-[#E3E7EC]">
                             {[
-                                { id: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
                                 { id: 'contacts', label: 'التواصل', icon: Contact2 },
                                 { id: 'calllog', label: 'سجل الاتصال', icon: PhoneCall },
                                 { id: 'visits', label: 'الزيارات', icon: Navigation },
@@ -446,6 +482,7 @@ export default function ClientProfile() {
                                 { id: 'parts_stock', label: 'المخزون', icon: Package },
                                 { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
                                 { id: 'gifts', label: 'الهدايا', icon: Gift },
+                                { id: 'rating', label: 'تقييم الالتزام', icon: Star },
                                 { id: 'network', label: 'الشبكة', icon: Share2 },
                                 { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
                             ].filter((tab) => tabs.some(allowedTab => allowedTab.id === tab.id)).map((tab) => (
@@ -475,26 +512,21 @@ export default function ClientProfile() {
                                 transition={{ duration: 0.2 }}
                                 className="h-full"
                             >
-                                {safeActiveTab === 'overview' && (
-                                    <OverviewTab
-                                        client={client}
-                                        canEditContactControl={canEditContactControl}
-                                        onClientChanged={async () => {
-                                            const fresh = await api.clients.get(client.id);
-                                            setClient(fresh);
-                                        }}
-                                    />
-                                )}
                                 {safeActiveTab === 'contacts' && (
                                     <ContactsTab
                                         client={client}
                                         refreshKey={callLogRefreshKey}
                                         onCallSaved={() => setCallLogRefreshKey(k => k + 1)}
                                         onClientUpdate={(fields) => setClient(prev => prev ? { ...prev, ...fields } : null)}
+                                        onClientChanged={async () => {
+                                            const fresh = await api.clients.get(client.id);
+                                            setClient(fresh);
+                                        }}
                                         canViewCallLog={canViewCallLog}
                                         canCreateCallLog={canCreateCallLog}
                                         canEditContacts={canEditContacts}
                                         canEditCallLog={canEditCallLog}
+                                        canEditContactControl={canEditContactControl}
                                     />
                                 )}
                                 {safeActiveTab === 'calllog' && (
@@ -509,6 +541,13 @@ export default function ClientProfile() {
                                 {safeActiveTab === 'parts_stock' && <PartsStockTab client={client} />}
                                 {safeActiveTab === 'pre_offers' && <PreOffersTab client={client} />}
                                 {safeActiveTab === 'gifts' && <GiftsTab client={client} />}
+                                {safeActiveTab === 'rating' && (
+                                    <ClientRatingTab
+                                        client={client}
+                                        canEdit={canEditRating}
+                                        onClientChanged={(updatedClient) => setClient(updatedClient)}
+                                    />
+                                )}
                                 {safeActiveTab === 'network' && <NetworkTab client={client} />}
                                 {safeActiveTab === 'account_statement' && <AccountStatementTab client={client} />}
                             </motion.div>
@@ -521,41 +560,6 @@ export default function ClientProfile() {
 }
 
 {/* ============ TABS COMPONENTS ============ */ }
-
-function OverviewTab({ client, onClientChanged, canEditContactControl }: { client: Client; onClientChanged: () => void | Promise<void>; canEditContactControl: boolean }) {
-    return (
-        <div className="w-full h-full max-w-4xl space-y-4">
-            {/* DEC-005 D29 + DEC-006 D32: contact-control surface (cooldown + do_not_contact) */}
-            {canEditContactControl && <ContactControlCard client={client} onChange={() => { void onClientChanged(); }} />}
-
-            {client.notes ? (
-                <section>
-                    <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <Plus className="w-5 h-5 text-sky-500" />
-                        ملاحظات الزبون
-                    </h3>
-                    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm prose prose-sm max-w-none prose-slate">
-                        <div
-                            className="rich-notes text-slate-600 leading-relaxed"
-                            dangerouslySetInnerHTML={{ __html: client.notes }}
-                        />
-                        <style>{`
-                            .rich-notes ul { list-style-type: disc; padding-inline-start: 1.5rem; margin: 1rem 0; }
-                            .rich-notes ol { list-style-type: decimal; padding-inline-start: 1.5rem; margin: 1rem 0; }
-                            .rich-notes p { margin: 0.5rem 0; }
-                            .rich-notes h1, .rich-notes h2, .rich-notes h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; font-weight: bold; }
-                        `}</style>
-                    </div>
-                </section>
-            ) : (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-slate-400 shadow-sm">
-                    <FileText className="mx-auto mb-3 h-8 w-8 opacity-50" />
-                    <p className="text-sm font-bold">لا توجد ملاحظات مسجلة لهذا الزبون.</p>
-                </div>
-            )}
-        </div>
-    );
-}
 
 // ── outcome colour helper ─────────────────────────────────────────────────────
 
@@ -595,24 +599,204 @@ function formatCallDate(dateStr: string): string {
 
 // ── ContactsTab ───────────────────────────────────────────────────────────────
 
+type RatingValue = 'Committed' | 'NotCommitted' | 'Undefined';
+
+const RATING_OPTIONS: Array<{ value: RatingValue; label: string; className: string }> = [
+    { value: 'Committed', label: 'ملتزم', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+    { value: 'NotCommitted', label: 'غير ملتزم', className: 'border-rose-200 bg-rose-50 text-rose-700' },
+    { value: 'Undefined', label: 'غير محدد', className: 'border-slate-200 bg-slate-50 text-slate-600' },
+];
+
+function ratingLabel(value?: string | null): string {
+    return RATING_OPTIONS.find(option => option.value === value)?.label ?? 'غير محدد';
+}
+
+function ratingClass(value?: string | null): string {
+    return RATING_OPTIONS.find(option => option.value === value)?.className ?? RATING_OPTIONS[2].className;
+}
+
+function ClientRatingTab({
+    client,
+    canEdit,
+    onClientChanged,
+}: {
+    client: Client;
+    canEdit: boolean;
+    onClientChanged: (client: Client) => void;
+}) {
+    const [history, setHistory] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [selectedRating, setSelectedRating] = useState<RatingValue>((client.rating || 'Undefined') as RatingValue);
+    const [notes, setNotes] = useState('');
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchHistory = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const rows = await api.clients.getRatingHistory(client.id);
+            setHistory(rows);
+        } catch (err: any) {
+            setError(err?.message || 'تعذر تحميل سجل التقييم');
+            setHistory([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [client.id]);
+
+    useEffect(() => {
+        setSelectedRating((client.rating || 'Undefined') as RatingValue);
+        setNotes('');
+        fetchHistory();
+    }, [client.id, client.rating, fetchHistory]);
+
+    const saveRating = async () => {
+        if (!canEdit || saving) return;
+        setSaving(true);
+        setError(null);
+        try {
+            const result = await api.clients.updateRating(client.id, {
+                rating: selectedRating,
+                notes: notes.trim() || null,
+            });
+            onClientChanged(result.client);
+            setNotes('');
+            await fetchHistory();
+        } catch (err: any) {
+            setError(err?.message || 'تعذر حفظ التقييم');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="max-w-5xl space-y-5">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <p className="text-xs font-black uppercase tracking-wide text-slate-400">آخر تقييم</p>
+                        <div className="mt-2 flex items-center gap-2">
+                            <span className={`inline-flex rounded-full border px-3 py-1 text-sm font-black ${ratingClass(client.rating)}`}>
+                                {ratingLabel(client.rating)}
+                            </span>
+                        </div>
+                    </div>
+                    {canEdit && (
+                        <button
+                            type="button"
+                            onClick={saveRating}
+                            disabled={saving}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                            حفظ التقييم
+                        </button>
+                    )}
+                </div>
+
+                {canEdit ? (
+                    <div className="mt-5 space-y-4">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            {RATING_OPTIONS.map(option => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => setSelectedRating(option.value)}
+                                    className={`rounded-xl border px-4 py-3 text-sm font-black transition ${
+                                        selectedRating === option.value
+                                            ? `${option.className} ring-2 ring-sky-200`
+                                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </div>
+                        <textarea
+                            value={notes}
+                            onChange={(event) => setNotes(event.target.value)}
+                            rows={3}
+                            placeholder="ملاحظة سبب تغيير التقييم"
+                            className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                        />
+                    </div>
+                ) : (
+                    <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-500">
+                        لا تملك صلاحية تعديل تقييم الالتزام.
+                    </p>
+                )}
+
+                {error && (
+                    <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+                        {error}
+                    </p>
+                )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="mb-4 text-base font-black text-slate-800">السجل التاريخي</h3>
+                {loading ? (
+                    <div className="flex items-center gap-2 text-sm font-bold text-slate-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        جاري تحميل السجل...
+                    </div>
+                ) : history.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-400">
+                        لا يوجد سجل تقييمات بعد.
+                    </p>
+                ) : (
+                    <div className="space-y-3">
+                        {history.map(item => (
+                            <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${ratingClass(item.oldRating)}`}>
+                                            {ratingLabel(item.oldRating)}
+                                        </span>
+                                        <ChevronRight className="h-4 w-4 text-slate-300" />
+                                        <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${ratingClass(item.newRating)}`}>
+                                            {ratingLabel(item.newRating)}
+                                        </span>
+                                    </div>
+                                    <div className="text-xs font-bold text-slate-500">
+                                        {item.changedByName || 'مستخدم غير معروف'} - {formatCallDate(item.changedAt)}
+                                    </div>
+                                </div>
+                                {item.notes && (
+                                    <p className="mt-3 text-sm font-medium leading-6 text-slate-600">{item.notes}</p>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+        </div>
+    );
+}
+
 function ContactsTab({
     client,
     refreshKey,
     onCallSaved,
     onClientUpdate,
+    onClientChanged,
     canViewCallLog,
     canCreateCallLog,
     canEditContacts,
     canEditCallLog,
+    canEditContactControl,
 }: {
     client: Client;
     refreshKey?: number;
     onCallSaved?: () => void;
     onClientUpdate?: (fields: Partial<Client>) => void;
+    onClientChanged?: () => void | Promise<void>;
     canViewCallLog: boolean;
     canCreateCallLog: boolean;
     canEditContacts: boolean;
     canEditCallLog: boolean;
+    canEditContactControl: boolean;
 }) {
     const [callLogs, setCallLogs] = useState<any[]>([]);
     const [loadingCalls, setLoadingCalls] = useState(false);
@@ -639,6 +823,11 @@ function ContactsTab({
 
     return (
         <div className="space-y-6 max-w-5xl">
+            {/* DEC-005 D29 + DEC-006 D32: contact-control surface (cooldown + do_not_contact) — moved here from Overview */}
+            {canEditContactControl && onClientChanged && (
+                <ContactControlCard client={client} onChange={() => { void onClientChanged(); }} />
+            )}
+
             <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-slate-800">جهات الاتصال الخاصة بالزبون</h3>
             </div>
@@ -805,6 +994,277 @@ function ContactsTab({
     );
 }
 
+// ── Visits/Tasks timeline helpers ──────────────────────────────────────────────
+
+type TimelineItem = { kind: 'task' | 'visit'; ts: number; data: any };
+
+const VISIT_STATUS_LABELS: Record<string, string> = {
+    scheduled: 'مجدولة',
+    in_progress: 'قيد التنفيذ',
+    ended: 'منتهية ميدانياً',
+    completed: 'مكتملة',
+    not_completed: 'لم تكتمل',
+    cancelled: 'ملغاة',
+    postponed_by_company: 'مؤجلة (الشركة)',
+    postponed_by_customer: 'مؤجلة (الزبون)',
+    needs_reschedule: 'تحتاج إعادة جدولة',
+};
+
+const VISIT_STATUS_COLORS: Record<string, string> = {
+    scheduled: 'bg-sky-50 text-sky-700 border-sky-200',
+    in_progress: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    ended: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+    completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    not_completed: 'bg-rose-50 text-rose-700 border-rose-200',
+    cancelled: 'bg-slate-100 text-slate-500 border-slate-200',
+};
+
+const TASK_TYPE_ICONS: Record<string, any> = {
+    device_demo: Sparkles,
+    device_purchase: FileText,
+    device_delivery: Truck,
+    device_installation: Wrench,
+    device_activation: Cpu,
+    device_disconnection: Wrench,
+    device_retrieval: Package,
+    device_return: Package,
+    periodic_maintenance: Wrench,
+    emergency_maintenance: Zap,
+    installment_collection: DollarSign,
+    maintenance_collection: DollarSign,
+    gift_delivery: Gift,
+    device_checkup: Activity,
+    parts_sale: Package,
+    golden_warranty: ShieldCheck,
+    golden_warranty_offer: ShieldCheck,
+    golden_warranty_card_delivery: ShieldCheck,
+};
+
+function taskTypeIcon(taskType?: string): any {
+    return (taskType && TASK_TYPE_ICONS[taskType]) || FileText;
+}
+
+function startOfToday(): Date {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+function toTime(value?: string | null): number {
+    if (!value) return 0;
+    const t = new Date(value).getTime();
+    return Number.isNaN(t) ? 0 : t;
+}
+
+function fmtDay(value?: string | null): string | null {
+    if (!value) return null;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    return d.toLocaleDateString('ar-SY', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function fmtTimeOnly(value?: string | null): string | null {
+    if (!value) return null;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' });
+}
+
+function humanizeCode(code?: string | null): string | null {
+    if (!code) return null;
+    return code.replace(/_/g, ' ');
+}
+
+function taskDotClass(status: string): string {
+    if (status === 'cancelled') return 'bg-rose-50 text-rose-600 border-rose-200';
+    const phase = getTaskPhase(status as OpenTaskStatus);
+    const map: Record<string, string> = {
+        waiting: 'bg-slate-100 text-slate-600 border-slate-200',
+        planning: 'bg-indigo-50 text-indigo-600 border-indigo-200',
+        execution: 'bg-amber-50 text-amber-600 border-amber-200',
+        closure: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+    };
+    return map[phase] || map.waiting;
+}
+
+function visitDotClass(status: string): string {
+    return (VISIT_STATUS_COLORS[status] || 'bg-sky-50 text-sky-600 border-sky-200');
+}
+
+function Chip({ children, className }: { children: ReactNode; className?: string }) {
+    return (
+        <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-bold ${className || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+            {children}
+        </span>
+    );
+}
+
+function TaskNode({ task }: { task: any }) {
+    const status = task.status as string;
+    const phase = getTaskPhase(status as OpenTaskStatus);
+    const typeLabel = OPEN_TASK_TYPE_LABELS[task.taskType] ?? task.taskType ?? 'مهمة';
+    const statusLabel = OPEN_TASK_STATUS_LABELS[status as OpenTaskStatus] ?? status;
+    const due = task.dueDate ?? task.due_date ?? null;
+    const overdue = phase === 'waiting' && due && new Date(due) < startOfToday();
+    const devices: any[] = task.devices ?? [];
+    const preOffers: any[] = task.preOffers ?? task.preoffers ?? [];
+    const attempts: number = task.attemptsCount ?? 0;
+    const lastAttempt = task.lastAttempt ?? null;
+    const activeVisit = task.activeVisit ?? null;
+
+    return (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-black text-slate-800">{typeLabel}</span>
+                    <span className="text-xs font-bold text-slate-400">مهمة #{task.id}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <Chip className={OPEN_TASK_PHASE_COLORS[phase]}>{OPEN_TASK_PHASE_LABELS[phase]}</Chip>
+                    <Chip className="bg-white text-slate-600 border-slate-200">{statusLabel}</Chip>
+                    {overdue && <Chip className="bg-rose-50 text-rose-700 border-rose-200"><AlertCircle className="h-3 w-3" /> متأخرة</Chip>}
+                </div>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                {fmtDay(task.createdAt) && <span>أُنشئت: {fmtDay(task.createdAt)}</span>}
+                {fmtDay(due) && <span className={overdue ? 'font-bold text-rose-600' : ''}>التاريخ المطلوب: {fmtDay(due)}</span>}
+            </div>
+
+            {devices.length > 0 && (
+                <div className="mt-3 text-sm text-slate-600">
+                    <span className="font-bold text-slate-500">الأجهزة: </span>
+                    {devices.map((d: any) => `${d.deviceName} × ${d.quantity}`).join('، ')}
+                </div>
+            )}
+
+            {preOffers.length > 0 && (
+                <div className="mt-1 text-sm text-slate-600">
+                    <span className="font-bold text-slate-500">عروض مسبقة: </span>{preOffers.length}
+                </div>
+            )}
+
+            {task.notes && <div className="mt-2 text-xs leading-relaxed text-slate-400">{task.notes}</div>}
+
+            {(attempts > 0 || activeVisit || lastAttempt) && (
+                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+                    {attempts > 0 && (
+                        <Chip className="bg-slate-50 text-slate-600 border-slate-200"><Layers className="h-3 w-3" /> {attempts} محاولة تنفيذ</Chip>
+                    )}
+                    {activeVisit && (
+                        <Chip className="bg-indigo-50 text-indigo-700 border-indigo-200"><Navigation className="h-3 w-3" /> زيارة نشطة #{activeVisit.id}</Chip>
+                    )}
+                    {lastAttempt?.finalDecision && (
+                        <Chip className="bg-emerald-50 text-emerald-700 border-emerald-200"><CheckCircle2 className="h-3 w-3" /> آخر نتيجة: {humanizeCode(lastAttempt.finalDecision)}</Chip>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function VisitNode({ visit, navigate }: { visit: any; navigate: ReturnType<typeof useNavigate> }) {
+    const status = visit.status as string;
+    const statusLabel = VISIT_STATUS_LABELS[status] ?? status;
+    const visitTypeLabel = visit.visitType === 'emergency' ? 'طوارئ' : 'تسويقية';
+    const summary: any[] = visit.tasksSummary ?? [];
+    const taskCount: number = visit.taskCount ?? 0;
+    const documented: number = visit.documentedTaskCount ?? 0;
+    const escalated: number[] = visit.escalationTiers ?? [];
+    const teamName: string | null = visit.team?.teamName ?? null;
+    const startT = fmtTimeOnly(visit.actualStartTime);
+    const endT = fmtTimeOnly(visit.actualEndTime);
+
+    return (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-black text-slate-800">زيارة ميدانية</span>
+                    <Chip className="bg-slate-50 text-slate-500 border-slate-200">{visitTypeLabel}</Chip>
+                    <span className="text-xs font-bold text-slate-400">#{visit.id}</span>
+                    {visit.originType === 'field_initiated' && (
+                        <Chip className="bg-violet-50 text-violet-700 border-violet-200">فورية</Chip>
+                    )}
+                </div>
+                <div className="flex items-center gap-2">
+                    <Chip className={visitDotClass(status)}>{statusLabel}</Chip>
+                    <button
+                        onClick={() => navigate(`/field-visits/${visit.id}`)}
+                        className="text-xs font-bold text-sky-600 hover:text-sky-500 hover:underline"
+                    >
+                        عرض الزيارة
+                    </button>
+                </div>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                {fmtDay(visit.scheduledDate) && (
+                    <span className="inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5 text-slate-400" /> {fmtDay(visit.scheduledDate)}{visit.scheduledTime ? ` • ${visit.scheduledTime}` : ''}</span>
+                )}
+                {teamName && <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5 text-slate-400" /> {teamName}</span>}
+                {(startT || endT) && (
+                    <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5 text-slate-400" /> {startT || '—'}{endT ? ` ← ${endT}` : ''}</span>
+                )}
+            </div>
+
+            {summary.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                    {summary.map((t: any, i: number) => (
+                        <Chip key={i} className="bg-slate-50 text-slate-600 border-slate-200">
+                            {OPEN_TASK_TYPE_LABELS[t.taskType] ?? t.taskType}
+                        </Chip>
+                    ))}
+                </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+                {taskCount > 0 && (
+                    <Chip className={documented >= taskCount ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}>
+                        {documented}/{taskCount} مهمة موثّقة
+                    </Chip>
+                )}
+                <Chip className={visit.hasSurvey ? 'bg-slate-50 text-slate-600 border-slate-200' : 'bg-slate-50 text-slate-400 border-slate-200'}>
+                    {visit.hasSurvey ? (visit.surveySkipped ? 'استبيان (مُتخطّى)' : 'استبيان موجود') : 'بلا استبيان'}
+                </Chip>
+                {escalated.length > 0 && (
+                    <Chip className="bg-rose-50 text-rose-700 border-rose-200"><AlertCircle className="h-3 w-3" /> تصعيد توثيق</Chip>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function TimelineRow({ item, isLast, navigate }: { item: TimelineItem; isLast: boolean; navigate: ReturnType<typeof useNavigate> }) {
+    const isTask = item.kind === 'task';
+    const Icon = isTask ? taskTypeIcon(item.data.taskType) : Navigation;
+    const dotClass = isTask ? taskDotClass(item.data.status) : visitDotClass(item.data.status);
+    return (
+        <li className="relative flex gap-3">
+            <div className="flex flex-col items-center">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${dotClass}`}>
+                    <Icon className="h-4 w-4" />
+                </span>
+                {!isLast && <span className="mt-1 w-px flex-1 bg-slate-200" />}
+            </div>
+            <div className="min-w-0 flex-1 pb-6">
+                {isTask ? <TaskNode task={item.data} /> : <VisitNode visit={item.data} navigate={navigate} />}
+            </div>
+        </li>
+    );
+}
+
+function SummaryStat({ label, value, icon: Icon, className }: { label: string; value: number | string; icon: any; className: string }) {
+    return (
+        <div className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${className}`}>
+            <Icon className="h-5 w-5 shrink-0" />
+            <div className="min-w-0">
+                <p className="text-lg font-black leading-none">{value}</p>
+                <p className="mt-1 text-xs font-bold opacity-70">{label}</p>
+            </div>
+        </div>
+    );
+}
+
 export function VisitsTab({ client }: { client: Client }) {
     const navigate = useNavigate();
     const [visits, setVisits] = useState<any[]>([]);
@@ -852,16 +1312,27 @@ export function VisitsTab({ client }: { client: Client }) {
         fetchData();
     }, [fetchData]);
 
+    // Unified chronological record: open-task commitments + field visits, newest first.
+    const timeline = useMemo<TimelineItem[]>(() => {
+        const items: TimelineItem[] = [];
+        for (const t of tasks) items.push({ kind: 'task', ts: toTime(t.createdAt), data: t });
+        for (const v of visits) items.push({ kind: 'visit', ts: toTime(v.scheduledDate ?? v.actualStartTime ?? v.createdAt), data: v });
+        items.sort((a, b) => b.ts - a.ts);
+        return items;
+    }, [tasks, visits]);
+
+    const activeTaskCount = tasks.filter((t) => !['completed', 'closed', 'cancelled'].includes(t.status)).length;
+
     return (
-        <div className="space-y-6 max-w-5xl h-full flex flex-col">
+        <div className="space-y-6 max-w-5xl">
             <div className="flex items-center justify-between gap-3">
                 <h3 className="text-base font-bold text-slate-800">سجل الزيارات والمهام</h3>
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setEmergencyModalOpen(true)}
-                        className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl shadow-sm hover:bg-rose-500 transition-all flex items-center gap-1.5 text-sm"
+                        className="px-4 py-2 border border-rose-200 text-rose-600 font-bold rounded-xl hover:bg-rose-50 transition-all flex items-center gap-1.5 text-sm"
                     >
-                        <Zap className="w-4 h-4" /> صيانة طارئة (Legacy)
+                        <Zap className="w-4 h-4" /> صيانة طارئة
                     </button>
                     {serviceRequestsUiEnabled && (
                         <button
@@ -890,80 +1361,30 @@ export function VisitsTab({ client }: { client: Client }) {
                 <div className="text-center py-12">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto text-slate-300" />
                 </div>
+            ) : timeline.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-12 text-center flex flex-col items-center justify-center">
+                    <Navigation className="w-10 h-10 text-slate-300 mb-4" />
+                    <h4 className="text-lg text-slate-600 font-black mb-2">لا توجد مهام أو زيارات مسجلة</h4>
+                    <p className="text-sm text-slate-400 max-w-sm mx-auto leading-relaxed">اضغط "عرض جهاز" لإنشاء أول مهمة لهذا الزبون.</p>
+                </div>
             ) : (
-                <div className="space-y-6">
-                    {tasks.length === 0 ? (
-                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-12 text-center flex-1 flex flex-col items-center justify-center">
-                            <Navigation className="w-10 h-10 text-slate-300 mb-4" />
-                            <h4 className="text-lg text-slate-600 font-black mb-2">لا توجد مهام مسجلة</h4>
-                            <p className="text-sm text-slate-400 max-w-sm mx-auto leading-relaxed">اضغط "إضافة عرض جهاز" لإنشاء مهمة جديدة.</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            {tasks.map((task) => {
-                                const preOffers = task.preOffers ?? task.preoffers ?? [];
-                                return (
-                                    <div key={task.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <div className="flex items-center gap-2">
-                                                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
-                                                    task.status === 'open' ? 'bg-sky-50 text-sky-600 border-sky-100' :
-                                                    task.status === 'scheduled' ? 'bg-amber-50 text-amber-600 border-amber-100' :
-                                                    task.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                                                    'bg-slate-50 text-slate-500 border-slate-100'
-                                                }`}>{task.status}</span>
-                                                <span className="text-sm font-bold text-slate-700">مهمة #{task.id}</span>
-                                            </div>
-                                            {(task.dueDate || task.due_date) && (
-                                                <span className="text-xs text-slate-400 font-mono">{task.dueDate || task.due_date}</span>
-                                            )}
-                                        </div>
-                                        {task.devices && task.devices.length > 0 && (
-                                            <div className="text-sm text-slate-600 mb-2">
-                                                الأجهزة: {task.devices.map((d: any) => `${d.deviceName} × ${d.quantity}`).join('، ')}
-                                            </div>
-                                        )}
-                                        {preOffers.length > 0 && (
-                                            <div className="text-sm text-slate-600">
-                                                عروض مسبقة: {preOffers.length}
-                                            </div>
-                                        )}
-                                        {task.notes && (
-                                            <div className="text-xs text-slate-400 mt-2">{task.notes}</div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
+                <div className="space-y-5">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        <SummaryStat label="مهام نشطة" value={activeTaskCount} icon={Layers} className="border-indigo-100 bg-indigo-50 text-indigo-700" />
+                        <SummaryStat label="إجمالي المهام" value={tasks.length} icon={FileText} className="border-slate-200 bg-slate-50 text-slate-700" />
+                        <SummaryStat label="الزيارات الميدانية" value={visits.length} icon={Navigation} className="border-sky-100 bg-sky-50 text-sky-700" />
+                    </div>
 
-                    <section className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <h4 className="text-base font-black text-slate-800">الزيارات الفعلية</h4>
-                            <span className="text-xs text-slate-400">{visits.length} زيارة</span>
-                        </div>
-                        {visits.length === 0 ? (
-                            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 text-center text-sm text-slate-400">
-                                لا توجد زيارات مسجلة لهذا الزبون حتى الآن.
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {visits.map((visit) => (
-                                    <div key={visit.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div>
-                                                <div className="text-sm font-bold text-slate-800">زيارة #{visit.id}</div>
-                                                <div className="text-xs text-slate-500 mt-1">{visit.scheduledDate} {visit.scheduledTime ? `• ${visit.scheduledTime}` : ''}</div>
-                                            </div>
-                                            <span className="px-2.5 py-1 rounded-lg text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">
-                                                {visit.status}
-                                            </span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </section>
+                    <ol className="relative">
+                        {timeline.map((item, i) => (
+                            <TimelineRow
+                                key={`${item.kind}-${item.data.id}`}
+                                item={item}
+                                isLast={i === timeline.length - 1}
+                                navigate={navigate}
+                            />
+                        ))}
+                    </ol>
                 </div>
             )}
 

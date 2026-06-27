@@ -70,7 +70,6 @@ export default function DeviceDisconnectionResultModal({
   const [expectedDate, setExpectedDate] = useState('');
   const [expectedTime, setExpectedTime] = useState('');
   const [technicalNotes, setTechnicalNotes] = useState('');
-  const [notes, setNotes] = useState('');
   const [retrievalReasonOptions, setRetrievalReasonOptions] = useState<any[]>([]);
   const [rescheduleReasons, setRescheduleReasons] = useState<any[]>([]);
   const [failureReasons, setFailureReasons] = useState<any[]>([]);
@@ -123,8 +122,6 @@ export default function DeviceDisconnectionResultModal({
       await api.fieldVisits.recordTaskResult(visitId, taskId, {
         final_decision: decision,
         reason_code: null,
-        closing_notes: notes.trim() || null,
-        notes: notes.trim() || null,
         expected_date: isRescheduled ? expectedDate : null,
         expected_time: isRescheduled && expectedTime ? expectedTime : null,
         reschedule_reason_id: isRescheduled ? Number(rescheduleReasonId) : null,
@@ -262,10 +259,6 @@ export default function DeviceDisconnectionResultModal({
             <textarea value={technicalNotes} onChange={(e) => setTechnicalNotes(e.target.value)} rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </label>
 
-          <label className="block space-y-1.5">
-            <span className="text-xs font-bold text-slate-500">ملاحظات الإغلاق</span>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-          </label>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">

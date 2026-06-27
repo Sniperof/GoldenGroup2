@@ -268,6 +268,7 @@ export default function OutcomeRecorderModal({
     const currentUser = useAuthStore((state) => state.user);
     const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
     const { items: rescheduleReasons } = useSystemList('telemarketing_reschedule_reason');
+    const { items: waterSourceOptions } = useSystemList('water_source');
     const [taskTypeOptions, setTaskTypeOptions] = useState<{ taskType: string; arabicLabel: string }[]>([]);
     const [serviceTaskType, setServiceTaskType] = useState('');
     // ── Inline appointment booking state ─────────────────────────────────────────
@@ -771,7 +772,7 @@ export default function OutcomeRecorderModal({
                                             placeholder="— اختر مصدر المياه —"
                                             ariaLabel="مصدر المياه"
                                             className="w-full"
-                                            options={['الاسالة الحكومية','شراء قناني معبأة (RO)','ماء بئر / جوفي','تناكر / حوضيات','غير معروف'].map(o => ({ value: o, label: o }))}
+                                            options={waterSourceOptions.map(o => ({ value: o, label: o }))}
                                         />
                                     </div>
                                 )}
