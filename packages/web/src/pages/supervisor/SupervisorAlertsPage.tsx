@@ -12,6 +12,7 @@ import { AlertTriangle, Activity, RefreshCw } from 'lucide-react';
 import AttemptAlertsCard from '../../components/supervisor/AttemptAlertsCard';
 import { api } from '../../lib/api';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 
 interface EscalationItem {
   visitId: number;
@@ -54,26 +55,26 @@ export default function SupervisorAlertsPage() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <PageHeader
+        title="لوحة تنبيهات المشرف"
+        subtitle="تتبع المهام عالية المحاولات والزيارات بانتظار التوثيق."
+        icon={
           <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
             <AlertTriangle className="w-5 h-5" />
           </div>
-          <div>
-            <h1 className="text-2xl mb-1 font-bold text-slate-800">لوحة تنبيهات المشرف</h1>
-            <p className="text-xs text-slate-500">تتبع المهام عالية المحاولات والزيارات بانتظار التوثيق.</p>
-          </div>
-        </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={RefreshCw}
-          onClick={() => void loadEscalations()}
-          loading={loading}
-        >
-          تحديث
-        </Button>
-      </header>
+        }
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={RefreshCw}
+            onClick={() => void loadEscalations()}
+            loading={loading}
+          >
+            تحديث
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* DEC-006 D37: attempt threshold alerts */}

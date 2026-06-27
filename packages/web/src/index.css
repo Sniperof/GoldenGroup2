@@ -166,13 +166,7 @@ body {
 }
 
 /* ============================================================
-   Brand control shape — pill text inputs & selects ONLY.
-   IMPORTANT: do NOT globally pill <button> — many buttons in this
-   app are browser-style tabs (rounded-t-lg), pagination, icon
-   buttons, etc., and a blanket rule distorts them. Inputs/selects
-   are safe to pill globally (matches the brand). For ACTION buttons,
-   add `rounded-full` per-component, or use the opt-in `.btn-pill`
-   utility below.
+   Brand control shape — pill EVERYTHING by default.
    ============================================================ */
 @layer components {
     /* Opt-in pill for action buttons: add className="btn-pill" */
@@ -182,17 +176,46 @@ body {
 }
 
 /* =========================================================
+   Global PILL for buttons — placed OUTSIDE @layer so it
+   reliably beats Tailwind's rounded-* utilities. Every
+   <button> becomes a pill EXCEPT:
+     • .no-pill          — explicit opt-out (icon-square,
+                           pagination, segmented, etc.)
+     • [class*=rounded-t] — tab triggers (top-rounded only)
+     • [class*=rounded-none] — intentionally square
+   "rounded-t" never appears inside rounded-lg/md/xl/2xl/full,
+   so action buttons keep getting pilled.
+   ========================================================= */
+button:not(.no-pill):not([class*="rounded-t"]):not([class*="rounded-none"]) {
+    border-radius: 9999px !important;
+}
+
+/* =========================================================
    Pill text inputs & selects — placed OUTSIDE @layer
    components so they reliably beat Tailwind utility classes
    like .rounded-xl that pages still ship on these elements.
+
+   NOTE: `input:not([type])` is required because an <input>
+   written without an explicit type defaults to "text" but is
+   NOT matched by `input[type="text"]` — so typeless fields
+   (very common in the hand-rolled forms) were missing the
+   pill. The date/time family is included for the same reason.
+   Opt out of the pill on a specific field with `.no-pill`.
    ========================================================= */
-input[type="text"],
-input[type="search"],
-input[type="password"],
-input[type="email"],
-input[type="tel"],
-input[type="number"],
-select {
+input:not([type]):not(.no-pill),
+input[type="text"]:not(.no-pill),
+input[type="search"]:not(.no-pill),
+input[type="password"]:not(.no-pill),
+input[type="email"]:not(.no-pill),
+input[type="tel"]:not(.no-pill),
+input[type="url"]:not(.no-pill),
+input[type="number"]:not(.no-pill),
+input[type="date"]:not(.no-pill),
+input[type="time"]:not(.no-pill),
+input[type="datetime-local"]:not(.no-pill),
+input[type="month"]:not(.no-pill),
+input[type="week"]:not(.no-pill),
+select:not(.no-pill) {
     border-radius: 9999px !important;
 }
 
@@ -339,6 +362,36 @@ a.shadow-lg {
     background: #8C97A6; /* ink-400 */
 }
 .custom-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #B4BDC8 #EEF1F4;
+}
+
+/* ------------------------------------------------------------
+   Global scrollbar — apply the brand-tinted thin scrollbar to
+   every scrollable area app-wide, so individual components no
+   longer need the .custom-scroll / .custom-scrollbar helper.
+   ------------------------------------------------------------ */
+* {
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: #B4BDC8 #EEF1F4;
+}
+*::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+*::-webkit-scrollbar-track {
+    background: #EEF1F4; /* ink-100 */
+}
+*::-webkit-scrollbar-thumb {
+    background: #B4BDC8; /* ink-300 */
+    border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+    background: #8C97A6; /* ink-400 */
+}
+
+/* Alias kept for components that still reference it */
+.custom-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: #B4BDC8 #EEF1F4;
 }

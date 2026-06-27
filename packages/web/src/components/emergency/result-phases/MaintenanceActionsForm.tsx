@@ -33,7 +33,15 @@ type SavedPart = {
   placementState: 'installed' | 'customer_stock';
   noRetrievalReasonId: number | null;
   noRetrievalReasonText: string;
+  recommendationStatus: 'required' | 'optional';
+  customerDecision: 'approved' | 'refused' | 'not_required';
+  executionStatus: 'replaced' | 'delivered_to_customer_stock' | 'not_replaced_customer_refused' | 'not_replaced_unavailable' | 'not_replaced_technician_decision';
+  customerRefusalReasonId: number | null;
+  customerRefusalReasonText: string;
 };
+
+type MaintenanceKind = 'emergency' | 'periodic';
+type ActiveWarranty = { type: 'contract' | 'golden'; endDate?: string | null } | null;
 
 type DraftPart = {
   sparePartId: number | '';
@@ -45,6 +53,11 @@ type DraftPart = {
   retrieved: boolean;
   placementState: 'installed' | 'customer_stock';
   noRetrievalReasonId: string;
+  recommendationStatus: 'required' | 'optional';
+  customerDecision: 'approved' | 'refused' | 'not_required';
+  executionStatus: 'replaced' | 'delivered_to_customer_stock' | 'not_replaced_customer_refused' | 'not_replaced_unavailable' | 'not_replaced_technician_decision';
+  customerRefusalReasonId: string;
+  customerRefusalReasonText: string;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -57,13 +70,39 @@ const TYPE_COLORS: Record<string, string> = {
   Emergency: 'bg-rose-50 text-rose-700 border-rose-200',
   Accessory: 'bg-violet-50 text-violet-700 border-violet-200',
 };
+const EXECUTION_LABELS: Record<SavedPart['executionStatus'], string> = {
+  replaced: 'تم الاستبدال',
+  delivered_to_customer_stock: 'سُلّمت ولم تُركب',
+  not_replaced_customer_refused: 'رفض الزبون',
+  not_replaced_unavailable: 'غير متوفرة',
+  not_replaced_technician_decision: 'لم تُستبدل بقرار فني',
+};
+const EXECUTION_COLORS: Record<SavedPart['executionStatus'], string> = {
+  replaced: 'bg-sky-50 text-sky-700 border-sky-200',
+  delivered_to_customer_stock: 'bg-violet-50 text-violet-700 border-violet-200',
+  not_replaced_customer_refused: 'bg-rose-50 text-rose-700 border-rose-200',
+  not_replaced_unavailable: 'bg-amber-50 text-amber-700 border-amber-200',
+  not_replaced_technician_decision: 'bg-slate-100 text-slate-600 border-slate-200',
+};
+function isExecutedPart(p: Pick<SavedPart, 'executionStatus'>) {
+  return p.executionStatus === 'replaced' || p.executionStatus === 'delivered_to_customer_stock';
+}
 
 function emptyDraft(): DraftPart {
   return { sparePartId: '', partNameSnapshot: '', partCodeSnapshot: '',
            maintenanceType: '', unitPrice: '0', quantity: '1',
-           retrieved: true, placementState: 'installed', noRetrievalReasonId: '' };
+           retrieved: true, placementState: 'installed', noRetrievalReasonId: '',
+           recommendationStatus: 'required', customerDecision: 'approved',
+           executionStatus: 'replaced', customerRefusalReasonId: '', customerRefusalReasonText: '' };
 }
 function toSaved(d: DraftPart): SavedPart {
+  const customerDecision =
+    d.executionStatus === 'not_replaced_customer_refused'
+      ? 'refused'
+      : isExecutedPart(d)
+        ? 'approved'
+        : 'not_required';
+  const placementState = d.executionStatus === 'delivered_to_customer_stock' ? 'customer_stock' : 'installed';
   return {
     sparePartId:         d.sparePartId ? Number(d.sparePartId) : null,
     partNameSnapshot:    d.partNameSnapshot,
@@ -71,10 +110,15 @@ function toSaved(d: DraftPart): SavedPart {
     maintenanceType:     d.maintenanceType,
     unitPrice:           Number(d.unitPrice) || 0,
     quantity:            Number(d.quantity)  || 1,
-    retrieved:           d.retrieved,
-    placementState:      d.placementState,
-    noRetrievalReasonId: d.noRetrievalReasonId ? Number(d.noRetrievalReasonId) : null,
-    noRetrievalReasonText: '',
+    retrieved:           d.executionStatus === 'replaced' ? d.retrieved : true,
+    placementState,
+    noRetrievalReasonId: d.executionStatus === 'replaced' && !d.retrieved && d.noRetrievalReasonId ? Number(d.noRetrievalReasonId) : null,
+    noRetrievalReasonText: d.executionStatus === 'replaced' && !d.retrieved ? d.noRetrievalReasonText : '',
+    recommendationStatus: d.recommendationStatus,
+    customerDecision,
+    executionStatus: d.executionStatus,
+    customerRefusalReasonId: d.customerRefusalReasonId ? Number(d.customerRefusalReasonId) : null,
+    customerRefusalReasonText: d.customerRefusalReasonText.trim(),
   };
 }
 
@@ -83,15 +127,40 @@ function toSaved(d: DraftPart): SavedPart {
 interface DraftFormProps {
   draft: DraftPart;
   allParts: SparePartRaw[];
+  maintenanceKind: MaintenanceKind;
+  activeWarranty: ActiveWarranty;
   noRetrievalReasons: { id: number; value: string }[];
+  customerRefusalReasons: { id: number; value: string }[];
   saving: boolean;
   onDraftChange: (d: DraftPart) => void;
   onSave: () => void;
   onCancel: () => void;
 }
 
-function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftChange, onSave, onCancel }: DraftFormProps) {
-  const set = (key: keyof DraftPart, val: any) => onDraftChange({ ...draft, [key]: val });
+function isPartCoveredByWarranty(
+  maintenanceKind: MaintenanceKind,
+  activeWarranty: ActiveWarranty,
+  partType: DraftPart['maintenanceType'] | SparePartRaw['maintenanceType'],
+) {
+  if (!activeWarranty) return false;
+  if (activeWarranty.type === 'golden') return partType === 'Emergency' || partType === 'Periodic';
+  return maintenanceKind === 'emergency' && partType === 'Emergency';
+}
+
+function PartDraftForm({ draft, allParts, maintenanceKind, activeWarranty, noRetrievalReasons, customerRefusalReasons, saving, onDraftChange, onSave, onCancel }: DraftFormProps) {
+  const set = (key: keyof DraftPart, val: any) => {
+    if (key === 'executionStatus' && val !== 'replaced') {
+      onDraftChange({
+        ...draft,
+        executionStatus: val,
+        retrieved: true,
+        noRetrievalReasonId: '',
+        noRetrievalReasonText: '',
+      });
+      return;
+    }
+    onDraftChange({ ...draft, [key]: val });
+  };
 
   // Parts filtered by selected type
   const filteredParts = draft.maintenanceType
@@ -108,12 +177,15 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
       partNameSnapshot: sp.name,
       partCodeSnapshot: sp.code ?? '',
       maintenanceType:  sp.maintenanceType,
-      unitPrice:        String(sp.basePrice),
+      unitPrice:        isPartCoveredByWarranty(maintenanceKind, activeWarranty, sp.maintenanceType)
+        ? '0'
+        : String(sp.basePrice),
     });
   };
 
-  const lineTotal = (Number(draft.quantity) || 0) * (Number(draft.unitPrice) || 0);
+  const lineTotal = isExecutedPart(draft) ? (Number(draft.quantity) || 0) * (Number(draft.unitPrice) || 0) : 0;
   const canSave   = draft.partNameSnapshot.trim().length > 0;
+  const coveredByWarranty = isPartCoveredByWarranty(maintenanceKind, activeWarranty, draft.maintenanceType);
 
   return (
     <div className="rounded-2xl border-2 border-rose-300 bg-rose-50/30 p-4 space-y-3">
@@ -186,6 +258,9 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
           <input type="number" min="0" value={draft.unitPrice}
             onChange={e => set('unitPrice', e.target.value)}
             className={`${inp} text-sm`} />
+          {coveredByWarranty && (
+            <p className="text-[10px] font-bold text-sky-600">صفر افتراضياً ضمن الكفالة</p>
+          )}
         </div>
         <div className="space-y-1">
           <label className="block text-xs font-bold text-slate-400">الإجمالي</label>
@@ -195,18 +270,18 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
         </div>
       </div>
 
-      {/* Row 4: هل تم سحب القطعة المبدلة؟ */}
+      {/* Row 4: توصية الفني */}
       <div className="space-y-1 pt-1 border-t border-rose-100">
-        <label className="block text-xs font-bold text-slate-600">مصير القطعة الجديدة</label>
+        <label className="block text-xs font-bold text-slate-600">توصية الفني</label>
         <div className="flex gap-2">
           {[
-            { val: 'installed', label: 'تم تركيبها', active: 'bg-sky-600 text-white border-sky-500' },
-            { val: 'customer_stock', label: 'سُلّمت ولم تُركب', active: 'bg-violet-600 text-white border-violet-500' },
+            { val: 'required', label: 'لازمة للإصلاح', active: 'bg-rose-600 text-white border-rose-500' },
+            { val: 'optional', label: 'اختيارية / وقائية', active: 'bg-slate-700 text-white border-slate-600' },
           ].map(opt => (
             <button key={opt.val} type="button"
-              onClick={() => set('placementState', opt.val)}
+              onClick={() => set('recommendationStatus', opt.val)}
               className={`flex-1 px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all ${
-                draft.placementState === opt.val ? opt.active : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                draft.recommendationStatus === opt.val ? opt.active : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}>
               {opt.label}
             </button>
@@ -214,15 +289,21 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
         </div>
       </div>
 
-      <div className="flex items-center gap-3 pt-1 border-t border-rose-100">
-        <span className="text-xs font-bold text-slate-600 shrink-0">هل تم سحب القطعة المبدلة؟</span>
-        <div className="flex gap-2">
-          {[{ val: true, label: 'نعم ✓', active: 'bg-emerald-500 text-white border-emerald-400' },
-            { val: false, label: 'لا ✗',  active: 'bg-red-500 text-white border-red-400' }].map(opt => (
-            <button key={String(opt.val)} type="button"
-              onClick={() => set('retrieved', opt.val)}
-              className={`px-3 py-1 rounded-lg text-xs font-bold border-2 transition-all ${
-                draft.retrieved === opt.val ? opt.active : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+      {/* Row 5: قرار التنفيذ */}
+      <div className="space-y-1 pt-1 border-t border-rose-100">
+        <label className="block text-xs font-bold text-slate-600">قرار القطعة</label>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            { val: 'replaced', label: 'تم الاستبدال', active: 'bg-sky-600 text-white border-sky-500' },
+            { val: 'delivered_to_customer_stock', label: 'سُلّمت ولم تُركب', active: 'bg-violet-600 text-white border-violet-500' },
+            { val: 'not_replaced_customer_refused', label: 'رفض الزبون', active: 'bg-rose-600 text-white border-rose-500' },
+            { val: 'not_replaced_unavailable', label: 'غير متوفرة', active: 'bg-amber-500 text-white border-amber-400' },
+            { val: 'not_replaced_technician_decision', label: 'لم تُستبدل بقرار فني', active: 'bg-slate-600 text-white border-slate-500' },
+          ] as const).map(opt => (
+            <button key={opt.val} type="button"
+              onClick={() => set('executionStatus', opt.val)}
+              className={`px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                draft.executionStatus === opt.val ? opt.active : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}>
               {opt.label}
             </button>
@@ -230,8 +311,25 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
         </div>
       </div>
 
-      {/* Reason if not retrieved */}
-      {!draft.retrieved && (
+      {draft.executionStatus === 'replaced' && (
+        <div className="flex items-center gap-3 pt-1 border-t border-rose-100">
+          <span className="text-xs font-bold text-slate-600 shrink-0">هل تم سحب القطعة المبدلة؟</span>
+          <div className="flex gap-2">
+            {[{ val: true, label: 'نعم', active: 'bg-emerald-500 text-white border-emerald-400' },
+              { val: false, label: 'لا',  active: 'bg-red-500 text-white border-red-400' }].map(opt => (
+              <button key={String(opt.val)} type="button"
+                onClick={() => set('retrieved', opt.val)}
+                className={`px-3 py-1 rounded-lg text-xs font-bold border-2 transition-all ${
+                  draft.retrieved === opt.val ? opt.active : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                }`}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {draft.executionStatus === 'replaced' && !draft.retrieved && (
         <div className="space-y-1">
           <label className="block text-xs font-bold text-rose-600">سبب عدم السحب *</label>
           <Select
@@ -242,6 +340,26 @@ function PartDraftForm({ draft, allParts, noRetrievalReasons, saving, onDraftCha
             className="w-full"
             options={noRetrievalReasons.map(r => ({ value: String(r.id), label: r.value }))}
           />
+        </div>
+      )}
+
+      {draft.executionStatus === 'not_replaced_customer_refused' && (
+        <div className="space-y-2">
+          <div className="space-y-1">
+            <label className="block text-xs font-bold text-rose-600">سبب رفض الزبون</label>
+            <Select
+              value={draft.customerRefusalReasonId}
+              onChange={v => set('customerRefusalReasonId', v)}
+              placeholder="— اختر السبب —"
+              ariaLabel="سبب رفض الزبون"
+              className="w-full"
+              options={customerRefusalReasons.map(r => ({ value: String(r.id), label: r.value }))}
+            />
+          </div>
+          <input value={draft.customerRefusalReasonText}
+            onChange={e => set('customerRefusalReasonText', e.target.value)}
+            placeholder="ملاحظة إضافية عن الرفض..."
+            className={`${inp} text-sm`} />
         </div>
       )}
 
@@ -270,9 +388,11 @@ interface Props {
   onSaved: () => void;
   onNext?: () => void;
   onBack?: () => void;
+  maintenanceKind?: MaintenanceKind;
+  activeWarranty?: ActiveWarranty;
 }
 
-export default function MaintenanceActionsForm({ taskId, initialData, readOnly = false, onSaved, onNext, onBack }: Props) {
+export default function MaintenanceActionsForm({ taskId, initialData, readOnly = false, onSaved, onNext, onBack, maintenanceKind = 'emergency', activeWarranty = null }: Props) {
   const [allParts, setAllParts]         = useState<SparePartRaw[]>([]);
   const [actionTypes, setActionTypes]   = useState<any[]>([]);
   const [actionTypeId, setActionTypeId] = useState(initialData?.actionTypeId ? String(initialData.actionTypeId) : '');
@@ -286,6 +406,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
   const [savingMeta, setSavingMeta]     = useState(false);                 // saving actions/notes
   const [error, setError]               = useState('');
   const noRetrievalReasons              = useSystemListItems('part_no_retrieval_reason');
+  const customerRefusalReasons          = useSystemListItems('part_customer_refusal_reason');
 
   useEffect(() => {
     Promise.all([
@@ -307,6 +428,13 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
         placementState:      p.placementState === 'customer_stock' ? 'customer_stock' : 'installed',
         noRetrievalReasonId: p.noRetrievalReasonId ?? null,
         noRetrievalReasonText: p.noRetrievalReasonText ?? '',
+        recommendationStatus: p.recommendationStatus === 'optional' ? 'optional' : 'required',
+        customerDecision: ['approved', 'refused', 'not_required'].includes(p.customerDecision) ? p.customerDecision : 'approved',
+        executionStatus: ['replaced', 'delivered_to_customer_stock', 'not_replaced_customer_refused', 'not_replaced_unavailable', 'not_replaced_technician_decision'].includes(p.executionStatus)
+          ? p.executionStatus
+          : (p.placementState === 'customer_stock' ? 'delivered_to_customer_stock' : 'replaced'),
+        customerRefusalReasonId: p.customerRefusalReasonId ?? null,
+        customerRefusalReasonText: p.customerRefusalReasonText ?? '',
       })));
     }).catch(console.error);
   }, [taskId]);
@@ -327,6 +455,11 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
       placementState:       p.placementState,
       noRetrievalReasonId:  p.noRetrievalReasonId,
       noRetrievalReasonText: p.noRetrievalReasonText || null,
+      recommendationStatus: p.recommendationStatus,
+      customerDecision:     p.customerDecision,
+      executionStatus:      p.executionStatus,
+      customerRefusalReasonId: p.customerRefusalReasonId,
+      customerRefusalReasonText: p.customerRefusalReasonText || null,
     })));
     // intentionally NOT calling onSaved() here
   };
@@ -385,6 +518,11 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
       retrieved:           p.retrieved,
       placementState:      p.placementState,
       noRetrievalReasonId: p.noRetrievalReasonId ? String(p.noRetrievalReasonId) : '',
+      recommendationStatus: p.recommendationStatus,
+      customerDecision: p.customerDecision,
+      executionStatus: p.executionStatus,
+      customerRefusalReasonId: p.customerRefusalReasonId ? String(p.customerRefusalReasonId) : '',
+      customerRefusalReasonText: p.customerRefusalReasonText,
     });
     setEditIndex(i);
     setShowAddForm(false);
@@ -407,12 +545,12 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
     finally { setSavingMeta(false); }
   };
 
-  const totalValue = savedParts.reduce((s, p) => s + p.unitPrice * p.quantity, 0);
+  const totalValue = savedParts.reduce((s, p) => s + (isExecutedPart(p) ? p.unitPrice * p.quantity : 0), 0);
 
   return (
     <Card padding="none" className="overflow-hidden" dir="rtl">
       <div className="px-5 py-3.5 border-b border-slate-100 bg-rose-50/50 flex items-center justify-between">
-        <h3 className="font-bold text-slate-800 text-base">القطع المستبدلة</h3>
+        <h3 className="font-bold text-slate-800 text-base">توصيات وقطع الصيانة</h3>
         {(initialData || savedParts.length > 0) && (
           <Badge variant="success" size="sm">
             {savedParts.length > 0 ? `${savedParts.length} قطعة محفوظة` : 'محفوظة ✓'}
@@ -426,11 +564,11 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
             actionTypes / actionTypeId / actionsTaken state يَبقى للـ legacy فقط
             ويُرسَل null عند الحفظ. */}
 
-        {/* ══════════════ القطع المستبدلة ══════════════ */}
+        {/* ══════════════ توصيات وقطع الصيانة ══════════════ */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-bold text-slate-700">
-              القطع المستبدلة
+              توصيات وقطع الصيانة
               {savedParts.length > 0 && (
                 <span className="mr-2 font-normal text-slate-400">({savedParts.length} قطعة)</span>
               )}
@@ -456,7 +594,10 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
                   /* Edit mode for this part */
                   <PartDraftForm key={i}
                     draft={draft} allParts={allParts}
+                    maintenanceKind={maintenanceKind}
+                    activeWarranty={activeWarranty}
                     noRetrievalReasons={noRetrievalReasons.items}
+                    customerRefusalReasons={customerRefusalReasons.items}
                     saving={saving}
                     onDraftChange={setDraft}
                     onSave={handleSaveEdit}
@@ -474,13 +615,21 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
                           </span>
                         )}
                         <span className={`text-xs font-bold rounded-full border px-2 py-0.5 ${
-                          p.placementState === 'customer_stock'
-                            ? 'bg-violet-50 text-violet-700 border-violet-200'
-                            : 'bg-sky-50 text-sky-700 border-sky-200'
+                          EXECUTION_COLORS[p.executionStatus]
                         }`}>
-                          {p.placementState === 'customer_stock' ? 'مسلّمة وغير مركبة' : 'مركبة'}
+                          {EXECUTION_LABELS[p.executionStatus]}
                         </span>
-                        {!p.retrieved && (
+                        {p.recommendationStatus === 'required' && (
+                          <span className="text-xs font-bold rounded-full border border-rose-200 bg-rose-50 text-rose-700 px-2 py-0.5">
+                            لازمة
+                          </span>
+                        )}
+                        {p.customerDecision === 'refused' && (
+                          <span className="text-xs font-bold rounded-full border border-red-200 bg-red-50 text-red-700 px-2 py-0.5">
+                            رفض الزبون
+                          </span>
+                        )}
+                        {p.executionStatus === 'replaced' && !p.retrieved && (
                           <span className="text-xs font-bold rounded-full border border-amber-200 bg-amber-50 text-amber-700 px-2 py-0.5">
                             لم تُسحب
                           </span>
@@ -488,7 +637,11 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                         <span>{p.quantity} × {p.unitPrice.toLocaleString()} ل.س</span>
-                        <span className="font-bold text-emerald-700">= {(p.quantity * p.unitPrice).toLocaleString()} ل.س</span>
+                        {isExecutedPart(p) ? (
+                          <span className="font-bold text-emerald-700">= {(p.quantity * p.unitPrice).toLocaleString()} ل.س</span>
+                        ) : (
+                          <span className="font-bold text-slate-400">لا تدخل في التكلفة أو المخزون</span>
+                        )}
                       </div>
                     </div>
                     {!readOnly && (
@@ -511,7 +664,10 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
               {showAddForm && (
                 <PartDraftForm
                   draft={draft} allParts={allParts}
+                  maintenanceKind={maintenanceKind}
+                  activeWarranty={activeWarranty}
                   noRetrievalReasons={noRetrievalReasons.items}
+                  customerRefusalReasons={customerRefusalReasons.items}
                   saving={saving}
                   onDraftChange={setDraft}
                   onSave={handleSaveDraft}
@@ -523,7 +679,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
               {savedParts.length > 0 && !showAddForm && editIndex === null && (
                 <div className="flex justify-end mt-2">
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 flex items-center gap-2">
-                    <span className="text-xs font-bold text-emerald-700">إجمالي القطع:</span>
+                    <span className="text-xs font-bold text-emerald-700">إجمالي القطع المنفذة:</span>
                     <span className="font-black text-emerald-800">{totalValue.toLocaleString('ar-SY')} ل.س</span>
                   </div>
                 </div>

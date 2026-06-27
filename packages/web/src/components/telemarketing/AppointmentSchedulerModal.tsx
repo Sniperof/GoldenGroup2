@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import IconButton from '../ui/IconButton';
-import { motion } from 'framer-motion';
-import { Calendar, Clock, Droplets, FileText, CheckCircle2, X, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Calendar, Droplets, FileText, CheckCircle2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
 import type { OpenTaskType } from '@golden-crm/shared';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
+import Modal from '../ui/Modal';
+import VisitTimePicker, { isVisitTimeConflict, normalizeVisitTime } from './VisitTimePicker';
 
 export interface CustomerOpenTask {
     taskListItemId: string;
@@ -30,6 +30,8 @@ interface AppointmentSchedulerModalProps {
     customerName: string;
     defaultDate: string;
     defaultTime?: string;
+    /** HH:MM times already booked for the same team on this date (conflict guard). */
+    bookedTimes?: string[];
     /** All open tasks belonging to this customer in the current task list */
     customerOpenTasks: CustomerOpenTask[];
     entityDetails: any;
@@ -55,29 +57,19 @@ function getTomorrow(): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const getHourlyVisitSlots = () => Array.from({ length: 24 }, (_, index) => {
-    const hour = (9 + index) % 24;
-    return `${String(hour).padStart(2, '0')}:00`;
-});
-
-const normalizeTimeSlot = (value: string | null | undefined) => String(value || '').slice(0, 5);
-const normalizeHourlySlot = (value: string | null | undefined) => {
-    const normalized = normalizeTimeSlot(value);
-    return getHourlyVisitSlots().includes(normalized) ? normalized : '09:00';
-};
-
 export default function AppointmentSchedulerModal({
     isOpen,
     onClose,
     customerName,
     defaultDate,
     defaultTime,
+    bookedTimes = [],
     customerOpenTasks,
     entityDetails,
     onSave,
 }: AppointmentSchedulerModalProps) {
     const [visitDate, setVisitDate] = useState(defaultDate || getTomorrow());
-    const [visitTime, setVisitTime] = useState('09:00');
+    const [visitTime, setVisitTime] = useState('');
     const [waterSource, setWaterSource] = useState('');
     const [technicianNotes, setTechnicianNotes] = useState('');
     const [saving, setSaving] = useState(false);
@@ -87,7 +79,7 @@ export default function AppointmentSchedulerModal({
     useEffect(() => {
         if (isOpen) {
             setVisitDate(defaultDate || getTomorrow());
-            setVisitTime(normalizeHourlySlot(defaultTime));
+            setVisitTime(normalizeVisitTime(defaultTime));
             setWaterSource(entityDetails?.waterSource || '');
             setTechnicianNotes('');
 
@@ -109,13 +101,13 @@ export default function AppointmentSchedulerModal({
         }
     }, [isOpen, entityDetails, customerOpenTasks, defaultDate, defaultTime]);
 
-    if (!isOpen) return null;
-
     const selectedTasks = customerOpenTasks;
     const includesDeviceDemo = selectedTasks.some(t => t.openTaskType === 'device_demo');
 
+    const timeConflict = isVisitTimeConflict(visitTime, bookedTimes);
     const isValid =
         visitTime &&
+        !timeConflict &&
         selectedTasks.length > 0 &&
         (!includesDeviceDemo || !!waterSource);
 
@@ -146,46 +138,44 @@ export default function AppointmentSchedulerModal({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" dir="rtl">
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-            >
-                {/* Header */}
-                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-emerald-50 shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                            <Calendar className="w-5 h-5 text-emerald-600" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-800">جدولة موعد زيارة تسويقية</h2>
-                            <p className="text-xs text-slate-500">{customerName} &middot; {visitDate || defaultDate}</p>
-                        </div>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={saving} />
-                </div>
-
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="lg"
+            closeOnBackdrop={false}
+            closeOnEsc={!saving}
+            title={
+                <span className="flex items-center gap-3">
+                    <span className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
+                        <Calendar className="w-5 h-5 text-emerald-600" />
+                    </span>
+                    جدولة موعد زيارة تسويقية
+                </span>
+            }
+            subtitle={`${customerName} · ${visitDate || defaultDate}`}
+            footer={
+                <>
+                    <Button variant="ghost" disabled={saving} onClick={onClose}>إلغاء</Button>
+                    <Button
+                        icon={CheckCircle2}
+                        loading={saving}
+                        disabled={!isValid || saving}
+                        onClick={handleSave}
+                    >
+                        {saving ? 'جاري الحفظ...' : 'تأكيد موعد الزيارة'}
+                    </Button>
+                </>
+            }
+        >
                 {/* Body */}
-                <div className="p-5 overflow-y-auto flex-1 space-y-5 custom-scrollbar">
+                <div className="p-5 space-y-5">
 
                     {/* Visit time. The scheduling date is locked by the workspace. */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                            <Clock className="w-4 h-4 text-emerald-500" />وقت الزيارة <span className="text-red-500">*</span>
-                        </label>
-                        <select
-                            value={visitTime}
-                            onChange={e => setVisitTime(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 font-mono"
-                            dir="ltr"
-                        >
-                            {getHourlyVisitSlots().map(slot => (
-                                <option key={slot} value={slot}>{slot}</option>
-                            ))}
-                        </select>
-                    </div>
+                    <VisitTimePicker
+                        value={visitTime}
+                        onChange={setVisitTime}
+                        bookedTimes={bookedTimes}
+                    />
 
                     <div className="space-y-2">
                         <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
@@ -241,20 +231,6 @@ export default function AppointmentSchedulerModal({
                         />
                     </div>
                 </div>
-
-                {/* Footer */}
-                <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
-                    <Button variant="ghost" disabled={saving} onClick={onClose}>إلغاء</Button>
-                    <Button
-                        icon={CheckCircle2}
-                        loading={saving}
-                        disabled={!isValid || saving}
-                        onClick={handleSave}
-                    >
-                        {saving ? 'جاري الحفظ...' : 'تأكيد موعد الزيارة'}
-                    </Button>
-                </div>
-            </motion.div>
-        </div>
+        </Modal>
     );
 }

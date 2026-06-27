@@ -8,9 +8,11 @@ import {
   canCreateClient,
   canDeleteClient,
   canEditClient,
+  canEditClientRating,
   canListClients,
   canManageClientAssignments,
   canViewClient,
+  canViewClientRating,
   getClientListAccessPlan,
 } from '../policies/clientPolicy.js';
 import {
@@ -308,6 +310,14 @@ function normalizeNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const numberValue = Number(value);
   return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null;
+}
+
+const CLIENT_RATINGS = new Set(['Committed', 'NotCommitted', 'Undefined']);
+
+function normalizeClientRating(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return CLIENT_RATINGS.has(trimmed) ? trimmed : null;
 }
 
 function currentDateKey(): string {
@@ -1146,12 +1156,9 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
     }
 
     const allowedTypes = new Set([
-      'contract_payment',
-      'maintenance_payment',
-      'contract_installment',
-      'contract_discount',
-      'refund',
-      'opening_balance',
+      'contract', 'contract_installment', 'contract_payment',
+      'emergency_maintenance', 'periodic_maintenance', 'installation',
+      'golden_warranty', 'opening_balance',
     ]);
     const types = typeof req.query.types === 'string'
       ? req.query.types.split(',').map(type => type.trim()).filter(Boolean)
@@ -1160,62 +1167,56 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
       return res.status(400).json({ error: 'نوع الحركة المالية غير صالح' });
     }
 
-    const filters = ['client_id = $1'];
+    // DEC-CT-10 (موسّع): كشف الحساب مشتق مباشرةً من سجل الحركات الموحّد
+    // financial_movements. الرصيد الجاري يُحسب على كامل تاريخ الزبون ثم يُطبَّق
+    // فلتر العرض (المدى/النوع)، فيبقى الرصيد التراكمي صحيحاً مع الفلترة.
+    const displayFilters: string[] = [];
     const params: Array<string | string[]> = [clientId!];
     if (from) {
       params.push(from);
-      filters.push(`entry_date >= $${params.length}::date`);
+      displayFilters.push(`occurred_at >= $${params.length}::date`);
     }
     if (to) {
       params.push(to);
-      filters.push(`entry_date < ($${params.length}::date + INTERVAL '1 day')`);
+      displayFilters.push(`occurred_at < ($${params.length}::date + INTERVAL '1 day')`);
     }
     if (types.length > 0) {
       params.push(types);
-      filters.push(`entry_type = ANY($${params.length}::varchar[])`);
+      displayFilters.push(`source_type = ANY($${params.length}::varchar[])`);
     }
+    const displayWhere = displayFilters.length ? `WHERE ${displayFilters.join(' AND ')}` : '';
 
     const [entriesResult, summaryResult] = await Promise.all([
       pool.query(
-        `SELECT
-           id,
-           entry_date,
-           entry_type,
-           source_type,
-           source_id,
-           description,
-           reference_no,
-           debit_amount,
-           credit_amount,
-           running_balance
-         FROM client_ledger_entries
-         WHERE ${filters.join(' AND ')}
-         ORDER BY entry_date ASC, id ASC`,
+        `WITH ordered AS (
+           SELECT
+             id, occurred_at, kind, source_type, source_id, contract_id,
+             description, reference_no,
+             CASE WHEN kind IN ('charge','refund')    THEN amount_syp ELSE 0 END AS debit_amount,
+             CASE WHEN kind IN ('payment','discount') THEN amount_syp ELSE 0 END AS credit_amount,
+             SUM(CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
+               OVER (ORDER BY occurred_at, id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_balance,
+             (kind = 'charge' AND occurred_at > NOW()) AS is_upcoming
+           FROM financial_movements
+           WHERE client_id = $1
+         )
+         SELECT * FROM ordered
+         ${displayWhere}
+         ORDER BY occurred_at ASC, id ASC`,
         params,
       ),
       pool.query(
         `SELECT
-           COALESCE(SUM(l.debit_amount), 0) AS total_owed,
-           COALESCE(SUM(l.credit_amount), 0) AS total_paid,
-           COALESCE((
-             SELECT running_balance
-             FROM client_ledger_entries
-             WHERE client_id = $1
-             ORDER BY entry_date DESC, id DESC
-             LIMIT 1
-           ), 0) AS current_balance,
-           COALESCE(SUM(
-             CASE
-               WHEN l.entry_type = 'contract_installment' AND l.entry_date < NOW()
-                 THEN GREATEST(l.debit_amount - COALESCE(i.paid_amount, 0), 0)
-               ELSE 0
-             END
-           ), 0) AS overdue_amount
-         FROM client_ledger_entries l
-         LEFT JOIN contract_installments i
-           ON l.entry_type = 'contract_installment'
-          AND i.id = l.source_entry_id
-         WHERE l.client_id = $1`,
+           COALESCE(SUM(CASE WHEN occurred_at <= NOW()
+                             THEN (CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
+                             ELSE 0 END), 0) AS current_balance,
+           COALESCE(SUM(CASE WHEN kind IN ('payment','discount') THEN amount_syp ELSE 0 END), 0) AS total_paid,
+           COALESCE(SUM(CASE WHEN kind = 'charge' AND occurred_at > NOW() THEN amount_syp ELSE 0 END), 0) AS upcoming_total,
+           GREATEST(COALESCE(SUM(CASE WHEN occurred_at < date_trunc('day', NOW())
+                             THEN (CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
+                             ELSE 0 END), 0), 0) AS overdue_amount
+         FROM financial_movements
+         WHERE client_id = $1`,
         [clientId],
       ),
     ]);
@@ -1223,17 +1224,117 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
     const summary = summaryResult.rows[0];
     res.json({
       summary: {
-        total_owed: Number(summary.total_owed),
         total_paid: Number(summary.total_paid),
         current_balance: Number(summary.current_balance),
+        upcoming_total: Number(summary.upcoming_total),
         overdue_amount: Number(summary.overdue_amount),
       },
       entries: entriesResult.rows.map(row => ({
-        ...row,
+        id: row.id,
+        entry_date: row.occurred_at,
+        entry_type: row.source_type,
+        kind: row.kind,
+        source_type: row.source_type,
+        source_id: row.source_id,
+        contract_id: row.contract_id,
+        description: row.description,
+        reference_no: row.reference_no,
         debit_amount: Number(row.debit_amount),
         credit_amount: Number(row.credit_amount),
         running_balance: Number(row.running_balance),
+        is_upcoming: row.is_upcoming === true,
       })),
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.get('/:id/rating-history', requirePermission('clients.rating.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const subject = await loadClientSubject(clientId!);
+    if (!subject) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const access = canViewClientRating(authContext, subject);
+    if (!access.allowed) {
+      return forbidClientAccess(res, access.reason);
+    }
+
+    const { rows } = await pool.query(
+      `SELECT
+         h.id,
+         h.client_id AS "clientId",
+         h.old_rating AS "oldRating",
+         h.new_rating AS "newRating",
+         h.notes,
+         h.changed_by AS "changedBy",
+         u.name AS "changedByName",
+         h.changed_at AS "changedAt"
+       FROM client_rating_history h
+       LEFT JOIN hr_users u ON u.id = h.changed_by
+      WHERE h.client_id = $1
+      ORDER BY h.changed_at DESC, h.id DESC`,
+      [clientId],
+    );
+
+    res.json(rows);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/rating-history', requirePermission('clients.rating.edit'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const subject = await loadClientSubject(clientId!);
+    if (!subject) {
+      return res.status(404).json({ message: 'الزبون غير موجود' });
+    }
+
+    const access = canEditClientRating(authContext, subject);
+    if (!access.allowed) {
+      return forbidClientAccess(res, access.reason);
+    }
+
+    const newRating = normalizeClientRating(req.body?.rating);
+    if (!newRating) {
+      return res.status(400).json({ error: 'قيمة التقييم غير صالحة' });
+    }
+
+    const notes = typeof req.body?.notes === 'string' && req.body.notes.trim()
+      ? req.body.notes.trim()
+      : null;
+
+    const { rows: currentRows } = await pool.query(
+      'SELECT COALESCE(rating, $2) AS rating FROM clients WHERE id = $1',
+      [clientId, 'Undefined'],
+    );
+    const oldRating = currentRows[0]?.rating ?? 'Undefined';
+
+    const { rows: historyRows } = await pool.query(
+      `WITH updated_client AS (
+         UPDATE clients
+            SET rating = $2
+          WHERE id = $1
+          RETURNING id
+       )
+       INSERT INTO client_rating_history (client_id, old_rating, new_rating, notes, changed_by, changed_at)
+       SELECT id, $3, $2, $4, $5, NOW()
+       FROM updated_client
+       RETURNING id, client_id AS "clientId", old_rating AS "oldRating", new_rating AS "newRating",
+                 notes, changed_by AS "changedBy", changed_at AS "changedAt"`,
+      [clientId, newRating, oldRating, notes, authContext.userId],
+    );
+
+    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
+    res.json({
+      client: mapClientRow(rows[0]),
+      history: historyRows[0],
     });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
@@ -1729,7 +1830,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         c.name, c.mobile, toJson(c.contacts, []), Number(c.governorate) || null, Number(c.district) || null, Number(c.neighborhood) || null,
         c.detailedAddress || null, c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
         c.gender || null, c.nationalId || null, c.birthDate || null, c.occupation || null,
-        c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null, c.rating || null,
+        c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null, 'Undefined',
         c.sourceChannel || null, c.referrerType || null, c.referrerId || null, c.referrerName || null,
         c.referralNotes || null, toJson(c.referrers, []), c.referralEntityId || null,
         c.referralDate || null, c.referralReason || null, c.referralSheetId || null, c.referralAddressText || null,
@@ -1741,6 +1842,11 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     );
 
     await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId);
+    await pool.query(
+      `INSERT INTO client_rating_history (client_id, old_rating, new_rating, notes, changed_by, changed_at)
+       VALUES ($1, NULL, 'Undefined', $2, $3, NOW())`,
+      [inserted.id, 'التقييم الابتدائي عند إنشاء الزبون', authContext.userId],
+    );
 
     const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
     res.json(mapClientRow(rows[0]));
@@ -1918,18 +2024,18 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       `UPDATE clients SET
         first_name=$1, father_name=$2, last_name=$3, nickname=$4,
         name=$5, mobile=$6, contacts=$7, governorate=$8, district=$9, neighborhood=$10,
-        detailed_address=$11, gps_coordinates=$12, gender=$13, national_id=$14, birth_date=$15, occupation=$16, spouse_occupation=$17, data_quality=$18, water_source=$19, notes=$20, rating=$21,
-        source_channel=$22, referrer_type=$23, referrer_id=$24, referrer_name=$25, referral_notes=$26, referrers=$27, referral_entity_id=$28,
-        referral_date=$29, referral_reason=$30, referral_sheet_id=$31, referral_address_text=$32,
-        is_candidate=$33, target_client=$34, candidate_status=$35,
-        mother_name=$36, national_id_registry=$37, national_id_issued_by=$38, national_id_issue_date=$39, national_id_box=$40
-      WHERE id=$41`,
+        detailed_address=$11, gps_coordinates=$12, gender=$13, national_id=$14, birth_date=$15, occupation=$16, spouse_occupation=$17, data_quality=$18, water_source=$19, notes=$20,
+        source_channel=$21, referrer_type=$22, referrer_id=$23, referrer_name=$24, referral_notes=$25, referrers=$26, referral_entity_id=$27,
+        referral_date=$28, referral_reason=$29, referral_sheet_id=$30, referral_address_text=$31,
+        is_candidate=$32, target_client=$33, candidate_status=$34,
+        mother_name=$35, national_id_registry=$36, national_id_issued_by=$37, national_id_issue_date=$38, national_id_box=$39
+      WHERE id=$40`,
       [
         c.firstName || null, c.fatherName || null, c.lastName || null, c.nickname || null,
         c.name, c.mobile, toJson(c.contacts, []), Number(c.governorate) || null, Number(c.district) || null, Number(c.neighborhood) || null,
         c.detailedAddress || null, c.gpsCoordinates ? toJson(c.gpsCoordinates, null) : null,
         c.gender || null, c.nationalId || null, c.birthDate || null, c.occupation || null,
-        c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null, c.rating || null,
+        c.spouseOccupation || null, c.dataQuality || null, c.waterSource || null, c.notes || null,
         c.sourceChannel || null, c.referrerType || null, c.referrerId || null, c.referrerName || null,
         c.referralNotes || null, toJson(c.referrers, []), c.referralEntityId || null,
         c.referralDate || null, c.referralReason || null, c.referralSheetId || null, c.referralAddressText || null,

@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { CreditCard, CalendarClock, CircleCheck, CircleX, Loader2, X } from 'lucide-react';
 import { api } from '../../lib/api';
+import Select from '../../components/ui/Select';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 
 type Mode = 'delivered' | 'reschedule' | 'cancel';
@@ -114,10 +115,13 @@ export default function GoldenWarrantyCardDeliveryModal({ visitId, taskId, task,
             <div className="space-y-3">
               <label className="block space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">{mode === 'reschedule' ? 'سبب إعادة الجدولة *' : 'سبب الرفض *'}</span>
-                <select value={reason} onChange={(e) => setReason(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <option value="">— اختر —</option>
-                  {(mode === 'reschedule' ? followReasons : rejectReasons).map((r: any) => <option key={r.id} value={r.value}>{r.value}</option>)}
-                </select>
+                <Select
+                  value={reason}
+                  onChange={setReason}
+                  className="w-full"
+                  placeholder="— اختر —"
+                  options={(mode === 'reschedule' ? followReasons : rejectReasons).map((r: any) => ({ value: r.value, label: r.value }))}
+                />
               </label>
               {mode === 'reschedule' && (
                 <label className="block space-y-1.5">

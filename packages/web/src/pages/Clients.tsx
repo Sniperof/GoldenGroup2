@@ -6,6 +6,7 @@ import type { Client, CustomerOwnership, GeoUnit, Contract } from '../lib/types'
 import ClientModal from '../components/ClientModal';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
+import PageHeader from '../components/ui/PageHeader';
 import ClientAvatar from '../components/ClientAvatar';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
@@ -397,10 +398,10 @@ export default function Clients() {
         <div className="p-8 space-y-6">
             {/* 1. Page Title */}
             <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl mb-1 font-bold text-slate-800">سجلات الزبائن</h1>
-                    <p className="text-sm text-slate-500 font-medium">إدارة وتحليل بيانات الزبائن والشبكة</p>
-                </div>
+                <PageHeader
+                    title="سجلات الزبائن"
+                    subtitle="إدارة وتحليل بيانات الزبائن والشبكة"
+                />
                 <div className="flex items-center gap-3">
                     {/* GLOBAL branch filter moved to the unified external switcher
                         (sidebar). Branch users still see their pinned-branch badge. */}
@@ -476,7 +477,6 @@ export default function Clients() {
                             value={filterClass}
                             onChange={setFilterClass}
                             ariaLabel="التصنيف"
-                            variant="filled"
                             options={[
                                 { value: 'all', label: 'كل التصنيفات' },
                                 { value: 'Lead', label: 'Lead - مرشح' },
@@ -489,7 +489,6 @@ export default function Clients() {
                             value={filterMediator}
                             onChange={setFilterMediator}
                             ariaLabel="نوع الوسيط"
-                            variant="filled"
                             options={[
                                 { value: 'all', label: 'كل أنواع الوسيط' },
                                 { value: 'Personal', label: 'شخصي' },
@@ -502,7 +501,6 @@ export default function Clients() {
                             value={filterArea}
                             onChange={setFilterArea}
                             ariaLabel="المحافظة"
-                            variant="filled"
                             options={[{ value: 'all', label: 'كل المحافظات' }, ...geoUnits.filter(g => g.level === 1).map(g => ({ value: String(g.id), label: g.name }))]}
                         />
 

@@ -7,6 +7,7 @@ import {
   Building2,
   CalendarDays,
   FileText,
+  Gift,
   GraduationCap,
   ListChecks,
   Loader2,
@@ -14,6 +15,7 @@ import {
   MapPin,
   MessageSquare,
   Phone,
+  PackageCheck,
   Save,
   ShieldCheck,
   UserCircle2,
@@ -32,6 +34,8 @@ import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import { useSystemListsStore } from '../hooks/useSystemLists';
 import { getUnifiedApplicationState, getUnifiedApplicationStateClasses } from '../lib/applicationState';
+import GiftRecordsTable from '../components/gifts/GiftRecordsTable';
+import type { GiftRecordPrototype } from '../data/giftsPrototype';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -98,7 +102,7 @@ const TRAINING_RESULT_LABELS: Record<string, string> = {
 
 // ── Tab definition ────────────────────────────────────────────────────────────
 
-type TabKey = 'profile' | 'qualifications' | 'employment' | 'jobTasks' | 'system' | 'hiring';
+type TabKey = 'profile' | 'qualifications' | 'employment' | 'jobTasks' | 'gifts' | 'system' | 'hiring';
 
 interface TabDef {
   key: TabKey;
@@ -111,6 +115,7 @@ const TABS: TabDef[] = [
   { key: 'qualifications', label: 'المؤهلات',          icon: GraduationCap },
   { key: 'employment',     label: 'الوظيفة',            icon: Briefcase     },
   { key: 'jobTasks',       label: 'المهام الوظيفية',    icon: ListChecks    },
+  { key: 'gifts',          label: 'الهدايا',            icon: Gift          },
   { key: 'system',         label: 'حساب النظام',        icon: Lock          },
   { key: 'hiring',         label: 'ملف التوظيف',        icon: FileText      },
 ];
@@ -264,6 +269,9 @@ export default function EmployeeDetail() {
   const [savingProfile, setSavingProfile]   = useState(false);
   const [savingAccount, setSavingAccount]   = useState(false);
   const [activeTab, setActiveTab]           = useState<TabKey>('profile');
+  const [giftRecords, setGiftRecords]       = useState<GiftRecordPrototype[]>([]);
+  const [giftRecordsError, setGiftRecordsError] = useState<string | null>(null);
+  const [giftReloadToken, setGiftReloadToken]   = useState(0);
 
   const [profileForm, setProfileForm] = useState({
     name: '', mobile: '', branch: '', residence: '', jobTitle: '',
@@ -310,6 +318,20 @@ export default function EmployeeDetail() {
 
   useEffect(() => { if (canManageSystemAccess) fetchRoles(); }, [canManageSystemAccess, fetchRoles]);
   useEffect(() => { fetchLists({ category: 'job_title', activeOnly: true }); }, [fetchLists]);
+
+  useEffect(() => {
+    if (activeTab !== 'gifts' || !detail?.id) return;
+    let cancelled = false;
+    setGiftRecordsError(null);
+    api.gifts.records.list({ employeeId: detail.id })
+      .then(rows => { if (!cancelled) setGiftRecords(rows); })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setGiftRecords([]);
+        setGiftRecordsError(err?.message ?? 'تعذر تحميل هدايا الموظف من الخادم');
+      });
+    return () => { cancelled = true; };
+  }, [activeTab, detail?.id, giftReloadToken]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -617,6 +639,61 @@ export default function EmployeeDetail() {
             ))}
           </div>
         )}
+      </div>
+    );
+  }
+
+  function renderGifts() {
+    const records = giftRecords;
+    const promisedCount = records.filter(record => record.status === 'promised').length;
+    const readyCount = records.filter(record => record.status === 'approved_for_delivery' || record.status === 'delivery_task_created').length;
+    const doneCount = records.filter(record => record.status === 'delivered' || record.status === 'delivered_manually').length;
+
+    return (
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold text-amber-700">وعود مفتوحة</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{promisedCount}</div>
+              </div>
+              <Gift className="h-6 w-6 text-amber-600" />
+            </div>
+          </div>
+          <div className="rounded-2xl border border-sky-100 bg-sky-50 px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold text-sky-700">جاهزة للتسليم</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{readyCount}</div>
+              </div>
+              <PackageCheck className="h-6 w-6 text-sky-600" />
+            </div>
+          </div>
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold text-emerald-700">تم تأكيدها يدوياً</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{doneCount}</div>
+              </div>
+              <ShieldCheck className="h-6 w-6 text-emerald-600" />
+            </div>
+          </div>
+        </div>
+
+        <SectionCard title="هدايا الموظف" icon={<Gift className="h-3.5 w-3.5" />} accent="amber">
+          <div className="py-4">
+            <p className="mb-4 text-xs leading-6 text-slate-500">
+              يعرض هذا التبويب وعود الهدايا التي يكون الموظف مستفيدا منها كوسيط داخلي. هذه السجلات لا تنشئ مهمة تسليم ميدانية، ويتم تأكيد التسليم يدويا.
+            </p>
+            {giftRecordsError && (
+              <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                {giftRecordsError}
+              </div>
+            )}
+            <GiftRecordsTable records={records} compact onChanged={() => setGiftReloadToken(t => t + 1)} />
+          </div>
+        </SectionCard>
       </div>
     );
   }
@@ -1015,6 +1092,7 @@ export default function EmployeeDetail() {
             {activeTab === 'qualifications' && renderQualifications()}
             {activeTab === 'employment'     && renderEmployment()}
             {activeTab === 'jobTasks'       && renderJobTasks()}
+            {activeTab === 'gifts'          && renderGifts()}
             {activeTab === 'system'         && renderSystemAccount()}
             {activeTab === 'hiring'         && renderHiring()}
           </div>

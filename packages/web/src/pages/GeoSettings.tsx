@@ -9,6 +9,7 @@ import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
 import Select from '../components/ui/Select';
 import IconButton from '../components/ui/IconButton';
+import PageHeader from '../components/ui/PageHeader';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
@@ -239,23 +240,22 @@ export default function GeoSettings() {
         <div className="h-full overflow-hidden flex flex-col">
             {/* Header */}
             <div className="px-8 pt-8 pb-0">
-                <div className="flex items-end justify-between mb-5">
-                    <div className="flex items-center gap-3">
+                <PageHeader
+                    className="mb-5"
+                    title="إدارة المستويات الإدارية"
+                    subtitle={`${geoUnits.length} وحدة جغرافية`}
+                    icon={
                         <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center">
                             <Globe className="w-5 h-5 text-sky-600" />
                         </div>
-                        <div>
-                            <h1 className="text-2xl font-bold text-slate-800 leading-tight">إدارة المستويات الإدارية</h1>
-                            <p className="text-slate-500 text-xs mt-0.5">{geoUnits.length} وحدة جغرافية</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
+                    }
+                    actions={
                         <button onClick={resetData} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm transition-all">
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span>إعادة تعيين</span>
                         </button>
-                    </div>
-                </div>
+                    }
+                />
 
                 {/* Tabs */}
                 <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
@@ -406,7 +406,6 @@ export default function GeoSettings() {
                                             onChange={(v) => { setModalGov(v); setModalRegion(''); setModalSubDistrict(''); }}
                                             placeholder="اختر المحافظة..."
                                             ariaLabel="المحافظة"
-                                            variant="filled"
                                             className="w-full"
                                             options={[{ value: '', label: 'اختر المحافظة...' }, ...governorates.map(g => ({ value: String(g.id), label: g.name }))]}
                                         />
@@ -422,7 +421,6 @@ export default function GeoSettings() {
                                             disabled={!modalGov}
                                             placeholder="اختر المنطقة..."
                                             ariaLabel="المنطقة"
-                                            variant="filled"
                                             className="w-full"
                                             options={[{ value: '', label: 'اختر المنطقة...' }, ...regions.map(r => ({ value: String(r.id), label: r.name }))]}
                                         />
@@ -438,7 +436,6 @@ export default function GeoSettings() {
                                             disabled={!modalRegion}
                                             placeholder="اختر الناحية..."
                                             ariaLabel="الناحية"
-                                            variant="filled"
                                             className="w-full"
                                             options={[{ value: '', label: 'اختر الناحية...' }, ...subDistricts.map(s => ({ value: String(s.id), label: s.name }))]}
                                         />

@@ -19,7 +19,8 @@
 //
 // Style values match TABS_AND_TOASTS.md / pill-dropdown-select spec.
 // ────────────────────────────────────────────────────────────────────────────
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 
@@ -61,7 +62,12 @@ export default function Select<V extends string | number>({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  // Menu is portalled to <body> with fixed positioning so it escapes any
+  // ancestor `overflow-hidden` card and never gets clipped. `openUp` flips it
+  // above the trigger when there isn't enough room below (bottom of screen/card).
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number; width: number; maxHeight: number; openUp: boolean } | null>(null);
   const generatedId = useId();
   const triggerId = id ?? generatedId;
   const listboxId = `${triggerId}-listbox`;
@@ -82,15 +88,55 @@ export default function Select<V extends string | number>({
     if (open) setActiveIndex(selectedIndex >= 0 ? selectedIndex : 0);
   }, [open, selectedIndex]);
 
-  // Click outside closes the menu.
+  // Click outside closes the menu. The menu lives in a portal (outside rootRef),
+  // so its own node must be excluded too — otherwise clicking an option would
+  // count as "outside" and close before the option's onClick fires.
   useEffect(() => {
     if (!open) return;
     function onDocPointerDown(e: PointerEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) close();
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target) || listRef.current?.contains(target)) return;
+      close();
     }
     document.addEventListener('pointerdown', onDocPointerDown);
     return () => document.removeEventListener('pointerdown', onDocPointerDown);
   }, [open, close]);
+
+  // Position the portalled menu against the trigger; flip up when needed.
+  // Recomputed before paint and on scroll/resize while open.
+  useLayoutEffect(() => {
+    if (!open) { setMenuPos(null); return; }
+
+    const GAP = 6;          // matches the old mt-1.5
+    const MARGIN = 8;       // min breathing room from the viewport edge
+    const MAX = 288;        // matches the old max-h-72
+
+    const place = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom - GAP - MARGIN;
+      const spaceAbove = rect.top - GAP - MARGIN;
+      // Flip up only when there's genuinely more room above.
+      const openUp = spaceBelow < Math.min(MAX, 180) && spaceAbove > spaceBelow;
+      const maxHeight = Math.max(120, Math.min(MAX, openUp ? spaceAbove : spaceBelow));
+      setMenuPos({
+        left: rect.left,
+        top: openUp ? rect.top - GAP : rect.bottom + GAP,
+        width: rect.width,
+        maxHeight,
+        openUp,
+      });
+    };
+
+    place();
+    window.addEventListener('scroll', place, true); // capture: catch scrolls in any ancestor
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open]);
 
   // Scroll the active option into view.
   useEffect(() => {
@@ -145,7 +191,7 @@ export default function Select<V extends string | number>({
     'group inline-flex w-full items-center justify-between gap-2 rounded-full font-bold transition-colors focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed';
   const triggerSize = size === 'sm'
     ? 'h-8 px-4 text-sm'
-    : 'h-10 px-4 text-sm';
+    : 'h-[39px] px-4 text-sm';
   const triggerVariant = variant === 'filled'
     ? 'bg-[#EEF1F4] text-slate-700 hover:bg-[#E3E7EC]'
     : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-300';
@@ -153,6 +199,7 @@ export default function Select<V extends string | number>({
   return (
     <div ref={rootRef} className={`relative inline-block ${className}`}>
       <button
+        ref={triggerRef}
         id={triggerId}
         type="button"
         disabled={disabled}
@@ -180,7 +227,7 @@ export default function Select<V extends string | number>({
         />
       </button>
 
-      {open && (
+      {open && menuPos && createPortal(
         <ul
           ref={listRef}
           id={listboxId}
@@ -189,8 +236,16 @@ export default function Select<V extends string | number>({
           autoFocus
           onKeyDown={onListKeyDown}
           aria-activedescendant={activeIndex >= 0 ? `${triggerId}-opt-${activeIndex}` : undefined}
-          className="absolute z-50 mt-1.5 min-w-full max-h-72 overflow-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg focus:outline-none start-0"
-          style={{ insetInlineStart: 0 }}
+          className="overflow-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg focus:outline-none"
+          style={{
+            position: 'fixed',
+            left: menuPos.left,
+            top: menuPos.top,
+            width: menuPos.width,
+            maxHeight: menuPos.maxHeight,
+            transform: menuPos.openUp ? 'translateY(-100%)' : undefined,
+            zIndex: 9999,
+          }}
         >
           {options.map((opt, i) => {
             const isActive = i === activeIndex;
@@ -222,7 +277,8 @@ export default function Select<V extends string | number>({
               </li>
             );
           })}
-        </ul>
+        </ul>,
+        document.body,
       )}
     </div>
   );

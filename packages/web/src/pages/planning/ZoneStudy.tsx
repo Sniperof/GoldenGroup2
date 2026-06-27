@@ -5,6 +5,7 @@ import {
     LayoutGrid, Info, MapPin,
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import PageHeader from '../../components/ui/PageHeader';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import type { GeoUnit } from '../../lib/types';
 import type { ZoneStudyMode, ZoneStudyResponse } from '@golden-crm/shared';
@@ -119,15 +120,12 @@ export default function ZoneStudy() {
     return (
         <div className="p-4 md:p-6 max-w-7xl mx-auto" dir="rtl">
             {/* Header */}
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-sky-50 text-sky-600"><LayoutGrid className="w-6 h-6" /></div>
-                    <div>
-                        <h1 className="text-2xl mb-1 font-bold text-slate-800">دراسة النطاقات</h1>
-                        <p className="text-xs text-slate-500">مرحلة تحليلية بين جدولة الفرق وتوزيع المسارات — اقرأ المهام المؤهلة لزبائن الشركة وسحب الفرق الطبيعي لكل منطقة.</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
+            <PageHeader
+                className="mb-5"
+                title="دراسة النطاقات"
+                subtitle="مرحلة تحليلية بين جدولة الفرق وتوزيع المسارات — اقرأ المهام المؤهلة لزبائن الشركة وسحب الفرق الطبيعي لكل منطقة."
+                icon={<div className="p-2 rounded-xl bg-sky-50 text-sky-600"><LayoutGrid className="w-6 h-6" /></div>}
+                actions={<>
                     <button
                         type="button"
                         onClick={() => navigate('/planning/schedule')}
@@ -142,8 +140,8 @@ export default function ZoneStudy() {
                     >
                         توزيع المسارات <ArrowLeft className="w-3.5 h-3.5" />
                     </button>
-                </div>
-            </div>
+                </>}
+            />
 
             {/* Controls */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4">

@@ -4,14 +4,14 @@ import {
     Headset, Phone, FileText, CheckCircle2, History, CreditCard,
     AlertTriangle, Calendar, Send, Zap, User, Clock, CheckCircle,
     MapPin, PlusCircle, MessageSquare, ThumbsUp, Wrench, Activity, Briefcase,
-    Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X,
+    Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import IconButton from '../components/ui/IconButton';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useClientStore } from '../hooks/useClientStore';
-import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS } from '@golden-crm/shared';
+import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType } from '@golden-crm/shared';
 import type { OpenTask, OpenTaskType, OpenTaskReason } from '@golden-crm/shared';
 import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
 import TeamAgendaPanel from '../components/telemarketing/TeamAgendaPanel';
@@ -19,6 +19,15 @@ import OutcomeRecorderModal, { SaveExtras } from '../components/telemarketing/Ou
 import MessageReplyOutcomeModal from '../components/customers/MessageReplyOutcomeModal';
 import { useSystemList } from '../hooks/useSystemList';
 import AppointmentSchedulerModal, { CustomerOpenTask } from '../components/telemarketing/AppointmentSchedulerModal';
+import CustomerQueueCard, { classificationKey, QueueCardAttrs } from '../components/telemarketing/CustomerQueueCard';
+import CustomerQueueFilters, { QueueSortMode, FilterOption, ActiveChip } from '../components/telemarketing/CustomerQueueFilters';
+// Reused client-profile sections, surfaced in the telemarketer detail panel
+import CustomerCallLog from '../components/customers/CustomerCallLog';
+import { DevicesTab } from './clientProfile/DevicesTab';
+import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
+import { AccountStatementTab } from './clientProfile/AccountStatementTab';
+import GiftsTab from './clientProfile/GiftsTab';
+import { VisitsTab } from './ClientProfile';
 import ClientModal from '../components/ClientModal';
 import Select from '../components/ui/Select';
 import Button from '../components/ui/Button';
@@ -269,6 +278,15 @@ export default function TelemarketerWorkspace() {
     const [date, setDate] = useState(getPlanningDate());
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+    // Six advanced queue filters + sort (DEC: rich queue redesign)
+    const [referrerFilter, setReferrerFilter] = useState('');
+    const [stationFilter, setStationFilter] = useState('');
+    const [lastOutcomeFilter, setLastOutcomeFilter] = useState('');
+    const [taskTypeFilter, setTaskTypeFilter] = useState('');
+    const [classificationFilter, setClassificationFilter] = useState<string[]>([]);
+    const [ratingFilter, setRatingFilter] = useState<string[]>([]);
+    const [queueSortMode, setQueueSortMode] = useState<QueueSortMode>('station');
+    const [filtersOpen, setFiltersOpen] = useState(false);
     const appointmentDate = date;
 
     const changeDateBy = useCallback((days: number) => setDate(prev => shiftDate(prev, days)), []);
@@ -347,6 +365,14 @@ export default function TelemarketerWorkspace() {
 
     const teamAppointments = useMemo(() => getAppointmentsForTeamDate(selectedTeamKey, appointmentDate), [getAppointmentsForTeamDate, selectedTeamKey, appointmentDate, appointments]);
 
+    // HH:MM times already booked for the selected team on the plan date. The
+    // booking conflict guard (visitBooking.ts) keys on (team + date + HH:MM),
+    // so surfacing these lets the telemarketer pick any other free minute.
+    const bookedTimes = useMemo(
+        () => teamAppointments.map(a => String(a.timeSlot || '').slice(0, 5)).filter(Boolean),
+        [teamAppointments],
+    );
+
     const getCustomerAppointment = useCallback((cg: CustomerGroup) => getAppointmentForCustomer(cg, teamAppointments, selectedTeamKey, appointmentDate), [teamAppointments, selectedTeamKey, appointmentDate]);
 
     useEffect(() => {
@@ -391,6 +417,119 @@ export default function TelemarketerWorkspace() {
         };
     }, [customerGroups, date]);
 
+    // ── Rich-card attributes + filter inputs, computed per customer ──────────
+    const clientsById = useMemo(() => new Map(clients.map(c => [c.id, c])), [clients]);
+    const candidatesById = useMemo(() => new Map(candidates.map(c => [c.id, c])), [candidates]);
+    const geoUnitsById = useMemo(() => new Map(geoUnits.map(g => [g.id, g])), [geoUnits]);
+    const latestOutcomeByEntity = useMemo(() => {
+        const m = new Map<string, { outcome: string; ts: number }>();
+        callLogs.forEach(l => {
+            const k = `${l.entityType}:${l.entityId}`;
+            const ts = new Date(l.timestamp).getTime();
+            const prev = m.get(k);
+            if (!prev || ts > prev.ts) m.set(k, { outcome: l.outcome, ts });
+        });
+        return m;
+    }, [callLogs]);
+
+    interface CardComputed {
+        attrs: QueueCardAttrs;
+        referrerName: string;
+        stationId: number | null;
+        taskTypes: string[];
+        lastOutcome: string;
+        classKey: 'FOP' | 'OP' | 'LEAD' | null;
+        ratingKey: string | null;
+        ownershipLabel: string | null;
+    }
+    const cardData = useMemo(() => {
+        const m = new Map<string, CardComputed>();
+        customerGroups.forEach(cg => {
+            const client = cg.entityType === 'client' ? clientsById.get(cg.entityId) : undefined;
+            const cand = cg.entityType === 'candidate' ? candidatesById.get(cg.entityId) : undefined;
+            const rec: any = client || cand;
+            const fullName = client
+                ? [client.firstName, client.fatherName, client.lastName].filter(Boolean).join(' ') || client.name || cg.name
+                : cand
+                    ? [cand.firstName, cand.lastName].filter(Boolean).join(' ') || cg.name
+                    : cg.name;
+            const referrerName = (client?.referrerName || cand?.referralNameSnapshot || '').trim();
+            const stationId = cg.geoUnitId ?? null;
+            const stationLabel = stationId != null
+                ? (geoUnitsById.get(stationId)?.name || cg.addressText || null)
+                : (cg.addressText || null);
+            const classification = client?.candidateStatus ?? null;
+            const classKey = classificationKey(classification, cg.entityType);
+            const ratingKey = client?.rating === 'Committed' || client?.rating === 'NotCommitted' ? client.rating : null;
+            const ownershipLabel = cg.entityType === 'client'
+                ? (cg.primaryItem.ownership?.ownerLabel || 'عامة')
+                : null;
+            m.set(cg.key, {
+                attrs: {
+                    fullName,
+                    nickname: rec?.nickname ?? null,
+                    entityType: cg.entityType,
+                    gender: client?.gender ?? null,
+                    dataQuality: client?.dataQuality ?? null,
+                    classification,
+                    rating: client?.rating ?? null,
+                    stationLabel,
+                    taskCount: cg.openTasks.length,
+                },
+                referrerName,
+                stationId,
+                taskTypes: cg.openTasks.map(t => t.openTaskType || '').filter(Boolean),
+                lastOutcome: latestOutcomeByEntity.get(`${cg.entityType}:${cg.entityId}`)?.outcome || '',
+                classKey,
+                ratingKey,
+                ownershipLabel,
+            });
+        });
+        return m;
+    }, [customerGroups, clientsById, candidatesById, geoUnitsById, latestOutcomeByEntity]);
+
+    const referrerOptions = useMemo<FilterOption[]>(() => {
+        const s = new Set<string>();
+        cardData.forEach(d => { if (d.referrerName) s.add(d.referrerName); });
+        return Array.from(s).sort((a, b) => a.localeCompare(b, 'ar')).map(v => ({ value: v, label: v }));
+    }, [cardData]);
+    const stationOptions = useMemo<FilterOption[]>(() => {
+        const m = new Map<string, string>();
+        cardData.forEach(d => { if (d.stationId != null) m.set(String(d.stationId), d.attrs.stationLabel || String(d.stationId)); });
+        return Array.from(m.entries())
+            .sort((a, b) => a[1].localeCompare(b[1], 'ar'))
+            .map(([value, label], i) => ({ value, label: `محطة ${i + 1} — ${label}` }));
+    }, [cardData]);
+    const outcomeOptions = useMemo<FilterOption[]>(() => {
+        const s = new Set<string>();
+        cardData.forEach(d => { if (d.lastOutcome) s.add(d.lastOutcome); });
+        return Array.from(s).map(code => ({ value: code, label: getOutcomeMeta(code).label }));
+    }, [cardData]);
+    const taskTypeOptionsFilter = useMemo<FilterOption[]>(() => {
+        const s = new Set<string>();
+        cardData.forEach(d => d.taskTypes.forEach(t => s.add(t)));
+        return Array.from(s)
+            .filter(t => !isHiddenOperationalTaskType(t))
+            .map(t => ({ value: t, label: (OPEN_TASK_TYPE_LABELS as Record<string, string>)[t] || t }));
+    }, [cardData]);
+
+    const toggleClassification = useCallback((v: string) => setClassificationFilter(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]), []);
+    const toggleRating = useCallback((v: string) => setRatingFilter(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]), []);
+    const clearAllFilters = useCallback(() => {
+        setReferrerFilter(''); setStationFilter(''); setLastOutcomeFilter('');
+        setTaskTypeFilter(''); setClassificationFilter([]); setRatingFilter([]);
+    }, []);
+    const activeChips = useMemo<ActiveChip[]>(() => {
+        const chips: ActiveChip[] = [];
+        if (referrerFilter) chips.push({ key: 'ref', label: `وسيط: ${referrerFilter}`, onRemove: () => setReferrerFilter('') });
+        if (stationFilter) chips.push({ key: 'st', label: stationOptions.find(o => o.value === stationFilter)?.label || 'محطة', onRemove: () => setStationFilter('') });
+        if (lastOutcomeFilter) chips.push({ key: 'oc', label: getOutcomeMeta(lastOutcomeFilter).label, onRemove: () => setLastOutcomeFilter('') });
+        if (taskTypeFilter) chips.push({ key: 'tt', label: (OPEN_TASK_TYPE_LABELS as Record<string, string>)[taskTypeFilter] || taskTypeFilter, onRemove: () => setTaskTypeFilter('') });
+        classificationFilter.forEach(v => chips.push({ key: `cl_${v}`, label: v, onRemove: () => toggleClassification(v) }));
+        ratingFilter.forEach(v => chips.push({ key: `rt_${v}`, label: v === 'Committed' ? 'ملتزم' : 'غير ملتزم', onRemove: () => toggleRating(v) }));
+        return chips;
+    }, [referrerFilter, stationFilter, lastOutcomeFilter, taskTypeFilter, classificationFilter, ratingFilter, stationOptions, toggleClassification, toggleRating]);
+
     const counts = useMemo(() => {
         const cgLogs = (cg: CustomerGroup) =>
             callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
@@ -411,13 +550,41 @@ export default function TelemarketerWorkspace() {
         }
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
-            result = result.filter(cg =>
-                cg.name.toLowerCase().includes(q) ||
-                (cg.mobile && cg.mobile.toLowerCase().includes(q))
-            );
+            result = result.filter(cg => {
+                const d = cardData.get(cg.key);
+                return cg.name.toLowerCase().includes(q)
+                    || (d?.attrs.fullName || '').toLowerCase().includes(q)
+                    || (cg.mobile && cg.mobile.toLowerCase().includes(q));
+            });
         }
-        return result;
-    }, [customerGroups, statusFilter, searchQuery, callLogs, getCustomerAppointment]);
+        // Six advanced filters
+        result = result.filter(cg => {
+            const d = cardData.get(cg.key);
+            if (!d) return true;
+            if (referrerFilter && d.referrerName !== referrerFilter) return false;
+            if (stationFilter && String(d.stationId ?? '') !== stationFilter) return false;
+            if (lastOutcomeFilter && d.lastOutcome !== lastOutcomeFilter) return false;
+            if (taskTypeFilter && !d.taskTypes.includes(taskTypeFilter)) return false;
+            if (classificationFilter.length > 0 && !(d.classKey && classificationFilter.includes(d.classKey))) return false;
+            if (ratingFilter.length > 0 && !(d.ratingKey && ratingFilter.includes(d.ratingKey))) return false;
+            return true;
+        });
+        // Sort: by work-scope station order, or by contact-target lifecycle stage
+        const stageRank = (cg: CustomerGroup) => {
+            const cgLogs = callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
+            const s = getCustomerStatusGroup(cg, !!getCustomerAppointment(cg), cgLogs);
+            return s === 'in_list' ? 0 : s === 'contacted' ? 1 : s === 'closed' ? 3 : 2;
+        };
+        const sorted = [...result];
+        if (queueSortMode === 'station') {
+            sorted.sort((a, b) =>
+                (cardData.get(a.key)?.attrs.stationLabel || '').localeCompare(cardData.get(b.key)?.attrs.stationLabel || '', 'ar'));
+        } else {
+            sorted.sort((a, b) => stageRank(a) - stageRank(b));
+        }
+        return sorted;
+    }, [customerGroups, statusFilter, searchQuery, callLogs, getCustomerAppointment, cardData,
+        referrerFilter, stationFilter, lastOutcomeFilter, taskTypeFilter, classificationFilter, ratingFilter, queueSortMode]);
 
     // Auto-select first customer when list changes.
     useEffect(() => {
@@ -431,7 +598,7 @@ export default function TelemarketerWorkspace() {
         }
     }, [filteredGroups, selectedCustomerKey]);
 
-    const [activeTab, setActiveTab] = useState<'journey' | 'contracts' | 'visits' | 'openTasks'>('journey');
+    const [activeTab, setActiveTab] = useState<'calllog' | 'devices' | 'purchase' | 'gifts' | 'account' | 'openTasks' | 'visits'>('calllog');
     const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
     const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
     const [appointmentMode, setAppointmentMode] = useState<'call_result' | 'direct'>('call_result');
@@ -1102,7 +1269,7 @@ export default function TelemarketerWorkspace() {
             <div className="flex-1 flex overflow-hidden p-3 gap-3">
 
                 {/* COLUMN 1: Customer queue (20%) */}
-                <div className="w-1/5 min-w-[280px] bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm overflow-hidden">
+                <div className="w-[25%] min-w-[300px] bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm overflow-hidden">
                     {/* Team Selector */}
                     <div className="p-3 border-b border-slate-100 bg-slate-50">
                         <label className="text-xs font-bold text-slate-500 mb-1.5 block">اختر أحد الفرق النشطة</label>
@@ -1141,101 +1308,60 @@ export default function TelemarketerWorkspace() {
                         </div>
                     </div>
 
+                    {/* Advanced filters + sort */}
+                    <CustomerQueueFilters
+                        open={filtersOpen}
+                        onToggle={() => setFiltersOpen(o => !o)}
+                        activeCount={activeChips.length}
+                        activeChips={activeChips}
+                        onClearAll={clearAllFilters}
+                        referrer={referrerFilter} setReferrer={setReferrerFilter} referrerOptions={referrerOptions}
+                        station={stationFilter} setStation={setStationFilter} stationOptions={stationOptions}
+                        lastOutcome={lastOutcomeFilter} setLastOutcome={setLastOutcomeFilter} outcomeOptions={outcomeOptions}
+                        taskType={taskTypeFilter} setTaskType={setTaskTypeFilter} taskTypeOptions={taskTypeOptionsFilter}
+                        classification={classificationFilter} toggleClassification={toggleClassification}
+                        rating={ratingFilter} toggleRating={toggleRating}
+                        sortMode={queueSortMode} setSortMode={setQueueSortMode}
+                    />
+
                     {/* Queue header */}
                     <div className="sticky top-0 z-10 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
-                        <h2 className="text-lg font-bold text-slate-800">قائمة الزبائن</h2>
-                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
+                        <h2 className="text-sm font-bold text-slate-800">قائمة الزبائن</h2>
+                        <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
                     </div>
 
                     {/* Customer list */}
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scroll" style={{ maxHeight: 'calc(100vh - 380px)' }}>
+                    <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1 custom-scroll">
                         {availableTeams.length === 0 && renderEmptyState(<AlertTriangle className="w-10 h-10 text-slate-300" />, 'لا يوجد جدول فرق لهذا التاريخ')}
                         {availableTeams.length > 0 && !activeTaskList && renderEmptyState(<Calendar className="w-10 h-10 text-slate-300" />, 'لم يتم توليد قائمة الاتصال لهذا الفريق بعد')}
                         {activeTaskList && filteredGroups.length === 0 && customerGroups.length > 0 && renderEmptyState(<Search className="w-10 h-10 text-slate-300" />, 'لا توجد نتائج مطابقة')}
                         {activeTaskList && customerGroups.length === 0 && renderEmptyState(<AlertTriangle className="w-10 h-10 text-slate-300" />, 'لا يوجد زبائن في قائمة الاتصال')}
 
                         {filteredGroups.map(cg => {
-                            const isActive = cg.key === selectedCustomerKey;
                             const cgAppt = getCustomerAppointment(cg);
                             const isBooked = cg.status === 'booked' || !!cgAppt;
                             const cgLogs = callLogs.filter(l => l.entityId === cg.entityId && l.entityType === cg.entityType);
                             const ctStage = getCustomerStatusGroup(cg, isBooked, cgLogs);
                             const ctClosed = isContactTargetClosed(cg, isBooked);
-                            const otherTeamsCount = getOtherTeamsCount(cg);
-
-                            // Badge for CT lifecycle stage
-                            const ctBadge = (() => {
-                                if (isBooked) return (
-                                    <span className="text-xs text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
-                                        <CheckCircle2 className="w-3 h-3" /> محجوز{cgAppt ? ` ${cgAppt.timeSlot}` : ''}
-                                    </span>
-                                );
-                                if (ctClosed) {
-                                    const isManual = cg.callOutcome === 'manual_close';
-                                    return (
-                                        <span className="text-xs text-slate-500 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                            {isManual ? 'مغلقة يدوياً' : 'مغلقة'}
-                                        </span>
-                                    );
-                                }
-                                if (ctStage === 'contacted') return (
-                                    <span className="text-xs text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1">
-                                        <History className="w-3 h-3" /> تم التواصل ({cgLogs.length})
-                                    </span>
-                                );
-                                return null;
-                            })();
-
+                            const d = cardData.get(cg.key);
+                            if (!d) return null;
                             return (
-                                <button key={cg.key} onClick={() => setSelectedCustomerKey(cg.key)}
-                                    className={`w-full text-right p-2.5 rounded-xl border transition-all flex items-start gap-3 outline-none ${isActive
-                                        ? 'bg-violet-50 border-violet-300 ring-2 ring-violet-500/10 shadow-sm'
-                                        : isBooked ? 'bg-emerald-50 border-emerald-200'
-                                            : ctClosed ? 'bg-slate-50 border-slate-200'
-                                                : ctStage === 'contacted' ? 'bg-amber-50/40 border-amber-100'
-                                                    : 'bg-white border-slate-100 hover:border-violet-200 hover:bg-slate-50 hover:shadow-sm'}`}>
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shrink-0 border-2 overflow-hidden relative shadow-sm ${
-                                        isBooked ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                                        : ctClosed ? 'bg-slate-100 text-slate-500 border-slate-300'
-                                        : ctStage === 'contacted' ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                        : 'bg-white text-slate-600 border-slate-200'}`}>
-                                        {getInitials(cg.name)}
-                                        <div className={`absolute bottom-0 w-full h-1.5 ${cg.entityType === 'client' ? 'bg-sky-500' : 'bg-amber-500'}`} />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between">
-                                            <p className={`text-sm font-bold truncate ${
-                                                isBooked ? 'text-emerald-800'
-                                                : ctClosed ? 'text-slate-400'
-                                                : ctStage === 'contacted' ? 'text-amber-800'
-                                                : 'text-slate-800'}`}>{cg.name}</p>
-                                            {isBooked
-                                                ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                                                : ctClosed
-                                                    ? <CheckCircle className="w-4 h-4 text-slate-400 shrink-0" />
-                                                    : <Phone className={`w-4 h-4 shrink-0 ${ctStage === 'contacted' ? 'text-amber-400' : 'text-slate-400'}`} />}
-                                        </div>
-                                        <div className="flex items-center justify-between mt-1 gap-1 flex-wrap">
-                                            <span className={`text-xs px-1.5 py-0.5 rounded font-bold border ${cg.entityType === 'client' ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
-                                                {cg.entityType === 'client' ? 'زبون' : 'مقترح'}
-                                            </span>
-                                            {cg.openTasks.length > 0 && (
-                                                <span className="text-xs px-1.5 py-0.5 rounded font-bold border bg-purple-50 text-purple-700 border-purple-100 flex items-center gap-0.5">
-                                                    <Layers className="w-2.5 h-2.5" />{cg.openTasks.length}
-                                                </span>
-                                            )}
-                                            {cg.entityType === 'client' ? (
-                                                <OwnershipBadge ownership={cg.primaryItem.ownership} />
-                                            ) : null}
-                                            {otherTeamsCount > 0 && (
-                                                <span className="text-xs px-1.5 py-0.5 rounded font-bold border bg-cyan-50 text-cyan-700 border-cyan-200">
-                                                    +{otherTeamsCount} فرق
-                                                </span>
-                                            )}
-                                            {ctBadge}
-                                        </div>
-                                    </div>
-                                </button>
+                                <CustomerQueueCard
+                                    key={cg.key}
+                                    attrs={d.attrs}
+                                    status={{
+                                        booked: isBooked,
+                                        closed: ctClosed,
+                                        contacted: ctStage === 'contacted',
+                                        manualClose: cg.callOutcome === 'manual_close',
+                                        apptTime: cgAppt?.timeSlot,
+                                        contactedCount: cgLogs.length,
+                                    }}
+                                    isActive={cg.key === selectedCustomerKey}
+                                    otherTeamsCount={getOtherTeamsCount(cg)}
+                                    ownershipLabel={d.ownershipLabel}
+                                    onClick={() => setSelectedCustomerKey(cg.key)}
+                                />
                             );
                         })}
                     </div>
@@ -1398,10 +1524,18 @@ export default function TelemarketerWorkspace() {
                             </div>
 
                             {/* Tabs */}
-                            <div className="px-6 flex gap-1 border-b border-[#E3E7EC] shrink-0 bg-white z-10">
-                                {[{ id: 'journey', label: 'سجل الاتصالات', icon: Activity }, { id: 'contracts', label: 'العقود', icon: FileText }, { id: 'visits', label: 'الزيارات', icon: Wrench }, { id: 'openTasks', label: 'المهام المفتوحة', icon: Layers }].map(tab => (
+                            <div className="px-4 flex gap-1 border-b border-[#E3E7EC] shrink-0 bg-white z-10 overflow-x-auto custom-scroll">
+                                {[
+                                    { id: 'calllog', label: 'سجل الاتصال', icon: Phone },
+                                    { id: 'devices', label: 'الأجهزة', icon: Cpu },
+                                    { id: 'purchase', label: 'سجل المشتريات', icon: History },
+                                    { id: 'gifts', label: 'الهدايا', icon: Gift },
+                                    { id: 'account', label: 'كشف الحساب', icon: FileText },
+                                    { id: 'openTasks', label: 'المهام المفتوحة', icon: Layers },
+                                    { id: 'visits', label: 'الزيارات', icon: Wrench },
+                                ].map(tab => (
                                     <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
-                                        className={`relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-base font-bold transition-colors ${activeTab === tab.id
+                                        className={`relative inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-bold whitespace-nowrap transition-colors ${activeTab === tab.id
                                             ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
                                             : 'text-slate-500 hover:text-slate-800'}`}>
                                         <tab.icon className="w-4 h-4" /> {tab.label}
@@ -1409,44 +1543,24 @@ export default function TelemarketerWorkspace() {
                                 ))}
                             </div>
 
-                            {/* Tab content */}
-                            <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50 custom-scroll relative">
-                                {activeTab === 'journey' && (
-                                    <>
-                                        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-slate-200" style={{ transform: 'translateX(-50%)' }} />
-                                        <div className="space-y-6 max-w-2xl mx-auto relative z-10">
-                                            {journeyEvents.length === 0 ? (
-                                                <div className="text-center bg-white border border-dashed border-slate-300 rounded-xl p-8">
-                                                    <History className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                                                    <p className="text-sm font-bold text-slate-500">لا توجد أنشطة مسجلة لهذا الزبون بعد</p>
-                                                </div>
-                                            ) : (
-                                                journeyEvents.map((item, idx) => (
-                                                    <div key={item.id} className={`flex ${idx % 2 === 0 ? 'flex-row' : 'flex-row-reverse'} w-full items-center justify-between`}>
-                                                        <div className="w-5/12" />
-                                                        <div className="w-2/12 flex justify-center z-10">
-                                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 border-slate-50 shadow-sm ${item.bg}`}>
-                                                                <item.icon className={`w-4 h-4 ${item.color}`} />
-                                                            </div>
-                                                        </div>
-                                                        <div className="w-5/12">
-                                                            <div className={`bg-white border text-right border-slate-200 p-4 rounded-xl shadow-sm`}>
-                                                                <div className="flex items-center justify-between mb-2">
-                                                                    <span className="text-xs text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200" dir="ltr">
-                                                                        {new Date(item.date).toLocaleString('ar-SY', { dateStyle: 'short', timeStyle: 'short' })}
-                                                                    </span>
-                                                                </div>
-                                                                {item.content}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))
-                                            )}
+                            {/* Tab content — reuses the client-profile sections */}
+                            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 custom-scroll relative">
+                                {(() => {
+                                    const clientForTabs = (selectedCustomer?.entityType === 'client' ? entityDetails : null) as Client | null;
+                                    const onlyClients = (
+                                        <div className="text-center bg-white border border-dashed border-slate-300 rounded-xl p-8 max-w-md mx-auto mt-6">
+                                            <User className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                                            <p className="text-sm font-bold text-slate-500">هذه البيانات متاحة للزبائن فقط — الجهة الحالية مقترحة.</p>
                                         </div>
-                                    </>
-                                )}
-                                {activeTab === 'contracts' && <div className="text-center p-8"><p className="text-sm font-bold text-slate-500">سجل العقود (قريباً)</p></div>}
-                                {activeTab === 'visits' && <div className="text-center p-8"><p className="text-sm font-bold text-slate-500">سجل الزيارات (قريباً)</p></div>}
+                                    );
+                                    if (activeTab === 'calllog') return clientForTabs ? <CustomerCallLog customerId={clientForTabs.id} canEdit={!!canBook} /> : onlyClients;
+                                    if (activeTab === 'devices') return clientForTabs ? <DevicesTab client={clientForTabs} /> : onlyClients;
+                                    if (activeTab === 'purchase') return clientForTabs ? <PurchaseHistoryTab client={clientForTabs} /> : onlyClients;
+                                    if (activeTab === 'gifts') return clientForTabs ? <GiftsTab client={clientForTabs} /> : onlyClients;
+                                    if (activeTab === 'account') return clientForTabs ? <AccountStatementTab client={clientForTabs} /> : onlyClients;
+                                    if (activeTab === 'visits') return clientForTabs ? <VisitsTab client={clientForTabs} /> : onlyClients;
+                                    return null;
+                                })()}
                                 {activeTab === 'openTasks' && (
                                     <div className="space-y-4">
                                         <div className="flex items-center justify-between gap-3">
@@ -1857,6 +1971,7 @@ export default function TelemarketerWorkspace() {
                 preselectedContactId={preselectedContactId || undefined}
                 customerOpenTasks={selectedCustomer?.openTasks}
                 appointmentDate={appointmentDate}
+                bookedTimes={bookedTimes}
                 onSave={handleSaveOutcome}
             />
 
@@ -1869,6 +1984,7 @@ export default function TelemarketerWorkspace() {
                 customerName={selectedCustomer?.name || ''}
                 defaultDate={appointmentDate}
                 defaultTime={appointmentMode === 'direct' ? directBookingTask?.openTaskExpectedTime || undefined : undefined}
+                bookedTimes={bookedTimes}
                 customerOpenTasks={selectedCustomer?.openTasks || []}
                 entityDetails={entityDetails}
                 onSave={handleSaveAppointment}

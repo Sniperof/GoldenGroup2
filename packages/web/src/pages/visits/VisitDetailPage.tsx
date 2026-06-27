@@ -18,12 +18,37 @@ import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceA
 import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
 import DeviceDisconnectionResultModal from '../../taskTypes/device_delivery/DeviceDisconnectionResultModal';
 import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
+import DeviceRetrievalResultModal from '../../taskTypes/device_delivery/DeviceRetrievalResultModal';
+import DeviceReturnResultModal from '../../taskTypes/device_delivery/DeviceReturnResultModal';
+import DeviceTransferResultModal from '../../taskTypes/device_delivery/DeviceTransferResultModal';
 import EmergencyResultModal from '../../taskTypes/emergency_maintenance/EmergencyResultModal';
 import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';
 import GoldenWarrantyCardDeliveryModal from '../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardDeliveryModal';
 import InstallmentCollectionResultModal from '../../taskTypes/installment_collection/InstallmentCollectionResultModal';
 import ClientSnapshot from '../../components/ClientSnapshot';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import DeviceCheckupResultModal from '../../taskTypes/device_delivery/DeviceCheckupResultModal';
+
+const RESULT_MODAL_TASK_TYPES = new Set([
+    'device_demo',
+    'device_checkup',
+    'device_delivery',
+    'device_installation',
+    'device_activation',
+    'device_disconnection',
+    'device_retrieval',
+    'device_return',
+    'device_transfer',
+    'emergency_maintenance',
+    'periodic_maintenance',
+    'golden_warranty_offer',
+    'golden_warranty_card_delivery',
+    'installment_collection',
+]);
+
+function hasResultModal(taskType: string | null | undefined) {
+    return !!taskType && RESULT_MODAL_TASK_TYPES.has(taskType);
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -653,14 +678,8 @@ export default function VisitDetailPage() {
                             // after it transitions to `ended`. The visit auto-completes
                             // once the last task result + the survey are in place.
                             const canRecord = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
-                            const isDemo = task.task_type === 'device_demo';
-                            const isDelivery = task.task_type === 'device_delivery';
-                            const isInstallation = task.task_type === 'device_installation';
-                            const isActivation = task.task_type === 'device_activation';
-                            const isDisconnection = task.task_type === 'device_disconnection';
-                            const isEmergency = task.task_type === 'emergency_maintenance';
-                            const supportsUnifiedResult = isDemo || isDelivery || isInstallation || isActivation || isDisconnection || isEmergency;
-                            const canEditResult = visit.status === 'completed' && hasResult && supportsUnifiedResult;
+                            const canOpenResultModal = hasResultModal(task.task_type);
+                            const canEditResult = visit.status === 'completed' && hasResult && canOpenResultModal;
                             const decisionMeta = getFinalDecisionMeta(task.final_decision);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
                             return (
@@ -722,13 +741,13 @@ export default function VisitDetailPage() {
                                     <div className="mt-3 flex items-center gap-2 flex-wrap">
                                         {visit.status === 'scheduled' && <span className="text-xs text-slate-400">عرض فقط — لم تبدأ الزيارة</span>}
                                         {visit.status === 'cancelled' && <span className="text-xs text-slate-400">الزيارة ملغاة</span>}
-                                        {canRecord && supportsUnifiedResult && (
+                                        {canRecord && canOpenResultModal && (
                                             <button onClick={() => setResultTask(task)}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 transition-colors">
                                                 <ClipboardCheck className="w-3.5 h-3.5" /> تسجيل النتيجة
                                             </button>
                                         )}
-                                        {canRecord && !supportsUnifiedResult && (
+                                        {canRecord && !canOpenResultModal && (
                                             <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded inline-flex items-center gap-1">
                                                 <AlertCircle className="w-3 h-3" /> تسجيل نتيجة هذا النوع قيد التطوير
                                             </span>
@@ -832,6 +851,16 @@ export default function VisitDetailPage() {
                     onSaved={() => { setResultTask(null); load(); }}
                 />
             )}
+            {resultTask?.task_type === 'device_checkup' && (
+                <DeviceCheckupResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
             {resultTask?.task_type === 'device_delivery' && (
                 <DeviceDeliveryResultModal
                     key={`${visit.id}:${resultTask.id}`}
@@ -872,12 +901,43 @@ export default function VisitDetailPage() {
                     onSaved={() => { setResultTask(null); load(); }}
                 />
             )}
-            {resultTask?.task_type === 'emergency_maintenance' && (
+            {resultTask?.task_type === 'device_retrieval' && (
+                <DeviceRetrievalResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'device_return' && (
+                <DeviceReturnResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {resultTask?.task_type === 'device_transfer' && (
+                <DeviceTransferResultModal
+                    key={`${visit.id}:${resultTask.id}`}
+                    visitId={visit.id}
+                    taskId={resultTask.id}
+                    task={resultTask}
+                    onClose={() => setResultTask(null)}
+                    onSaved={() => { setResultTask(null); load(); }}
+                />
+            )}
+            {(resultTask?.task_type === 'emergency_maintenance' || resultTask?.task_type === 'periodic_maintenance') && (
                 <EmergencyResultModal
                     key={`${visit.id}:${resultTask.id}`}
                     taskId={resultTask.source_open_task_id ?? resultTask.open_task_id ?? resultTask.id}
                     visitId={visit.id}
                     visitTaskId={resultTask.id}
+                    maintenanceKind={resultTask.task_type === 'periodic_maintenance' ? 'periodic' : 'emergency'}
                     contractId={resultTask.contract_id ?? null}
                     visitTechnicianEmployeeId={primaryTeam?.technician?.id ?? backupTeam?.technician?.id ?? null}
                     visitTechnicianName={primaryTeam?.technician?.name ?? backupTeam?.technician?.name ?? null}

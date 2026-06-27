@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, Search, Filter, Phone, Trash2, CheckCircle, XCircle, AlertCircle, FileText } from 'lucide-react';
+import { UserPlus, Search, Filter, Phone, Trash2, CheckCircle, XCircle, AlertCircle, FileText, Loader2 } from 'lucide-react';
 import AddCandidateModal from './AddCandidateModal';
 import { Candidate } from '../../lib/types';
 import { getEntityContacts, getPrimaryContact } from '../../lib/contactUtils';
@@ -16,6 +16,36 @@ export default function CandidatesEntry() {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<'All' | 'New' | 'Qualified' | 'Junk'>('All');
+    const [operationError, setOperationError] = useState<string | null>(null);
+    const [busyCandidateId, setBusyCandidateId] = useState<number | null>(null);
+
+    const convertCandidate = async (candidateId: number) => {
+        if (busyCandidateId != null) return;
+        setOperationError(null);
+        setBusyCandidateId(candidateId);
+        try {
+            await qualifyCandidate(candidateId);
+        } catch (err: any) {
+            console.error('Failed to convert candidate:', err);
+            setOperationError(err?.message ?? 'فشل تحويل الاسم المقترح إلى زبون');
+        } finally {
+            setBusyCandidateId(null);
+        }
+    };
+
+    const rejectCandidate = async (candidateId: number) => {
+        if (busyCandidateId != null) return;
+        setOperationError(null);
+        setBusyCandidateId(candidateId);
+        try {
+            await markJunk(candidateId);
+        } catch (err: any) {
+            console.error('Failed to reject candidate:', err);
+            setOperationError(err?.message ?? 'فشل رفض الاسم المقترح');
+        } finally {
+            setBusyCandidateId(null);
+        }
+    };
 
     // Filter Logic
     const filteredCandidates = candidates.filter(c => {
@@ -56,7 +86,6 @@ export default function CandidatesEntry() {
                         value={filterStatus}
                         onChange={setFilterStatus}
                         ariaLabel="فلترة الحالة"
-                        variant="filled"
                         options={[
                             { value: 'All', label: 'الكل' },
                             { value: 'New', label: 'جديد (New)' },
@@ -76,6 +105,11 @@ export default function CandidatesEntry() {
 
             {/* Table Area */}
             <div className="flex-1 overflow-auto p-6">
+                {operationError && (
+                    <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                        {operationError}
+                    </div>
+                )}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                     <table className="w-full text-right">
                         <thead className="bg-slate-50 border-b border-slate-200">
@@ -149,18 +183,20 @@ export default function CandidatesEntry() {
                                                     {candidate.status === 'Suggested' && (
                                                         <>
                                                             <button
-                                                                onClick={() => qualifyCandidate(candidate.id)}
+                                                                onClick={() => convertCandidate(candidate.id)}
                                                                 title="تحويل لـ Lead"
-                                                                className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 transition-colors border border-transparent hover:border-emerald-200"
+                                                                disabled={busyCandidateId != null}
+                                                                className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 transition-colors border border-transparent hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
-                                                                <CheckCircle className="w-4 h-4" />
+                                                                {busyCandidateId === candidate.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                                                             </button>
                                                             <button
-                                                                onClick={() => markJunk(candidate.id)}
+                                                                onClick={() => rejectCandidate(candidate.id)}
                                                                 title="رفض / Junk"
-                                                                className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors border border-transparent hover:border-red-200"
+                                                                disabled={busyCandidateId != null}
+                                                                className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors border border-transparent hover:border-red-200 disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
-                                                                <XCircle className="w-4 h-4" />
+                                                                {busyCandidateId === candidate.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
                                                             </button>
                                                         </>
                                                     )}

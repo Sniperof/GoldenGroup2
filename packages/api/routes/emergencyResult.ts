@@ -20,6 +20,12 @@ import {
 } from '../services/serviceRequests/problemsService.js';
 import { computeDerivedOutcome } from '../services/serviceRequests/derivedOutcomeCalc.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
+import { recordMovement } from '../services/financialMovements.js';
+import {
+  findPeriodicAttachmentCandidate,
+  generateNextPeriodicMaintenanceTask,
+  supersedePeriodicWithinEmergency,
+} from '../services/periodicMaintenanceTasks.js';
 
 const router = Router();
 
@@ -294,6 +300,17 @@ async function getTaskMeta(taskId: number) {
             ot.em_pre_state_id AS "preStateId", ot.em_post_state_id AS "postStateId",
             ot.em_action_id AS "actionId", ot.em_costs_id AS "costsId",
             ot.source_service_request_id AS "sourceServiceRequestId",
+            COALESCE(
+              ot.source_service_request_id,
+              (
+                SELECT sr.id
+                  FROM service_requests sr
+                 WHERE sr.linked_open_task_id = ot.id
+                   AND sr.status = 'promoted'
+                 ORDER BY sr.closed_at DESC NULLS LAST, sr.id DESC
+                 LIMIT 1
+              )
+            ) AS "problemServiceRequestId",
             ot.device_id AS "installedDeviceId",
             ot.team_snapshot AS "teamSnapshot",
             ot.created_at AS "taskDate",
@@ -346,7 +363,7 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
     const meta = await getTaskMeta(taskId);
     if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
 
-    const [preRow, postRow, actionRow, costsRow] = await Promise.all([
+    const [preRow, postRow, actionRow, costsRow, periodicAttachmentCandidate] = await Promise.all([
       meta.preStateId
         ? pool.query(`SELECT ${TECH_STATE_FIELDS} FROM device_technical_states WHERE id = $1`, [meta.preStateId]).then(r => r.rows[0])
         : null,
@@ -385,10 +402,14 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
                LEFT JOIN employees emp ON emp.id = erc.closing_employee_id
               WHERE erc.id = $1`, [meta.costsId]).then(r => r.rows[0])
         : null,
+      meta.taskType === 'emergency_maintenance'
+        ? findPeriodicAttachmentCandidate(pool, meta.installedDeviceId ?? null)
+        : null,
     ]);
 
     // Phase 6b — expose problems + source path so the wizard can dispatch V1/V2.
-    const isNewPath = meta.sourceServiceRequestId != null;
+    const problemServiceRequestId = meta.problemServiceRequestId ?? meta.sourceServiceRequestId ?? null;
+    const isNewPath = problemServiceRequestId != null;
     let problems: any[] = [];
     let derivedOutcome: { outcome: string; counts: Record<string, number>; total: number } | null = null;
     if (isNewPath) {
@@ -427,6 +448,7 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
         contractRef:  meta.contractRef  ?? null,
         taskDate:     meta.taskDate     ?? null,
         sourceServiceRequestId: meta.sourceServiceRequestId ?? null,
+        problemServiceRequestId,
         installedDeviceId:      meta.installedDeviceId ?? null,
         // Technician derived from team_snapshot (one technician per team).
         // Field is exposed flat so the wizard can auto-fill repaired_by.
@@ -438,6 +460,7 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
           meta.teamSnapshot?.technician?.name
             ?? null,
       },
+      periodicAttachmentCandidate,
       problems,
       derivedOutcome,
       phases: {
@@ -758,7 +781,8 @@ router.put('/:taskId/actions', requirePermission('marketing_visits.update_result
     newProblems,
   } = req.body ?? {};
   const recordedBy = (req.authContext as any)?.userId ?? null;
-  const isNewPath = meta.sourceServiceRequestId != null;
+  const problemServiceRequestId = meta.problemServiceRequestId ?? meta.sourceServiceRequestId ?? null;
+  const isNewPath = problemServiceRequestId != null;
 
   const db = await pool.connect();
   try {
@@ -802,7 +826,7 @@ router.put('/:taskId/actions', requirePermission('marketing_visits.update_result
           }
           const result = await addProblem(
             {
-              serviceRequestId: meta.sourceServiceRequestId,
+              serviceRequestId: problemServiceRequestId,
               installedDeviceId: Number(np.installedDeviceId),
               problemTypeId: Number(np.problemTypeId),
               details: np.details ?? null,
@@ -909,6 +933,7 @@ router.put('/:taskId/actions', requirePermission('marketing_visits.update_result
             newProblemsCreated,
             problemsUpdated,
             sourceServiceRequestId: meta.sourceServiceRequestId,
+            problemServiceRequestId,
           }
         : {}),
     });
@@ -980,11 +1005,42 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       pay2Currency, pay2Amount, pay2ExchangeRate,
       closingNote,
       closingEmployeeId,
+      coveredPeriodicTaskId,
     } = req.body ?? {};
 
     if (!finalDecision) return res.status(400).json({ error: 'finalDecision مطلوب' });
-    if (!['resolved','unresolved','needs_followup','cancelled'].includes(finalDecision)) {
+    const emergencyFinalDecisions = ['resolved', 'unresolved', 'needs_followup', 'cancelled'];
+    const periodicFinalDecisions = ['performed', 'partially_performed', 'not_performed'];
+    const allowedFinalDecisions = meta.taskType === 'periodic_maintenance'
+      ? periodicFinalDecisions
+      : emergencyFinalDecisions;
+    if (!allowedFinalDecisions.includes(finalDecision)) {
       return res.status(400).json({ error: 'finalDecision غير صالح' });
+    }
+    const periodicReasonCategoryByDecision: Record<string, string> = {
+      partially_performed: 'periodic_partially_performed_reason',
+      not_performed: 'periodic_not_performed_reason',
+    };
+    const requiredPeriodicReasonCategory = meta.taskType === 'periodic_maintenance'
+      ? periodicReasonCategoryByDecision[finalDecision]
+      : null;
+    if (requiredPeriodicReasonCategory) {
+      const parsedReasonId = Number(decisionReasonId);
+      if (!Number.isInteger(parsedReasonId) || parsedReasonId <= 0) {
+        return res.status(400).json({ error: 'سبب القرار مطلوب' });
+      }
+      const { rows: reasonRows } = await pool.query(
+        `SELECT id
+           FROM system_lists
+          WHERE id = $1
+            AND category = $2
+            AND is_active = TRUE
+          LIMIT 1`,
+        [parsedReasonId, requiredPeriodicReasonCategory],
+      );
+      if (reasonRows.length === 0) {
+        return res.status(400).json({ error: 'سبب القرار غير صالح' });
+      }
     }
 
     const recordedBy = (req.authContext as any)?.userId ?? null;
@@ -1002,6 +1058,9 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       unresolved:    'needs_follow_up',
       needs_followup:'needs_follow_up',
       cancelled:     'cancelled',
+      performed:     'completed',
+      partially_performed: 'needs_follow_up',
+      not_performed: 'needs_follow_up',
     };
     const newTaskStatus = statusMap[finalDecision] ?? 'needs_follow_up';
 
@@ -1078,6 +1137,28 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
         await db.query('UPDATE open_tasks SET em_costs_id = $1 WHERE id = $2', [costsId, taskId]);
       }
 
+      // سجل الحركات المالية: تكلفة الخدمة (charge) والمبلغ المحصّل (payment).
+      // تُكتب مرّة واحدة لكل (المصدر، costsId، النوع) — أول حفظ بمبلغ فعلي يثبّتها.
+      const { rows: otRows } = await db.query(
+        `SELECT client_id, branch_id, contract_id FROM open_tasks WHERE id = $1 LIMIT 1`,
+        [taskId],
+      );
+      const ot = otRows[0];
+      if (ot?.client_id) {
+        const moneySourceType = meta.taskType === 'periodic_maintenance' ? 'periodic_maintenance' : 'emergency_maintenance';
+        const serviceLabel = meta.taskType === 'periodic_maintenance' ? 'صيانة دورية' : 'صيانة طارئة';
+        await recordMovement(db, {
+          clientId: Number(ot.client_id), occurredAt: new Date(), kind: 'charge', amountSyp: total,
+          sourceType: moneySourceType, sourceId: taskId, sourceRefId: costsId, contractId: ot.contract_id ?? null,
+          description: `تكلفة ${serviceLabel} (مهمة #${taskId})`, occurredBranchId: ot.branch_id ?? null, recordedBy,
+        });
+        await recordMovement(db, {
+          clientId: Number(ot.client_id), occurredAt: new Date(), kind: 'payment', amountSyp: totalPaidSyp,
+          sourceType: moneySourceType, sourceId: taskId, sourceRefId: costsId, contractId: ot.contract_id ?? null,
+          description: `تحصيل ${serviceLabel} (مهمة #${taskId})`, occurredBranchId: ot.branch_id ?? null, recordedBy,
+        });
+      }
+
       // Update open_task status
       await db.query('UPDATE open_tasks SET status = $1 WHERE id = $2', [newTaskStatus, taskId]);
 
@@ -1110,7 +1191,8 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       // same open_task stays open and the scheduler attaches a second
       // visit_task later — no new open_task spawned.
       let followUpTaskId: number | null = null;
-      const isNewPath = meta.sourceServiceRequestId != null;
+      const problemServiceRequestId = meta.problemServiceRequestId ?? meta.sourceServiceRequestId ?? null;
+      const isNewPath = problemServiceRequestId != null;
       if (finalDecision === 'needs_followup' && meta.contractId && !isNewPath) {
         const { rows: newTaskRows } = await db.query(
           `INSERT INTO open_tasks
@@ -1136,6 +1218,29 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
             'UPDATE emergency_result_costs SET follow_up_task_id = $1, follow_up_priority = $2, follow_up_expected_date = $3 WHERE id = $4',
             [followUpTaskId, followUpPriority ?? 'High', followUpExpectedDate ?? null, costsId],
           );
+        }
+      }
+
+      let nextPeriodicTask: unknown = null;
+      let supersededPeriodicTask: unknown = null;
+      if (meta.taskType === 'emergency_maintenance' && coveredPeriodicTaskId) {
+        supersededPeriodicTask = await supersedePeriodicWithinEmergency(db, {
+          emergencyTaskId: taskId,
+          periodicTaskId: Number(coveredPeriodicTaskId),
+          installedDeviceId: meta.installedDeviceId ?? null,
+          actorUserId: recordedBy,
+        });
+      }
+      if (meta.taskType === 'periodic_maintenance') {
+        if (finalDecision === 'performed') {
+          nextPeriodicTask = await generateNextPeriodicMaintenanceTask(db, taskId, recordedBy);
+        } else {
+          nextPeriodicTask = {
+            createdTaskId: null,
+            skippedReason: 'periodic_result_requires_followup',
+            dueDate: null,
+            intervalDays: null,
+          };
         }
       }
 
@@ -1177,8 +1282,15 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
         taskStatus: newTaskStatus,
         visitCompletion,
       };
+      if (nextPeriodicTask) {
+        result.nextPeriodicTask = nextPeriodicTask;
+      }
+      if (supersededPeriodicTask) {
+        result.supersededPeriodicTask = supersededPeriodicTask;
+      }
       if (isNewPath) {
         result.sourceServiceRequestId = meta.sourceServiceRequestId;
+        result.problemServiceRequestId = problemServiceRequestId;
         result.derivedOutcome = derivedOutcome;
         result.cascadeSkipped = finalDecision === 'needs_followup';
       }
@@ -1257,12 +1369,24 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
       const rows: any[] = [];
       for (const p of parts) {
         if (!p.partNameSnapshot?.trim()) continue;
+        const executionStatus = ['replaced', 'delivered_to_customer_stock', 'not_replaced_customer_refused', 'not_replaced_unavailable', 'not_replaced_technician_decision'].includes(p.executionStatus)
+          ? p.executionStatus
+          : (p.placementState === 'customer_stock' ? 'delivered_to_customer_stock' : 'replaced');
+        const customerDecision = ['approved', 'refused', 'not_required'].includes(p.customerDecision)
+          ? p.customerDecision
+          : executionStatus === 'not_replaced_customer_refused'
+            ? 'refused'
+            : ['replaced', 'delivered_to_customer_stock'].includes(executionStatus)
+              ? 'approved'
+              : 'not_required';
         const { rows: inserted } = await db.query(
           `INSERT INTO emergency_result_parts
              (open_task_id, spare_part_id, part_name_snapshot, part_code_snapshot,
               maintenance_type, unit_price, quantity, retrieved, placement_state,
-              no_retrieval_reason_id, no_retrieval_reason_text)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+              no_retrieval_reason_id, no_retrieval_reason_text,
+              recommendation_status, customer_decision, execution_status,
+              customer_refusal_reason_id, customer_refusal_reason_text)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
           [
             taskId,
             p.sparePartId ?? null,
@@ -1271,10 +1395,15 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
             p.maintenanceType ?? null,
             Number(p.unitPrice) || 0,
             Number(p.quantity) || 1,
-            p.retrieved !== false,
+            executionStatus === 'replaced' ? p.retrieved !== false : true,
             p.placementState === 'customer_stock' ? 'customer_stock' : 'installed',
-            p.noRetrievalReasonId ?? null,
-            p.noRetrievalReasonText ?? null,
+            executionStatus === 'replaced' && p.retrieved === false ? p.noRetrievalReasonId ?? null : null,
+            executionStatus === 'replaced' && p.retrieved === false ? p.noRetrievalReasonText ?? null : null,
+            ['required', 'optional'].includes(p.recommendationStatus) ? p.recommendationStatus : 'required',
+            customerDecision,
+            executionStatus,
+            p.customerRefusalReasonId ?? null,
+            p.customerRefusalReasonText ?? null,
           ],
         );
         rows.push(inserted[0]);
@@ -1290,7 +1419,10 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
         await db.query('DELETE FROM device_installed_parts WHERE open_task_id = $1', [taskId]);
         for (const p of parts) {
           if (!p.partNameSnapshot?.trim()) continue;
-          if (p.placementState === 'customer_stock') continue;
+          const executionStatus = ['replaced', 'delivered_to_customer_stock', 'not_replaced_customer_refused', 'not_replaced_unavailable', 'not_replaced_technician_decision'].includes(p.executionStatus)
+            ? p.executionStatus
+            : (p.placementState === 'customer_stock' ? 'delivered_to_customer_stock' : 'replaced');
+          if (executionStatus !== 'replaced') continue;
           await db.query(
             `INSERT INTO device_installed_parts
                (device_id, open_task_id, spare_part_id, part_name_snapshot, part_code_snapshot,
@@ -1371,6 +1503,11 @@ router.get('/:taskId/parts', requirePermission('marketing_visits.view'), async (
               erp.retrieved, erp.placement_state AS "placementState",
               erp.no_retrieval_reason_id AS "noRetrievalReasonId",
               erp.no_retrieval_reason_text AS "noRetrievalReasonText",
+              erp.recommendation_status AS "recommendationStatus",
+              erp.customer_decision AS "customerDecision",
+              erp.execution_status AS "executionStatus",
+              erp.customer_refusal_reason_id AS "customerRefusalReasonId",
+              erp.customer_refusal_reason_text AS "customerRefusalReasonText",
               sl.value AS "noRetrievalReasonLabel"
          FROM emergency_result_parts erp
          LEFT JOIN system_lists sl ON sl.id = erp.no_retrieval_reason_id

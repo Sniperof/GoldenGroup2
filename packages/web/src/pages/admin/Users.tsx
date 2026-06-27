@@ -7,6 +7,10 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
+import PageHeader from '../../components/ui/PageHeader';
+import Button from '../../components/ui/Button';
+import SmartTable from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 import { UserModal, UserBranchAssignmentsModal } from './Roles';
 
 /**
@@ -53,120 +57,124 @@ export default function Users() {
 
   const roleMap = Object.fromEntries(roles.map(r => [r.id, r]));
 
+  const columns: ColumnDef<HrUser>[] = [
+    {
+      key: 'name', label: 'المستخدم', sortable: true,
+      render: (user) => (
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center shrink-0">
+            <User className="w-4 h-4 text-sky-600" />
+          </div>
+          <span className="font-semibold text-slate-800">{user.name}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'username', label: 'اسم الدخول', sortable: true,
+      render: (user) => <span className="text-slate-500 font-mono text-xs">{user.username}</span>,
+    },
+    {
+      key: 'role', label: 'الدور', sortable: true,
+      getValue: (user) => {
+        const role = user.roleId ? roleMap[user.roleId] : null;
+        return role?.displayName || user.roleDisplayName || '';
+      },
+      render: (user) => {
+        const role = user.roleId ? roleMap[user.roleId] : null;
+        const readOnlySystemRoleName = !role && user.roleDisplayName ? user.roleDisplayName : null;
+        if (role) return (
+          <span className="inline-flex items-center gap-1 text-xs bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2.5 py-1 font-medium">
+            <ShieldCheck className="w-3 h-3" />{role.displayName}
+          </span>
+        );
+        if (readOnlySystemRoleName) return (
+          <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2.5 py-1 font-medium">
+            <ShieldCheck className="w-3 h-3" />{readOnlySystemRoleName}
+          </span>
+        );
+        return <span className="text-xs text-slate-400 italic">بدون دور</span>;
+      },
+    },
+    {
+      key: 'branchName', label: 'الفرع', sortable: true,
+      getValue: (user) => user.branchName || '',
+      render: (user) => user.branchName
+        ? <span className="inline-flex items-center gap-1 text-xs bg-slate-50 text-slate-600 border border-slate-200 rounded-full px-2.5 py-1 font-medium"><Building2 className="w-3 h-3" />{user.branchName}</span>
+        : <span className="text-xs text-slate-400 italic">—</span>,
+    },
+    {
+      key: 'isActive', label: 'الحالة', sortable: true,
+      getValue: (user) => (user.isActive ? 1 : 0),
+      render: (user) => (
+        <span className={`text-xs font-medium px-2 py-1 rounded-full border ${user.isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-red-50 text-red-500 border-red-200'}`}>
+          {user.isActive ? 'نشط' : 'موقوف'}
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
-      <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
 
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-3">
+        <PageHeader
+          title="المستخدمون"
+          subtitle="حسابات النظام ضمن نطاقك. الإضافة تتم على مستوى فرع محدد."
+          icon={
             <div className="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center shadow-lg shadow-sky-500/30">
               <User className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <h1 className="text-2xl mb-1 font-bold text-slate-800">المستخدمون</h1>
-              <p className="text-xs text-slate-500">حسابات النظام ضمن نطاقك. الإضافة تتم على مستوى فرع محدد.</p>
-              <div className="mt-2"><BranchScopeIndicator /></div>
-            </div>
-          </div>
-          {canManageRoleUsers && (
-            <button
+          }
+          actions={canManageRoleUsers && (
+            <Button
+              icon={UserPlus}
               onClick={() => { setEditUser(null); setShowModal(true); }}
               disabled={mustPickBranch}
               title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة مستخدم' : undefined}
-              className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
             >
-              <UserPlus className="w-4 h-4" />
               {mustPickBranch ? 'اختر فرعاً لإضافة مستخدم' : 'مستخدم جديد'}
-            </button>
+            </Button>
           )}
-        </div>
+        >
+          <BranchScopeIndicator />
+        </PageHeader>
 
         {loading && <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-sky-400" /></div>}
 
         {!loading && (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            {hrUsers.length === 0 ? (
-              <div className="text-center py-16 text-slate-400">
-                <User className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">لا يوجد مستخدمون ضمن هذا النطاق</p>
+          <SmartTable<HrUser>
+            title="قائمة المستخدمين"
+            icon={User}
+            data={hrUsers}
+            columns={columns}
+            getId={(u) => u.id}
+            hideFilterBar
+            paginated={false}
+            defaultSortKey="name"
+            defaultSortDir="asc"
+            emptyIcon={User}
+            emptyMessage="لا يوجد مستخدمون ضمن هذا النطاق"
+            actions={(user) => (
+              <div className="flex items-center gap-1 justify-end">
+                {canViewBranchAssignments && (
+                  <button onClick={() => setBranchUser(user)} className="p-1.5 rounded-lg text-slate-400 hover:bg-sky-50 hover:text-sky-600 transition-colors" title="الفروع المسموحة">
+                    <Building2 className="w-4 h-4" />
+                  </button>
+                )}
+                <button onClick={() => handleToggle(user)} disabled={!canManageRoleUsers || togglingId === user.id}
+                  title={user.isActive ? 'إيقاف الحساب' : 'تفعيل الحساب'}
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 transition-colors disabled:opacity-50">
+                  {togglingId === user.id ? <Loader2 className="w-4 h-4 animate-spin" /> :
+                    user.isActive ? <ToggleRight className="w-4 h-4 text-emerald-500" /> : <ToggleLeft className="w-4 h-4" />}
+                </button>
+                <button onClick={() => { setEditUser(user); setShowModal(true); }} disabled={!canManageRoleUsers}
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors" title="تعديل">
+                  <Edit2 className="w-4 h-4" />
+                </button>
               </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500">المستخدم</th>
-                    <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500">اسم الدخول</th>
-                    <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500">الدور</th>
-                    <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500">الفرع</th>
-                    <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500">الحالة</th>
-                    <th className="px-5 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {hrUsers.map(user => {
-                    const role = user.roleId ? roleMap[user.roleId] : null;
-                    const readOnlySystemRoleName = !role && user.roleDisplayName ? user.roleDisplayName : null;
-                    return (
-                      <tr key={user.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center shrink-0">
-                              <User className="w-4 h-4 text-sky-600" />
-                            </div>
-                            <span className="font-semibold text-slate-800">{user.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3.5 text-slate-500 font-mono text-xs">{user.username}</td>
-                        <td className="px-5 py-3.5">
-                          {role ? (
-                            <span className="inline-flex items-center gap-1 text-xs bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2.5 py-1 font-medium">
-                              <ShieldCheck className="w-3 h-3" />{role.displayName}
-                            </span>
-                          ) : readOnlySystemRoleName ? (
-                            <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2.5 py-1 font-medium">
-                              <ShieldCheck className="w-3 h-3" />{readOnlySystemRoleName}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-400 italic">بدون دور</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3.5">
-                          {user.branchName
-                            ? <span className="inline-flex items-center gap-1 text-xs bg-slate-50 text-slate-600 border border-slate-200 rounded-full px-2.5 py-1 font-medium"><Building2 className="w-3 h-3" />{user.branchName}</span>
-                            : <span className="text-xs text-slate-400 italic">—</span>}
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span className={`text-xs font-medium px-2 py-1 rounded-full border ${user.isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-red-50 text-red-500 border-red-200'}`}>
-                            {user.isActive ? 'نشط' : 'موقوف'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-1 justify-end">
-                            {canViewBranchAssignments && (
-                              <button onClick={() => setBranchUser(user)} className="p-1.5 rounded-lg text-slate-400 hover:bg-sky-50 hover:text-sky-600 transition-colors" title="الفروع المسموحة">
-                                <Building2 className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button onClick={() => handleToggle(user)} disabled={!canManageRoleUsers || togglingId === user.id}
-                              title={user.isActive ? 'إيقاف الحساب' : 'تفعيل الحساب'}
-                              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 transition-colors disabled:opacity-50">
-                              {togglingId === user.id ? <Loader2 className="w-4 h-4 animate-spin" /> :
-                                user.isActive ? <ToggleRight className="w-4 h-4 text-emerald-500" /> : <ToggleLeft className="w-4 h-4" />}
-                            </button>
-                            <button onClick={() => { setEditUser(user); setShowModal(true); }} disabled={!canManageRoleUsers}
-                              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors" title="تعديل">
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
             )}
-          </div>
+          />
         )}
 
         {showModal && canManageRoleUsers && (

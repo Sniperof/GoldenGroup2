@@ -57,7 +57,6 @@ import openTasksRouter from './routes/openTasks.js';
 import workScopesRouter from './routes/workScopes.js';
 import fieldVisitsRouter from './routes/fieldVisits.js';
 import customerCallsRouter from './routes/customerCalls.js';
-import customerStatementRouter from './routes/customerStatement.js';
 import customerPreOffersRouter from './routes/customerPreOffers.js';
 import taskTypeConfigRouter from './routes/taskTypeConfig.js';
 import emergencyActionTypesRouter from './routes/emergencyActionTypes.js';
@@ -65,6 +64,8 @@ import emergencyResultRouter from './routes/emergencyResult.js';
 import deviceWarrantiesRouter from './routes/deviceWarranties.js';
 import devicePossessionRouter from './routes/devicePossession.js';
 import devicePartsRouter from './routes/deviceParts.js';
+import systemSettingsRouter from './routes/systemSettings.js';
+import giftsRouter from './routes/gifts.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -98,6 +99,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/trpc', createExpressMiddleware({ router: appRouter, createContext }));
 
 app.use('/api/auth', authRouter);
+app.use('/api/system-settings', requireAuth, systemSettingsRouter);
 app.use('/api/geo-units', geoUnitsRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/employees', employeesRouter);
@@ -134,12 +136,12 @@ app.use('/api/field-visits', ...branchOnly, fieldVisitsRouter);
 
 // ── Customer call logs (accessible from both HQ and branch contexts) ─────────
 app.use('/api/customers', requireAuth, customerCallsRouter);
-app.use('/api/customers', requireAuth, customerStatementRouter); // DEC-CT-10
 app.use('/api/customers', requireAuth, customerPreOffersRouter); // pre-offers tab
 
 // ── Shared routes (HQ + branch) ───────────────────────────────────────────────
 app.use('/api/contracts', contractsRouter);
 app.use('/api/contracts', contractDocumentsRouter); // DEC-CT-14, DEC-CT-15
+app.use('/api/gifts', requireAuth, giftsRouter);
 app.use('/api/service-agreements', serviceAgreementsRouter); // DEC-CT-02
 app.use('/api/device-models', deviceModelsRouter);
 app.use('/api/installed-devices', installedDevicesRouter);

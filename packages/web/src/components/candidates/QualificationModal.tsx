@@ -1,14 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    X, Search, AlertCircle, ArrowRight, Trash2, CheckCircle2,
+    Search, AlertCircle, ArrowRight, Trash2, CheckCircle2,
     Loader2, ShieldAlert, Phone, MapPin, Building2, User,
 } from 'lucide-react';
 import { Candidate, Client, ClientSmartMatchResponse, GeoUnit } from '../../lib/types';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
-import IconButton from '../ui/IconButton';
+import Modal from '../ui/Modal';
 
 type SmartMatchResult = ClientSmartMatchResponse;
 
@@ -270,17 +270,19 @@ export default function QualificationModal({
     };
 
     return (
-        <AnimatePresence>
-            <div
-                className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
-                dir="rtl"
-            >
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                    className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col"
-                >
+        <Modal
+            isOpen={isOpen}
+            onClose={handleClose}
+            size="lg"
+            className="relative"
+            title={
+                <span className="flex items-center gap-2">
+                    <Search className="w-5 h-5 text-sky-600" />
+                    تأهيل وتحقق
+                </span>
+            }
+            subtitle={`الاسم المقترح: ${candidate.firstName} ${candidate.nickname}`}
+        >
                     {/* Confirmation overlay — rendered inside the card */}
                     <AnimatePresence>
                         {pendingLinkClient && (
@@ -293,24 +295,8 @@ export default function QualificationModal({
                         )}
                     </AnimatePresence>
 
-                    {/* Header */}
-                    <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-2xl bg-sky-50 flex items-center justify-center">
-                                <Search className="w-5 h-5 text-sky-600" />
-                            </div>
-                            <div>
-                                <h2 className="text-lg font-bold text-slate-800">تأهيل وتحقق</h2>
-                                <p className="text-xs text-slate-500">
-                                    الاسم المقترح: {candidate.firstName} {candidate.nickname}
-                                </p>
-                            </div>
-                        </div>
-                        <IconButton icon={X} label="إغلاق" onClick={handleClose} />
-                    </div>
-
                     {/* Content */}
-                    <div className="p-6 overflow-y-auto max-h-[75vh]">
+                    <div className="p-6">
                         {step === 1 ? (
                             <div className="space-y-5">
 
@@ -546,8 +532,6 @@ export default function QualificationModal({
                             </div>
                         )}
                     </div>
-                </motion.div>
-            </div>
-        </AnimatePresence>
+        </Modal>
     );
 }

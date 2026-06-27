@@ -765,7 +765,7 @@ export default function PlanningContactTargets() {
                                     value={searchTerm}
                                     onChange={e => setSearchTerm(e.target.value)}
                                     placeholder="بحث بالاسم أو الهاتف أو رقم الزبون"
-                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pr-10 pl-3 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:bg-white"
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pr-10 pl-4 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:bg-white"
                                 />
                             </div>
 
@@ -773,7 +773,6 @@ export default function PlanningContactTargets() {
                                 value={stationFilter}
                                 onChange={setStationFilter}
                                 ariaLabel="المحطة"
-                                variant="filled"
                                 options={[{ value: 'all', label: 'كل المحطات' }, ...stationOptions.map(station => ({ value: station, label: station }))]}
                             />
 
@@ -781,7 +780,6 @@ export default function PlanningContactTargets() {
                                 value={attemptFilter}
                                 onChange={setAttemptFilter}
                                 ariaLabel="المحاولات"
-                                variant="filled"
                                 options={[
                                     { value: 'all', label: 'كل المحاولات' },
                                     { value: '1', label: '1+ محاولة' },

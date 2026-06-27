@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import IconButton from './ui/IconButton';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, MapPin, ShieldCheck, FileText, Paperclip, Send, Image, Trash2, AlertTriangle } from 'lucide-react';
+import { Search, MapPin, ShieldCheck, FileText, Paperclip, Send, Image, Trash2, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useClientStore } from '../hooks/useClientStore';
 import { useEmergencyStore } from '../hooks/useEmergencyStore';
@@ -9,6 +8,7 @@ import { api } from '../lib/api';
 import type { Client, Contract, ClientRating } from '../lib/types';
 import Select from './ui/Select';
 import Button from './ui/Button';
+import Modal from './ui/Modal';
 
 interface Props {
     isOpen: boolean;
@@ -190,33 +190,33 @@ export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
     }, [selectedClient, problemDescription, callNotes, attachments, selectedContract, addTicket, onClose]);
 
     // --- Render ---
-    if (!isOpen) return null;
-
     return (
-        <AnimatePresence>
-            <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh]"
-                    onClick={e => e.stopPropagation()}
-                >
-                    {/* Header */}
-                    <div className="p-5 border-b border-slate-100 bg-gradient-to-l from-red-50/80 to-white flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                                <AlertTriangle className="w-5 h-5 text-red-600" />
-                            </div>
-                            <div>
-                                <h2 className="text-lg font-bold text-slate-800">طلب طوارئ جديد</h2>
-                                <p className="text-xs text-slate-400">إنشاء بلاغ صيانة طارئ</p>
-                            </div>
-                        </div>
-                        <IconButton icon={X} label="إغلاق" onClick={onClose} />
-                    </div>
-
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="xl"
+            className="relative"
+            title={
+                <span className="flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-red-600" />
+                    طلب طوارئ جديد
+                </span>
+            }
+            subtitle="إنشاء بلاغ صيانة طارئ"
+            footer={
+                <div className="w-full flex justify-between items-center gap-3">
+                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                    <Button
+                        variant="danger"
+                        onClick={handleSubmit}
+                        disabled={!canSubmit}
+                        icon={Send}
+                    >
+                        إرسال الطلب
+                    </Button>
+                </div>
+            }
+        >
                     {/* Success Overlay */}
                     {showSuccess && (
                         <div className="absolute inset-0 bg-white/95 z-10 flex flex-col items-center justify-center gap-4">
@@ -232,7 +232,7 @@ export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
                     )}
 
                     {/* Content */}
-                    <div className="p-6 overflow-y-auto flex-1 space-y-5">
+                    <div className="p-6 space-y-5">
                         {/* Step 1: Client Search */}
                         <div ref={searchRef} className="relative">
                             <label className="text-xs font-bold text-slate-500 block mb-1.5">البحث عن الزبون</label>
@@ -418,21 +418,6 @@ export default function NewEmergencyTicketModal({ isOpen, onClose }: Props) {
                             </motion.div>
                         )}
                     </div>
-
-                    {/* Footer */}
-                    <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center gap-3">
-                        <Button variant="ghost" onClick={onClose}>إلغاء</Button>
-                        <Button
-                            variant="danger"
-                            onClick={handleSubmit}
-                            disabled={!canSubmit}
-                            icon={Send}
-                        >
-                            إرسال الطلب
-                        </Button>
-                    </div>
-                </motion.div>
-            </div>
-        </AnimatePresence>
+        </Modal>
     );
 }

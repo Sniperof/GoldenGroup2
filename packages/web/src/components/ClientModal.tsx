@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock, ChevronDown } from 'lucide-react';
-import type { Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel, ClientRating } from '../lib/types';
+import type { Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel } from '../lib/types';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import MapPicker from './MapPicker';
 import GeoSmartSearch from './GeoSmartSearch';
 import type { GeoSelection } from './GeoSmartSearch';
 import Select from './ui/Select';
-import IconButton from './ui/IconButton';
+import Modal from './ui/Modal';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -161,7 +161,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [waterSource, setWaterSource] = useState('');
     const [dataQuality, setDataQuality] = useState<string>('');
     const [notes, setNotes] = useState('');
-    const [rating, setRating] = useState<ClientRating>('Undefined');
     const clientSearchRef = useRef<HTMLDivElement>(null);
     const currentUserDisplayName = authUser?.name?.trim() || '';
 
@@ -384,7 +383,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setWaterSource(initialData.waterSource || '');
                 setDataQuality(initialData.dataQuality || '');
                 setNotes(initialData.notes || '');
-                setRating(initialData.rating || 'Undefined');
             } else {
                 const initialBranchId = fixedOperationalBranchId ?? '';
                 setFormData({
@@ -412,7 +410,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 setWaterSource('');
                 setDataQuality('');
                 setNotes('');
-                setRating('Undefined');
                 setEmployeeIdInput('');
                 setClientSearch('');
                 setSelectedClientId(null);
@@ -713,32 +710,40 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             notes: notes.trim() || undefined,
             branchId: effectiveBranchId == null ? undefined : Number(effectiveBranchId),
             assignmentUserIds: canChooseAssignedOwner && assignmentUserIds.length > 0 ? assignmentUserIds : undefined,
-            ...(isEditMode ? { rating } : {}),
         } as Client);
     };
 
-    if (!isOpen) return null;
-
     return (
-        <AnimatePresence>
-            {isOpen && (
-                <>
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40" onClick={onClose} />
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[860px] max-h-[96vh] bg-white rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col"
-                        style={{ direction: 'rtl' }}
-                    >
-                        {/* Header */}
-                        <div className="bg-white border-b border-slate-100 px-4 sm:px-5 py-4 flex items-center justify-between shrink-0">
-                            <h2 className="text-lg sm:text-lg font-bold text-slate-800">
-                                {isEditMode ? 'تعديل بيانات الزبون' : 'إضافة زبون جديد'}
-                            </h2>
-                            <IconButton icon={X} label="إغلاق" onClick={onClose} />
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="4xl"
+            title={isEditMode ? 'تعديل بيانات الزبون' : 'إضافة زبون جديد'}
+            footer={
+                <div className="w-full flex items-center justify-between gap-3">
+                    {primaryDup ? (
+                        <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            الرقم الأساسي مكرر — لا يمكن الحفظ
                         </div>
-
+                    ) : <div />}
+                    <div className="flex gap-3">
+                        <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-medium transition-all">
+                            إلغاء
+                        </button>
+                        <button
+                            onClick={handleSave}
+                            disabled={Boolean(primaryDup)}
+                            title={primaryDup ? `الرقم الأساسي مكرر عند: ${primaryDup.name}` : undefined}
+                            className="px-5 py-2 rounded-lg text-white bg-sky-600 hover:bg-sky-500 shadow-lg shadow-sky-500/20 font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+                        >
+                            <Save className="w-4 h-4" />
+                            <span>{isEditMode ? 'حفظ التعديلات' : 'إضافة'}</span>
+                        </button>
+                    </div>
+                </div>
+            }
+        >
                         {/* From-candidate banner */}
                         {fromCandidate && (
                             <div className="bg-amber-50 border-b border-amber-100 px-5 py-2.5 flex items-center gap-2 text-xs font-semibold text-amber-700 shrink-0">
@@ -748,7 +753,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         )}
 
                         {/* Tabs */}
-                        <div className="bg-slate-50 px-2 sm:px-4 pt-3 border-b border-slate-200 flex gap-1 overflow-x-auto shrink-0 scrollbar-none">
+                        <div className="bg-slate-50 px-2 sm:px-4 pt-3 border-b border-slate-200 flex gap-1 overflow-x-auto shrink-0 scrollbar-none sticky top-0 z-10">
                             {tabsDef.map(tab => (
                                 <button
                                     key={tab.id}
@@ -765,7 +770,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         </div>
 
                         {/* Content */}
-                        <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scroll bg-white">
+                        <div className="p-4 sm:p-6 custom-scroll bg-white">
 
                             {/* ============ IDENTITY TAB ============ */}
                             {activeTab === 'identity' && (
@@ -990,20 +995,17 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
                                                 {/* Row 1: Type + Number + Duplicate badge + Remove */}
                                                 <div className="flex items-center gap-2">
-                                                    <select
+                                                    <Select
                                                         value={c.type}
-                                                        onChange={e => !isLocked && updateContact(c.id, 'type', e.target.value as ContactType)}
+                                                        onChange={v => !isLocked && updateContact(c.id, 'type', v as ContactType)}
                                                         disabled={isLocked}
-                                                        className={`border rounded-lg px-2.5 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none min-w-[100px] ${
-                                                            isLocked
-                                                                ? lockSource === 'smart' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed' : 'bg-amber-50/40 border-amber-200 text-amber-700 cursor-not-allowed'
-                                                                : 'bg-white border-slate-200'
-                                                        }`}
-                                                    >
-                                                        {Object.entries(contactTypeConfig).map(([key, cfg]) => (
-                                                            <option key={key} value={key}>{cfg.emoji} {cfg.label}</option>
-                                                        ))}
-                                                    </select>
+                                                        size="sm"
+                                                        className="min-w-[110px]"
+                                                        options={Object.entries(contactTypeConfig).map(([key, cfg]) => ({
+                                                            value: key as ContactType,
+                                                            label: `${cfg.emoji} ${cfg.label}`,
+                                                        }))}
+                                                    />
 
                                                     {c.type === 'mobile' && (
                                                         <span className="bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 select-none shrink-0" dir="ltr">+963</span>
@@ -1094,15 +1096,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                         className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none"
                                                     />
 
-                                                    <select
+                                                    <Select
                                                         value={c.status}
-                                                        onChange={e => updateContact(c.id, 'status', e.target.value as ContactStatus)}
-                                                        className={`border rounded-lg px-2 py-1.5 text-xs font-medium focus:outline-none min-w-[110px] ${contactStatusConfig[c.status]?.style || contactStatusConfig.active.style}`}
-                                                    >
-                                                        {Object.entries(contactStatusConfig).map(([key, cfg]) => (
-                                                            <option key={key} value={key}>{cfg.label}</option>
-                                                        ))}
-                                                    </select>
+                                                        onChange={v => updateContact(c.id, 'status', v as ContactStatus)}
+                                                        size="sm"
+                                                        className="min-w-[110px]"
+                                                        options={Object.entries(contactStatusConfig).map(([key, cfg]) => ({
+                                                            value: key as ContactStatus,
+                                                            label: cfg.label,
+                                                        }))}
+                                                    />
 
                                                     <button
                                                         type="button"
@@ -1333,7 +1336,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                     onChange={(e) => handleClientSearch(e.target.value)}
                                                                     onFocus={() => handleClientSearch(clientSearch)}
                                                                     placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-                                                                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+                                                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
                                                                 />
                                                                 {clientSuggestions.length > 0 && (
                                                                     <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-10 overflow-hidden">
@@ -1523,22 +1526,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             {
                                 activeTab === 'additional' && (
                                     <div className="space-y-6">
-                                        {isEditMode && (
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-semibold text-slate-500">تقييم الزبون</label>
-                                            <Select<ClientRating>
-                                                value={rating}
-                                                onChange={setRating}
-                                                ariaLabel="التقييم"
-                                                className="w-full"
-                                                options={[
-                                                    { value: 'Undefined', label: 'غير محدد' },
-                                                    { value: 'Committed', label: 'ملتزم' },
-                                                    { value: 'NotCommitted', label: 'غير ملتزم' },
-                                                ]}
-                                            />
-                                        </div>
-                                        )}
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">صحة البيانات</label>
                                             <Select
@@ -1618,33 +1605,6 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             }
 
                         </div >
-
-                        {/* Footer */}
-                        <div className="bg-slate-50 px-4 sm:px-5 py-3 sm:py-4 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
-                            {primaryDup ? (
-                                <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
-                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                    الرقم الأساسي مكرر — لا يمكن الحفظ
-                                </div>
-                            ) : <div />}
-                            <div className="flex gap-3">
-                                <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-medium transition-all">
-                                    إلغاء
-                                </button>
-                                <button
-                                    onClick={handleSave}
-                                    disabled={Boolean(primaryDup)}
-                                    title={primaryDup ? `الرقم الأساسي مكرر عند: ${primaryDup.name}` : undefined}
-                                    className="px-5 py-2 rounded-lg text-white bg-sky-600 hover:bg-sky-500 shadow-lg shadow-sky-500/20 font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
-                                >
-                                    <Save className="w-4 h-4" />
-                                    <span>{isEditMode ? 'حفظ التعديلات' : 'إضافة'}</span>
-                                </button>
-                            </div>
-                        </div>
-                    </motion.div >
-                </>
-            )}
-        </AnimatePresence >
+        </Modal>
     );
 }

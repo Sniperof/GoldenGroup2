@@ -7,7 +7,6 @@ import { isGlobalOnlyPath } from '../lib/branchContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import FloatingActionButton from '../components/FloatingActionButton';
 import logoMark from '../assets/logo-mark.png';
-import NewEmergencyTicketModal from '../components/NewEmergencyTicketModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import BranchSwitcher from '../components/BranchSwitcher';
@@ -163,6 +162,7 @@ export default function MainLayout() {
     }
     const isPlanningActive = location.pathname.startsWith('/planning');
     const isOperationsActive = location.pathname.startsWith('/tasks');
+    const isGiftsActive = location.pathname.startsWith('/gifts');
     const isRequestsActive = location.pathname.startsWith('/service-requests');
     const isVisitsActive = location.pathname.startsWith('/field-visits');
     const isContractsActive = location.pathname.startsWith('/contracts');
@@ -182,14 +182,8 @@ export default function MainLayout() {
 
     const toggleSidebar = () => setIsMobileMenuOpen(!isMobileMenuOpen);
     const toggleCollapse = () => setIsCollapsed(!isCollapsed);
-    const [showEmergencyModal, setShowEmergencyModal] = useState(false);
     const [showCandidateModal, setShowCandidateModal] = useState(false);
-    // Phase 5 — service_requests intake. Feature-gated via localStorage so
-    // ops can flip it on per-user during staging without a deploy.
     const [showServiceRequestModal, setShowServiceRequestModal] = useState(false);
-    const serviceRequestsUiEnabled =
-        typeof window !== 'undefined' &&
-        localStorage.getItem('gc_service_requests_ui') === 'on';
     const [candidateInitialMode, setCandidateInitialMode] = useState(false);
 
     return (
@@ -258,7 +252,7 @@ export default function MainLayout() {
                 {!isCollapsed && !isGlobalOnlyPage && <BranchSwitcher />}
 
                 {/* Navigation */}
-                <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1 mt-16 lg:mt-0">
+                <nav className="flex-1 overflow-y-auto custom-scroll py-6 px-3 space-y-1 mt-16 lg:mt-0">
                     {navItems.map(item => (
                         <NavLink
                             key={item.path}
@@ -266,7 +260,7 @@ export default function MainLayout() {
                             end={item.path === '/'}
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
-                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                     ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -283,7 +277,7 @@ export default function MainLayout() {
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setRecordsOpen(o => !o)}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isRecordsActive
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isRecordsActive
                                 ? 'bg-sky-50 text-sky-600 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
@@ -301,7 +295,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {visibleRecordsChildren.map(child => (
                                         <NavLink
@@ -309,13 +303,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -331,7 +325,7 @@ export default function MainLayout() {
                         to="/telemarketer"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                 ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -348,7 +342,7 @@ export default function MainLayout() {
                         to="/field-visits"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive || isVisitsActive
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive || isVisitsActive
                                 ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -365,7 +359,7 @@ export default function MainLayout() {
                         to="/contracts"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                 ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -382,7 +376,7 @@ export default function MainLayout() {
                         to="/devices"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                 ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -399,7 +393,7 @@ export default function MainLayout() {
                         to="/installed-devices"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                 ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -415,7 +409,7 @@ export default function MainLayout() {
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setJobsOpen(o => !o)}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isJobsActive
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isJobsActive
                                 ? 'bg-sky-50 text-sky-600 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
@@ -433,7 +427,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {visibleJobsChildren.map(child => (
                                         <NavLink
@@ -441,13 +435,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -462,7 +456,7 @@ export default function MainLayout() {
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setPlanningOpen((o: boolean) => !o)}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isPlanningActive
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isPlanningActive
                                 ? 'bg-sky-50 text-sky-600 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
@@ -480,7 +474,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {planningChildren.map(child => (
                                         <NavLink
@@ -488,13 +482,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -509,7 +503,7 @@ export default function MainLayout() {
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setRequestsOpen((o: boolean) => !o)}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isRequestsActive
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isRequestsActive
                                 ? 'bg-sky-50 text-sky-600 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
@@ -527,7 +521,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {requestsChildren.map(child => (
                                         <NavLink
@@ -535,13 +529,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -558,7 +552,7 @@ export default function MainLayout() {
                             to="/tasks/group/my-customers"
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
-                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                     ? 'bg-sky-50 text-sky-600 font-bold'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`
@@ -577,7 +571,7 @@ export default function MainLayout() {
                             to="/my-visits"
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
-                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                     ? 'bg-sky-50 text-sky-600 font-bold'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`
@@ -589,12 +583,31 @@ export default function MainLayout() {
                     </div>
                     )}
 
+                    {/* 5d. Gifts management — standalone, outside Operations & Tasks */}
+                    {canSeeBranchModules && can('tasks.gifts.view') && (
+                    <div className={isCollapsed ? 'lg:hidden' : 'block'}>
+                        <NavLink
+                            to="/gifts"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive || isGiftsActive
+                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                }`
+                            }
+                        >
+                            <Gift className="w-5 h-5" />
+                            <span className="flex-1">إدارة الهدايا</span>
+                        </NavLink>
+                    </div>
+                    )}
+
                     {/* 6. Tasks & Operations — shown if any task table is permitted */}
                     {canSeeBranchModules && visibleOperationsChildren.length > 0 && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setOperationsOpen((o: boolean) => !o)}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isOperationsActive
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isOperationsActive
                                 ? 'bg-sky-50 text-sky-600 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
@@ -612,7 +625,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {visibleOperationsChildren.map(child => (
                                         <NavLink
@@ -620,13 +633,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -641,7 +654,7 @@ export default function MainLayout() {
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setGeoOpen(o => !o)}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isGeoActive
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isGeoActive
                                 ? 'bg-sky-50 text-sky-600 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
@@ -659,7 +672,7 @@ export default function MainLayout() {
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: 'auto', opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                                    className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
                                     {geoChildren.map(child => (
                                         <NavLink
@@ -667,13 +680,13 @@ export default function MainLayout() {
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
-                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg transition-all text-right text-sm ${isActive
+                                                `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
                                                     ? 'text-sky-600 bg-sky-50 font-bold'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
                                         >
-                                            <child.icon className="w-4 h-4" />
+                                            <child.icon className="w-4 h-4 shrink-0" />
                                             <span>{child.label}</span>
                                         </NavLink>
                                     ))}
@@ -689,7 +702,7 @@ export default function MainLayout() {
                         to="/branches"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                 ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -706,7 +719,7 @@ export default function MainLayout() {
                         to="/departments"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                 ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -723,7 +736,7 @@ export default function MainLayout() {
                             to="/system-lists"
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
-                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                     ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -740,7 +753,7 @@ export default function MainLayout() {
                             to="/admin/roles"
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
-                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                     ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -757,7 +770,7 @@ export default function MainLayout() {
                             to="/admin/users"
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
-                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                     ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -774,7 +787,7 @@ export default function MainLayout() {
                             to="/admin/permissions-settings"
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
-                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                     ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -791,7 +804,7 @@ export default function MainLayout() {
                             to="/admin/task-types"
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
-                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                     ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -808,7 +821,7 @@ export default function MainLayout() {
                         to="/settings"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all text-right ${isActive
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
                                 ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
@@ -865,7 +878,6 @@ export default function MainLayout() {
 
             {/* Global FAB */}
             <FloatingActionButton
-                onEmergencyClick={() => setShowEmergencyModal(true)}
                 onAddSuggested={() => {
                     setCandidateInitialMode(false);
                     setShowCandidateModal(true);
@@ -874,9 +886,7 @@ export default function MainLayout() {
                     setCandidateInitialMode(true);
                     setShowCandidateModal(true);
                 }}
-                onServiceRequestClick={
-                    serviceRequestsUiEnabled ? () => setShowServiceRequestModal(true) : undefined
-                }
+                onServiceRequestClick={() => setShowServiceRequestModal(true)}
             />
             {showServiceRequestModal && (
                 <NewServiceRequestModal
@@ -884,12 +894,6 @@ export default function MainLayout() {
                     onClose={() => setShowServiceRequestModal(false)}
                 />
             )}
-
-            {/* Emergency Ticket Modal */}
-            <NewEmergencyTicketModal
-                isOpen={showEmergencyModal}
-                onClose={() => setShowEmergencyModal(false)}
-            />
 
             {/* Add Candidate Modal */}
             <AddCandidateModal

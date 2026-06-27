@@ -184,6 +184,7 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   // Tasks
   'open_tasks.view': { label: 'عرض المهام والعمليات',        desc: 'الاطلاع على مهام اليوم والطوارئ والصيانة والمتابعة' },
   'open_tasks.edit': { label: 'إدارة المهام وتحديث حالاتها', desc: 'تغيير حالة المهام وتعيينها للفرق' },
+  'tasks.periodic.create_manual': { label: 'إنشاء صيانة دورية يدوياً', desc: 'إنشاء مهمة صيانة دورية يدوية لجهاز ضمن نطاق الفرع' },
 
   // Planning
   'planning.view':   { label: 'عرض خطط وجداول الفرع',      desc: 'الاطلاع على ملخص الخطة وجداول الفرق' },

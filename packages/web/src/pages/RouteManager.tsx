@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { levelNames } from '../lib/geoConstants';
+import PageHeader from '../components/ui/PageHeader';
 import type { Route, GeoUnit, RoutePoint } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -183,10 +184,10 @@ export default function RouteManager() {
 
             {/* ── Page header ── */}
             <div className="flex items-end justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800 mb-1">إدارة خطوط السير</h1>
-                    <p className="text-slate-500 text-sm">عرض وإدارة مسارات التوزيع والصيانة.</p>
-                </div>
+                <PageHeader
+                    title="إدارة خطوط السير"
+                    subtitle="عرض وإدارة مسارات التوزيع والصيانة."
+                />
                 <button
                     onClick={() => openBuilder()}
                     disabled={!canManageGeo || mustPickBranch}
@@ -207,7 +208,7 @@ export default function RouteManager() {
                         placeholder="بحث عن مسار..."
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg pr-10 pl-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:outline-none transition-colors"
                     />
                 </div>
                 <BranchScopeIndicator />

@@ -4,6 +4,7 @@ import { useInterviewStore } from '../../hooks/useInterviewStore';
 import { useVacancyStore } from '../../hooks/useVacancyStore';
 import { authFetch } from '../../lib/authFetch';
 import type { InterviewerOption } from '../../lib/types';
+import PageHeader from '../../components/ui/PageHeader';
 import {
   Users, Plus, Filter, Calendar, CheckCircle, XCircle, Clock,
   AlertTriangle, X, Search
@@ -311,13 +312,11 @@ export default function Interviews() {
   return (
     <div className="p-6 space-y-6" dir="rtl">
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-            <Users className="w-7 h-7 text-sky-500" />
-            إدارة المقابلات
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">جدولة وتتبع مقابلات التوظيف</p>
-        </div>
+        <PageHeader
+          title="إدارة المقابلات"
+          subtitle="جدولة وتتبع مقابلات التوظيف"
+          icon={<Users className="w-7 h-7 text-sky-500" />}
+        />
         <PermissionGate permission="jobs.interviews.schedule">
           <button
             onClick={() => setShowScheduleModal(true)}
@@ -354,7 +353,6 @@ export default function Interviews() {
         <Select
           value={filters.jobVacancyId}
           onChange={v => setFilter('jobVacancyId', v)}
-          variant="filled"
           className="w-48"
           options={[{ value: '', label: 'كل الوظائف' }, ...vacancies.map(v => ({ value: String(v.id), label: v.title }))]}
         />

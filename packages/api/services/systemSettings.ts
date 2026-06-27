@@ -47,6 +47,24 @@ export async function getSystemSettingString(key: string, fallback: string): Pro
   return raw ?? fallback;
 }
 
+export async function getSystemSettingBoolean(key: string, fallback: boolean): Promise<boolean> {
+  const raw = await readSetting(key);
+  if (raw == null) return fallback;
+  if (['true', '1', 'yes', 'on'].includes(raw.trim().toLowerCase())) return true;
+  if (['false', '0', 'no', 'off'].includes(raw.trim().toLowerCase())) return false;
+  return fallback;
+}
+
+export async function getSystemSettingJson<T>(key: string, fallback: T): Promise<T> {
+  const raw = await readSetting(key);
+  if (raw == null) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 /** HH:MM time-of-day. Falls back to fallback when missing or malformed. */
 export async function getSystemSettingTime(key: string, fallback: string): Promise<string> {
   const raw = await readSetting(key);
@@ -68,4 +86,44 @@ export const SYSTEM_SETTING_DEFAULTS = {
   visit_undocumented_alert_hours_l1: 24,       // DEC-006 D38
   visit_undocumented_alert_hours_l2: 48,       // DEC-006 D38
   visit_undocumented_alert_hours_l3: 72,       // DEC-006 D38
+  periodic_auto_generate_enabled: true,
+  periodic_manual_creation_enabled: true,
+  periodic_default_interval_months: 6,
+  periodic_attach_warning_days: 14,
+  periodic_attach_allowed_statuses: ['open', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution'],
 } as const;
+
+export interface PeriodicMaintenanceSettings {
+  autoGenerateEnabled: boolean;
+  manualCreationEnabled: boolean;
+  defaultIntervalMonths: number;
+  attachWarningDays: number;
+  attachAllowedStatuses: string[];
+}
+
+export async function getPeriodicMaintenanceSettings(): Promise<PeriodicMaintenanceSettings> {
+  const defaults = SYSTEM_SETTING_DEFAULTS;
+  const [
+    autoGenerateEnabled,
+    manualCreationEnabled,
+    defaultIntervalMonths,
+    attachWarningDays,
+    attachAllowedStatuses,
+  ] = await Promise.all([
+    getSystemSettingBoolean('periodic_auto_generate_enabled', defaults.periodic_auto_generate_enabled),
+    getSystemSettingBoolean('periodic_manual_creation_enabled', defaults.periodic_manual_creation_enabled),
+    getSystemSettingNumber('periodic_default_interval_months', defaults.periodic_default_interval_months),
+    getSystemSettingNumber('periodic_attach_warning_days', defaults.periodic_attach_warning_days),
+    getSystemSettingJson<string[]>('periodic_attach_allowed_statuses', [...defaults.periodic_attach_allowed_statuses]),
+  ]);
+
+  return {
+    autoGenerateEnabled,
+    manualCreationEnabled,
+    defaultIntervalMonths: Math.max(1, Math.floor(defaultIntervalMonths)),
+    attachWarningDays: Math.max(0, Math.floor(attachWarningDays)),
+    attachAllowedStatuses: Array.isArray(attachAllowedStatuses)
+      ? attachAllowedStatuses.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+      : [...defaults.periodic_attach_allowed_statuses],
+  };
+}

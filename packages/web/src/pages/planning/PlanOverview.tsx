@@ -7,6 +7,7 @@ import {
     Layers, Megaphone, Wrench, Building2
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import PageHeader from '../../components/ui/PageHeader';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import type { Route, GeoUnit, DaySchedule, RouteAssignmentData, Client } from '../../lib/types';
 
@@ -287,12 +288,11 @@ export default function PlanOverview() {
     return (
         <div className="h-full overflow-y-auto p-8 custom-scroll">
             {/* Header */}
-            <div className="flex items-end justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800 mb-1">ملخص الخطة</h1>
-                    <p className="text-slate-500 text-sm">نظرة شاملة على جداول العمل اليومية — من يذهب إلى أين.</p>
-                </div>
-            </div>
+            <PageHeader
+                className="mb-6"
+                title="ملخص الخطة"
+                subtitle="نظرة شاملة على جداول العمل اليومية — من يذهب إلى أين."
+            />
 
             {/* Date Navigator */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex items-center justify-center gap-4">

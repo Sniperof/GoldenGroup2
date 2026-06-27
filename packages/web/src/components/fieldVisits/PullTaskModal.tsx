@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  X, Loader2, ListPlus, AlertTriangle, FileText, Smartphone,
+  Loader2, ListPlus, AlertTriangle, FileText, Smartphone,
   Banknote, MapPin, Calendar, Flag, Tag, CheckCircle2,
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import Modal from '../ui/Modal';
 
 // DEC-010 — Visit Task Pull. Lists the customer's waiting-phase tasks (in the
 // visit's branch) and pulls a chosen one into the in_progress visit.
@@ -72,8 +73,6 @@ export default function PullTaskModal({
 
   useEffect(() => { if (open) load(); }, [open, load]);
 
-  if (!open) return null;
-
   const handlePull = async (t: PullableTask) => {
     setPullingId(t.openTaskId);
     try {
@@ -87,21 +86,20 @@ export default function PullTaskModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      size="2xl"
+      title={
+        <span className="flex items-center gap-2">
           <ListPlus className="w-5 h-5 text-indigo-600" />
-          <h2 className="text-sm font-bold text-slate-800">سحب مهمة للزيارة</h2>
-          <span className="text-xs text-slate-400">مهام الزبون قيد الانتظار في هذا الفرع</span>
-          <button onClick={onClose} className="mr-auto text-slate-400 hover:text-slate-600">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
+          سحب مهمة للزيارة
+        </span>
+      }
+      subtitle="مهام الزبون قيد الانتظار في هذا الفرع"
+    >
         {/* Body */}
-        <div className="p-5 overflow-y-auto custom-scroll">
+        <div className="p-5">
           {loading && (
             <div className="flex items-center justify-center py-10">
               <Loader2 className="w-7 h-7 animate-spin text-indigo-500" />
@@ -209,7 +207,6 @@ export default function PullTaskModal({
             })}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

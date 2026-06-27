@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Search, AlertCircle, ArrowLeft, User, Lock, Pencil, Link2, Loader2 } from 'lucide-react';
+import { Search, AlertCircle, ArrowLeft, User, Lock, Pencil, Link2, Loader2 } from 'lucide-react';
 import { Candidate, Client, ClientSmartMatchResponse, SmartMatchNameCheck } from '../../lib/types';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
-import IconButton from '../ui/IconButton';
+import Modal from '../ui/Modal';
 
 interface ManualSearchModalProps {
     isOpen: boolean;
@@ -162,25 +162,65 @@ export default function ManualSearchModal({
         setMatchResult(null);
     };
 
-    if (!isOpen) return null;
-
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" dir="rtl">
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
-                            <Search className="w-5 h-5 text-indigo-600" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-800">التحقق الذكي (Smart Match)</h2>
-                            <p className="text-sm text-slate-500">فحص التكرار على مستوى النظام مع احترام صلاحيات العرض</p>
-                        </div>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
-                </div>
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="2xl"
+            closeOnBackdrop={false}
+            title={
+                <span className="flex items-center gap-3">
+                    <span className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
+                        <Search className="w-5 h-5 text-indigo-600" />
+                    </span>
+                    التحقق الذكي (Smart Match)
+                </span>
+            }
+            subtitle="فحص التكرار على مستوى النظام مع احترام صلاحيات العرض"
+            footer={
+                <div className="flex w-full items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Button variant="ghost" onClick={onClose}>إغلاق</Button>
 
-                <div className="p-6 overflow-y-auto flex-1 space-y-4 custom-scrollbar bg-slate-50/30">
+                        {!phoneVerified && inputs.mobile.length === 0 && (
+                            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                أدخل رقم الموبايل للتحقق والمتابعة
+                            </div>
+                        )}
+                        {matchResult?.status === 'MATCH_VISIBLE' && (
+                            <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                الرقم موجود مسبقاً ولا يمكن إنشاء زبون مكرر
+                            </div>
+                        )}
+                        {matchResult?.status === 'MATCH_RESTRICTED' && (
+                            <div className="flex items-center gap-1.5 text-xs text-amber-700 font-medium">
+                                <Lock className="w-3.5 h-3.5 shrink-0" />
+                                {matchResult.message}
+                            </div>
+                        )}
+                        {phoneVerified && (
+                            <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
+                                <Lock className="w-3.5 h-3.5 shrink-0" />
+                                الرقم غير مستخدم ويمكن المتابعة
+                            </div>
+                        )}
+                    </div>
+
+                    {phoneVerified && (
+                        <Button
+                            icon={ArrowLeft}
+                            iconPosition="trailing"
+                            onClick={() => onNoMatch(inputs.mobile.trim())}
+                        >
+                            لا توجد نتائج مطابقة - متابعة
+                        </Button>
+                    )}
+                </div>
+            }
+        >
+                <div className="p-6 space-y-4 bg-slate-50/30">
                     <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100 space-y-4">
                         <div className="text-xs font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2">
                             <Search className="w-3.5 h-3.5" />
@@ -352,48 +392,6 @@ export default function ManualSearchModal({
                         )}
                     </div>
                 </div>
-
-                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-2">
-                        <Button variant="ghost" onClick={onClose}>إغلاق</Button>
-
-                        {!phoneVerified && inputs.mobile.length === 0 && (
-                            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                أدخل رقم الموبايل للتحقق والمتابعة
-                            </div>
-                        )}
-                        {matchResult?.status === 'MATCH_VISIBLE' && (
-                            <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
-                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                الرقم موجود مسبقاً ولا يمكن إنشاء زبون مكرر
-                            </div>
-                        )}
-                        {matchResult?.status === 'MATCH_RESTRICTED' && (
-                            <div className="flex items-center gap-1.5 text-xs text-amber-700 font-medium">
-                                <Lock className="w-3.5 h-3.5 shrink-0" />
-                                {matchResult.message}
-                            </div>
-                        )}
-                        {phoneVerified && (
-                            <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
-                                <Lock className="w-3.5 h-3.5 shrink-0" />
-                                الرقم غير مستخدم ويمكن المتابعة
-                            </div>
-                        )}
-                    </div>
-
-                    {phoneVerified && (
-                        <Button
-                            icon={ArrowLeft}
-                            iconPosition="trailing"
-                            onClick={() => onNoMatch(inputs.mobile.trim())}
-                        >
-                            لا توجد نتائج مطابقة - متابعة
-                        </Button>
-                    )}
-                </div>
-            </div>
-        </div>
+        </Modal>
     );
 }

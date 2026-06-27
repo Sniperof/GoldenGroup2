@@ -29,6 +29,7 @@ import InstalledDevicesList from './pages/devices/InstalledDevicesList';
 import ContractList from './pages/contracts/ContractList';
 import ContractForm from './pages/contracts/ContractForm';
 import ContractDetail from './pages/contracts/ContractDetail';
+import GiftsManagement from './pages/gifts/GiftsManagement';
 import TelemarketerWorkspace from './pages/TelemarketerWorkspace';
 import TeamTasksDetail from './pages/planning/TeamTasksDetail';
 import DeviceDemo from './pages/tasks/DeviceDemo';
@@ -36,6 +37,8 @@ import DeviceDemoDetail from './pages/tasks/DeviceDemoDetail';
 import PostSaleTaskDetail from './pages/tasks/PostSaleTaskDetail';
 import WarrantyServicesTaskDetail from './pages/tasks/WarrantyServicesTaskDetail';
 import CollectionTaskDetail from './pages/tasks/CollectionTaskDetail';
+import GiftDeliveryTaskDetail from './pages/tasks/GiftDeliveryTaskDetail';
+import TaskEvaluationLab from './pages/tasks/TaskEvaluationLab';
 import OpenTasks from './pages/OpenTasks';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
@@ -128,7 +131,9 @@ export default function App() {
                         {/* Unified open_task detail under group URL — V1.0 reuses EmergencyTaskDetail. */}
                         <Route path="/tasks/group/maintenance/:id" element={<EmergencyTaskDetail />} />
                         <Route path="/tasks/group/collection/:id" element={<CollectionTaskDetail />} />
+                        <Route path="/tasks/group/gift-delivery/:id" element={<GiftDeliveryTaskDetail />} />
                         <Route path="/tasks/group/warranty-services/:id" element={<WarrantyServicesTaskDetail />} />
+                        <Route path="/tasks/evaluation-lab" element={<TaskEvaluationLab />} />
                         {/* Unified task groups (2026-06-01) — single page, 6 display_groups */}
                         <Route path="/tasks/group/:group" element={<TaskGroupPage />} />
                         <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
@@ -148,6 +153,7 @@ export default function App() {
                         <Route path="/contracts/new" element={<ContractForm />} />
                         <Route path="/contracts/:id/edit" element={<ContractForm />} />
                         <Route path="/contracts/:id" element={<ContractDetail />} />
+                        <Route path="/gifts" element={<GiftsManagement />} />
 
                         <Route path="/telemarketer" element={<RequireBranchContext><TelemarketerWorkspace /></RequireBranchContext>} />
                         <Route path="/settings" element={<SystemSettings />} />

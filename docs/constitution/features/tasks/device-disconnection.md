@@ -31,14 +31,13 @@
 
 #### سحب الجهاز
 
-السحب هو حركة حيازة ونقل من موقع الزبون إلى عهدة الشركة أو الورشة.
+السحب هو مسار تشغيلي لاحق بعد الفك يثبت نية أو محاولة سحب الجهاز للصيانة أو التبديل، لكنه لا يغير الحيازة بحد ذاته في النموذج الحالي.
 
 يحدث عادةً بهدف:
 - صيانة داخل الشركة أو الورشة
 - تبديل الجهاز بجهاز جديد
-- استرجاع الجهاز للشركة بقرار تشغيلي أو قانوني
 
-السحب يجب أن ينعكس على `device_possession_log`، وقد يغيّر حالة الجهاز إلى `in_workshop` أو `retrieved` بحسب السبب.
+السحب لا يكتب في `device_possession_log` ولا ينقل العهدة وحده. تغيير المكان أو الحيازة يعالج عبر مهمة نقل الجهاز `device_transfer` أو إجراء حيازة مستقل.
 
 #### تسليم الجهاز مرة أخرى
 
@@ -55,8 +54,8 @@
 ### القاعدة الذهبية
 
 > **فك الجهاز ليس حركة حيازة بالضرورة.**
-> **سحب الجهاز هو حركة حيازة.**
-> **تسليم الجهاز هو حركة نقل.**
+> **سحب الجهاز لا يغير الحيازة في النموذج الحالي.**
+> **نقل الجهاز هو المسار الذي قد يغير المكان والحيازة.**
 
 ---
 
@@ -68,7 +67,7 @@
 - تبقى نفس `open_task` حية عند المتابعة العادية
 - كل محاولة ميدانية لاحقة تُسجَّل كـ `visit_task` جديدة
 - لا نولّد `open_task` جديدة لكل محاولة فاشلة
-- إذا انتهى الفك مع احتياج لاحق لسحب الجهاز، فذلك يكون مهمة مستقلة من نوع السحب، لا نتيجة ضمنية للفك
+- إذا انتهى الفك مع نية لاحقة لسحب الجهاز، فذلك يوثق عبر الحقل `requires_retrieval_task` داخل نتيجة الفك، ثم تنشأ مهمة مستقلة من نوع السحب عند الحاجة.
 
 ---
 
@@ -158,8 +157,10 @@
 | `disconnected_successfully` | تم فك الجهاز أو إيقاف تشغيله بنجاح وبقيت نتيجة الفك موثقة | نجاح |
 | `not_disconnected` | لم يتم الفك في هذه المحاولة | متابعة |
 | `customer_refused_disconnection` | رفض الزبون تنفيذ الفك | إلغاء أو متابعة حسب القرار |
-| `requires_retrieval` | تم أو لم يتم الفك، لكن الجهاز يحتاج مهمة سحب مستقلة لاحقاً | نجاح جزئي مع cascading اختياري |
 | `unsafe_to_disconnect` | تعذر الفك لسبب أمان أو ظرف فني في الموقع | متابعة |
+
+> **قرار دستوري:** `requires_retrieval_task` ليس قيمة من قيم `final_decision`.
+> هو حقل مستقل داخل نتيجة الفك، ولا يكون معناه صحيحاً إلا عندما تكون النتيجة `disconnected_successfully`.
 
 ### المحور 10 — قيم `reason_code`
 
@@ -181,8 +182,32 @@
 | `disconnected_successfully` | إلزامي |
 | `not_disconnected` | إلزامي |
 | `customer_refused_disconnection` | إلزامي |
-| `requires_retrieval` | إلزامي |
 | `unsafe_to_disconnect` | إلزامي |
+
+### المحور 10.1 — `requires_retrieval_task`
+
+`requires_retrieval_task` هو حقل داخل نتيجة مهمة الفك يحدد هل توجد نية تشغيلية لإنشاء مهمة سحب لاحقة للجهاز بعد نجاح الفك.
+
+في واجهات TypeScript يمكن تمثيله باسم `requiresRetrievalTask`، أما في قاعدة البيانات أو الـ side table فيُفضّل الاسم `requires_retrieval_task`.
+
+هذا الحقل:
+- لا يعني أن السحب تم
+- لا يغير عهدة الجهاز
+- لا يكتب في `device_possession_log`
+- لا يحول حالة الجهاز إلى `retrieved`
+- لا يرتبط بالعقد ولا يلغي العقد
+- يستخدم فقط لربط مسار الفك بمسار السحب اللاحق عند الحاجة
+
+قواعده:
+
+| الشرط | الحكم |
+|---|---|
+| `final_decision = disconnected_successfully` | يمكن تسجيل `requires_retrieval_task` |
+| `requires_retrieval_task = true` | يمكن إنشاء مهمة `device_retrieval` لاحقة، أو اعتبار الجهاز مؤهلاً لها |
+| `requires_retrieval_task = false` | يبقى الجهاز مفصولاً في الموقع ولا توجد نية سحب حالية |
+| أي `final_decision` غير النجاح | لا يستخدم الحقل كشرط لإنشاء السحب |
+
+> **المعنى الدستوري:** الفك يجهز الجهاز للسحب، أما `requires_retrieval_task` فيعلن نية السحب فقط. حركة الحيازة لا تحدث في الفك ولا في السحب، بل تعالج عبر مهمة نقل الجهاز أو إجراء حيازة مستقل.
 
 ### المحور 11 — Side Tables المخصصة
 
@@ -199,7 +224,6 @@
 - `accessories_removed`
 - `customer_acknowledged`
 - `requires_retrieval_task`
-- `retrieval_reason`
 - `disconnected_by_employee_id`
 - `technical_notes`
 
@@ -216,7 +240,6 @@
 | `disconnected_successfully` | `completed` |
 | `not_disconnected` | `needs_follow_up` |
 | `customer_refused_disconnection` | `cancelled` أو `needs_follow_up` حسب قرار المشرف |
-| `requires_retrieval` | `completed` مع احتمال إنشاء مهمة سحب مستقلة |
 | `unsafe_to_disconnect` | `needs_follow_up` |
 
 ### أثر النتيجة على حالة الجهاز
@@ -226,24 +249,25 @@
 | `final_decision` | أثر محتمل على `installed_devices.status` |
 |---|---|
 | `disconnected_successfully` | ينتقل إلى حالة غير فعالة مناسبة، غالباً `out_of_service` إذا كان الإيقاف نهائياً أو تشغيلياً واضحاً |
-| `requires_retrieval` | لا يعني `retrieved` مباشرة؛ قد يبقى الجهاز مفصولاً في الموقع إلى حين تنفيذ مهمة السحب |
 | `not_disconnected` | لا تغيير |
 | `customer_refused_disconnection` | لا تغيير إلا بقرار لاحق |
 | `unsafe_to_disconnect` | لا تغيير أو تصعيد لصيانة/زيارة مختصة |
 
-> لا يجوز أن يؤدي فك الجهاز تلقائياً إلى `retrieved` إلا إذا حدث سحب فعلي موثق في مهمة أو إجراء حيازة مستقل.
+> لا يجوز أن يؤدي فك الجهاز تلقائياً إلى `retrieved` أو إلى تغيير حيازة. تغيير المكان أو الحيازة يحتاج مهمة نقل جهاز أو إجراء حيازة مستقل.
 
 ### المحور 13 — Cascading Effects
 
 #### مهمة سحب لاحقة
 
-إذا كانت النتيجة `requires_retrieval`، يمكن إنشاء مهمة لاحقة من نوع السحب.
+إذا كانت نتيجة الفك `disconnected_successfully` وكان الحقل `requires_retrieval_task = true`، يمكن إنشاء مهمة لاحقة من نوع السحب.
 
 لكن:
 - إنشاء السحب ليس إلزامياً دائماً
 - السحب مهمة مستقلة
-- السحب هو الذي يغير الحيازة في `device_possession_log`
-- السحب هو الذي قد ينقل الجهاز إلى `in_workshop` أو `retrieved`
+- السحب لا يغير الحيازة في `device_possession_log`
+- السحب لا ينقل الجهاز إلى عهدة الشركة وحده
+- نقل الجهاز إلى مكان آخر يعالج عبر `device_transfer`
+- لا يجوز اعتبار `requires_retrieval_task` دليلاً على أن الجهاز خرج من موقعه
 
 #### مهمة تسليم لاحقة
 
@@ -289,3 +313,4 @@
 - [Unified Device & Contract States](../../contracts/01d-unified-device-contract-states.md)
 - [Device Delivery](./device-delivery.md)
 - [Device Activation](./device-activation.md)
+- [Device Retrieval](./device-retrieval.md)

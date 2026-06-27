@@ -6,12 +6,12 @@
 //   - وصف المشكلة إلزامي
 //   - حقول العنوان/walk-in مَحذوفة من V1.0 (تُؤخَذ من الجهاز عند promote)
 // ============================================================
-import { useEffect, useMemo, useState } from 'react';
-import IconButton from '../ui/IconButton';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Send, AlertCircle, Loader2, Search, Check } from 'lucide-react';
+import { Send, AlertCircle, Loader2, Search, Check } from 'lucide-react';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
+import Modal from '../ui/Modal';
 
 type Channel = 'internal_button' | 'client_detail_button' | 'admin_manual' | 'phone';
 
@@ -227,18 +227,31 @@ export default function NewServiceRequestModal({
   const isClientLocked = initialClientId != null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80]" dir="rtl">
-      <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full mx-4 max-h-[92vh] overflow-auto">
-        <header className="flex items-center justify-between p-4 border-b border-slate-200 sticky top-0 bg-white z-10">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">{CHANNEL_TITLES[channel]}</h2>
-            <div className="text-xs text-slate-500 mt-0.5">
-              قناة: <span className="font-medium">{channel}</span>
-            </div>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} />
-        </header>
-
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="2xl"
+      title={CHANNEL_TITLES[channel]}
+      subtitle={<>قناة: <span className="font-medium">{channel}</span></>}
+      footer={
+        <>
+          <button
+            onClick={onClose}
+            className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded"
+          >
+            إلغاء
+          </button>
+          <button
+            disabled={busy}
+            onClick={submit}
+            className="text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded flex items-center gap-1"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {busy ? 'جاري الإنشاء...' : 'إنشاء الطلب'}
+          </button>
+        </>
+      }
+    >
         <div className="p-4 space-y-4">
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-2 rounded flex items-start gap-2">
@@ -267,13 +280,13 @@ export default function NewServiceRequestModal({
             ) : (
               <div className="space-y-1">
                 <div className="relative">
-                  <Search className="h-4 w-4 absolute right-2 top-2.5 text-slate-400" />
+                  <Search className="h-4 w-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     value={clientSearch}
                     onChange={(e) => setClientSearch(e.target.value)}
                     placeholder="ابحث بالاسم أو الهاتف (حرفين فأكثر)"
-                    className="w-full text-sm border border-slate-300 rounded p-2 pr-8"
+                    className="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 pr-10 focus:border-sky-500 focus:outline-none transition-colors"
                   />
                 </div>
                 {searchingClients && (
@@ -389,24 +402,6 @@ export default function NewServiceRequestModal({
             💡 المرفقات وقائمة الأعطال تُضاف من شاشة تفاصيل الطلب بعد الإنشاء.
           </p>
         </div>
-
-        <footer className="flex items-center justify-end gap-2 p-3 border-t border-slate-200 bg-slate-50 sticky bottom-0">
-          <button
-            onClick={onClose}
-            className="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded"
-          >
-            إلغاء
-          </button>
-          <button
-            disabled={busy}
-            onClick={submit}
-            className="text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded flex items-center gap-1"
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {busy ? 'جاري الإنشاء...' : 'إنشاء الطلب'}
-          </button>
-        </footer>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -1064,6 +1064,7 @@ const DeviceManagement = () => {
                             <motion.div key="devices-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
                                 <SmartTable<DeviceModel>
                                     title="إدارة الأجهزة"
+                                    titlePlacement="page"
                                     icon={Package}
                                     data={devices}
                                     columns={deviceColumns}
@@ -1098,6 +1099,7 @@ const DeviceManagement = () => {
                             <motion.div key="parts-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
                                 <SmartTable<SparePart>
                                     title="قطع الأجهزة"
+                                    titlePlacement="page"
                                     icon={Cog}
                                     data={parts}
                                     columns={partColumns}

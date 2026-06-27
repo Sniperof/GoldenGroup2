@@ -483,6 +483,28 @@ router.put('/:date', async (req, res) => {
     mergedSolos = (solos as any[]).map((s, i) => (isLockedSlot(s) ? storedSolos[i] : s));
   }
 
+  // DEC-009 لبنة 8 (freeze): a team whose contact targets are already generated for
+  // this date cannot be deleted — its committed call list and assigned tasks depend
+  // on the slot index (team_N). Composition may still change; only removal is blocked.
+  const { rows: generatedTeamRows } = await pool.query(
+    'SELECT DISTINCT team_key FROM telemarketing_task_lists WHERE date = $1',
+    [req.params.date],
+  );
+  for (const gr of generatedTeamRows) {
+    const m = String(gr.team_key).match(/^(team|solo)_(\d+)$/);
+    if (!m) continue;
+    const idx = Number(m[2]);
+    const slot = m[1] === 'team' ? mergedTeams[idx] : mergedSolos[idx];
+    const slotMissing = slot == null || (typeof slot === 'object' && Object.keys(slot).length === 0);
+    if (slotMissing) {
+      return res.status(409).json({
+        error: `تعذّر الحفظ: لا يمكن حذف الفريق بعد توليد جهات اتصاله لهذا اليوم (DEC-009 لبنة 8).`,
+        code: 'TEAM_FROZEN_AFTER_GENERATION',
+        teamKey: gr.team_key,
+      });
+    }
+  }
+
   const { rows } = await pool.query(
     `INSERT INTO day_schedules (date, teams, solos) VALUES ($1, $2, $3)
     ON CONFLICT (date) DO UPDATE SET teams=$2, solos=$3 RETURNING *`,

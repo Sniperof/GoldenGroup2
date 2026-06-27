@@ -1,9 +1,7 @@
-import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { X, PhoneCall, User, Briefcase, MapPin } from 'lucide-react';
+import { PhoneCall, User, Briefcase, MapPin } from 'lucide-react';
 import { Candidate, Client, GeoUnit } from '../../lib/types';
 import Button from '../ui/Button';
-import IconButton from '../ui/IconButton';
+import Modal from '../ui/Modal';
 
 interface TeamDetailsModalProps {
     isOpen: boolean;
@@ -26,8 +24,6 @@ export default function TeamDetailsModal({
     geoUnits,
     onGenerate,
 }: TeamDetailsModalProps) {
-    if (!isOpen) return null;
-
     const totalCustomers = candidates.length + leads.length;
 
     const getGeoName = (id: number | null) => {
@@ -41,34 +37,20 @@ export default function TeamDetailsModal({
     };
 
     return (
-        <AnimatePresence>
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={onClose}
-                    className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
-                />
-
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                    className="relative w-full max-w-4xl max-h-[90vh] bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden"
-                >
-                    <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-slate-50/50">
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-800">{teamLabel}</h2>
-                            <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
-                                <Briefcase className="w-4 h-4 text-emerald-500" />
-                                <span>إجمالي الزبائن المستهدفين: {totalCustomers}</span>
-                            </p>
-                        </div>
-                        <IconButton icon={X} label="إغلاق" shape="circle" onClick={onClose} />
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-6 custom-scroll bg-slate-50/30">
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="4xl"
+            title={teamLabel}
+            subtitle={
+                <span className="flex items-center gap-2">
+                    <Briefcase className="w-4 h-4 text-emerald-500" />
+                    إجمالي الزبائن المستهدفين: {totalCustomers}
+                </span>
+            }
+            footer={<Button variant="secondary" onClick={onClose}>إغلاق</Button>}
+        >
+                    <div className="p-6 bg-slate-50/30">
                         {totalCustomers === 0 ? (
                             <div className="text-center py-12">
                                 <MapPin className="w-12 h-12 text-slate-300 mx-auto mb-4" />
@@ -127,12 +109,6 @@ export default function TeamDetailsModal({
                             </div>
                         )}
                     </div>
-
-                    <div className="p-4 border-t border-slate-100 bg-white flex justify-end">
-                        <Button variant="secondary" onClick={onClose}>إغلاق</Button>
-                    </div>
-                </motion.div>
-            </div>
-        </AnimatePresence>
+        </Modal>
     );
 }

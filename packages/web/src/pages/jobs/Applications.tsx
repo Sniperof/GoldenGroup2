@@ -7,6 +7,7 @@ import {
   ClipboardList, Search, Filter, ChevronDown, Eye, AlertTriangle, Calendar, Archive, Plus
 } from 'lucide-react';
 import PermissionGate from '../../components/PermissionGate';
+import PageHeader from '../../components/ui/PageHeader';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';
@@ -191,13 +192,11 @@ export default function Applications() {
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-            <ClipboardList className="w-7 h-7 text-sky-500" />
-            طلبات التوظيف
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">عرض وإدارة جميع طلبات التوظيف المقدمة</p>
-        </div>
+        <PageHeader
+          title="طلبات التوظيف"
+          subtitle="عرض وإدارة جميع طلبات التوظيف المقدمة"
+          icon={<ClipboardList className="w-7 h-7 text-sky-500" />}
+        />
         <PermissionGate permission="jobs.applications.create">
           <button
             onClick={() => navigate('/jobs/applications/new')}
@@ -218,7 +217,6 @@ export default function Applications() {
           onChange={v => setFilter('stage', v as ApplicationStage | '')}
           placeholder="كل المراحل"
           ariaLabel="المرحلة"
-          variant="filled"
           size="sm"
           options={ALL_STAGES.map(s => ({ value: s, label: STAGE_LABELS[s] }))}
         />
@@ -227,7 +225,6 @@ export default function Applications() {
           onChange={v => setFilter('status', v as ApplicationStatus | '')}
           placeholder="كل الحالات"
           ariaLabel="الحالة"
-          variant="filled"
           size="sm"
           options={ALL_STATUSES.map(s => ({ value: s, label: STATUS_LABELS[s] }))}
         />
@@ -236,7 +233,6 @@ export default function Applications() {
           onChange={v => setFilter('gender', v)}
           placeholder="كل الأجناس"
           ariaLabel="الجنس"
-          variant="filled"
           size="sm"
           options={[
             { value: 'ذكر', label: 'ذكر' },
@@ -248,7 +244,6 @@ export default function Applications() {
           onChange={v => setFilter('applicationSource', v)}
           placeholder="كل المصادر"
           ariaLabel="المصدر"
-          variant="filled"
           size="sm"
           options={[
             { value: 'Mobile App', label: 'Mobile App' },
@@ -264,7 +259,7 @@ export default function Applications() {
             value={filters.search}
             onChange={e => setFilter('search', e.target.value)}
             placeholder="بحث بالرقم أو الاسم أو رقم الهاتف..."
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg pr-10 pl-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors"
           />
         </div>
         {(filters.stage || filters.status || filters.gender || filters.search || filters.branch || filters.vacancyId || filters.applicationSource || filters.isArchived === 'true') && (

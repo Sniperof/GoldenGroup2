@@ -8,6 +8,7 @@ import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
+import PageHeader from '../components/ui/PageHeader';
 import IconButton from '../components/ui/IconButton';
 import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } from '../components/GeoSmartSearch';
 import {
@@ -229,18 +230,16 @@ export default function Branches() {
   return (
     <div className="p-8 space-y-6" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <Building2 className="w-7 h-7 text-sky-500" />
-            إدارة الفروع
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">إضافة الفروع وتحديد معلومات التواصل ونطاق التغطية الجغرافية</p>
-        </div>
-        <Button icon={Plus} disabled={!canManageBranchStructure} onClick={() => openForm()}>
-          إضافة فرع جديد
-        </Button>
-      </div>
+      <PageHeader
+        title="إدارة الفروع"
+        subtitle="إضافة الفروع وتحديد معلومات التواصل ونطاق التغطية الجغرافية"
+        icon={<Building2 className="w-7 h-7 text-sky-500" />}
+        actions={
+          <Button icon={Plus} disabled={!canManageBranchStructure} onClick={() => openForm()}>
+            إضافة فرع جديد
+          </Button>
+        }
+      />
 
       <SmartTable<Branch>
           title="سجل الفروع"

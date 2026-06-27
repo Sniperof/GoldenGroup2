@@ -15,6 +15,7 @@ import { Award, CalendarClock, ChevronDown, ChevronLeft, CircleCheck, CircleX, C
 import { api } from '../../lib/api';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import { TechnicalStateFields, buildTechnicalStatePayload, hasAnyTechnicalReading, type TechStateForm } from '../../components/devices/TechnicalStateFields';
+import Select from '../../components/ui/Select';
 import WarrantyPaymentEntries, { warrantyEntrySyp, warrantyPaymentPayload, type WarrantyPaymentRow } from '../../components/warranty/WarrantyPaymentEntries';
 
 type Mode = 'activate' | 'later' | 'reject';
@@ -331,10 +332,13 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
             <div className="space-y-3">
               <label className="block space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">{mode === 'later' ? 'سبب التفعيل لاحقاً *' : 'سبب الرفض *'}</span>
-                <select value={reason} onChange={(e) => setReason(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <option value="">— اختر —</option>
-                  {(mode === 'later' ? laterReasons : rejectReasons).map((r: any) => <option key={r.id} value={r.value}>{r.value}</option>)}
-                </select>
+                <Select
+                  value={reason}
+                  onChange={setReason}
+                  className="w-full"
+                  placeholder="— اختر —"
+                  options={(mode === 'later' ? laterReasons : rejectReasons).map((r: any) => ({ value: r.value, label: r.value }))}
+                />
               </label>
               {mode === 'later' && (
                 <label className="block space-y-1.5">

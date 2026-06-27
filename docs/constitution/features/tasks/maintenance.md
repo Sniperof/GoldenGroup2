@@ -28,7 +28,7 @@
 | capability الفريق محصورة بالطارئة على فريق الطوارئ | DEC-006 D31 (planning.md PL-R011) |
 | `creation_origin` متباينة (`emergency_request`/`service_request_call` للطارئة، `system_trigger` للدورية) | DEC-004 D13 |
 | `planning_window_days` ضيقة للطارئة وعريضة للدورية | task_type_config |
-| `final_decision` متباينة دلالياً (resolved vs performed) | حاجة تقارير منفصلة |
+| مسارات المهمة و`final_decision` متباينة دلالياً بين الطارئة والدورية | حاجة تقارير منفصلة |
 | التوحيد يُجبر CHECK constraints مشروطة بـ `creation_origin` | عبء يخالف مبدأ V-R006 |
 
 ### لماذا التقاسم في النتيجة منطقي
@@ -1175,22 +1175,30 @@ derived_outcome = function(لائحة الأعطال على open_task):
 | `needs_followup` | تحتاج متابعة | الزبون طلب متابعة بموعد محدَّد (مهلة قطعة، استشارة) |
 | `cancelled` | ملغاة | الزيارة لم تتم لسبب |
 
-#### الدورية (5 قيم)
+#### الدورية — مسار المهمة ثم قرار نتيجة التطبيق
 
-| القيمة | اللبيل | الوصف |
+الدورية تفصل بين مسار المهمة وبين القرار الفني بعد تطبيق الصيانة. `rescheduled` و`cancelled` ليستا قرارات نتيجة تطبيق؛ هما مساران للمهمة نفسها قبل/بدل تسجيل نتيجة الصيانة.
+
+| مسار المهمة | اللبيل | الوصف |
 |---|---|---|
-| `performed` | منفّذة | كل البنود المخطّطة أُنجزت + قياسات post + تحديث عدّاد الكفالة |
-| `partially_performed` | منفّذة جزئياً | بعض البنود نُفِّذت والبعض مؤجَّل لزيارة لاحقة |
-| `not_performed` | لم تُنفَّذ | الفريق وصل لكن لم يستطع التنفيذ (رفض الزبون، الجهاز معطّل خارج النطاق) |
-| `deferred` | مؤجَّلة | الزبون طلب التأجيل قبل/أثناء الزيارة |
-| `cancelled` | ملغاة | الزيارة لم تتم |
+| `apply_maintenance` | تطبيق الصيانة | يدخل الفني wizard نتيجة الصيانة ويسجّل القياسات/الأعمال/القطع/التكاليف. |
+| `rescheduled` | إعادة جدولة | نفس المهمة تنتقل لموعد جديد، ولا تُسجَّل نتيجة تطبيق. |
+| `cancelled` | إلغاء | إلغاء إداري/تشغيلي للمهمة نفسها، ولا تُسجَّل نتيجة تطبيق. |
+
+| `final_decision` بعد `apply_maintenance` | اللبيل | الوصف |
+|---|---|---|
+| `completed` | تمت الصيانة | كل البنود اللازمة أُنجزت + قياسات post. |
+| `partially_performed` | أُنجزت جزئياً | تم تنفيذ الزيارة/الفحص أو جزء من الصيانة، لكن بقي جزء جوهري غير منفذ، مثل قطعة لازمة رفضها الزبون أو لم تتوفر. |
+| `needs_followup` | تحتاج متابعة | توجد متابعة لاحقة مطلوبة بعد تسجيل نتيجة التطبيق. |
+| `not_resolved` | لم تُحل | الحالة الفنية لم تُحل رغم محاولة التطبيق أو الفحص. |
+| `customer_declined` | رفض الزبون | الزبون رفض الخدمة/الإصلاح بعد عرض التشخيص أو التكاليف. |
 
 #### الحقول المشتركة على Header
 
 | الحقل | إلزامي | الوصف |
 |---|:---:|---|
-| `final_decision` | ✅ | إحدى القيم العشر حسب النوع |
-| `reason_code_id` | ⚠️ | إلزامي لكل ما عدا `resolved`/`performed` |
+| `final_decision` | ✅ | قرار نتيجة التطبيق حسب النوع؛ في الدورية لا يُكتب إلا بعد مسار `apply_maintenance` |
+| `reason_code_id` | ⚠️ | إلزامي لكل ما عدا نتائج الإكمال الصريح (`resolved`/`completed`) |
 | `closing_notes` | ❌ | textarea |
 | `closed_by_employee_id` | ✅ | الفني المسؤول |
 
@@ -1201,10 +1209,12 @@ derived_outcome = function(لائحة الأعطال على open_task):
 | `partially_resolved` (طارئة) | `service_partial_reasons` 🆕 | تُنشأ |
 | `unresolved` (طارئة) | `service_unresolved_reasons` 🆕 | تُنشأ |
 | `needs_followup` (طارئة) | `customer_followup_reasons` ✅ | موجودة (DEC-006 D39) |
-| `cancelled` (الطارئة والدورية) | `visit_cancellation_reasons` ✅ | موجودة (DEC-006) |
+| `cancelled` (مسار مهمة) | `visit_cancellation_reasons` ✅ | موجودة (DEC-006) |
 | `partially_performed` (دورية) | `periodic_partial_reasons` 🆕 | تُنشأ |
-| `not_performed` (دورية) | `periodic_not_performed_reasons` 🆕 | تُنشأ |
-| `deferred` (دورية) | `customer_followup_reasons` ✅ | موجودة |
+| `needs_followup` (دورية) | `periodic_followup_reasons` 🆕 | تُنشأ |
+| `not_resolved` (دورية) | `periodic_not_resolved_reasons` 🆕 | تُنشأ |
+| `customer_declined` (دورية) | `periodic_customer_decline_reasons` 🆕 | تُنشأ |
+| `rescheduled` (مسار مهمة) | `periodic_reschedule_reasons` 🆕 | تُنشأ |
 
 > **مبدأ الفئات:** إعادة استخدام الموجود قدر الإمكان. الفئات الجديدة تُنشأ من شاشة `/system-lists` لا من migrations.
 
@@ -1225,7 +1235,7 @@ derived_outcome = function(لائحة الأعطال على open_task):
 | `visit_task_results` | السجل العام | لكل النتائج | ✅ موجود |
 | `device_technical_states` (`phase='pre'`) | قياسات قبل العمل | إلزامي للنوعين عند بدء التنفيذ | ✅ موجود ومُصمَّم لـ pre/post |
 | `device_technical_states` (`phase='post'`) | قياسات بعد العمل | إلزامي للنوعين عند الإغلاق (إلا الملغاة) | ✅ موجود |
-| `visit_task_maintenance_actions` (إعادة تسمية مقترَحة من `emergency_maintenance_actions`) | ما الذي فعله الفني + إجراءات `emergency_action_types` | عند `resolved`/`performed`/`partially_*` | 🔄 موجود باسم emergency فقط |
+| `visit_task_maintenance_actions` (إعادة تسمية مقترَحة من `emergency_maintenance_actions`) | ما الذي فعله الفني + إجراءات `emergency_action_types` | عند `resolved`/`completed`/`partially_*` | 🔄 موجود باسم emergency فقط |
 | `visit_task_parts_used` (إعادة تسمية مقترَحة من `visit_task_emergency_parts_used`) | القطع المستخدَمة مع `maintenance_type` tag | عند تبديل أي قطعة | 🔄 موجود |
 | `visit_task_service_financials` (إعادة تسمية مقترَحة من `visit_task_emergency_financials`) | التسوية المالية | إلزامي للطارئة، شرطي للدورية | 🔄 موجود |
 
@@ -1276,11 +1286,13 @@ derived_outcome = function(لائحة الأعطال على open_task):
 
 | `final_decision` | `open_task.status` بعد | حقول تُحدَّث |
 |---|---|---|
-| `performed` | `completed` | `installed_devices.warranty_visits -= 1` + `last_periodic_at = closed_at` |
-| `partially_performed` | `needs_follow_up` | `expected_date` للبنود المتبقية |
-| `not_performed` | `needs_follow_up` | + سبب |
-| `deferred` | `needs_follow_up` | `expected_date` |
-| `cancelled` | `cancelled` | `cancellation_reason` |
+| مسار `apply_maintenance` + `completed` | `completed` | `last_periodic_at = closed_at` + توليد الدورية التالية حسب الفترة |
+| مسار `apply_maintenance` + `partially_performed` | `completed` أو `needs_follow_up` حسب سياسة المتابعة | حفظ النواقص/رفض الزبون + توليد/متابعة حسب ملف الدورية |
+| مسار `apply_maintenance` + `needs_followup` | `needs_follow_up` | `expected_date` + سبب |
+| مسار `apply_maintenance` + `not_resolved` | `needs_follow_up` | سبب + ملاحظة فنية |
+| مسار `apply_maintenance` + `customer_declined` | `completed` أو `cancelled` حسب سياسة التشغيل | سبب الرفض، لا تُحسب كإكمال كامل |
+| مسار `rescheduled` | يبقى مفتوحاً/مجدولاً | `expected_date` جديد |
+| مسار `cancelled` | `cancelled` | `cancellation_reason` |
 
 ### المحور 13 — Cascading Effects
 
@@ -1296,8 +1308,8 @@ derived_outcome = function(لائحة الأعطال على open_task):
 
 | المُطلِق | الـ artifact المولَّد |
 |---|---|
-| `performed` + `warranty_visits > 0` بعد الإنقاص | `open_task` جديدة بـ `task_type='periodic_maintenance'` + `due_date = closed_at + maintenance_interval` |
-| `performed` + `warranty_visits = 0` بعد الإنقاص | نهاية دورة الكفالة — تنبيه للزبون لتجديد عقد صيانة. لا توليد جديد. |
+| مسار `apply_maintenance` + `final_decision IN ('completed','partially_performed')` | `open_task` دورية تالية بـ `task_type='periodic_maintenance'` + `due_date = closed_at + maintenance_interval` |
+| مسار `rescheduled` أو `cancelled` | لا توليد لدورية تالية؛ إما تعديل نفس المهمة أو إغلاقها إدارياً |
 | اكتشاف عطل أثناء التنفيذ (مُحسَمة 2026-06-04) | بنداً جديد في **لائحة الأعطال** (`added_during_phase = 'field_discovery'`) داخل نفس open_task الدورية. **لا visit_task جديد، لا open_task جديد، لا cascading.** القطع المُستهلَكة لـ هذا البند تَتبع تصنيفها وفق الطبقة 3 |
 
 ### المحور 13.أ.ج — آلية تأجيل الدورية المُحفَّزة بالقطع (الجسر الجوهري)
@@ -1377,8 +1389,8 @@ Body بـ discriminator على `task_type`. خدمة موحَّدة (`visitTaskR
 - [ ] إعادة تسمية الجداول المشتركة: `visit_task_emergency_*` → `visit_task_service_*` (3 جداول).
 - [ ] إعادة تسمية `emergency_action_types` → `service_action_types` + `emergency_maintenance_actions` → `visit_task_maintenance_actions`.
 - [ ] إضافة `task_type_at_record` على `visit_task_parts_used` و `visit_task_service_financials`.
-- [ ] CHECK على `visit_task_results.final_decision` يشمل القيم العشر (5+5).
-- [ ] فئات `system_lists` الأربع الجديدة (partial/unresolved/periodic_partial/periodic_not_performed) تُنشأ من شاشة `/system-lists`.
+- [ ] CHECK على `visit_task_results.final_decision` يشمل قيم الطارئة وقيم الدورية بعد `apply_maintenance` فقط.
+- [ ] فئات `system_lists` الجديدة للنتائج والمسارات: partial/unresolved للطوارئ، و`periodic_partial_reasons` / `periodic_followup_reasons` / `periodic_not_resolved_reasons` / `periodic_customer_decline_reasons` / `periodic_reschedule_reasons` / `periodic_cancellation_reasons` للدورية.
 - [ ] فئة `system_lists` جديدة `diagnosis_problem_types` للائحة (ب) — تشخيص الأعطال المكتشَفة (P-MAINT-12).
 - [ ] جدول `open_task_emergency_payload` (UNIQUE FK → `open_tasks(id)`) بـ: `source_service_request_id`, `reported_problem_snapshot`, `reported_action_type_id` (P-MAINT-10).
 - [ ] خدمة `services/openTaskEmergencyPayload.ts::createFromServiceRequest()` تُستدعى من promote.
@@ -1519,7 +1531,7 @@ Body بـ discriminator على `task_type`. خدمة موحَّدة (`visitTaskR
 | **P-MAINT-06** | تعامل الكفالة الذهبية | **مُحسَمة جزئياً (2026-06-04):** على مستوى التغطية، الكفالة الذهبية تَلتقط القطع غير-`Periodic` فقط (القطع المكتشَفة في لائحة ب). لا تَدخل في الدوريّات المخطَّطة. التساؤلات المتبقّية حول "زيارات دورية إضافية أم تمديد فترة" تَنطبق فقط على دورية cron-generated، ضمن P-MAINT-05 و P-MAINT-09 (مُؤجَّلَتان لـ V2). |
 | **P-MAINT-07** | الدورية المغطّاة مالياً | هل skip تلقائي لـ phase 4 (costs) للدورية ضمن الكفالة، أم تظهر دائماً بـ total = 0 لتوثيق العمالة المجانية؟ |
 | **P-MAINT-08** | علاقة `emergency_tickets` بـ open_task | **مُحسَمة (2026-06-03):** `emergency_tickets` يصبح legacy، يُستبدَل بـ `service_requests`. راجع قسم ٠.٩. |
-| **P-MAINT-09** | `not_performed` على الدورية | هل تنقص `warranty_visits` أم لا؟ (الفريق وصل لكن لم يُنفِّذ — هل تُحسَب زيارة كفالة مستهلَكة؟) |
+| **P-MAINT-09** | عدم تنفيذ الدورية | تم تصحيح المصطلح: لا يوجد `not_performed` كـ`final_decision` للدورية. عدم التنفيذ قبل التطبيق يُعبَّر بمسار `rescheduled`/`cancelled`، والتعذر بعد التطبيق يُعبَّر بـ`not_resolved`/`customer_declined` حسب الحالة. |
 
 ### Service Requests (V1 — طوارئ فقط)
 
@@ -1623,7 +1635,7 @@ EmergencyResultWizard
 | **Field Discovery أثناء الزيارة** (٠.١٩.ط) | ❌ غير موجود | 🔴 جوهرية |
 | **تمييز `recorded_by` عن `repaired_by`** (٠.١٩.د) | ❌ حقل واحد `closingEmployeeId` فقط | 🟡 متوسطة |
 | **ربط القطعة بعطل محدَّد** | ❌ القطع على مستوى المهمة، لا تُربَط بعطل | 🟡 متوسطة |
-| **`needs_followup` كقرار يُنشئ مهمة جديدة** | ⚠️ موجود في `CostsForm:DECISIONS:18` ("تُنشئ مهمة طوارئ جديدة") — يُخالف القرار الدستوري "لا cascade" | 🔴 يَحتاج حذف |
+| **`needs_followup` كقرار يُنشئ مهمة جديدة** | ✅ أُزيل النص المضلل من الواجهة؛ `needs_followup` يعني حاجة متابعة، وليس بحد ذاته قرار cascade. | ✅ |
 
 #### تقدير العمل لجلب الـ wizard للحياد الدستوري
 

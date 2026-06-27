@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Clock, Image, Loader2, Paperclip, Send, Video, X, Zap } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Clock, Image, Loader2, Send, Video, X, Zap } from 'lucide-react';
 import IconButton from '../ui/IconButton';
 import Select from '../ui/Select';
+import Modal from '../ui/Modal';
 import { api } from '../../lib/api';
 import { uploadFile } from '../../lib/uploadFile';
 
@@ -125,31 +126,35 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-      dir="rtl" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
-
-        {/* Header */}
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4 bg-rose-50 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-rose-600 flex items-center justify-center">
-              <Zap className="h-4 w-4 text-white" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-800">طلب صيانة طارئة</h3>
-              <p className="text-xs text-slate-500 mt-0.5">{clientName}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
-              <Clock className="h-3 w-3" /> 48 ساعة
-            </span>
-            <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-          </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title={
+        <span className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-xl bg-rose-600 flex items-center justify-center shrink-0">
+            <Zap className="h-4 w-4 text-white" />
+          </span>
+          طلب صيانة طارئة
+          <span className="inline-flex items-center gap-1 text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
+            <Clock className="h-3 w-3" /> 48 ساعة
+          </span>
+        </span>
+      }
+      subtitle={clientName}
+      footer={
+        <div className="flex w-full gap-3">
+          <button onClick={onClose} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
+          <button onClick={handleSubmit} disabled={saving || attachments.some(a => a.uploading)}
+            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-rose-600 py-2.5 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60 shadow-sm">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {saving ? 'جاري الإرسال...' : 'إرسال الطلب'}
+          </button>
         </div>
-
+      }
+    >
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="p-5 space-y-4">
 
           {/* Contract */}
           {contracts.length > 0 && (
@@ -288,17 +293,6 @@ export default function RequestEmergencyModal({ clientId, clientName, clientRati
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="flex gap-3 border-t border-slate-100 px-5 py-4 shrink-0">
-          <button onClick={onClose} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-          <button onClick={handleSubmit} disabled={saving || attachments.some(a => a.uploading)}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-rose-600 py-2.5 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60 shadow-sm">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {saving ? 'جاري الإرسال...' : 'إرسال الطلب'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

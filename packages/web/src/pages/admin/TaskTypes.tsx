@@ -7,6 +7,7 @@ import {
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import Select from '../../components/ui/Select';
+import PageHeader from '../../components/ui/PageHeader';
 import {
   TASK_SCHEDULING_PATTERN_LABELS,
   TASK_SCHEDULING_PATTERN_DESCRIPTIONS,
@@ -151,19 +152,16 @@ export default function TaskTypes() {
     <div className="h-full overflow-y-auto p-8 custom-scroll">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
+        <PageHeader
+          className="mb-6"
+          title="إعدادات أنواع المهام"
+          subtitle="تحكم في النوافذ الزمنية (N) وتفعيل/تعطيل كل نوع — حسب نمطه الزمني."
+          icon={
             <div className="w-10 h-10 rounded-lg bg-sky-50 flex items-center justify-center">
               <Settings2 className="w-5 h-5 text-sky-600" />
             </div>
-            <div>
-              <h1 className="text-2xl mb-1 font-bold text-slate-800">إعدادات أنواع المهام</h1>
-              <p className="text-slate-500 text-sm">
-                تحكم في النوافذ الزمنية (N) وتفعيل/تعطيل كل نوع — حسب نمطه الزمني.
-              </p>
-            </div>
-          </div>
-        </div>
+          }
+        />
 
         {/* Info card */}
         <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 mb-6 flex gap-3">

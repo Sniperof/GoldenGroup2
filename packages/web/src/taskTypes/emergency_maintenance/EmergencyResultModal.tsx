@@ -18,6 +18,7 @@ import { api } from '../../lib/api';
 import EmergencyResultWizard from '../../components/emergency/EmergencyResultWizard';
 
 type Mode = 'choose' | 'apply' | 'reschedule' | 'cancel';
+type MaintenanceKind = 'emergency' | 'periodic';
 
 interface Props {
   taskId: number;
@@ -26,6 +27,7 @@ interface Props {
   /** field_visit_id — for the POST URL. */
   visitId?: number | null;
   contractId?: number | null;
+  maintenanceKind?: MaintenanceKind;
   readOnly?: boolean;
   visitTechnicianEmployeeId?: number | null;
   visitTechnicianName?: string | null;
@@ -40,6 +42,7 @@ export default function EmergencyResultModal({
   visitTaskId,
   visitId,
   contractId = null,
+  maintenanceKind = 'emergency',
   readOnly = false,
   visitTechnicianEmployeeId = null,
   visitTechnicianName = null,
@@ -48,6 +51,7 @@ export default function EmergencyResultModal({
 }: Props) {
   const [mode, setMode] = useState<Mode>('choose');
   const close = () => { onSaved?.(); onClose(); };
+  const maintenanceLabel = maintenanceKind === 'periodic' ? 'الصيانة الدورية' : 'الصيانة الطارئة';
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80]" dir="rtl">
@@ -63,7 +67,7 @@ export default function EmergencyResultModal({
               </button>
             )}
             <h2 className="text-lg font-bold text-slate-800">
-              {mode === 'choose'     && `نتيجة الصيانة الطارئة — مهمة #${taskId}`}
+              {mode === 'choose'     && `نتيجة ${maintenanceLabel} — مهمة #${taskId}`}
               {mode === 'apply'      && `تطبيق الصيانة — مهمة #${taskId}`}
               {mode === 'reschedule' && `إعادة جَدولة المهمة #${taskId}`}
               {mode === 'cancel'     && `إلغاء المهمة #${taskId}`}
@@ -73,12 +77,13 @@ export default function EmergencyResultModal({
         </header>
 
         <div className="overflow-auto p-4">
-          {mode === 'choose' && <ChooserScreen onPick={setMode} />}
+          {mode === 'choose' && <ChooserScreen maintenanceKind={maintenanceKind} onPick={setMode} />}
 
           {mode === 'apply' && (
             <EmergencyResultWizard
               taskId={taskId}
               contractId={contractId}
+              maintenanceKind={maintenanceKind}
               readOnly={readOnly}
               visitTechnicianEmployeeId={visitTechnicianEmployeeId}
               visitTechnicianName={visitTechnicianName}
@@ -112,12 +117,15 @@ export default function EmergencyResultModal({
 }
 
 // ── Chooser screen ────────────────────────────────────────────────
-function ChooserScreen({ onPick }: { onPick: (m: Mode) => void }) {
+function ChooserScreen({ maintenanceKind, onPick }: { maintenanceKind: MaintenanceKind; onPick: (m: Mode) => void }) {
+  const isPeriodic = maintenanceKind === 'periodic';
   const options = [
     {
       key: 'apply' as const,
       title: 'تَطبيق الصيانة',
-      desc: 'الفني نَفَّذ العَمل ميدانياً — تَسجيل الحالة قَبل/بعد، الأعطال، القطع، التَكاليف.',
+      desc: isPeriodic
+        ? 'الفني نَفَّذ زيارة الصيانة الدورية — تَسجيل الحالة قَبل/بعد، الأعمال، القطع، التَكاليف.'
+        : 'الفني نَفَّذ العَمل ميدانياً — تَسجيل الحالة قَبل/بعد، الأعطال، القطع، التَكاليف.',
       icon: Wrench,
       iconBg: 'bg-emerald-100',
       iconText: 'text-emerald-700',
@@ -126,7 +134,9 @@ function ChooserScreen({ onPick }: { onPick: (m: Mode) => void }) {
     {
       key: 'reschedule' as const,
       title: 'إعادة جَدولة',
-      desc: 'تَعَذَّر التَنفيذ ميدانياً — تَعود المهمة لمَرحلة الانتظار بحالة "بحاجة متابعة" مع تاريخ مُتوقَّع.',
+      desc: isPeriodic
+        ? 'تَعَذَّر تنفيذ الزيارة الدورية ميدانياً — تَعود المهمة للمتابعة مع تاريخ مُتوقَّع.'
+        : 'تَعَذَّر التَنفيذ ميدانياً — تَعود المهمة لمَرحلة الانتظار بحالة "بحاجة متابعة" مع تاريخ مُتوقَّع.',
       icon: CalendarClock,
       iconBg: 'bg-amber-100',
       iconText: 'text-amber-700',

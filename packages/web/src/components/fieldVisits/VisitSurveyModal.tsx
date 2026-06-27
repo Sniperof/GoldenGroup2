@@ -7,11 +7,11 @@
 // ============================================================
 
 import { useEffect, useState } from 'react';
-import { X, ClipboardCheck, Save, SkipForward } from 'lucide-react';
-import IconButton from '../ui/IconButton';
+import { ClipboardCheck, Save, SkipForward } from 'lucide-react';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
 import Input from '../ui/Input';
+import Modal from '../ui/Modal';
 
 interface Props {
   visitId: number;
@@ -158,20 +158,40 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
     }
   }
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        <header className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50">
-          <div className="flex items-center gap-2">
-            <ClipboardCheck className="w-4 h-4 text-emerald-700" />
-            <h2 className="text-lg font-bold text-slate-800">استبيان الزيارة</h2>
-          </div>
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-        </header>
-
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      size="2xl"
+      closeOnBackdrop={!busy}
+      closeOnEsc={!busy}
+      title={
+        <span className="flex items-center gap-2">
+          <ClipboardCheck className="w-4 h-4 text-emerald-700" />
+          استبيان الزيارة
+        </span>
+      }
+      footer={
+        <>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-700 bg-white hover:bg-slate-100"
+          >
+            إلغاء
+          </button>
+          <button
+            onClick={() => void save()}
+            disabled={busy}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-1"
+          >
+            {skipMode ? <SkipForward className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+            {skipMode ? 'تأكيد التخطي' : 'حفظ الاستبيان'}
+          </button>
+        </>
+      }
+    >
+        <div className="px-5 py-4 space-y-3">
           {error && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-2 text-xs font-bold text-red-700">
               {error}
@@ -237,26 +257,7 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
             </div>
           )}
         </div>
-
-        <footer className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
-          <button
-            onClick={onClose}
-            disabled={busy}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-700 bg-white hover:bg-slate-100"
-          >
-            إلغاء
-          </button>
-          <button
-            onClick={() => void save()}
-            disabled={busy}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-1"
-          >
-            {skipMode ? <SkipForward className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-            {skipMode ? 'تأكيد التخطي' : 'حفظ الاستبيان'}
-          </button>
-        </footer>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

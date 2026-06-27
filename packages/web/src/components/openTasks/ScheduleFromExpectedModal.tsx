@@ -8,11 +8,11 @@
 // ============================================================
 
 import { useState } from 'react';
-import IconButton from '../ui/IconButton';
-import { X, CalendarClock, Save } from 'lucide-react';
+import { CalendarClock, Save } from 'lucide-react';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
+import Modal from '../ui/Modal';
 
 interface Props {
   taskId: number;
@@ -56,19 +56,25 @@ export default function ScheduleFromExpectedModal({
     }
   }
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
-        <header className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50">
-          <div className="flex items-center gap-2">
-            <CalendarClock className="w-4 h-4 text-indigo-700" />
-            <h2 className="text-lg font-bold text-slate-800">حجز زيارة من الموعد المتوقع</h2>
-          </div>
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-        </header>
-
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      closeOnEsc={!busy}
+      closeOnBackdrop={!busy}
+      title={
+        <span className="flex items-center gap-2">
+          <CalendarClock className="w-4 h-4 text-indigo-700" />
+          حجز زيارة من الموعد المتوقع
+        </span>
+      }
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>إلغاء</Button>
+          <Button size="sm" onClick={() => void save()} disabled={busy} icon={Save}>حجز</Button>
+        </>
+      }
+    >
         <div className="px-5 py-4 space-y-3">
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs font-bold text-red-700">
@@ -120,12 +126,6 @@ export default function ScheduleFromExpectedModal({
             />
           </div>
         </div>
-
-        <footer className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
-          <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>إلغاء</Button>
-          <Button size="sm" onClick={() => void save()} disabled={busy} icon={Save}>حجز</Button>
-        </footer>
-      </div>
-    </div>
+    </Modal>
   );
 }

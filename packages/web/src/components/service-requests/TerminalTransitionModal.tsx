@@ -16,9 +16,9 @@
 //   - Use Arabic labels backed by the constitutional enum values.
 // ============================================================
 import { useState } from 'react';
-import IconButton from '../ui/IconButton';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import Button, { type ButtonVariant } from '../ui/Button';
+import Modal from '../ui/Modal';
 
 export type ModalMode = 'requestInfo' | 'resolveAtIntake' | 'escalate' | 'cancel';
 
@@ -174,18 +174,19 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" dir="rtl">
-      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-auto">
-        <header className="flex items-center justify-between p-4 border-b border-slate-200">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-slate-800">{cfg.title}</h2>
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${cfg.badgeClass}`}>
-              {cfg.badge}
-            </span>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} disabled={busy} />
-        </header>
-
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      closeOnEsc={!busy}
+      closeOnBackdrop={!busy}
+      title={
+        <span className="flex items-center gap-2">
+          {cfg.title}
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${cfg.badgeClass}`}>{cfg.badge}</span>
+        </span>
+      }
+    >
         <div className="p-4 space-y-4">
           <div className={`flex items-start gap-2 text-sm p-3 rounded ${
             cfg.isTerminal ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-blue-50 border border-blue-200 text-blue-900'
@@ -285,7 +286,6 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

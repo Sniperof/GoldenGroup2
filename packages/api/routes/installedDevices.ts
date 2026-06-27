@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
+import { createManualPeriodicMaintenanceTask } from '../services/periodicMaintenanceTasks.js';
 import { TECH_STATE_FIELDS, mapTechState } from './emergencyResult.js';
 
 const router = Router();
@@ -258,6 +259,49 @@ router.get('/:id', requirePermission('installed_devices.view', 'clients.devices.
   };
   if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
   res.json(rows[0]);
+});
+
+// POST /api/installed-devices/:id/periodic-maintenance
+router.post('/:id/periodic-maintenance', requirePermission('tasks.periodic.create_manual'), async (req, res) => {
+  const authContext = req.authContext!;
+  const deviceId = Number(req.params.id);
+  if (!Number.isInteger(deviceId) || deviceId <= 0) {
+    return res.status(400).json({ error: 'معرف الجهاز غير صالح' });
+  }
+
+  const { rows: devRows } = await pool.query(
+    `SELECT branch_id AS "branchId"
+       FROM installed_devices
+      WHERE id = $1`,
+    [deviceId],
+  );
+  if (!devRows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
+
+  const access = authorize(authContext, {
+    permission: 'tasks.periodic.create_manual',
+    branchId: devRows[0].branchId,
+  });
+  if (!access.allowed) return res.status(403).json({ error: 'غير مسموح بإنشاء دورية لهذا الفرع' });
+
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    const result = await createManualPeriodicMaintenanceTask(db, {
+      installedDeviceId: deviceId,
+      dueDate: String(req.body?.dueDate ?? req.body?.due_date ?? ''),
+      manualReason: String(req.body?.manualReason ?? req.body?.manual_reason ?? ''),
+      intervalMonths: req.body?.intervalMonths ?? req.body?.interval_months ?? null,
+      notes: req.body?.notes ?? null,
+      createdByUserId: authContext.userId ?? null,
+    });
+    await db.query('COMMIT');
+    return res.status(201).json({ ok: true, ...result });
+  } catch (err: any) {
+    await db.query('ROLLBACK');
+    return res.status(400).json({ error: err?.message ?? 'فشل إنشاء الصيانة الدورية' });
+  } finally {
+    db.release();
+  }
 });
 
 // GET /api/installed-devices/:id/problems — full diagnosed-problems history

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Loader2, Plus, Trash2, X } from 'lucide-react';
+import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
 import Select from '../ui/Select';
-import IconButton from '../ui/IconButton';
+import Modal from '../ui/Modal';
 
 type OfferDraft = {
   deviceModelId: string;
@@ -115,8 +115,6 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
   const usedDeviceIds = useMemo(() => new Set(offers.map(offer => offer.deviceModelId)), [offers]);
   const availableDevices = deviceModels.filter(model => !usedDeviceIds.has(String(model.id)));
 
-  if (!isOpen) return null;
-
   function updateDraft(field: keyof OfferDraft, value: string) {
     setDraft(current => ({ ...current, [field]: value }));
   }
@@ -182,17 +180,26 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
-      <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-800">إنشاء عروض أجهزة مستقلة</h3>
-            <p className="mt-1 text-xs text-slate-500">{client.name}</p>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} />
-        </div>
-
-        <div className="max-h-[78vh] space-y-5 overflow-y-auto bg-slate-50/50 px-6 py-6">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="5xl"
+      title="إنشاء عروض أجهزة مستقلة"
+      subtitle={client.name}
+      bodyClassName="bg-slate-50/50"
+      footer={
+        <>
+          <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50">
+            إلغاء
+          </button>
+          <button onClick={submit} disabled={saving || loading} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            حفظ العروض
+          </button>
+        </>
+      }
+    >
+        <div className="space-y-5 px-6 py-6">
           {loading ? (
             <div className="py-16 text-center">
               <Loader2 className="mx-auto h-8 w-8 animate-spin text-slate-300" />
@@ -345,18 +352,7 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
             </>
           )}
         </div>
-
-        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4">
-          <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50">
-            إلغاء
-          </button>
-          <button onClick={submit} disabled={saving || loading} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            حفظ العروض
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

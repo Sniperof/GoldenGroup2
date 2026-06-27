@@ -5,10 +5,14 @@ import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import Select from '../../components/ui/Select';
+import PageHeader from '../../components/ui/PageHeader';
+import SmartTable from '../../components/SmartTable';
+import type { ColumnDef } from '../../components/SmartTable';
 import {
   OPEN_TASK_STATUS_LABELS,
   OPEN_TASK_PHASE_LABELS,
   OPEN_TASK_PHASE_COLORS,
+  OPEN_TASK_TYPE_LABELS,
   getTaskPhase,
   type OpenTaskStatus,
   type CustomerOwnership,
@@ -71,7 +75,7 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   'collection': {
     label: 'مهام تسديد الذمم',
     subtitle: 'تسديد الذمم المفتوحة المرتبطة بالأقساط ومصادرها',
-    taskTypes: ['installment_collection', 'maintenance_collection'],
+    taskTypes: ['installment_collection'],
     Icon: DollarSign,
     accentBg: 'bg-emerald-500',
     accentRing: 'shadow-emerald-500/20',
@@ -79,8 +83,8 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   },
   'after-sale-services': {
     label: 'مهام خدمات ما بعد البيع',
-    subtitle: 'الفحص والإصلاح والسحب والإرجاع والنقل وبيع القطع',
-    taskTypes: ['device_repair', 'device_retrieval', 'device_return', 'device_transfer', 'parts_sale'],
+    subtitle: 'الفحص والسحب والإرجاع والنقل',
+    taskTypes: ['device_checkup', 'device_retrieval', 'device_return', 'device_transfer'],
     Icon: RefreshCw,
     accentBg: 'bg-sky-500',
     accentRing: 'shadow-sky-500/20',
@@ -97,8 +101,8 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
   },
   'warranty-services': {
     label: 'مهام خدمات الكفالة',
-    subtitle: 'الكفالة الذهبية، إعادة تفعيل الكفالة, وإلغاؤها',
-    taskTypes: ['golden_warranty', 'golden_warranty_offer', 'golden_warranty_card_delivery', 'warranty_reactivation', 'warranty_cancellation'],
+    subtitle: 'عروض الكفالة الذهبية وتسليم بطاقاتها',
+    taskTypes: ['golden_warranty_offer', 'golden_warranty_card_delivery'],
     Icon: ShieldCheck,
     accentBg: 'bg-violet-500',
     accentRing: 'shadow-violet-500/20',
@@ -306,6 +310,8 @@ function getLocation(row: any, geoMap: Map<number, GeoUnit>): string {
 }
 
 function getTaskTypeLabel(taskType: string): string {
+  const sharedLabel = (OPEN_TASK_TYPE_LABELS as Record<string, string>)[taskType];
+  if (sharedLabel) return sharedLabel;
   switch (taskType) {
     case 'device_demo':
       return 'عرض جهاز';
@@ -325,16 +331,10 @@ function getTaskTypeLabel(taskType: string): string {
       return 'تحصيل';
     case 'gift_delivery':
       return 'تسليم هدية';
-    case 'golden_warranty':
-      return 'كفالة ذهبية';
     case 'golden_warranty_offer':
       return 'عرض كفالة ذهبية';
     case 'golden_warranty_card_delivery':
       return 'تسليم كرت كفالة ذهبية';
-    case 'warranty_reactivation':
-      return 'إعادة تفعيل كفالة';
-    case 'warranty_cancellation':
-      return 'إلغاء كفالة';
     default:
       return taskType;
   }
@@ -364,6 +364,13 @@ function getCreatorLabel(row: any): string {
 
 function getDateCounterReference(row: any): string | null {
   return row.taskStatus === 'completed' ? (row.completedAt ?? row.updatedAt ?? null) : null;
+}
+
+function getPeriodicSupersessionLabel(row: any): string | null {
+  const reason = row.periodicSupersession?.reason;
+  if (reason === 'superseded_within_emergency') return 'مُكتفى عنها بطارئة';
+  if (reason === 'superseded_within_periodic') return 'مُكتفى عنها بدورية';
+  return null;
 }
 
 // ============================================================
@@ -476,6 +483,138 @@ export default function TaskGroupPage() {
   const notWiredYet = false;
   const geoMap = new Map(geoUnits.map((unit) => [unit.id, unit]));
 
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const columns: ColumnDef<any>[] = [
+    {
+      key: 'id', label: 'معرف المهمة',
+      render: (row) => <span className="text-slate-700 font-mono text-xs">#{row.id}</span>,
+    },
+    {
+      key: 'taskType', label: 'نوع المهمة',
+      render: (row) => (
+        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-bold text-slate-700">
+          {getTaskTypeLabel(row.taskType)}
+        </span>
+      ),
+    },
+    { key: 'branch', label: 'الفرع', render: (row) => <span className="text-slate-600">{getBranchLabel(row)}</span> },
+    {
+      key: 'name', label: 'اسم الزبون الكامل',
+      render: (row) => {
+        const name = getFullCustomerName(row);
+        return row.clientId ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); setClientPopupId(row.clientId); }}
+            className="font-medium text-slate-800 hover:text-indigo-700 hover:underline transition-colors"
+          >
+            {name}
+          </button>
+        ) : (
+          <span className="font-medium text-slate-800">{name}</span>
+        );
+      },
+    },
+    { key: 'classification', label: 'تصنيف الزبون', render: (row) => <ClientClassificationCell value={row.clientClassification} /> },
+    { key: 'location', label: 'العنوان', render: (row) => <span className="text-slate-600 whitespace-nowrap">{getLocation(row, geoMap)}</span> },
+    { key: 'mobile', label: 'رقم الموبايل الأساسي', render: (row) => <span className="text-slate-600" dir="ltr">{getPrimaryMobile(row)}</span> },
+    { key: 'ownership', label: 'الملكية', render: (row) => <OwnershipCell ownership={row.ownership} /> },
+    {
+      key: 'phase', label: 'المرحلة',
+      render: (row) => {
+        const phase = (row.phase ?? getTaskPhase(row.taskStatus as OpenTaskStatus)) as keyof typeof OPEN_TASK_PHASE_LABELS;
+        return (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold border ${OPEN_TASK_PHASE_COLORS[phase]}`}>
+            {OPEN_TASK_PHASE_LABELS[phase]}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'status', label: 'الحالة',
+      render: (row) => {
+        const supersessionLabel = getPeriodicSupersessionLabel(row);
+        return (
+          <div className="flex flex-col items-start gap-1">
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${TASK_STATUS_COLORS[row.taskStatus] || 'bg-slate-100 text-slate-600'}`}>
+              {(OPEN_TASK_STATUS_LABELS as Record<string, string>)[row.taskStatus] || row.taskStatus}
+            </span>
+            {supersessionLabel && (
+              <span className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                {supersessionLabel}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'priority', label: 'الأولوية',
+      render: (row) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <Select
+            value={row.priority || ''}
+            onChange={(v) => handlePriorityChange(row.id, v)}
+            disabled={savingPriorityId === row.id}
+            size="sm"
+            ariaLabel="الأولوية"
+            options={[
+              { value: '', label: '—' },
+              { value: 'high', label: PRIORITY_LABELS.high },
+              { value: 'medium', label: PRIORITY_LABELS.medium },
+              { value: 'low', label: PRIORITY_LABELS.low },
+            ]}
+          />
+        </div>
+      ),
+    },
+    {
+      key: 'dueDate', label: 'التاريخ المطلوب',
+      render: (row) => {
+        const s = getDueDateStatus(row.dueDate, getDateCounterReference(row));
+        if (!s) return <span className="text-slate-300">—</span>;
+        return (
+          <div className="flex flex-col gap-1 items-start text-xs">
+            <span className={s.textClass}>{formatDate(row.dueDate)}</span>
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>{s.shortLabel}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'expectedDate', label: 'التاريخ المتوقع',
+      render: (row) => {
+        if (!row.expectedDate) return <span className="text-slate-300">—</span>;
+        const s = getExpectedDateStatus(row.expectedDate, getDateCounterReference(row));
+        if (!s) return <span className="text-slate-600 text-xs">{formatDate(row.expectedDate)}</span>;
+        return (
+          <div className="flex flex-col gap-1 items-start text-xs">
+            <span className={s.textClass}>{formatDate(row.expectedDate)}</span>
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>{s.shortLabel}</span>
+          </div>
+        );
+      },
+    },
+    { key: 'scheduledDate', label: 'تاريخ الزيارة', render: (row) => <span className="text-slate-600">{formatDate(row.scheduledDate)}</span> },
+    {
+      key: 'visitStatus', label: 'حالة الزيارة',
+      render: (row) => row.visitStatus ? (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${VISIT_STATUS_COLORS[row.visitStatus] || 'bg-slate-100 text-slate-600'}`}>
+          {VISIT_STATUS_LABELS[row.visitStatus] || row.visitStatus}
+        </span>
+      ) : (
+        <span className="text-slate-400 text-xs">—</span>
+      ),
+    },
+    {
+      key: 'latestResult', label: 'نتيجة الزيارة',
+      render: (row) => row.latestResult
+        ? <span className="font-mono text-slate-600 text-xs">{row.latestResult}</span>
+        : <span className="text-slate-400 text-xs">—</span>,
+    },
+    { key: 'creator', label: 'منشئ المهمة', render: (row) => <span className="text-slate-600">{getCreatorLabel(row)}</span> },
+    { key: 'createdAt', label: 'تاريخ الإنشاء', render: (row) => <span className="text-slate-500 text-xs">{formatDate(row.createdAt)}</span> },
+  ];
+
   // Every task group (incl. warranty-services: offers + VIP-card delivery) renders
   // as a single unified table.
   const tableGroups: Array<{ key: string; heading: string | null; rows: any[] }> =
@@ -485,16 +624,17 @@ export default function TaskGroupPage() {
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${config.accentBg} ${config.accentRing}`}>
-            <Icon className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl mb-1 font-bold text-slate-800">{config.label}</h1>
-            <p className="text-sm text-slate-500">{config.subtitle}</p>
-            <div className="mt-2"><BranchScopeIndicator /></div>
-          </div>
-        </div>
+        <PageHeader
+          title={config.label}
+          subtitle={config.subtitle}
+          icon={
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${config.accentBg} ${config.accentRing}`}>
+              <Icon className="w-5 h-5 text-white" />
+            </div>
+          }
+        >
+          <BranchScopeIndicator />
+        </PageHeader>
 
         {/* Filters */}
         <div className="flex items-center gap-2 flex-wrap">
@@ -503,7 +643,6 @@ export default function TaskGroupPage() {
           <Select
             value={statusFilter}
             onChange={(v) => setStatusFilter(v)}
-            size="sm"
             ariaLabel="حالة المهمة"
             options={[
               { value: '', label: 'كل حالات المهمة' },
@@ -514,7 +653,6 @@ export default function TaskGroupPage() {
           <Select
             value={visitStatusFilter}
             onChange={(v) => setVisitStatusFilter(v)}
-            size="sm"
             ariaLabel="حالة الزيارة"
             options={[
               { value: '', label: 'كل حالات الزيارة' },
@@ -525,7 +663,6 @@ export default function TaskGroupPage() {
           <Select
             value={scheduledFilter}
             onChange={(v) => setScheduledFilter(v)}
-            size="sm"
             ariaLabel="مجدول / غير مجدول"
             options={[
               { value: '', label: 'مجدول / غير مجدول' },
@@ -538,10 +675,10 @@ export default function TaskGroupPage() {
             type="date"
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="h-[39px] border border-slate-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
           />
 
-          <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2 px-3 h-[39px] bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
             <input
               type="checkbox"
               checked={hideSnoozed}
@@ -551,7 +688,7 @@ export default function TaskGroupPage() {
             <span title="المهام التي حدد لها التلمارك موعداً متوقعاً في المستقبل">إخفاء المؤجلة</span>
           </label>
 
-          <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2 px-3 h-[39px] bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
             <input
               type="checkbox"
               checked={hideFutureTasks}
@@ -599,147 +736,20 @@ export default function TaskGroupPage() {
 
       {/* Single unified table per group (warranty-services offers + card-delivery combined) */}
       {!loading && rows.length > 0 && tableGroups.map((g) => (
-        <div key={g.key} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          {g.heading && (
-            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">{g.heading}</div>
-          )}
-          {/* Horizontal scroll: table expands to natural width so every row stays on one line. */}
-          <div className="overflow-x-auto">
-            <table className="text-sm min-w-max whitespace-nowrap">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">معرف المهمة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">نوع المهمة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الفرع</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">اسم الزبون الكامل</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">تصنيف الزبون</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">العنوان</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">رقم الموبايل الأساسي</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الملكية</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">المرحلة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الحالة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">الأولوية</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">التاريخ المطلوب</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">التاريخ المتوقع</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">تاريخ الزيارة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">حالة الزيارة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">نتيجة الزيارة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">منشئ المهمة</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">تاريخ الإنشاء</th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.rows.map((row) => {
-                  const mobile = getPrimaryMobile(row);
-                  const name = getFullCustomerName(row);
-                  const phase = (row.phase ?? getTaskPhase(row.taskStatus as OpenTaskStatus)) as keyof typeof OPEN_TASK_PHASE_LABELS;
-                  const dateCounterReference = getDateCounterReference(row);
-
-                  return (
-                    <tr key={row.id} className="border-b border-slate-100 hover:bg-indigo-50 hover:cursor-pointer transition-colors" onClick={() => navigate(`${(group === 'my-customers' ? (TASK_TYPE_DETAIL_HREF[row.taskType] ?? config.detailHref) : config.detailHref)}/${row.id}`)}>
-                      <td className="px-4 py-3 text-slate-700 font-mono text-xs">
-                        #{row.id}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-bold text-slate-700">
-                          {getTaskTypeLabel(row.taskType)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{getBranchLabel(row)}</td>
-                      <td className="px-4 py-3">
-                        {row.clientId ? (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setClientPopupId(row.clientId); }}
-                            className="font-medium text-slate-800 hover:text-indigo-700 hover:underline transition-colors"
-                          >
-                            {name}
-                          </button>
-                        ) : (
-                          <span className="font-medium text-slate-800">{name}</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3"><ClientClassificationCell value={row.clientClassification} /></td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{getLocation(row, geoMap)}</td>
-                      <td className="px-4 py-3 text-slate-600" dir="ltr">{mobile}</td>
-                      <td className="px-4 py-3"><OwnershipCell ownership={row.ownership} /></td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold border ${OPEN_TASK_PHASE_COLORS[phase]}`}>
-                          {OPEN_TASK_PHASE_LABELS[phase]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${TASK_STATUS_COLORS[row.taskStatus] || 'bg-slate-100 text-slate-600'}`}>
-                          {(OPEN_TASK_STATUS_LABELS as Record<string, string>)[row.taskStatus] || row.taskStatus}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <Select
-                          value={row.priority || ''}
-                          onChange={(v) => handlePriorityChange(row.id, v)}
-                          disabled={savingPriorityId === row.id}
-                          size="sm"
-                          ariaLabel="الأولوية"
-                          options={[
-                            { value: '', label: '—' },
-                            { value: 'high', label: PRIORITY_LABELS.high },
-                            { value: 'medium', label: PRIORITY_LABELS.medium },
-                            { value: 'low', label: PRIORITY_LABELS.low },
-                          ]}
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        {(() => {
-                          const s = getDueDateStatus(row.dueDate, dateCounterReference);
-                          if (!s) return <span className="text-slate-300">—</span>;
-                          return (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className={s.textClass}>{formatDate(row.dueDate)}</span>
-                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>
-                                {s.shortLabel}
-                              </span>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        {(() => {
-                          if (!row.expectedDate) return <span className="text-slate-300">—</span>;
-                          const s = getExpectedDateStatus(row.expectedDate, dateCounterReference);
-                          if (!s) return <span className="text-slate-600">{formatDate(row.expectedDate)}</span>;
-                          return (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className={s.textClass}>{formatDate(row.expectedDate)}</span>
-                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${s.badgeClass}`}>
-                                {s.shortLabel}
-                              </span>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{formatDate(row.scheduledDate)}</td>
-                      <td className="px-4 py-3">
-                        {row.visitStatus ? (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${VISIT_STATUS_COLORS[row.visitStatus] || 'bg-slate-100 text-slate-600'}`}>
-                            {VISIT_STATUS_LABELS[row.visitStatus] || row.visitStatus}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 text-xs">
-                        {row.latestResult
-                          ? <span className="font-mono">{row.latestResult}</span>
-                          : <span className="text-slate-400">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{getCreatorLabel(row)}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs">{formatDate(row.createdAt)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <SmartTable<any>
+          key={g.key}
+          title={g.heading ?? 'قائمة المهام'}
+          icon={Icon}
+          data={g.rows}
+          columns={columns}
+          getId={(row) => row.id}
+          hideFilterBar
+          paginated={false}
+          tableMinWidth={2200}
+          emptyIcon={Icon}
+          emptyMessage="لا توجد مهام"
+          onRowClick={(row) => navigate(`${(group === 'my-customers' ? (TASK_TYPE_DETAIL_HREF[row.taskType] ?? config.detailHref) : config.detailHref)}/${row.id}`)}
+        />
       ))}
 
       {clientPopupId !== null && (

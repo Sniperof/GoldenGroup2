@@ -4,6 +4,7 @@ import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } f
 import type { LucideIcon } from 'lucide-react';
 import Select from './ui/Select';
 import Input from './ui/Input';
+import PageHeader from './ui/PageHeader';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -34,6 +35,15 @@ export interface BulkActionDef<T> {
 
 export interface SmartTableProps<T> {
     title: string;
+    /** Optional descriptive line under the title. Defaults to the record count. */
+    subtitle?: ReactNode;
+    /**
+     * Where the title block is rendered:
+     *  - 'card' (default): inside the table card as a section header.
+     *  - 'page': as a unified page-level header (matching <PageHeader>) ABOVE the card.
+     * Use 'page' when the table IS the page's primary content (no separate page header).
+     */
+    titlePlacement?: 'card' | 'page';
     icon: LucideIcon;
     data: T[];
     columns: ColumnDef<T>[];
@@ -53,6 +63,12 @@ export interface SmartTableProps<T> {
     tableMinWidth?: number;
     defaultSortKey?: string;
     defaultSortDir?: 'asc' | 'desc';
+    /**
+     * Client-side pagination. Default `true` (10/page with footer nav).
+     * Set `false` to render ALL rows on one page — no page navigation and no
+     * filler rows — for tables whose source showed every row.
+     */
+    paginated?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -97,6 +113,8 @@ export default function SmartTable<T>({
     icon: Icon,
     data,
     columns,
+    subtitle,
+    titlePlacement = 'card',
     filters = [],
     searchKeys = [],
     searchPlaceholder = 'بحث...',
@@ -113,6 +131,7 @@ export default function SmartTable<T>({
     tableMinWidth = 860,
     defaultSortKey,
     defaultSortDir,
+    paginated = true,
 }: SmartTableProps<T> & { rowClassName?: (item: T) => string }) {
 
     /* ---------- state ---------- */
@@ -165,15 +184,18 @@ export default function SmartTable<T>({
     }, [filtered, sortKey, sortDir, columns]);
 
     /* ---------- pagination ---------- */
-    const totalPages = Math.max(1, Math.ceil(sorted.length / itemsPerPage));
+    // When pagination is off, every row renders on a single page.
+    const effectivePerPage = paginated ? itemsPerPage : Math.max(1, sorted.length);
+    const totalPages = Math.max(1, Math.ceil(sorted.length / effectivePerPage));
 
     const paginatedData = useMemo(() => {
+        if (!paginated) return sorted;
         const start = (currentPage - 1) * itemsPerPage;
         return sorted.slice(start, start + itemsPerPage);
-    }, [sorted, currentPage, itemsPerPage]);
+    }, [sorted, currentPage, itemsPerPage, paginated]);
 
-    // number of empty filler rows to keep the table height fixed
-    const fillerRows = paginatedData.length > 0
+    // number of empty filler rows to keep the table height fixed (paginated only)
+    const fillerRows = paginated && paginatedData.length > 0
         ? Math.max(0, itemsPerPage - paginatedData.length)
         : 0;
 
@@ -226,16 +248,63 @@ export default function SmartTable<T>({
     const hasActiveFilters = search.trim() !== '' || Object.values(filterValues).some(v => v !== 'all');
 
     const colSpanTotal = columns.length + (bulkActions ? 1 : 0) + (actions ? 1 : 0);
-    const startRecord = sorted.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
-    const endRecord   = Math.min(sorted.length, currentPage * itemsPerPage);
+    const startRecord = sorted.length === 0 ? 0 : (currentPage - 1) * effectivePerPage + 1;
+    const endRecord   = Math.min(sorted.length, currentPage * effectivePerPage);
+
+    /* Record-count line (used as the default subtitle). */
+    const countNode = hasActiveFilters
+        ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
+        : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>;
+
+    /* Header toolbar (reset filters · export · custom header actions). */
+    const toolbar = (
+        <>
+            {hasActiveFilters && (
+                <button
+                    onClick={resetFilters}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
+                >
+                    <RotateCcw className="w-3 h-3" />
+                    مسح الفلاتر
+                </button>
+            )}
+            <button
+                onClick={() => exportCSV(columns, sorted, title)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
+            >
+                <Download className="w-3 h-3" />
+                تصدير CSV
+            </button>
+            {headerActions}
+        </>
+    );
 
     /* ---------------------------------------------------------------- */
     /*  Render                                                           */
     /* ---------------------------------------------------------------- */
     return (
+        <>
+            {/* ── PAGE-LEVEL HEADER (title above the card) ── */}
+            {titlePlacement === 'page' && (
+                <PageHeader
+                    className="mb-5"
+                    title={title}
+                    subtitle={subtitle ?? countNode}
+                    icon={
+                        <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">
+                            <Icon className="w-5 h-5 text-sky-600" />
+                        </div>
+                    }
+                    actions={toolbar}
+                >
+                    {scopeIndicator}
+                </PageHeader>
+            )}
+
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
-            {/* ── HEADER ── */}
+            {/* ── HEADER (card variant — section label inside the card) ── */}
+            {titlePlacement === 'card' && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
                 <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">
@@ -243,35 +312,14 @@ export default function SmartTable<T>({
                     </div>
                     <div>
                         <h2 className="text-lg font-bold text-slate-800 leading-tight">{title}</h2>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                            {hasActiveFilters
-                                ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
-                                : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>}
-                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">{subtitle ?? countNode}</p>
                     </div>
                     {scopeIndicator}
                 </div>
 
-                <div className="flex items-center gap-2">
-                    {hasActiveFilters && (
-                        <button
-                            onClick={resetFilters}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
-                        >
-                            <RotateCcw className="w-3 h-3" />
-                            مسح الفلاتر
-                        </button>
-                    )}
-                    <button
-                        onClick={() => exportCSV(columns, sorted, title)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
-                    >
-                        <Download className="w-3 h-3" />
-                        تصدير CSV
-                    </button>
-                    {headerActions}
-                </div>
+                <div className="flex items-center gap-2">{toolbar}</div>
             </div>
+            )}
 
             {/* ── FILTER BAR ── */}
             {!hideFilterBar && (
@@ -281,8 +329,7 @@ export default function SmartTable<T>({
                             placeholder={searchPlaceholder}
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            leading={<Search className="w-3.5 h-3.5" />}
-                            inputSize="sm"
+                            leading={<Search className="w-4 h-4" />}
                         />
                     </div>
                     {filters.map(f => (
@@ -291,7 +338,6 @@ export default function SmartTable<T>({
                             value={filterValues[f.key] ?? 'all'}
                             onChange={v => setFilterValues(prev => ({ ...prev, [f.key]: v }))}
                             ariaLabel={f.label}
-                            size="sm"
                             className="min-w-[130px]"
                             options={[
                                 { value: 'all', label: f.label },
@@ -471,7 +517,8 @@ export default function SmartTable<T>({
                 </table>
             </div>
 
-            {/* ── PAGINATION FOOTER ── */}
+            {/* ── PAGINATION FOOTER ── (hidden when pagination is disabled) */}
+            {paginated && (
             <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
 
                 {/* Record info + page size selector */}
@@ -488,7 +535,6 @@ export default function SmartTable<T>({
                             value={itemsPerPage}
                             onChange={n => setItemsPerPage(Number(n))}
                             ariaLabel="عدد صفوف الصفحة"
-                            size="sm"
                             options={PAGE_SIZE_OPTIONS.map(n => ({ value: n, label: String(n) }))}
                         />
                     </label>
@@ -500,13 +546,13 @@ export default function SmartTable<T>({
                         <button
                             disabled={currentPage === 1}
                             onClick={() => setCurrentPage(1)}
-                            className="px-2 py-1 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
+                            className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأولى"
                         >«</button>
                         <button
                             disabled={currentPage === 1}
                             onClick={() => setCurrentPage(p => p - 1)}
-                            className="px-2.5 py-1 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >السابق</button>
 
                         <div className="flex items-center gap-0.5 px-1">
@@ -519,7 +565,7 @@ export default function SmartTable<T>({
                                         )}
                                         <button
                                             onClick={() => setCurrentPage(p)}
-                                            className={`w-7 h-7 flex items-center justify-center text-xs font-bold rounded-lg transition-all ${
+                                            className={`w-7 h-7 flex items-center justify-center text-xs font-bold rounded-lg no-pill transition-all ${
                                                 currentPage === p
                                                     ? 'bg-sky-600 text-white shadow-sm'
                                                     : 'text-slate-500 hover:bg-slate-100'
@@ -532,17 +578,19 @@ export default function SmartTable<T>({
                         <button
                             disabled={currentPage === totalPages}
                             onClick={() => setCurrentPage(p => p + 1)}
-                            className="px-2.5 py-1 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >التالي</button>
                         <button
                             disabled={currentPage === totalPages}
                             onClick={() => setCurrentPage(totalPages)}
-                            className="px-2 py-1 text-xs font-bold rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
+                            className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأخيرة"
                         >»</button>
                     </div>
                 )}
             </div>
+            )}
         </div>
+        </>
     );
 }

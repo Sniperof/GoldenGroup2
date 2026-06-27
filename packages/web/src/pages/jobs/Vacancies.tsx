@@ -20,6 +20,7 @@ import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { GeoSelection, getLevelName } from '../../components/GeoSmartSearch';
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 import { api } from '../../lib/api';
 import type { Department, GeoUnit } from '../../lib/types';
 
@@ -626,19 +627,19 @@ export default function Vacancies() {
   return (
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-            <Briefcase className="w-7 h-7 text-sky-500" />إدارة الشواغر الوظيفية
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">إنشاء وإدارة فرص العمل المتاحة</p>
-        </div>
-        <PermissionGate permission="jobs.vacancies.create">
-          <Button icon={Plus} onClick={openCreate}>
-            إنشاء شاغر جديد
-          </Button>
-        </PermissionGate>
-      </div>
+      <PageHeader
+        className="mb-6"
+        title="إدارة الشواغر الوظيفية"
+        subtitle="إنشاء وإدارة فرص العمل المتاحة"
+        icon={<Briefcase className="w-7 h-7 text-sky-500" />}
+        actions={
+          <PermissionGate permission="jobs.vacancies.create">
+            <Button icon={Plus} onClick={openCreate}>
+              إنشاء شاغر جديد
+            </Button>
+          </PermissionGate>
+        }
+      />
 
       {/* Filters */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">
@@ -646,7 +647,6 @@ export default function Vacancies() {
         <Select<VacancyStatus | ''>
           value={filters.status}
           onChange={v => setFilter('status', v)}
-          variant="filled"
           size="sm"
           ariaLabel="الحالة"
           options={[
@@ -659,7 +659,6 @@ export default function Vacancies() {
         <Select
           value={filters.branch}
           onChange={v => setFilter('branch', v)}
-          variant="filled"
           size="sm"
           ariaLabel="الفرع"
           options={[
@@ -669,7 +668,7 @@ export default function Vacancies() {
         />
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="text" placeholder="بحث بالرقم أو الإسم..." value={filters.search} onChange={e => setFilter('search', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg pr-10 pl-3 py-2 text-sm focus:ring-2 focus:ring-sky-500" />
+          <input type="text" placeholder="بحث بالرقم أو الإسم..." value={filters.search} onChange={e => setFilter('search', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm focus:border-sky-500 focus:outline-none focus:bg-white transition-colors" />
         </div>
         {(filters.status || filters.branch || filters.search) && (
           <Button variant="ghost" size="sm" onClick={resetFilters} className="text-slate-500 hover:text-red-500 hover:bg-red-50 px-2">مسح الفلاتر</Button>

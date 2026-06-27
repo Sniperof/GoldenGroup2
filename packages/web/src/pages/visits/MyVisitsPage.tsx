@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarCheck, MapPin, Phone, Users2, Loader2 } from 'lucide-react';
+import { CalendarCheck, MapPin, Phone, Users2, Loader2, Zap } from 'lucide-react';
 import { api } from '../../lib/api';
+import PageHeader from '../../components/ui/PageHeader';
+import InstantVisitModal from '../../components/fieldVisits/InstantVisitModal';
+import { useAuthStore } from '../../hooks/useAuthStore';
 
 /**
  * "زياراتي" — the field member's own (team-assigned) visits for a day. A focused,
@@ -47,6 +50,9 @@ export default function MyVisitsPage() {
   const [rows, setRows] = useState<MyVisitRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [instantOpen, setInstantOpen] = useState(false);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  const canCreateInstant = hasPermission('field_visits.create_instant');
 
   const load = useCallback(async () => {
     if (!date) return;
@@ -68,23 +74,38 @@ export default function MyVisitsPage() {
 
   return (
     <div className="p-6 space-y-6" dir="rtl">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-3">
+      <PageHeader
+        title="زياراتي"
+        subtitle="زيارات الفريق الذي أنت جزء منه ليوم محدد"
+        icon={
           <div className="w-10 h-10 rounded-xl bg-teal-500 shadow-lg shadow-teal-500/20 flex items-center justify-center">
             <CalendarCheck className="w-5 h-5 text-white" />
           </div>
-          <div>
-            <h1 className="text-2xl mb-1 font-bold text-slate-800">زياراتي</h1>
-            <p className="text-sm text-slate-500">زيارات الفريق الذي أنت جزء منه ليوم محدد</p>
-          </div>
-        </div>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300"
-        />
-      </div>
+        }
+        actions={
+          <>
+          {canCreateInstant && (
+            <button
+              onClick={() => setInstantOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-sm font-bold text-white shadow-sm hover:bg-amber-400 transition-colors">
+              <Zap className="w-4 h-4" /> زيارة فورية
+            </button>
+          )}
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300"
+          />
+          </>
+        }
+      />
+
+      <InstantVisitModal
+        open={instantOpen}
+        onClose={() => setInstantOpen(false)}
+        onCreated={(visitId) => { setInstantOpen(false); navigate(`/field-visits/${visitId}`); }}
+      />
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>

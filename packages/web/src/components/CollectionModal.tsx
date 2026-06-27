@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import IconButton from './ui/IconButton';
-import { X, Calendar, DollarSign, CheckCircle, AlertCircle } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle } from 'lucide-react';
 import { useCollectionStore } from '../hooks/useCollectionStore';
 import { Due } from '../lib/types';
-import { motion, AnimatePresence } from 'framer-motion';
 import Button from './ui/Button';
 import Input from './ui/Input';
+import Modal from './ui/Modal';
 
 interface CollectionModalProps {
     isOpen: boolean;
@@ -54,25 +53,15 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
         onClose();
     };
 
-    if (!isOpen || !due) return null;
+    if (!due) return null;
 
     return (
-        <AnimatePresence>
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden"
-                >
-                    <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                        <div>
-                            <h3 className="text-base font-bold text-slate-800">تسجيل مكالمة تحصيل</h3>
-                            <p className="text-sm text-slate-500 mt-1">{due.customerName} - {due.mobile}</p>
-                        </div>
-                        <IconButton icon={X} label="إغلاق" shape="circle" onClick={onClose} />
-                    </div>
-
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="تسجيل مكالمة تحصيل"
+            subtitle={`${due.customerName} - ${due.mobile}`}
+        >
                     <form onSubmit={handleSubmit} className="p-6 space-y-6">
                         {/* Outcome Selection */}
                         <div className="grid grid-cols-3 gap-3">
@@ -155,8 +144,6 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
                             </Button>
                         </div>
                     </form>
-                </motion.div>
-            </div>
-        </AnimatePresence>
+        </Modal>
     );
 }

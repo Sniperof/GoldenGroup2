@@ -5,6 +5,7 @@ import { DeviceStatusBadge as SharedDeviceStatusBadge } from '../../components/d
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import { usePermissions } from '../../hooks/usePermissions';
+import ContractGiftsPanel from './ContractGiftsPanel';
 
 // ── Lookup maps ───────────────────────────────────────────────────────────────
 
@@ -203,11 +204,12 @@ export default function ContractDetail() {
   }, [data?.status, data?.closingEmployeeId, canApproveDraft]);
 
   const handleCancelContract = async () => {
-    if (!window.confirm('هل أنت متأكد من إلغاء هذا العقد؟')) return;
+    if (!window.confirm('هل أنت متأكد من إلغاء هذا العقد؟ سيتم إلغاء مهام تسديد الذمم المرتبطة وإبطال الأقساط غير المدفوعة.')) return;
     setActionLoading(true);
     try {
-      const updated = await api.contracts.update(Number(id), { ...data, status: 'cancelled' });
-      setData(updated);
+      await api.contracts.cancel(Number(id));
+      const refreshed = await api.contracts.get(Number(id));
+      setData(refreshed);
     } catch (err: any) {
       alert('فشل إلغاء العقد: ' + (err.message || err));
     } finally {
@@ -514,6 +516,8 @@ export default function ContractDetail() {
             <LabelVal label="🏷️ صاحب البيعة" value={data.saleOwnerName || data.createdByName || '—'} />
           </div>
         </Card>
+
+        <ContractGiftsPanel contract={data} />
 
         {/* ══ Groups 2+3: هوية المشتري + الجهاز ════════════════════════════ */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

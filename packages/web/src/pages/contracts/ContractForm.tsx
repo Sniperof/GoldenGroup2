@@ -6,7 +6,7 @@ import {
     DollarSign, CreditCard, Banknote, Truck, Trash2, Save,
     RotateCcw, CheckCircle2, User, Calculator, MapPin,
     AlertTriangle, ShieldCheck, ArrowRightLeft, Globe, Landmark,
-    BadgeDollarSign, Plus, X, Edit2,
+    BadgeDollarSign, Gift, Plus, X, Edit2,
     ExternalLink, Smartphone, Clipboard, Loader2
 } from 'lucide-react';
 import { api } from '../../lib/api';
@@ -18,6 +18,12 @@ import type { GeoSelection } from '../../components/GeoSmartSearch';
 import type { GeoUnit } from '../../lib/types';
 import type { ClientReferrer } from '@golden-crm/shared';
 import Select from '../../components/ui/Select';
+import Modal from '../../components/ui/Modal';
+import {
+    giftConditionStatusLabels,
+    type GiftConditionStatus,
+    type GiftDefinitionPrototype,
+} from '../../data/giftsPrototype';
 
 /* ------------------------------------------------------------------ */
 /*  Customer type                                                       */
@@ -75,6 +81,19 @@ interface LineItem {
     description: string;
     quantity: number;
     unitPrice: number;
+}
+
+interface ContractGiftPromiseDraft {
+    giftDefinitionId: string;
+    beneficiaryKind: 'contract_customer' | 'customer_referrer';
+    referrerId: string;
+    conditionLabel: string;
+    conditionStatus: GiftConditionStatus;
+    quantity: number;
+}
+
+interface ContractGiftPromisePreview extends ContractGiftPromiseDraft {
+    id: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -180,7 +199,7 @@ function Field({ label, children, hint, required }: { label: string; children: R
     );
 }
 
-const inputClass = "w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all";
+const inputClass = "w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder:text-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all";
 const selectClass = "w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 focus:outline-none transition-all appearance-none cursor-pointer";
 
 /* ------------------------------------------------------------------ */
@@ -198,6 +217,12 @@ function referrerTypeLabel(type?: string | null): string {
         case 'unknown':  return 'غير معروف';
         default: return type || '—';
     }
+}
+
+function isReferralPromiseSource(referrer?: ClientReferrer | null): boolean {
+    if (!referrer) return false;
+    const reason = String(referrer.referralReason ?? '').trim().toLowerCase();
+    return Boolean(referrer.referralSheetId) || reason === 'direct referral' || reason === 'part of sheet';
 }
 
 /* ------------------------------------------------------------------ */
@@ -456,6 +481,17 @@ export default function ContractForm() {
     const [selectedCustomer, setSelectedCustomer] = useState<MockCustomer | null>(null);
     const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
     const [selectedReferrerIds, setSelectedReferrerIds] = useState<string[]>([]);
+    const [giftPromises, setGiftPromises] = useState<ContractGiftPromisePreview[]>([]);
+    const [showGiftPromiseModal, setShowGiftPromiseModal] = useState(false);
+    const [giftDefinitions, setGiftDefinitions] = useState<GiftDefinitionPrototype[]>([]);
+    const [giftPromiseDraft, setGiftPromiseDraft] = useState<ContractGiftPromiseDraft>({
+        giftDefinitionId: '',
+        beneficiaryKind: 'contract_customer',
+        referrerId: '',
+        conditionLabel: 'توقيع عقد نقدي',
+        conditionStatus: 'pending',
+        quantity: 1,
+    });
     const [fatherNameOverride, setFatherNameOverride] = useState('');
     const [nationalIdOverride, setNationalIdOverride] = useState('');
     const [buyerBirthDate, setBuyerBirthDate] = useState('');
@@ -520,6 +556,39 @@ export default function ContractForm() {
     // ─── Computed ───
     const selectedDevice = useMemo(() => deviceModels.find(d => d.id === deviceModelId) || null, [deviceModelId, deviceModels]);
     const basePrice = selectedDevice?.basePrice || 0;
+    const activeGiftDefinitions = useMemo(() => (
+        giftDefinitions.filter(definition => definition.isActive)
+    ), [giftDefinitions]);
+    useEffect(() => {
+        let active = true;
+        api.gifts.definitions.list()
+            .then(rows => { if (active) setGiftDefinitions(rows as GiftDefinitionPrototype[]); })
+            .catch(() => { if (active) setGiftDefinitions([]); });
+        return () => { active = false; };
+    }, []);
+    useEffect(() => {
+        setGiftPromiseDraft(prev => (
+            prev.giftDefinitionId || activeGiftDefinitions.length === 0
+                ? prev
+                : { ...prev, giftDefinitionId: String(activeGiftDefinitions[0].id) }
+        ));
+    }, [activeGiftDefinitions]);
+    const selectedCustomerReferrers = useMemo(() => {
+        const referrers = selectedCustomer?.referrers ?? [];
+        return referrers.filter(referrer => {
+            const type = String(referrer.referrerType ?? '').toLowerCase();
+            return selectedReferrerIds.includes(String(referrer.id)) && (type === 'client' || type === 'customer');
+        });
+    }, [selectedCustomer, selectedReferrerIds]);
+    const contractGiftEligibleReferrers = useMemo(() => (
+        selectedCustomerReferrers.filter(referrer => !isReferralPromiseSource(referrer))
+    ), [selectedCustomerReferrers]);
+    const selectedReferralPromiseSourceReferrers = useMemo(() => (
+        selectedCustomerReferrers.filter(isReferralPromiseSource)
+    ), [selectedCustomerReferrers]);
+    const selectedGiftDefinition = useMemo(() => (
+        activeGiftDefinitions.find(definition => String(definition.id) === giftPromiseDraft.giftDefinitionId)
+    ), [activeGiftDefinitions, giftPromiseDraft.giftDefinitionId]);
 
     // ─── Effect: fetch active discounts when device changes ───
     useEffect(() => {
@@ -945,6 +1014,37 @@ export default function ContractForm() {
     const totalInstallmentSyp = useMemo(() => installmentDrafts.reduce((s, i) => s + (Number(i.amountSyp) || 0), 0), [installmentDrafts]);
     const remainingAfterPayments = grandTotal - totalPaidSyp;
     const hasConfirmedPayments = useMemo(() => confirmedEntries.size > 0, [confirmedEntries]);
+
+    function openGiftPromiseModal() {
+        const isGiftContract = saleSubtype === 'free';
+        const preferredDefinition = activeGiftDefinitions.find(definition => (
+            isGiftContract ? definition.kind === 'gift_contract' : definition.kind === 'standard_gift'
+        )) ?? activeGiftDefinitions[0];
+        setGiftPromiseDraft({
+            giftDefinitionId: preferredDefinition?.id != null ? String(preferredDefinition.id) : '',
+            beneficiaryKind: 'contract_customer',
+            referrerId: contractGiftEligibleReferrers[0]?.id ? String(contractGiftEligibleReferrers[0].id) : '',
+            conditionLabel: isGiftContract ? 'عقد هدية معتمد' : 'توقيع عقد نقدي',
+            conditionStatus: isGiftContract ? 'met' : 'pending',
+            quantity: 1,
+        });
+        setShowGiftPromiseModal(true);
+    }
+
+    function addGiftPromise() {
+        if (!selectedGiftDefinition) return;
+        if (giftPromiseDraft.beneficiaryKind === 'customer_referrer' && contractGiftEligibleReferrers.length === 0) return;
+        setGiftPromises(prev => [{
+            ...giftPromiseDraft,
+            id: `gift-promise-${Date.now()}`,
+            quantity: Math.max(1, Number(giftPromiseDraft.quantity) || 1),
+        }, ...prev]);
+        setShowGiftPromiseModal(false);
+    }
+
+    function removeGiftPromise(id: string) {
+        setGiftPromises(prev => prev.filter(promise => promise.id !== id));
+    }
 
     // Compatible spare parts for selected device
     const compatibleSpareParts = useMemo(
@@ -1708,6 +1808,56 @@ export default function ContractForm() {
                                                     {referrerTypeLabel(referrer.referrerType)}
                                                 </span>
                                             </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {selectedCustomer && (
+                        <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                                <div>
+                                    <span className="text-xs font-bold text-sky-700">وعود الهدايا ضمن العقد</span>
+                                    <p className="mt-1 text-xs text-sky-600">هذه الوعود تسجل مع العقد، ولا تنشئ مهمة تسليم مباشرة.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={openGiftPromiseModal}
+                                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 text-xs font-bold text-sky-700 hover:bg-sky-50"
+                                >
+                                    <Gift className="h-4 w-4" />
+                                    إضافة وعد هدية
+                                </button>
+                            </div>
+
+                            {giftPromises.length === 0 ? (
+                                <p className="text-xs text-sky-700/70">لا توجد وعود هدايا مضافة على هذا العقد بعد.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {giftPromises.map(promise => {
+                                        const definition = activeGiftDefinitions.find(item => item.id === promise.giftDefinitionId);
+                                        const referrer = selectedCustomer?.referrers?.find(item => String(item.id) === promise.referrerId);
+                                        return (
+                                            <div key={promise.id} className="flex items-start justify-between gap-3 rounded-lg border border-sky-200 bg-white px-3 py-2">
+                                                <div className="text-xs leading-6">
+                                                    <div className="font-bold text-slate-800">{definition?.name ?? 'تعريف هدية'}</div>
+                                                    <div className="text-slate-500">
+                                                        المستفيد: {promise.beneficiaryKind === 'customer_referrer' ? (referrer?.referrerName ?? 'وسيط زبون') : selectedCustomer.name}
+                                                    </div>
+                                                    <div className="text-slate-500">
+                                                        الشرط: {promise.conditionLabel} - {giftConditionStatusLabels[promise.conditionStatus]} - العدد: {promise.quantity}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeGiftPromise(promise.id)}
+                                                    className="rounded-lg border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"
+                                                >
+                                                    حذف
+                                                </button>
+                                            </div>
                                         );
                                     })}
                                 </div>
@@ -2664,6 +2814,127 @@ export default function ContractForm() {
                 {/* Bottom spacer */}
                 <div className="h-8" />
             </div>
+
+            <Modal
+                isOpen={showGiftPromiseModal}
+                onClose={() => setShowGiftPromiseModal(false)}
+                title="إضافة وعد هدية ضمن العقد"
+                size="2xl"
+                bodyClassName="p-5"
+                footer={
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => setShowGiftPromiseModal(false)}
+                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                        >
+                            <X className="h-4 w-4" />
+                            إلغاء
+                        </button>
+                        <button
+                            type="button"
+                            onClick={addGiftPromise}
+                            disabled={!selectedGiftDefinition || (giftPromiseDraft.beneficiaryKind === 'customer_referrer' && contractGiftEligibleReferrers.length === 0)}
+                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <Save className="h-4 w-4" />
+                            إضافة الوعد
+                        </button>
+                    </>
+                }
+            >
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2" dir="rtl">
+                    <label className="text-xs font-bold text-slate-500">
+                        تعريف الهدية
+                        <select
+                            value={giftPromiseDraft.giftDefinitionId}
+                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, giftDefinitionId: e.target.value }))}
+                            className={inputClass}
+                        >
+                            {activeGiftDefinitions.map(definition => (
+                                <option key={definition.id} value={String(definition.id)}>{definition.name}</option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <label className="text-xs font-bold text-slate-500">
+                        المستفيد
+                        <select
+                            value={giftPromiseDraft.beneficiaryKind}
+                            onChange={e => setGiftPromiseDraft(prev => ({
+                                ...prev,
+                                beneficiaryKind: e.target.value as ContractGiftPromiseDraft['beneficiaryKind'],
+                                conditionLabel: e.target.value === 'customer_referrer' ? 'وسيط بيعة من نوع زبون' : prev.conditionLabel,
+                            }))}
+                            className={inputClass}
+                        >
+                            <option value="contract_customer">زبون العقد: {selectedCustomer?.name ?? 'الزبون'}</option>
+                            <option value="customer_referrer" disabled={contractGiftEligibleReferrers.length === 0}>وسيط بيعة من نوع زبون</option>
+                        </select>
+                    </label>
+
+                    {giftPromiseDraft.beneficiaryKind === 'customer_referrer' && (
+                        <label className="text-xs font-bold text-slate-500 md:col-span-2">
+                            وسيط البيع الزبون
+                            <select
+                                value={giftPromiseDraft.referrerId}
+                                onChange={e => setGiftPromiseDraft(prev => ({ ...prev, referrerId: e.target.value }))}
+                                className={inputClass}
+                            >
+                                {contractGiftEligibleReferrers.map(referrer => (
+                                    <option key={referrer.id} value={String(referrer.id)}>{referrer.referrerName}</option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
+
+                    {selectedReferralPromiseSourceReferrers.length > 0 && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-800 md:col-span-2">
+                            وسيط الزبون المحدد مصدره لائحة أسماء أو اقتراح مباشر، لذلك لا يأخذ وعد هدية إضافي من العقد. يتم إنشاء الوعد من مصدر الترشيح نفسه، والعقد يستخدم لاحقا كإثبات تحقق الشرط.
+                        </div>
+                    )}
+
+                    <label className="text-xs font-bold text-slate-500">
+                        شرط/سبب الوعد
+                        <select
+                            value={giftPromiseDraft.conditionLabel}
+                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, conditionLabel: e.target.value }))}
+                            className={inputClass}
+                        >
+                            {['توقيع عقد نقدي', 'استحقاق بعد الدفعة الثانية', 'شراء أكثر من عقد', 'وسيط بيعة من نوع زبون', 'قرار إداري', 'عقد هدية معتمد'].map(option => (
+                                <option key={option} value={option}>{option}</option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <label className="text-xs font-bold text-slate-500">
+                        حالة تحقق الشرط
+                        <select
+                            value={giftPromiseDraft.conditionStatus}
+                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, conditionStatus: e.target.value as GiftConditionStatus }))}
+                            className={inputClass}
+                        >
+                            {Object.entries(giftConditionStatusLabels).map(([value, label]) => (
+                                <option key={value} value={value}>{label}</option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <label className="text-xs font-bold text-slate-500">
+                        العدد
+                        <input
+                            type="number"
+                            min={1}
+                            value={giftPromiseDraft.quantity}
+                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, quantity: Number(e.target.value) || 1 }))}
+                            className={inputClass}
+                        />
+                    </label>
+                </div>
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-600">
+                    هذا وعد داخل نموذج العقد للمعاينة فقط. عند ربط قاعدة البيانات سيحفظ كسجل `gift_records` مع مصدر عقدي.
+                </div>
+            </Modal>
         </div>
     );
 }

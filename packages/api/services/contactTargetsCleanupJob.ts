@@ -72,18 +72,26 @@ export async function runContactTargetsCleanupOnce(): Promise<{ closed: number }
       [staleIds],
     );
 
-    // 3. Release open_tasks tied to these targets.
-    //    DEC-004 D10: tasks that were moved to assigned/scheduled by this
-    //    target should fall back to their last waiting status. We use the
-    //    `last_waiting_status` column added in migration 105 (if present);
-    //    otherwise default to 'open'. NULL-safe COALESCE handles both.
+    // 3. Release open_tasks tied to these targets — strictly through the
+    //    contact_target_open_tasks bridge (DEC-009 لبنة 6), NOT a broad
+    //    client_id match. The old `ot.client_id = ct.target_id` join released
+    //    EVERY waiting task of the same customer, even those belonging to a
+    //    different contact_target (other work location). Going through the
+    //    junction releases only the tasks actually linked to the closing target.
+    //    DEC-004 D10: tasks fall back to their last_waiting_status (NULL-safe).
+    //    Also clears the rest of the assignment metadata to match the canonical
+    //    release path in syncAssignedTasks (assignedTasks.ts §Step 8).
     await client.query(
       `UPDATE open_tasks ot
-          SET status = COALESCE(NULLIF(ot.last_waiting_status, ''), 'open'),
-              assigned_team_key = NULL
-        FROM contact_targets ct
-        WHERE ct.id = ANY($1::bigint[])
-          AND ot.client_id = ct.target_id
+          SET status            = COALESCE(NULLIF(ot.last_waiting_status, ''), 'open'),
+              assigned_team_key = NULL,
+              assigned_for_date = NULL,
+              assigned_at       = NULL,
+              assigned_scope_id = NULL,
+              updated_at        = NOW()
+        FROM contact_target_open_tasks ctot
+        WHERE ctot.contact_target_id = ANY($1::bigint[])
+          AND ot.id = ctot.open_task_id
           AND ot.status IN ('assigned', 'in_scheduling')`,
       [staleIds],
     );
@@ -127,6 +135,26 @@ export function startContactTargetsCleanupJob(): void {
   // Tick every 60 seconds — light enough, hits the configured minute exactly once.
   timer = setInterval(() => { void tick(); }, 60_000);
   console.log('[contactTargetsCleanupJob] started (60s tick)');
+
+  // Boot catch-up: the scheduled tick only fires if the process is alive at the
+  // exact configured minute. If the server was down at cleanup time (or runs
+  // on-demand in dev), yesterday's stale targets stay open forever. Since
+  // runContactTargetsCleanupOnce only closes past-day targets (date < today),
+  // it is always safe to run immediately on boot, and idempotent (already-closed
+  // targets are skipped by the status != 'closed' filter). We deliberately do
+  // NOT set lastRunDate here, so the normal scheduled run still fires today.
+  void (async () => {
+    try {
+      const result = await runContactTargetsCleanupOnce();
+      if (result.closed > 0) {
+        console.log(
+          `[contactTargetsCleanupJob] boot catch-up closed ${result.closed} stale contact_targets`,
+        );
+      }
+    } catch (err) {
+      console.error('[contactTargetsCleanupJob] boot catch-up failed', err);
+    }
+  })();
 }
 
 export function stopContactTargetsCleanupJob(): void {

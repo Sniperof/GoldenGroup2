@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 
 type ScopeKey = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
 const ALL_SCOPE_KEYS: ScopeKey[] = ['GLOBAL', 'BRANCH', 'ASSIGNED'];
@@ -217,6 +218,7 @@ const PERM_LABELS: Record<string, string> = {
   'spare_parts.task_lookup':        'قراءة قطع غيار العمليات',
   'open_tasks.view':                'عرض المهام والعمليات',
   'open_tasks.edit':                'إدارة المهام وتحديث حالاتها',
+  'tasks.periodic.create_manual':   'إنشاء صيانة دورية يدوياً',
   'planning.view':                  'عرض خطط وجداول الفرع',
   'planning.manage':                'إدارة الجدولة وتعيين المسارات',
   'planning.schedule.appear':       'الظهور في جدولة الفرق',
@@ -370,25 +372,25 @@ export default function PermissionSettings() {
       <div className="max-w-4xl mx-auto px-4 py-8 space-y-5">
 
         {/* Header */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center shadow-lg shadow-sky-500/30 shrink-0">
-            <Shield className="w-5 h-5 text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-2xl mb-1 font-bold text-slate-800">إعدادات نطاقات الصلاحيات</h1>
-            <p className="text-xs text-slate-500">
-              تحديد النطاقات المسموحة لكل صلاحية — يؤثر على الخيارات المتاحة عند تعيين الصلاحيات للأدوار
-            </p>
-          </div>
-          <Button
-            icon={Save}
-            onClick={handleSave}
-            loading={saving}
-            className="shrink-0"
-          >
-            حفظ التغييرات
-          </Button>
-        </div>
+        <PageHeader
+          title="إعدادات نطاقات الصلاحيات"
+          subtitle="تحديد النطاقات المسموحة لكل صلاحية — يؤثر على الخيارات المتاحة عند تعيين الصلاحيات للأدوار"
+          icon={
+            <div className="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center shadow-lg shadow-sky-500/30 shrink-0">
+              <Shield className="w-5 h-5 text-white" />
+            </div>
+          }
+          actions={
+            <Button
+              icon={Save}
+              onClick={handleSave}
+              loading={saving}
+              className="shrink-0"
+            >
+              حفظ التغييرات
+            </Button>
+          }
+        />
 
         {/* Scope legend */}
         <Card padding="sm">

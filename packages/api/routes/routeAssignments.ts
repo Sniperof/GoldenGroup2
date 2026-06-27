@@ -4,6 +4,7 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { syncAssignedTasks } from '../services/assignedTasks.js';
+import { resolveTeamZoneIds, resolveZoneIdsForAssignment } from '../services/planningMarketingTargets.js';
 import {
   canManageAssignment,
   canViewAssignment,
@@ -342,6 +343,30 @@ router.put('/:key', requirePermission('routes.assign.manage'), async (req, res) 
   const validation = validateRouteAssignmentPayload(req.body);
   if (validation.ok === false) {
     return res.status(400).json({ error: validation.error });
+  }
+
+  // DEC-009 لبنة 8 (freeze / append-only): once contact targets have been generated
+  // into the call list for this team+date, the route scope may only GROW. Removing a
+  // covered zone (or a whole route) would orphan already-generated contact targets and
+  // hand a committed task to another team on the next sync. Additions are allowed.
+  const { rows: generatedRows } = await pool.query(
+    'SELECT 1 FROM telemarketing_task_lists WHERE team_key = $1 AND date = $2 LIMIT 1',
+    [teamKey, date],
+  );
+  if (generatedRows.length > 0) {
+    const [oldZones, newZones] = await Promise.all([
+      resolveTeamZoneIds(date, teamKey),
+      resolveZoneIdsForAssignment(validation.routes, validation.extraZones),
+    ]);
+    const newZoneSet = new Set(newZones);
+    const removedZones = oldZones.filter((z) => !newZoneSet.has(z));
+    if (removedZones.length > 0) {
+      return res.status(409).json({
+        error: 'تعذّر التعديل: بعد توليد جهات الاتصال لا يمكن حذف مناطق أو مسارات من نطاق الفريق — يُسمح بإضافة مناطق/مسارات جديدة فقط (DEC-009 لبنة 8).',
+        code: 'SCOPE_FROZEN_AFTER_GENERATION',
+        removedZones,
+      });
+    }
   }
 
   // FIX-2: save route_assignment first (committed to pool so getPlanningWorkScope

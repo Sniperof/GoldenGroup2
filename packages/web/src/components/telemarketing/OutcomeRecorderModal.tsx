@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useSystemList } from '../../hooks/useSystemList';
 import { api } from '../../lib/api';
-import { motion } from 'framer-motion';
 import {
-    Phone, CheckCircle2, PhoneOff, PhoneMissed, X, Send,
+    Phone, CheckCircle2, PhoneOff, PhoneMissed, Send,
     MessageSquare, PhoneForwarded, UserCheck, PhoneCall,
-    MapPin, AlertTriangle, Calendar, Edit3, Clock, Droplets, FileText,
+    MapPin, AlertTriangle, Calendar, Edit3, Droplets, FileText,
 } from 'lucide-react';
-import IconButton from '../ui/IconButton';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
+import Modal from '../ui/Modal';
 import {
     TelemarketingOutcomeCode, OUTCOME_MAP, OUTCOMES_BY_GROUP,
     PHONE_STATUS_LABELS, PHONE_STATUS_TO_CONTACT_ENTRY,
@@ -18,7 +17,9 @@ import {
 import type { PhoneStatusUpdate } from '@golden-crm/shared';
 import { TaskListItem, ContactStatus } from '../../lib/types';
 import { getEntityContacts } from '../../lib/contactUtils';
+import { CONTACT_STATUS_CONFIG, CONTACT_TYPE_CONFIG } from '../../lib/contactRules';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import VisitTimePicker, { isVisitTimeConflict } from './VisitTimePicker';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,8 @@ interface OutcomeRecorderModalProps {
     /** Open tasks for this customer — used to determine if water source is required */
     customerOpenTasks?: Array<{ openTaskType: string | null }>;
     appointmentDate?: string;
+    /** HH:MM times already booked for the same team on this date (conflict guard). */
+    bookedTimes?: string[];
     onSave: (
         contactId: string,
         outcome: TelemarketingOutcomeCode,
@@ -180,11 +183,6 @@ function getTomorrow(): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const getHourlyVisitSlots = () => Array.from({ length: 24 }, (_, index) => {
-    const hour = (9 + index) % 24;
-    return `${String(hour).padStart(2, '0')}:00`;
-});
-
 function nowLocal(): string {
     const d = new Date();
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -246,6 +244,7 @@ export default function OutcomeRecorderModal({
     canBook = false,
     customerOpenTasks = [],
     appointmentDate,
+    bookedTimes = [],
     onSave,
 }: OutcomeRecorderModalProps) {
     const [method, setMethod] = useState<'cellular' | 'whatsapp'>('cellular');
@@ -268,6 +267,7 @@ export default function OutcomeRecorderModal({
     const currentUser = useAuthStore((state) => state.user);
     const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
     const { items: rescheduleReasons } = useSystemList('telemarketing_reschedule_reason');
+    const { items: waterSourceOptions } = useSystemList('water_source');
     const [taskTypeOptions, setTaskTypeOptions] = useState<{ taskType: string; arabicLabel: string }[]>([]);
     const [serviceTaskType, setServiceTaskType] = useState('');
     // ── Inline appointment booking state ─────────────────────────────────────────
@@ -275,6 +275,8 @@ export default function OutcomeRecorderModal({
     const [visitTime, setVisitTime] = useState('');
     const [apptWaterSource, setApptWaterSource] = useState('');
     const [apptNotes, setApptNotes] = useState('');
+    // Contact time is "now" by default and rarely edited — collapsed by default.
+    const [editingCallTime, setEditingCallTime] = useState(false);
 
     useEffect(() => {
         api.telemarketing.taskTypeOptions()
@@ -305,9 +307,10 @@ export default function OutcomeRecorderModal({
             setRescheduleReason('');
             setServiceTaskType('');
             setVisitDate(appointmentDate || getTomorrow());
-            setVisitTime('09:00');
+            setVisitTime('');
             setApptWaterSource((entityDetails as any)?.waterSource || '');
             setApptNotes('');
+            setEditingCallTime(false);
         }
     }, [isOpen, task, preselectedContactId, appointmentDate, entityDetails]);
 
@@ -330,7 +333,9 @@ export default function OutcomeRecorderModal({
     const contacts = getEntityContacts(entityDetails);
     const preselectedContact = contacts.find(c => c.id === preselectedContactId);
     const selectedContact = contacts.find(c => c.id === selectedContactId);
-    const relevantContact = preselectedContact || selectedContact;
+    // The active contact follows the in-modal selection so the telemarketer can
+    // switch numbers mid-call; preselection only seeds the initial choice.
+    const relevantContact = selectedContact || preselectedContact;
     const hasWhatsAppTarget = relevantContact?.hasWhatsApp === true;
     const showWhatsAppOption = !relevantContact || hasWhatsAppTarget;
 
@@ -365,8 +370,9 @@ export default function OutcomeRecorderModal({
     const isBookingOutcome = outcome === 'booked_marketing_appointment' && !isFreeCall;
     const lockedVisitDate = appointmentDate || visitDate || getTomorrow();
     const hasDeviceDemo = customerOpenTasks.some(t => t.openTaskType === 'device_demo');
+    const bookingTimeConflict = isBookingOutcome && isVisitTimeConflict(visitTime, bookedTimes);
     const bookingValid = !isBookingOutcome || (
-        !!lockedVisitDate && !!visitTime && (!hasDeviceDemo || !!apptWaterSource)
+        !!lockedVisitDate && !!visitTime && !bookingTimeConflict && (!hasDeviceDemo || !!apptWaterSource)
     );
 
     const canSave =
@@ -429,123 +435,88 @@ export default function OutcomeRecorderModal({
           }));
 
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
-            dir="rtl"
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="6xl"
+            title={
+                <span className="flex items-center gap-2">
+                    <Send className="w-5 h-5 text-violet-600" />
+                    {title || 'تسجيل نتيجة التواصل'}
+                </span>
+            }
+            subtitle={task?.name || undefined}
+            footer={
+                <>
+                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                    <Button
+                        icon={CheckCircle2}
+                        loading={saving}
+                        disabled={!canSave || saving}
+                        onClick={handleSave}
+                    >
+                        {isTextMessage ? 'إرسال الرسالة'
+                            : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
+                            : 'حفظ النتيجة'}
+                    </Button>
+                </>
+            }
         >
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-            >
-                {/* Header */}
-                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-violet-50 shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                            <Send className="w-5 h-5 text-violet-600" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-800">{title || 'تسجيل نتيجة التواصل'}</h2>
-                            {task?.name && <p className="text-xs text-slate-500">{task.name}</p>}
-                        </div>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" onClick={onClose} />
-                </div>
+                {/* Body - two-pane: left = context + channel (sticky), right = outcome + details */}
+                <div className="px-6 py-5">
+                    <div className="grid md:grid-cols-[minmax(310px,0.9fr)_1fr] gap-6 items-start">
 
-                {/* Body */}
-                <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                    {/* ── LEFT RAIL: who + how ───────────────────────────────── */}
+                    <div className="space-y-4 md:sticky md:top-0 md:pl-6 md:border-l md:border-slate-100">
 
-                    {/* Communication method */}
-                    <div className="space-y-3">
-                        <label className="text-sm font-bold text-slate-700 flex items-center justify-between">
+                    {/* Communication method — 4 one-click channel chips */}
+                    <div className="space-y-2.5">
+                        <label className="text-sm font-black text-slate-800 flex items-center justify-between">
                             <span>قناة التواصل <span className="text-red-500">*</span></span>
                             {preselectedContactId && !relevantContact?.hasWhatsApp && (
-                                <span className="text-xs text-slate-400 font-normal">واتساب غير متاح لهذا الرقم</span>
+                                <span className="text-xs text-slate-400 font-normal">واتساب غير متاح</span>
                             )}
                         </label>
-                        <div className={`grid gap-3 ${showWhatsAppOption ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                            <button
-                                type="button"
-                                onClick={() => setMethod('cellular')}
-                                className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all ${method === 'cellular'
-                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-2 ring-indigo-200 shadow-sm'
-                                    : 'bg-white border-slate-100 text-slate-600 hover:border-slate-200 hover:bg-slate-50'}`}
-                            >
-                                <Phone className="w-5 h-5" />
-                                <span className="text-sm font-bold">شبكة</span>
-                            </button>
-                            {showWhatsAppOption && (
-                            <button
-                                type="button"
-                                onClick={() => setMethod('whatsapp')}
-                                className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all ${method === 'whatsapp'
-                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-2 ring-emerald-200 shadow-sm'
-                                    : 'bg-white border-slate-100 text-slate-600 hover:border-slate-200 hover:bg-slate-50'}`}
-                            >
-                                <MessageSquare className="w-5 h-5" />
-                                <span className="text-sm font-bold">واتساب</span>
-                            </button>
-                            )}
+                        <div className="grid grid-cols-2 gap-2">
+                            {([
+                                { key: 'cell_call', label: 'اتصال شبكة', icon: Phone, isWa: false,
+                                  on: method === 'cellular' && cellularSubtype === 'cellular_call',
+                                  set: () => { setMethod('cellular'); setCellularSubtype('cellular_call'); } },
+                                { key: 'cell_text', label: 'رسالة شبكة', icon: MessageSquare, isWa: false,
+                                  on: method === 'cellular' && cellularSubtype === 'cellular_text',
+                                  set: () => { setMethod('cellular'); setCellularSubtype('cellular_text'); } },
+                                { key: 'wa_call', label: 'واتساب مكالمة', icon: PhoneCall, isWa: true,
+                                  on: method === 'whatsapp' && whatsappSubtype === 'whatsapp_voice',
+                                  set: () => { setMethod('whatsapp'); setWhatsappSubtype('whatsapp_voice'); } },
+                                { key: 'wa_text', label: 'واتساب رسالة', icon: MessageSquare, isWa: true,
+                                  on: method === 'whatsapp' && whatsappSubtype === 'whatsapp_text',
+                                  set: () => { setMethod('whatsapp'); setWhatsappSubtype('whatsapp_text'); } },
+                            ] as { key: string; label: string; icon: any; isWa: boolean; on: boolean; set: () => void }[]).map(ch => {
+                                const disabled = ch.isWa && !showWhatsAppOption;
+                                const activeCls = ch.isWa
+                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-2 ring-emerald-100 shadow-sm'
+                                    : 'bg-sky-50 border-sky-300 text-sky-700 ring-2 ring-sky-100 shadow-sm';
+                                return (
+                                    <button
+                                        key={ch.key}
+                                        type="button"
+                                        disabled={disabled}
+                                        onClick={ch.set}
+                                        className={`flex items-center justify-center gap-2 px-3 py-3 rounded-xl border transition-all text-sm font-black ${
+                                            disabled ? 'bg-slate-100 border-slate-100 text-slate-300 cursor-not-allowed'
+                                            : ch.on ? activeCls
+                                            : 'bg-white border-slate-200 text-slate-600 hover:border-sky-200 hover:bg-sky-50/50'}`}
+                                    >
+                                        <ch.icon className="w-5 h-5 shrink-0" />
+                                        {ch.label}
+                                    </button>
+                                );
+                            })}
                         </div>
 
-                        {method === 'cellular' && (
-                            <div className="mt-3 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-3">
-                                <label className="text-xs font-bold text-indigo-800 block">نوع التواصل عبر الشبكة:</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setCellularSubtype('cellular_call')}
-                                        className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all text-xs font-bold ${cellularSubtype === 'cellular_call'
-                                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                                            : 'bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50'}`}
-                                    >
-                                        مكالمة
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setCellularSubtype('cellular_text')}
-                                        className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all text-xs font-bold ${cellularSubtype === 'cellular_text'
-                                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                                            : 'bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50'}`}
-                                    >
-                                        رسالة
-                                    </button>
-                                </div>
-                                <p className="text-xs text-indigo-600 font-bold mt-2 bg-white px-2 py-1 rounded border border-indigo-100 w-fit">
-                                    الموظف: {currentUser?.name || 'غير معروف'}
-                                </p>
-                            </div>
-                        )}
-
-                        {method === 'whatsapp' && (
-                            <div className="mt-3 bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 space-y-3">
-                                <label className="text-xs font-bold text-emerald-800 block">نوع التواصل عبر واتساب:</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setWhatsappSubtype('whatsapp_text')}
-                                        className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all text-xs font-bold ${whatsappSubtype === 'whatsapp_text'
-                                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
-                                            : 'bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
-                                    >
-                                        رسالة نصية
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setWhatsappSubtype('whatsapp_voice')}
-                                        className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all text-xs font-bold ${whatsappSubtype === 'whatsapp_voice'
-                                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
-                                            : 'bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
-                                    >
-                                        مكالمة صوتية
-                                    </button>
-                                </div>
-                                <p className="text-xs text-emerald-600 font-bold mt-2 bg-white px-2 py-1 rounded border border-emerald-100 w-fit">
-                                    الموظف: {currentUser?.name || 'غير معروف'}
-                                </p>
-                            </div>
-                        )}
+                        <p className="text-xs text-slate-500 font-bold bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100 w-fit">
+                            الموظف: {currentUser?.name || 'غير معروف'}
+                        </p>
 
                         {isTextMessage && (
                             <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
@@ -557,66 +528,107 @@ export default function OutcomeRecorderModal({
                         )}
                     </div>
 
-                    {/* Contact selection */}
-                    {preselectedContactId ? (
-                        /* Contact was pre-selected by clicking a number — show it, don't let user change */
-                        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${method === 'whatsapp' ? 'bg-emerald-100' : 'bg-indigo-100'}`}>
-                                {method === 'whatsapp' ? (
-                                    <MessageSquare className="w-4 h-4 text-emerald-600" />
-                                ) : (
-                                    <Phone className="w-4 h-4 text-indigo-600" />
-                                )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold text-slate-400 mb-0.5">الرقم المختار للتواصل</p>
-                                <p className="text-sm font-black text-slate-800" dir="ltr">{relevantContact?.number}</p>
-                                <p className="text-xs text-slate-500">{relevantContact?.label}</p>
-                            </div>
-                            {relevantContact?.hasWhatsApp && (
-                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold border border-green-200 shrink-0">واتساب ✓</span>
-                            )}
-                        </div>
-                    ) : (
-                        /* No preselection — show contact picker dropdown */
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                                <Phone className="w-4 h-4 text-violet-500" />
-                                الرقم المستخدم للتواصل <span className="text-red-500">*</span>
-                            </label>
-                            <Select
-                                value={selectedContactId}
-                                onChange={setSelectedContactId}
-                                placeholder="-- اختر الرقم --"
-                                ariaLabel="الرقم المستخدم"
-                                className="w-full"
-                                options={contacts.map(contact => ({
-                                    value: contact.id,
-                                    label: `${contact.label} - ${contact.number}${contact.hasWhatsApp ? ' (واتساب)' : ''}${method === 'whatsapp' && !contact.hasWhatsApp ? ' - لا يدعم واتساب' : ''}`,
-                                    disabled: method === 'whatsapp' && !contact.hasWhatsApp,
-                                }))}
-                            />
-                            {method === 'whatsapp' && selectedContactId && !hasWhatsAppTarget && (
-                                <p className="text-xs text-red-600 font-bold mt-1">
-                                    هذا الرقم لا يدعم واتساب. يرجى اختيار رقم آخر أو تغيير طريقة التواصل.
-                                </p>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Date/time */}
+                    {/* Contact selection — switchable phonebook for this call */}
                     <div className="space-y-2">
-                        <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                            <Calendar className="w-4 h-4 text-violet-500" />
-                            تاريخ/وقت التواصل
+                        <label className="text-sm font-bold text-slate-700 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                                <Phone className="w-4 h-4 text-sky-500" />
+                                أرقام التواصل <span className="text-red-500">*</span>
+                            </span>
+                            {contacts.length > 1 && (
+                                <span className="text-xs text-slate-400 font-normal">{contacts.length} أرقام · اضغط للتبديل</span>
+                            )}
                         </label>
-                        <input
-                            type="datetime-local"
-                            value={callDateTime}
-                            onChange={e => setCallDateTime(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none transition-all"
-                        />
+                        <div className="space-y-1.5">
+                            {contacts.map(contact => {
+                                const isActive = contact.id === selectedContactId;
+                                const statusCfg = contact.status ? CONTACT_STATUS_CONFIG[contact.status] : null;
+                                const typeCfg = CONTACT_TYPE_CONFIG[contact.type] ?? null;
+                                const isDead = contact.status === 'invalid';
+                                return (
+                                    <div
+                                        key={contact.id}
+                                        className={`flex items-stretch rounded-xl border-2 overflow-hidden transition-all ${
+                                            isActive ? 'border-sky-300 ring-2 ring-sky-200 bg-sky-50/60'
+                                            : 'border-slate-100 bg-white hover:border-slate-200'} ${isDead ? 'opacity-60' : ''}`}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedContactId(contact.id)}
+                                            className="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2.5 text-right"
+                                        >
+                                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                                                isActive ? (method === 'whatsapp' ? 'bg-emerald-100' : 'bg-sky-100') : 'bg-slate-100'}`}>
+                                                {contact.hasWhatsApp
+                                                    ? <MessageSquare className={`w-4 h-4 ${isActive ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                                    : <Phone className={`w-4 h-4 ${isActive ? 'text-sky-600' : 'text-slate-400'}`} />}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-base font-black text-slate-800 leading-tight" dir="ltr">{contact.number}</p>
+                                                <div className="flex flex-wrap items-center gap-1 mt-1">
+                                                    {typeCfg && <span className="text-[10px] text-slate-500 font-bold">{typeCfg.label}</span>}
+                                                    {contact.label && <span className="text-[10px] text-slate-400">· {contact.label}</span>}
+                                                    {contact.isPrimary && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">أساسي</span>}
+                                                    {contact.hasWhatsApp && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200">واتساب</span>}
+                                                    {statusCfg && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${statusCfg.style}`}>{statusCfg.label}</span>}
+                                                </div>
+                                            </div>
+                                            {isActive && <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0" />}
+                                        </button>
+                                        <a
+                                            href={`tel:${contact.number}`}
+                                            title="اتصال"
+                                            onClick={e => e.stopPropagation()}
+                                            className="flex items-center justify-center px-3.5 bg-slate-50 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 border-r border-slate-100 transition-colors"
+                                        >
+                                            <PhoneCall className="w-4 h-4" />
+                                        </a>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        {method === 'whatsapp' && selectedContactId && !hasWhatsAppTarget && (
+                            <p className="text-xs text-red-600 font-bold mt-1">
+                                هذا الرقم لا يدعم واتساب — اختر رقماً آخر أو غيّر القناة.
+                            </p>
+                        )}
                     </div>
+
+                    {/* Date/time — collapsed to a chip; defaults to "now" */}
+                    <div className="space-y-1.5">
+                        {editingCallTime ? (
+                            <>
+                                <label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                                    <Calendar className="w-3.5 h-3.5 text-violet-500" />
+                                    وقت التواصل
+                                </label>
+                                <input
+                                    type="datetime-local"
+                                    value={callDateTime}
+                                    onChange={e => setCallDateTime(e.target.value)}
+                                    dir="ltr"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 focus:outline-none transition-all"
+                                />
+                            </>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => setEditingCallTime(true)}
+                                className="w-full flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                            >
+                                <span className="flex items-center gap-1.5">
+                                    <Calendar className="w-3.5 h-3.5 text-sky-500" />
+                                    وقت التواصل: <span dir="ltr">{callDateTime ? callDateTime.slice(0, 16).replace('T', ' • ') : 'الآن'}</span>
+                                </span>
+                                <span className="text-sky-600 underline">تغيير</span>
+                            </button>
+                        )}
+                    </div>
+
+                    </div>{/* ── END LEFT RAIL ── */}
+
+                    {/* ── RIGHT PANE: outcome + conditional details ──────────── */}
+                    <div className="space-y-4 min-w-0">
 
                     {/* Outcome selection — two level (hidden for text messages) */}
                     {!isTextMessage && (
@@ -627,7 +639,7 @@ export default function OutcomeRecorderModal({
                             pointerEvents: (selectedContactId || preselectedContactId) && isWhatsAppSelectable ? 'auto' : 'none',
                         }}
                     >
-                        <label className="text-sm font-bold text-slate-700">
+                        <label className="text-sm font-black text-slate-800">
                             نتيجة التواصل <span className="text-red-500">*</span>
                         </label>
 
@@ -637,17 +649,21 @@ export default function OutcomeRecorderModal({
                                 <button
                                     type="button"
                                     onClick={() => { setTopLevel('not_reached'); setOutcome(null); setExpandedGroup(null); }}
-                                    className="flex items-center justify-center gap-2 p-4 rounded-xl border-2 border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-all text-sm font-bold"
+                                    className="group flex min-h-[112px] flex-col items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-5 text-red-700 shadow-sm transition-all hover:border-red-300 hover:bg-red-50 hover:shadow-md text-base font-black"
                                 >
-                                    <PhoneMissed className="w-5 h-5" />
+                                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-red-600 shadow-sm">
+                                        <PhoneMissed className="w-6 h-6" />
+                                    </span>
                                     لم يتم التواصل
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => { setTopLevel('reached'); setOutcome(null); setExpandedGroup(null); }}
-                                    className="flex items-center justify-center gap-2 p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-all text-sm font-bold"
+                                    className="group flex min-h-[112px] flex-col items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-5 text-emerald-700 shadow-sm transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md text-base font-black"
                                 >
-                                    <PhoneCall className="w-5 h-5" />
+                                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm">
+                                        <PhoneCall className="w-6 h-6" />
+                                    </span>
                                     تم التواصل
                                 </button>
                             </div>
@@ -688,9 +704,9 @@ export default function OutcomeRecorderModal({
                                                 if (code) setOutcome(code);
                                                 else setOutcome(null); // data_update: sub-choice below
                                             }}
-                                            className={`flex items-center justify-center gap-2 p-3.5 rounded-xl border-2 transition-all text-sm font-bold ${expandedGroup === key ? active : idle}`}
+                                            className={`flex items-center justify-center gap-2 p-4 rounded-xl border-2 transition-all text-sm font-bold ${expandedGroup === key ? active : idle}`}
                                         >
-                                            <Icon className="w-4 h-4 shrink-0" />
+                                            <Icon className="w-5 h-5 shrink-0" />
                                             {label}
                                         </button>
                                     ))}
@@ -721,7 +737,7 @@ export default function OutcomeRecorderModal({
                             </label>
                             <Select
                                 value={serviceTaskType}
-                                onChange={setServiceTaskType}
+                                onChange={value => setServiceTaskType(String(value))}
                                 placeholder="— اختر نوع الخدمة —"
                                 ariaLabel="نوع الخدمة المطلوبة"
                                 className="w-full"
@@ -739,22 +755,11 @@ export default function OutcomeRecorderModal({
                             </div>
                             <div className="px-4 py-4 space-y-4">
                                 {/* Visit time. The visit date is locked by the workspace plan date. */}
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
-                                        <Clock className="w-3.5 h-3.5" />
-                                        وقت الزيارة <span className="text-red-500">*</span>
-                                    </label>
-                                    <select
-                                        value={visitTime}
-                                        onChange={e => setVisitTime(e.target.value)}
-                                        className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none font-mono"
-                                        dir="ltr"
-                                    >
-                                        {getHourlyVisitSlots().map(slot => (
-                                            <option key={slot} value={slot}>{slot}</option>
-                                        ))}
-                                    </select>
-                                </div>
+                                <VisitTimePicker
+                                    value={visitTime}
+                                    onChange={setVisitTime}
+                                    bookedTimes={bookedTimes}
+                                />
 
                                 {/* Water source — only for device_demo tasks */}
                                 {hasDeviceDemo && (
@@ -765,11 +770,11 @@ export default function OutcomeRecorderModal({
                                         </label>
                                         <Select
                                             value={apptWaterSource}
-                                            onChange={setApptWaterSource}
+                                            onChange={value => setApptWaterSource(String(value))}
                                             placeholder="— اختر مصدر المياه —"
                                             ariaLabel="مصدر المياه"
                                             className="w-full"
-                                            options={['الاسالة الحكومية','شراء قناني معبأة (RO)','ماء بئر / جوفي','تناكر / حوضيات','غير معروف'].map(o => ({ value: o, label: o }))}
+                                            options={waterSourceOptions.map(o => ({ value: o, label: o }))}
                                         />
                                     </div>
                                 )}
@@ -1013,7 +1018,7 @@ export default function OutcomeRecorderModal({
                             value={notes}
                             onChange={e => setNotes(e.target.value)}
                             placeholder={requiresNotes ? 'مطلوب — أدخل التفاصيل هنا...' : 'أي تفاصيل إضافية حول التواصل...'}
-                            className={`w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:outline-none min-h-[80px] resize-none transition-all ${requiresNotes && !notes.trim()
+                            className={`w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:outline-none min-h-[150px] resize-none transition-all ${requiresNotes && !notes.trim()
                                 ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500/20'
                                 : 'border-slate-200 focus:border-violet-500 focus:ring-violet-500/20'}`}
                         />
@@ -1021,23 +1026,10 @@ export default function OutcomeRecorderModal({
                             <p className="text-xs text-amber-600 font-bold">يرجى إدخال ملاحظات لهذه النتيجة</p>
                         )}
                     </div>
-                </div>
 
-                {/* Footer */}
-                <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
-                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
-                    <Button
-                        icon={CheckCircle2}
-                        loading={saving}
-                        disabled={!canSave || saving}
-                        onClick={handleSave}
-                    >
-                        {isTextMessage ? 'إرسال الرسالة'
-                            : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
-                            : 'حفظ النتيجة'}
-                    </Button>
+                    </div>{/* ── END RIGHT PANE ── */}
+                    </div>{/* ── END TWO-PANE GRID ── */}
                 </div>
-            </motion.div>
-        </div>
+        </Modal>
     );
 }

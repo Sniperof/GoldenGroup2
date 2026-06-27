@@ -334,6 +334,8 @@ function FieldLabel({
   );
 }
 
+// Single-line inputs are pilled globally by index.css (the design-system rule);
+// the rounded-2xl here only governs textareas, which the global rule leaves alone.
 const INPUT_CLASS =
   'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100';
 
@@ -1392,7 +1394,6 @@ export default function EmployeeFormModal({
               onChange={handleReferralTypeChange}
               placeholder="بدون تحديد"
               ariaLabel="نوع الوسيط"
-              variant="filled"
               className="w-full"
               options={REFERRER_TYPE_OPTIONS.map(item => ({ value: item.value, label: item.label }))}
             />
@@ -1456,7 +1457,7 @@ export default function EmployeeFormModal({
               onChange={(e) => handleClientSearch(e.target.value)}
               onFocus={(e) => handleClientSearch(e.target.value)}
               placeholder="ابحث عن الزبون بالاسم أو رقم الهاتف..."
-              className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
             />
             {clientSuggestions.length > 0 && (
               <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
