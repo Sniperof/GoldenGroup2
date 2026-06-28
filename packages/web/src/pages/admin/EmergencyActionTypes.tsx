@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, Trash2, X, Zap } from 'lucide-react';
 import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
 import Toggle from '../../components/ui/Toggle';
 import Button from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
@@ -184,14 +185,28 @@ export default function EmergencyActionTypes() {
       )}
 
       {/* Edit Modal */}
-      {editItem !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
-          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 bg-rose-50">
-              <h3 className="font-bold text-slate-800">{isNew ? 'إضافة نوع إجراء' : 'تعديل نوع الإجراء'}</h3>
-              <IconButton icon={X} label="إغلاق" size="sm" onClick={closeModal} />
-            </div>
+      <Modal
+        isOpen={editItem !== null}
+        onClose={closeModal}
+        size="sm"
+        title={isNew ? 'إضافة نوع إجراء' : 'تعديل نوع الإجراء'}
+        footer={
+          <div className="w-full flex gap-3">
+            <Button variant="secondary" onClick={closeModal} className="flex-1">إلغاء</Button>
+            <Button
+              variant="danger"
+              icon={Save}
+              onClick={handleSave}
+              disabled={!editItem?.arabicLabel?.trim()}
+              loading={savingId !== null}
+              className="flex-1"
+            >
+              حفظ
+            </Button>
+          </div>
+        }
+      >
+            {editItem && (
             <div className="px-5 py-4 space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1.5">اسم الإجراء <span className="text-red-500">*</span></label>
@@ -211,22 +226,8 @@ export default function EmergencyActionTypes() {
                   className="w-24 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-center focus:outline-none focus:border-rose-400" />
               </div>
             </div>
-            <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-              <Button variant="secondary" onClick={closeModal} className="flex-1">إلغاء</Button>
-              <Button
-                variant="danger"
-                icon={Save}
-                onClick={handleSave}
-                disabled={!editItem.arabicLabel?.trim()}
-                loading={savingId !== null}
-                className="flex-1"
-              >
-                حفظ
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            )}
+      </Modal>
     </div>
   );
 }

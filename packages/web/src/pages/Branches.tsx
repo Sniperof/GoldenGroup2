@@ -9,10 +9,10 @@ import type { ColumnDef } from '../components/SmartTable';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import PageHeader from '../components/ui/PageHeader';
-import IconButton from '../components/ui/IconButton';
+import Modal from '../components/ui/Modal';
 import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } from '../components/GeoSmartSearch';
 import {
-  MapPin, Building2, Plus, Edit, Trash2, X, Network,
+  MapPin, Building2, Plus, Edit, Trash2, Network,
   Mail, Phone, Smartphone, Globe, Users, Briefcase,
   CircleUser, BadgeDollarSign, ChevronDown,
 } from 'lucide-react';
@@ -260,19 +260,18 @@ export default function Branches() {
         />
 
       {/* ── Modal ── */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh]">
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex-shrink-0">
-              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-sky-500" />
-                {editingBranch ? 'تعديل بيانات الفرع' : 'إضافة فرع جديد'}
-              </h3>
-              <IconButton icon={X} label="إغلاق" onClick={() => setIsModalOpen(false)} />
-            </div>
-
-            <form onSubmit={handleSave} className="overflow-y-auto flex-1">
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        size="2xl"
+        title={
+          <span className="flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-sky-500" />
+            {editingBranch ? 'تعديل بيانات الفرع' : 'إضافة فرع جديد'}
+          </span>
+        }
+      >
+            <form onSubmit={handleSave}>
               <div className="p-6 space-y-6">
 
                 {/* Basic info */}
@@ -510,9 +509,7 @@ export default function Branches() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

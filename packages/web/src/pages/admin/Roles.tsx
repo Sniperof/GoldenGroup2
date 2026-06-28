@@ -8,13 +8,13 @@ import type { RoleUser as TrpcRoleUser } from '../../lib/trpc-contract';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
   ShieldCheck, Plus, Edit2, Trash2, Users, Key,
-  ToggleLeft, ToggleRight, X, Save, Loader2, AlertTriangle,
+  ToggleLeft, ToggleRight, Save, Loader2, AlertTriangle,
   UserPlus, User, Eye, EyeOff, ChevronDown, Building2, Star,
   ExternalLink, ListChecks,
 } from 'lucide-react';
 import Select from '../../components/ui/Select';
 import PageHeader from '../../components/ui/PageHeader';
-import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
 
 // ══════════════════════════════════════════════════════════════════
 // Role Modal
@@ -44,12 +44,22 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between p-5 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-800">{isEdit ? 'تعديل الدور' : 'إنشاء دور جديد'}</h2>
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      title={isEdit ? 'تعديل الدور' : 'إنشاء دور جديد'}
+      footer={
+        <div className="w-full flex gap-3">
+          <button onClick={handleSave} disabled={saving}
+            className="flex-1 flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isEdit ? 'حفظ التعديلات' : 'إنشاء الدور'}
+          </button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">إلغاء</button>
         </div>
+      }
+    >
         <div className="p-5 space-y-4">
           {error && <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-lg p-3"><AlertTriangle className="w-4 h-4 shrink-0" />{error}</div>}
           {!isEdit && (
@@ -95,16 +105,7 @@ function RoleModal({ role, onClose }: { role?: Role | null; onClose: () => void 
             </p>
           </div>
         </div>
-        <div className="flex gap-3 p-5 border-t border-slate-100">
-          <button onClick={handleSave} disabled={saving}
-            className="flex-1 flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {isEdit ? 'حفظ التعديلات' : 'إنشاء الدور'}
-          </button>
-          <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">إلغاء</button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -179,17 +180,27 @@ function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" dir="rtl">
-      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-bold text-slate-800">المهام الوظيفية</h3>
-            <p className="text-xs text-slate-400 mt-0.5">{role.displayName}</p>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} />
-        </div>
-
-        <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="2xl"
+      title="المهام الوظيفية"
+      subtitle={role.displayName}
+      footer={
+        <>
+          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-500 hover:bg-slate-200">إلغاء</button>
+          <button
+            onClick={handleSave}
+            disabled={saving || loading}
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-bold disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            حفظ المهام
+          </button>
+        </>
+      }
+    >
+        <div className="p-6 space-y-4">
           {error && <div className="rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm px-4 py-3">{error}</div>}
           {loading ? (
             <div className="py-10 flex justify-center text-slate-400">
@@ -249,20 +260,7 @@ function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void 
             </>
           )}
         </div>
-
-        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-500 hover:bg-slate-200">إلغاء</button>
-          <button
-            onClick={handleSave}
-            disabled={saving || loading}
-            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-bold disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            حفظ المهام
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -301,12 +299,22 @@ export function UserModal({ user, roles, onClose }: { user?: HrUser | null; role
   const hasReadOnlySystemRole = Boolean(user?.roleId && !assignedVisibleRole && user?.roleDisplayName);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between p-5 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-800">{isEdit ? 'تعديل بيانات المستخدم' : 'إضافة مستخدم جديد'}</h2>
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      title={isEdit ? 'تعديل بيانات المستخدم' : 'إضافة مستخدم جديد'}
+      footer={
+        <div className="w-full flex gap-3">
+          <button onClick={handleSave} disabled={saving}
+            className="flex-1 flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isEdit ? 'حفظ التعديلات' : 'إضافة المستخدم'}
+          </button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">إلغاء</button>
         </div>
+      }
+    >
         <div className="p-5 space-y-4">
           {error && <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-lg p-3"><AlertTriangle className="w-4 h-4 shrink-0" />{error}</div>}
 
@@ -364,16 +372,7 @@ export function UserModal({ user, roles, onClose }: { user?: HrUser | null; role
             )}
           </div>
         </div>
-        <div className="flex gap-3 p-5 border-t border-slate-100">
-          <button onClick={handleSave} disabled={saving}
-            className="flex-1 flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {isEdit ? 'حفظ التعديلات' : 'إضافة المستخدم'}
-          </button>
-          <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">إلغاء</button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -408,27 +407,30 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
     : users.filter(u => u.branchAssignments.some(b => b.branchId === branchFilter));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-
-        {/* Header */}
-        <div className="flex items-start justify-between p-5 border-b border-slate-100">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">المستخدمون بهذا الدور</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              <span className="inline-flex items-center gap-1 bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2 py-0.5 font-medium">
-                <ShieldCheck className="w-3 h-3" />{role.displayName}
-              </span>
-              <span className="mx-2 text-slate-300">·</span>
-              {loading ? '...' : `${filteredUsers.length} مستخدم`}
-            </p>
-          </div>
-          <IconButton icon={X} label="إغلاق" size="sm" className="mt-0.5" onClick={onClose} />
-        </div>
-
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="2xl"
+      title="المستخدمون بهذا الدور"
+      subtitle={
+        <>
+          <span className="inline-flex items-center gap-1 bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2 py-0.5 font-medium">
+            <ShieldCheck className="w-3 h-3" />{role.displayName}
+          </span>
+          <span className="mx-2 text-slate-300">·</span>
+          {loading ? '...' : `${filteredUsers.length} مستخدم`}
+        </>
+      }
+      footer={
+        <p className="w-full text-xs text-slate-400">
+          الفروع الظاهرة مصدرها <code className="bg-slate-100 px-1 rounded">user_branch_assignments</code> وليس الدور.
+          الدور يحدد الصلاحيات فقط، والفروع تحدد أين تطبق.
+        </p>
+      }
+    >
         {/* Branch filter */}
         {!loading && allBranches.length > 0 && (
-          <div className="px-5 py-3 border-b border-slate-50 bg-slate-50/60 flex items-center gap-3">
+          <div className="px-5 py-3 border-b border-slate-50 bg-slate-50/60 flex items-center gap-3 sticky top-0 z-10">
             <span className="text-xs font-semibold text-slate-500 shrink-0">تصفية حسب الفرع:</span>
             <div className="relative flex-1 max-w-xs">
               <Select
@@ -444,7 +446,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
         )}
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 p-5">
+        <div className="p-5">
           {error && (
             <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-lg p-3 mb-4">
               <AlertTriangle className="w-4 h-4 shrink-0" />{error}
@@ -528,16 +530,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
             </div>
           )}
         </div>
-
-        {/* Footer note */}
-        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60">
-          <p className="text-xs text-slate-400">
-            الفروع الظاهرة مصدرها <code className="bg-slate-100 px-1 rounded">user_branch_assignments</code> وليس الدور.
-            الدور يحدد الصلاحيات فقط، والفروع تحدد أين تطبق.
-          </p>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -662,19 +655,14 @@ export function UserBranchAssignmentsModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between p-5 border-b border-slate-100">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">الفروع المسموحة</h2>
-            <p className="text-xs text-slate-500 mt-1">
-              {user.name} ({user.username}) - الدور يحدد ماذا يستطيع المستخدم فعله، والفروع تحدد أين يستطيع فعله.
-            </p>
-          </div>
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-        </div>
-
-        <div className="p-5 space-y-4 overflow-y-auto">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="3xl"
+      title="الفروع المسموحة"
+      subtitle={`${user.name} (${user.username}) - الدور يحدد ماذا يستطيع المستخدم فعله، والفروع تحدد أين يستطيع فعله.`}
+    >
+        <div className="p-5 space-y-4">
           {error && (
             <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-lg p-3">
               <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -783,8 +771,7 @@ export function UserBranchAssignmentsModal({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

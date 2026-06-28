@@ -10,9 +10,10 @@
 // Submits via the unified recordTaskResult.
 // ============================================================
 import { useEffect, useState } from 'react';
-import { CreditCard, CalendarClock, CircleCheck, CircleX, Loader2, X } from 'lucide-react';
+import { CreditCard, CalendarClock, CircleCheck, CircleX, Loader2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
+import Modal from '../../components/ui/Modal';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 
 type Mode = 'delivered' | 'reschedule' | 'cancel';
@@ -74,14 +75,22 @@ export default function GoldenWarrantyCardDeliveryModal({ visitId, taskId, task,
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-amber-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-5 py-4">
-          <div className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-amber-600" /><h2 className="text-base font-black text-amber-900">نتيجة تسليم كروت الكفالة</h2></div>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700"><X className="h-5 w-5" /></button>
-        </div>
-
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="2xl"
+      title={<span className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-amber-600" />نتيجة تسليم كروت الكفالة</span>}
+      footer={
+        <>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
+          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {mode === 'delivered' ? 'تأكيد تسليم الكل' : 'حفظ'}
+          </button>
+        </>
+      }
+    >
+        <div className="space-y-4 px-5 py-4">
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
           <div className="rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-2 text-xs text-amber-800">
@@ -137,15 +146,6 @@ export default function GoldenWarrantyCardDeliveryModal({ visitId, taskId, task,
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </label>
         </div>
-
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {mode === 'delivered' ? 'تأكيد تسليم الكل' : 'حفظ'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

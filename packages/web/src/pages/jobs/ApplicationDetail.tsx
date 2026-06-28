@@ -10,12 +10,12 @@ import {
   ArrowRight, User, Briefcase, MapPin, Phone, Mail, Calendar, Users, GraduationCap,
   FileText, Clock, CheckCircle, XCircle, UserPlus, AlertTriangle, Award,
   ChevronDown, ChevronUp, ArrowRightLeft, Car, Monitor, Globe, DollarSign, Archive,
-  Eye, Minus, X, Play, ThumbsUp, ThumbsDown, LogOut, Zap, CircleDot,
+  Eye, Minus, Play, ThumbsUp, ThumbsDown, LogOut, Zap, CircleDot,
   ArrowUpRight, ShieldCheck, Ban, RotateCcw, Sparkles, Loader2, Gavel,
   BookOpen, ExternalLink, Plus,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
 import PermissionGate from '../../components/PermissionGate';
 import { calculateJobMatchScore } from '../../lib/jobMatch';
 import { getUnifiedApplicationState } from '../../lib/applicationState';
@@ -1600,33 +1600,31 @@ export default function ApplicationDetail() {
       )}
 
       {/* Review Comparison Modal */}
-      <AnimatePresence>
-        {showReviewModal && detail && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
-            onClick={() => setShowReviewModal(false)}>
-            <motion.div initial={{ scale: 0.96, y: 20, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.96, y: 20, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden"
-              style={{ maxHeight: 'min(92vh, 800px)' }}
-              onClick={e => e.stopPropagation()} dir="rtl">
-
-              {/* Header */}
-              <div className="px-6 pt-5 pb-4 border-b border-slate-100 shrink-0 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                    <Eye className="w-5 h-5 text-sky-500" /> مراجعة الطلب مقابل متطلبات الشاغر
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    طلب #{detail.id} — {detail.applicant?.firstName} {detail.applicant?.lastName}
-                  </p>
-                </div>
-                <IconButton icon={X} label="إغلاق" onClick={() => setShowReviewModal(false)} />
-              </div>
-
+      <Modal
+        isOpen={showReviewModal && !!detail}
+        onClose={() => setShowReviewModal(false)}
+        size="4xl"
+        title={<span className="flex items-center gap-2"><Eye className="w-5 h-5 text-sky-500" /> مراجعة الطلب مقابل متطلبات الشاغر</span>}
+        subtitle={detail ? `طلب #${detail.id} — ${detail.applicant?.firstName ?? ''} ${detail.applicant?.lastName ?? ''}` : undefined}
+        footer={
+          <div className="w-full flex items-center justify-between">
+            <Button variant="secondary" onClick={() => setShowReviewModal(false)}>
+              إغلاق
+            </Button>
+            <div className="flex items-center gap-3">
+              <Button variant="danger" icon={XCircle} disabled={actionLoading} loading={actionLoading} onClick={() => handleReviewDecision('reject')}>
+                {actionLoading ? 'جاري...' : 'رفض'}
+              </Button>
+              <Button icon={CheckCircle} disabled={actionLoading} loading={actionLoading} onClick={() => handleReviewDecision('qualify')}>
+                {actionLoading ? 'جاري...' : 'تأهيل للقائمة القصيرة'}
+              </Button>
+            </div>
+          </div>
+        }
+      >
               {/* Body */}
-              <div className="flex-1 overflow-y-auto px-6 py-5">
-                {(() => {
+              <div className="px-6 py-5">
+                {detail && (() => {
                   const app = detail.applicant;
                   const vac = detail.vacancy;
                   if (!app || !vac) return <p className="text-center text-slate-400">لا توجد بيانات</p>;
@@ -1835,36 +1833,7 @@ export default function ApplicationDetail() {
                   );
                 })()}
               </div>
-
-              {/* Footer */}
-              <div className="px-6 py-4 border-t border-slate-100 shrink-0 flex items-center justify-between bg-white">
-                <Button variant="secondary" onClick={() => setShowReviewModal(false)}>
-                  إغلاق
-                </Button>
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="danger"
-                    icon={XCircle}
-                    disabled={actionLoading}
-                    loading={actionLoading}
-                    onClick={() => handleReviewDecision('reject')}
-                  >
-                    {actionLoading ? 'جاري...' : 'رفض'}
-                  </Button>
-                  <Button
-                    icon={CheckCircle}
-                    disabled={actionLoading}
-                    loading={actionLoading}
-                    onClick={() => handleReviewDecision('qualify')}
-                  >
-                    {actionLoading ? 'جاري...' : 'تأهيل للقائمة القصيرة'}
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
 
       <EmployeeFormModal
         isOpen={showEmployeeModal}
@@ -1886,27 +1855,22 @@ export default function ApplicationDetail() {
       />
 
       {/* ── Schedule Interview Modal ── */}
-      <AnimatePresence>
-        {showScheduleInterviewModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={() => setShowScheduleInterviewModal(false)}
-          >
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]" dir="rtl"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-sky-500" /> جدولة مقابلة
-                </h3>
-                <div className="flex flex-col gap-0.5 text-right">
-                  <span className="text-xs text-slate-500">المتقدم: <span className="font-bold text-slate-700">{detail.applicant?.firstName} {detail.applicant?.lastName}</span></span>
-                  <span className="text-xs text-slate-500">الشاغر: <span className="font-bold text-slate-700">{detail.vacancy?.title}</span></span>
-                </div>
-              </div>
-
-              <div className="px-6 py-5 overflow-y-auto space-y-4">
+      <Modal
+        isOpen={showScheduleInterviewModal}
+        onClose={() => setShowScheduleInterviewModal(false)}
+        size="lg"
+        title={<span className="flex items-center gap-2"><Users className="w-4 h-4 text-sky-500" /> جدولة مقابلة</span>}
+        subtitle={detail ? <>المتقدم: <span className="font-bold text-slate-700">{detail.applicant?.firstName} {detail.applicant?.lastName}</span> · الشاغر: <span className="font-bold text-slate-700">{detail.vacancy?.title}</span></> : undefined}
+        footer={
+          <div className="w-full flex items-center justify-between">
+            <Button variant="secondary" onClick={() => setShowScheduleInterviewModal(false)}>إلغاء</Button>
+            <Button icon={Calendar} loading={interviewSubmitting} disabled={interviewSubmitting} onClick={handleScheduleInterview}>
+              {interviewSubmitting ? 'جاري...' : 'جدولة المقابلة'}
+            </Button>
+          </div>
+        }
+      >
+              <div className="px-6 py-5 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-bold text-slate-500 block mb-1.5">نوع المقابلة</label>
@@ -1986,43 +1950,28 @@ export default function ApplicationDetail() {
                   </div>
                 )}
               </div>
-
-              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
-                <Button variant="secondary" onClick={() => setShowScheduleInterviewModal(false)}>إلغاء</Button>
-                <Button
-                  icon={Calendar}
-                  loading={interviewSubmitting}
-                  disabled={interviewSubmitting}
-                  onClick={handleScheduleInterview}
-                >
-                  {interviewSubmitting ? 'جاري...' : 'جدولة المقابلة'}
-                </Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
 
       {/* ── Escalate Confirm Modal ── */}
-      <AnimatePresence>
-        {showEscalateConfirm && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={() => setShowEscalateConfirm(false)}
-          >
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" dir="rtl"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-5 h-5 text-orange-500" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">تصعيد الطلب</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">سيتم رفع الطلب للإدارة العليا للمراجعة</p>
-                </div>
-              </div>
+      <Modal
+        isOpen={showEscalateConfirm}
+        onClose={() => setShowEscalateConfirm(false)}
+        size="sm"
+        title={<span className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-orange-500" /> تصعيد الطلب</span>}
+        subtitle="سيتم رفع الطلب للإدارة العليا للمراجعة"
+        footer={
+          <div className="w-full flex gap-3">
+            <Button variant="secondary" fullWidth onClick={() => { setShowEscalateConfirm(false); setEscalateReason(''); }}>
+              إلغاء
+            </Button>
+            <Button variant="gold" fullWidth icon={AlertTriangle} loading={escalateLoading} disabled={escalateLoading} onClick={handleEscalate}>
+              {escalateLoading ? 'جاري...' : 'تأكيد التصعيد'}
+            </Button>
+          </div>
+        }
+      >
+              <div className="p-6">
+              {detail && (<>
               <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 mb-4">
                 <p className="text-xs text-orange-700 leading-relaxed">
                   <span className="font-bold">{detail.applicant?.firstName} {detail.applicant?.lastName}</span>
@@ -2044,72 +1993,49 @@ export default function ApplicationDetail() {
                   <XCircle className="w-4 h-4 shrink-0" />{escalateError}
                 </div>
               )}
-              <div className="flex gap-3">
-                <Button
-                  variant="secondary"
-                  fullWidth
-                  onClick={() => { setShowEscalateConfirm(false); setEscalateReason(''); }}
-                >
-                  إلغاء
-                </Button>
-                <Button
-                  variant="gold"
-                  fullWidth
-                  icon={AlertTriangle}
-                  loading={escalateLoading}
-                  disabled={escalateLoading}
-                  onClick={handleEscalate}
-                >
-                  {escalateLoading ? 'جاري...' : 'تأكيد التصعيد'}
-                </Button>
+              </>)}
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
 
       {/* Reason Modal */}
-      <AnimatePresence>
-        {showReasonModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={() => setShowReasonModal(null)}
-          >
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
-              onClick={e => e.stopPropagation()}
+      <Modal
+        isOpen={!!showReasonModal}
+        onClose={() => setShowReasonModal(null)}
+        size="md"
+        title="سبب القرار"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => { setShowReasonModal(null); setRejectReason(''); }}>
+              إلغاء
+            </Button>
+            <Button
+              variant="danger"
+              loading={actionLoading}
+              disabled={actionLoading}
+              onClick={() => {
+                if (!showReasonModal) return;
+                if (showReasonModal.newStatus === 'Final Rejected' && detail?.currentStage === 'Final Decision') {
+                  handleDecisionAction('Rejected', rejectReason);
+                  return;
+                }
+                handleStageAction(showReasonModal.newStage, showReasonModal.newStatus, rejectReason);
+              }}
             >
-              <h3 className="text-base font-bold text-slate-800 mb-4">سبب القرار</h3>
+              {actionLoading ? 'جاري...' : 'تأكيد'}
+            </Button>
+          </>
+        }
+      >
+              <div className="p-6">
               <textarea
                 value={rejectReason}
                 onChange={e => setRejectReason(e.target.value)}
                 rows={3}
                 placeholder="أدخل السبب (اختياري)..."
-                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-sky-500 mb-4"
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-sky-500"
               />
-              <div className="flex gap-3 justify-end">
-                <Button variant="secondary" onClick={() => { setShowReasonModal(null); setRejectReason(''); }}>
-                  إلغاء
-                </Button>
-                <Button
-                  variant="danger"
-                  loading={actionLoading}
-                  disabled={actionLoading}
-                  onClick={() => {
-                    if (showReasonModal.newStatus === 'Final Rejected' && detail.currentStage === 'Final Decision') {
-                      handleDecisionAction('Rejected', rejectReason);
-                      return;
-                    }
-                    handleStageAction(showReasonModal.newStage, showReasonModal.newStatus, rejectReason);
-                  }}
-                >
-                  {actionLoading ? 'جاري...' : 'تأكيد'}
-                </Button>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
     </div>
   );
 }

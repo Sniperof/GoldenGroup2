@@ -8,8 +8,8 @@
 // in a dialog over the page.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, Loader2, LineChart, ListOrdered, X, ChevronLeft } from 'lucide-react';
-import IconButton from '../../../components/ui/IconButton';
+import { Activity, Loader2, LineChart, ListOrdered, ChevronLeft } from 'lucide-react';
+import Modal from '../../../components/ui/Modal';
 import { api } from '../../../lib/api';
 
 type FieldKind = 'num' | 'enum' | 'bool';
@@ -248,18 +248,13 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
   const [openReading, setOpenReading] = useState<any | null>(initialReading);
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()} dir="rtl">
-        <div className="flex items-center justify-between gap-3 p-5 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-sky-500" />
-            <h3 className="text-base font-bold text-slate-800">الصحة الفنية للجهاز</h3>
-            <span className="text-xs font-bold text-slate-400">({rows.length} قراءة)</span>
-          </div>
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-        </div>
-
-        <div className="px-5 pt-4">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="4xl"
+      title={<span className="flex items-center gap-2"><Activity className="w-5 h-5 text-sky-500" />الصحة الفنية للجهاز <span className="text-xs font-bold text-slate-400">({rows.length} قراءة)</span></span>}
+    >
+        <div className="px-5 pt-4 sticky top-0 z-10 bg-white">
           <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 w-fit">
             <button onClick={() => { setTab('readings'); }} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${tab === 'readings' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500'}`}>
               <ListOrdered className="w-3.5 h-3.5" /> القراءات
@@ -270,7 +265,7 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
           </div>
         </div>
 
-        <div className="p-5 overflow-y-auto flex-1">
+        <div className="p-5">
           {tab === 'field' ? (
             <PerFieldView ascending={ascending} />
           ) : openReading ? (
@@ -296,8 +291,7 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

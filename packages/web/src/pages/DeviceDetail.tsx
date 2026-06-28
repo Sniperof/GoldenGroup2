@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     ChevronRight, Loader2, Package, Clock, Wrench, PenTool, GraduationCap,
     Truck, Gem, Star, Image, Video, FileText, AlertCircle, RefreshCw,
-    Zap, Tag, Plus, Pencil, Trash2, X, Save, ShieldCheck,
+    Zap, Tag, Plus, Pencil, Trash2, Save, ShieldCheck,
 } from 'lucide-react';
-import IconButton from '../components/ui/IconButton';
+import Modal from '../components/ui/Modal';
 import { api } from '../lib/api';
 import type { DeviceModel, DeviceDiscount, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
@@ -710,13 +710,24 @@ function PriceModal({ deviceId, currentPrice, onClose, onSaved }: {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                    <h3 className="text-base font-bold text-slate-800">إضافة سعر جديد</h3>
-                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-                </div>
-
+        <Modal
+            isOpen
+            onClose={onClose}
+            size="md"
+            title="إضافة سعر جديد"
+            footer={
+              <div className="w-full flex gap-3">
+                <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 text-sm font-semibold">
+                    إلغاء
+                </button>
+                <button onClick={handleSave} disabled={saving}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-600 text-white rounded-xl hover:bg-sky-500 text-sm font-semibold disabled:opacity-60">
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {saving ? 'جاري الحفظ...' : 'حفظ'}
+                </button>
+              </div>
+            }
+        >
                 <div className="px-5 py-5 space-y-4">
                     {error && (
                         <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
@@ -747,22 +758,7 @@ function PriceModal({ deviceId, currentPrice, onClose, onSaved }: {
                         />
                     </div>
                 </div>
-
-                <div className="flex gap-3 px-5 pb-5">
-                    <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 text-sm font-semibold">
-                        إلغاء
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-600 text-white rounded-xl hover:bg-sky-500 text-sm font-semibold disabled:opacity-60"
-                    >
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        {saving ? 'جاري الحفظ...' : 'حفظ'}
-                    </button>
-                </div>
-            </div>
-        </div>
+        </Modal>
     );
 }
 
@@ -809,15 +805,24 @@ function DiscountModal({ deviceId, editingDiscount, onClose, onSaved }: {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                    <h3 className="text-base font-bold text-slate-800">
-                        {editingDiscount ? 'تعديل حملة الخصم' : 'إضافة حملة خصم'}
-                    </h3>
-                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-                </div>
-
+        <Modal
+            isOpen
+            onClose={onClose}
+            size="md"
+            title={editingDiscount ? 'تعديل حملة الخصم' : 'إضافة حملة خصم'}
+            footer={
+              <div className="w-full flex gap-3">
+                <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 text-sm font-semibold">
+                    إلغاء
+                </button>
+                <button onClick={handleSave} disabled={saving}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 text-sm font-semibold disabled:opacity-60">
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {saving ? 'جاري الحفظ...' : 'حفظ'}
+                </button>
+              </div>
+            }
+        >
                 <div className="px-5 py-5 space-y-4">
                     {error && (
                         <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
@@ -881,21 +886,6 @@ function DiscountModal({ deviceId, editingDiscount, onClose, onSaved }: {
                         <span className="text-sm font-medium text-slate-700">فعّال</span>
                     </label>
                 </div>
-
-                <div className="flex gap-3 px-5 pb-5">
-                    <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 text-sm font-semibold">
-                        إلغاء
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 text-sm font-semibold disabled:opacity-60"
-                    >
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        {saving ? 'جاري الحفظ...' : 'حفظ'}
-                    </button>
-                </div>
-            </div>
-        </div>
+        </Modal>
     );
 }

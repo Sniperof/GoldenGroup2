@@ -3,7 +3,7 @@ import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { useRoleStore } from '../../hooks/useRoleStore';
 import type { SystemList } from '../../lib/types';
 import {
-  Settings2, Plus, Edit, Trash2, Save, X, ListPlus,
+  Settings2, Plus, Edit, Trash2, Save, ListPlus,
   Search, ChevronLeft, ChevronDown, GraduationCap,
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
   Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu, Phone,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
 import Select from '../../components/ui/Select';
@@ -1298,16 +1299,17 @@ export default function SystemLists() {
       </div>
 
       {/* ── Item Modal ── */}
-      {isItemModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
-                <Tag className="w-5 h-5 text-sky-500" />
-                {editingItem ? 'تعديل خيار' : `إضافة — ${panelTitle()}`}
-              </h3>
-              <IconButton icon={X} label="إغلاق" onClick={() => setIsItemModalOpen(false)} />
-            </div>
+      <Modal
+        isOpen={isItemModalOpen}
+        onClose={() => setIsItemModalOpen(false)}
+        size="md"
+        title={
+          <span className="flex items-center gap-2">
+            <Tag className="w-5 h-5 text-sky-500" />
+            {editingItem ? 'تعديل خيار' : `إضافة — ${panelTitle()}`}
+          </span>
+        }
+      >
             <form onSubmit={handleSave} className="p-6 space-y-5">
               {isCertificateView && activeCertificate && !editingItem && (
                 <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 text-sm text-violet-700 flex items-center gap-2">
@@ -1386,20 +1388,15 @@ export default function SystemLists() {
                 <Button type="submit" icon={Save}>حفظ</Button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* ── New Category Modal ── */}
-      {isNewCatOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
-                <FolderPlus className="w-5 h-5 text-indigo-500" /> إضافة فئة جديدة
-              </h3>
-              <IconButton icon={X} label="إغلاق" onClick={() => setIsNewCatOpen(false)} />
-            </div>
+      <Modal
+        isOpen={isNewCatOpen}
+        onClose={() => setIsNewCatOpen(false)}
+        size="md"
+        title={<span className="flex items-center gap-2"><FolderPlus className="w-5 h-5 text-indigo-500" /> إضافة فئة جديدة</span>}
+      >
             <form onSubmit={handleAddNewCategory} className="p-6 space-y-5">
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-sm text-indigo-700">
                 بعد الإنشاء، انتقل للفئة الجديدة وأضف خياراتها من الصفحة الرئيسية.
@@ -1426,9 +1423,7 @@ export default function SystemLists() {
                 <Button type="submit" icon={FolderPlus}>إنشاء</Button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ClipboardList, Filter, Hash, Loader2, Plus, RefreshCw, User } from 'lucide-react';
 import { api } from '../../lib/api';
+import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';
 import PageHeader from '../../components/ui/PageHeader';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -57,14 +58,13 @@ export default function ServiceRequestsListPage() {
     archived?: 'true' | 'false' | 'all';
   }>({ archived: 'false' });
   const [items, setItems] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [offset, setOffset] = useState(0);
-  const LIMIT = 50;
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // Load all matching rows; SmartTable handles pagination client-side (10/page),
+      // consistent with every other list page in the app.
       const res = await api.serviceRequests.list({
         status: filters.status,
         channel: filters.channel,
@@ -72,15 +72,13 @@ export default function ServiceRequestsListPage() {
         reviewRequired: filters.reviewRequired || undefined,
         duplicateOnly: filters.duplicateOnly || undefined,
         archived: filters.archived,
-        limit: LIMIT,
-        offset,
+        limit: 1000,
       });
       setItems(res.items);
-      setTotal(res.total);
     } finally {
       setLoading(false);
     }
-  }, [filters, offset]);
+  }, [filters]);
 
   useEffect(() => {
     load();
@@ -94,6 +92,80 @@ export default function ServiceRequestsListPage() {
       alert(e?.message ?? 'فَشل الـ claim');
     }
   }
+
+  const columns: ColumnDef<any>[] = [
+    {
+      key: 'publicRefNumber',
+      label: 'المرجع',
+      sortable: true,
+      width: 'w-32',
+      getValue: (r) => r.publicRefNumber ?? '',
+      render: (r) => (
+        <span className="font-mono text-xs text-blue-700">
+          <Hash className="h-3 w-3 inline ml-1" />
+          {r.publicRefNumber}
+        </span>
+      ),
+    },
+    {
+      key: 'channel',
+      label: 'القناة',
+      sortable: true,
+      getValue: (r) => CHANNEL_LABELS[r.channel] ?? r.channel ?? '',
+      render: (r) => <span className="text-sm text-slate-700">{CHANNEL_LABELS[r.channel] ?? r.channel}</span>,
+    },
+    {
+      key: 'requester',
+      label: 'صاحب الطلب',
+      minWidth: '160px',
+      render: (r) => (
+        <span className="text-sm text-slate-700">
+          {r.requesterExternal?.name ?? (r.beneficiaryClientId ? `عميل #${r.beneficiaryClientId}` : '—')}
+        </span>
+      ),
+    },
+    {
+      key: 'problemDescription',
+      label: 'المشكلة',
+      minWidth: '240px',
+      render: (r) => <span className="block max-w-[280px] truncate text-sm text-slate-600">{r.problemDescription}</span>,
+    },
+    {
+      key: 'status',
+      label: 'الحالة',
+      sortable: true,
+      getValue: (r) => STATUS_LABELS[r.status] ?? r.status ?? '',
+      render: (r) => (
+        <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[r.status] ?? ''}`}>
+          {STATUS_LABELS[r.status] ?? r.status}
+        </span>
+      ),
+    },
+    {
+      key: 'reviewedByUserId',
+      label: 'المُتولّي',
+      render: (r) =>
+        r.reviewedByUserId ? (
+          <span className="flex items-center gap-1 text-xs text-slate-700">
+            <User className="h-3 w-3" />
+            {r.reviewedByUserId === user?.id ? 'أنا' : `#${r.reviewedByUserId}`}
+          </span>
+        ) : (
+          <span className="text-slate-400 text-xs">—</span>
+        ),
+    },
+    {
+      key: 'flags',
+      label: 'العلامات',
+      render: (r) => (
+        <div className="flex gap-1">
+          {r.duplicateFlag && <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded">د</span>}
+          {r.reviewRequiredFlag && <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">م</span>}
+          {r.archivedAt && <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">أ</span>}
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="max-w-7xl mx-auto p-4" dir="rtl">
@@ -122,15 +194,12 @@ export default function ServiceRequestsListPage() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters (server-side) */}
       <div className="bg-white border border-slate-200 rounded p-3 mb-4 flex items-center gap-3 flex-wrap">
         <Filter className="h-4 w-4 text-slate-500" />
         <Select
           value={filters.status ?? ''}
-          onChange={(v) => {
-            setOffset(0);
-            setFilters((f) => ({ ...f, status: v || undefined }));
-          }}
+          onChange={(v) => setFilters((f) => ({ ...f, status: v || undefined }))}
           size="sm"
           ariaLabel="الحالة"
           options={[
@@ -140,10 +209,7 @@ export default function ServiceRequestsListPage() {
         />
         <Select
           value={filters.channel ?? ''}
-          onChange={(v) => {
-            setOffset(0);
-            setFilters((f) => ({ ...f, channel: v || undefined }));
-          }}
+          onChange={(v) => setFilters((f) => ({ ...f, channel: v || undefined }))}
           size="sm"
           ariaLabel="القناة"
           options={[
@@ -155,10 +221,7 @@ export default function ServiceRequestsListPage() {
           <input
             type="checkbox"
             checked={!!filters.mine}
-            onChange={(e) => {
-              setOffset(0);
-              setFilters((f) => ({ ...f, mine: e.target.checked }));
-            }}
+            onChange={(e) => setFilters((f) => ({ ...f, mine: e.target.checked }))}
           />
           طلباتي
         </label>
@@ -166,10 +229,7 @@ export default function ServiceRequestsListPage() {
           <input
             type="checkbox"
             checked={!!filters.reviewRequired}
-            onChange={(e) => {
-              setOffset(0);
-              setFilters((f) => ({ ...f, reviewRequired: e.target.checked }));
-            }}
+            onChange={(e) => setFilters((f) => ({ ...f, reviewRequired: e.target.checked }))}
           />
           يَحتاج مراجعة مدقّق
         </label>
@@ -177,19 +237,13 @@ export default function ServiceRequestsListPage() {
           <input
             type="checkbox"
             checked={!!filters.duplicateOnly}
-            onChange={(e) => {
-              setOffset(0);
-              setFilters((f) => ({ ...f, duplicateOnly: e.target.checked }));
-            }}
+            onChange={(e) => setFilters((f) => ({ ...f, duplicateOnly: e.target.checked }))}
           />
           مكرَّر فقط
         </label>
         <Select<'true' | 'false' | 'all'>
           value={filters.archived ?? 'false'}
-          onChange={(v) => {
-            setOffset(0);
-            setFilters((f) => ({ ...f, archived: v }));
-          }}
+          onChange={(v) => setFilters((f) => ({ ...f, archived: v }))}
           size="sm"
           ariaLabel="الأرشفة"
           options={[
@@ -201,119 +255,37 @@ export default function ServiceRequestsListPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-slate-200 rounded overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="text-right p-2 font-medium">المرجع</th>
-              <th className="text-right p-2 font-medium">القناة</th>
-              <th className="text-right p-2 font-medium">صاحب الطلب</th>
-              <th className="text-right p-2 font-medium">المشكلة</th>
-              <th className="text-right p-2 font-medium">الحالة</th>
-              <th className="text-right p-2 font-medium">المُتولّي</th>
-              <th className="text-right p-2 font-medium">العلامات</th>
-              <th className="text-right p-2 font-medium">إجراءات</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={8} className="text-center p-6 text-slate-400">
-                  <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                </td>
-              </tr>
-            ) : items.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="text-center p-6 text-slate-500">
-                  لا توجد طلبات مطابقة.
-                </td>
-              </tr>
-            ) : (
-              items.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-t border-slate-100 hover:bg-blue-50 cursor-pointer"
-                  onClick={() => navigate(`/service-requests/${r.id}`)}
-                >
-                  <td className="p-2 font-mono text-xs text-blue-700">
-                    <Hash className="h-3 w-3 inline ml-1" />
-                    {r.publicRefNumber}
-                  </td>
-                  <td className="p-2">{CHANNEL_LABELS[r.channel] ?? r.channel}</td>
-                  <td className="p-2">
-                    {r.requesterExternal?.name ?? (r.beneficiaryClientId ? `عميل #${r.beneficiaryClientId}` : '—')}
-                  </td>
-                  <td className="p-2 max-w-xs truncate">{r.problemDescription}</td>
-                  <td className="p-2">
-                    <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[r.status]}`}>
-                      {STATUS_LABELS[r.status] ?? r.status}
-                    </span>
-                  </td>
-                  <td className="p-2 text-xs">
-                    {r.reviewedByUserId ? (
-                      <span className="flex items-center gap-1">
-                        <User className="h-3 w-3" />
-                        {r.reviewedByUserId === user?.id ? 'أنا' : `#${r.reviewedByUserId}`}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="p-2">
-                    <div className="flex gap-1">
-                      {r.duplicateFlag && (
-                        <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded">د</span>
-                      )}
-                      {r.reviewRequiredFlag && (
-                        <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">م</span>
-                      )}
-                      {r.archivedAt && (
-                        <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">أ</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="p-2">
-                    {canReview && r.status === 'received' && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          quickClaim(r.id);
-                        }}
-                        className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded"
-                      >
-                        تَولّي
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      <div className="flex items-center justify-between mt-3 text-sm text-slate-600">
-        <div>
-          {total} طلب — يَعرض {Math.min(offset + 1, total)}–{Math.min(offset + LIMIT, total)}
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-slate-400">
+          <Loader2 className="h-8 w-8 animate-spin" />
         </div>
-        <div className="flex gap-1">
-          <button
-            disabled={offset === 0}
-            onClick={() => setOffset(Math.max(0, offset - LIMIT))}
-            className="px-2 py-1 border rounded disabled:opacity-50"
-          >
-            السابق
-          </button>
-          <button
-            disabled={offset + LIMIT >= total}
-            onClick={() => setOffset(offset + LIMIT)}
-            className="px-2 py-1 border rounded disabled:opacity-50"
-          >
-            التالي
-          </button>
-        </div>
-      </div>
+      ) : (
+        <SmartTable
+          title="قائمة الطلبات"
+          icon={ClipboardList}
+          data={items}
+          columns={columns}
+          getId={(r) => r.id}
+          hideFilterBar
+          onRowClick={(r) => navigate(`/service-requests/${r.id}`)}
+          emptyIcon={ClipboardList}
+          emptyMessage="لا توجد طلبات مطابقة."
+          tableMinWidth={1000}
+          actions={(r) =>
+            canReview && r.status === 'received' ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  quickClaim(r.id);
+                }}
+                className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded"
+              >
+                تَولّي
+              </button>
+            ) : null
+          }
+        />
+      )}
     </div>
   );
 }

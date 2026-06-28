@@ -6,8 +6,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Cpu, ExternalLink, Plus, X, Save, MapPin } from 'lucide-react';
-import IconButton from '../../components/ui/IconButton';
+import { Loader2, Cpu, ExternalLink, Plus, Save, MapPin } from 'lucide-react';
+import Modal from '../../components/ui/Modal';
 
 import { api } from '../../lib/api';
 import { DeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
@@ -86,12 +86,21 @@ function ExternalDeviceModalV2({
   onSave: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h3 className="text-base font-bold text-slate-800">اضافة جهاز خارجي</h3>
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="xl"
+      title="اضافة جهاز خارجي"
+      footer={
+        <div className="w-full flex gap-3">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">الغاء</button>
+          <button type="button" onClick={onSave} disabled={saving || loadingOptions} className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            حفظ
+          </button>
         </div>
+      }
+    >
         <div className="space-y-4 px-5 py-5">
           {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
           <label className="block space-y-1.5">
@@ -160,15 +169,7 @@ function ExternalDeviceModalV2({
             <textarea value={notes} onChange={e => onNotesChange(e.target.value)} rows={3} className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500" />
           </label>
         </div>
-        <div className="flex gap-3 border-t border-slate-100 px-5 pb-5 pt-4">
-          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">الغاء</button>
-          <button type="button" onClick={onSave} disabled={saving || loadingOptions} className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            حفظ
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
