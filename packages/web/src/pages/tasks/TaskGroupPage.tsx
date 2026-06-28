@@ -744,7 +744,6 @@ export default function TaskGroupPage() {
           columns={columns}
           getId={(row) => row.id}
           hideFilterBar
-          paginated={false}
           tableMinWidth={2200}
           emptyIcon={Icon}
           emptyMessage="لا توجد مهام"

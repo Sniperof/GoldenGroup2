@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, Loader2, LineChart, ListOrdered, ChevronLeft } from 'lucide-react';
 import Modal from '../../../components/ui/Modal';
+import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import { api } from '../../../lib/api';
 
 type FieldKind = 'num' | 'enum' | 'bool';
@@ -183,8 +184,17 @@ function PerFieldView({ ascending }: { ascending: any[] }) {
   const field = ALL_FIELDS.find(f => f.key === selectedField) ?? ALL_FIELDS[0];
   const series = useMemo(() => ascending
     .map(r => ({ value: r[field.key], createdAt: r.createdAt, phase: r.phase, taskType: r.taskTypeSnapshot ?? r.taskType }))
-    .filter(p => p.value != null && p.value !== ''), [ascending, field.key]);
+    .filter(p => p.value != null && p.value !== '')
+    .map((p, i) => ({ ...p, _i: i })), [ascending, field.key]);
   const numericPoints = field.kind === 'num' ? series.map(p => Number(p.value)) : [];
+
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const seriesColumns: ColumnDef<any>[] = [
+    { key: 'createdAt', label: 'التاريخ', render: p => <span className="text-xs text-slate-500">{formatDate(p.createdAt)}</span> },
+    { key: 'value', label: 'القيمة', render: p => <span className="text-sm font-bold text-slate-800">{renderValue(field, p.value)}</span> },
+    { key: 'phase', label: 'الدور', render: p => <PhaseBadge phase={p.phase} /> },
+    { key: 'taskType', label: 'المهمة', render: p => <span className="text-xs text-slate-600">{p.taskType ? (TASK_TYPE_LABELS[p.taskType] ?? p.taskType) : '—'}</span> },
+  ];
 
   return (
     <div className="space-y-4">
@@ -214,28 +224,18 @@ function PerFieldView({ ascending }: { ascending: any[] }) {
               </div>
             </div>
           )}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs font-bold text-slate-500 border-b border-slate-200">
-                  <th className="text-right py-2 px-2">التاريخ</th>
-                  <th className="text-right py-2 px-2">القيمة</th>
-                  <th className="text-right py-2 px-2">الدور</th>
-                  <th className="text-right py-2 px-2">المهمة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...series].reverse().map((p, i) => (
-                  <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/50">
-                    <td className="py-2 px-2 text-xs text-slate-500">{formatDate(p.createdAt)}</td>
-                    <td className="py-2 px-2 font-bold text-slate-800">{renderValue(field, p.value)}</td>
-                    <td className="py-2 px-2"><PhaseBadge phase={p.phase} /></td>
-                    <td className="py-2 px-2 text-xs text-slate-600">{p.taskType ? (TASK_TYPE_LABELS[p.taskType] ?? p.taskType) : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <SmartTable<any>
+            title={field.label}
+            subtitle={`${series.length} قيمة`}
+            icon={LineChart}
+            data={[...series].reverse()}
+            columns={seriesColumns}
+            getId={p => p._i}
+            hideFilterBar
+            tableMinWidth={520}
+            emptyIcon={LineChart}
+            emptyMessage="لا قيم مُسجَّلة لهذا الحقل"
+          />
         </>
       )}
     </div>

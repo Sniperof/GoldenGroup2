@@ -20,7 +20,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { SectionShell } from './SectionShell';
+import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import { api } from '../../../lib/api';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
@@ -149,8 +149,6 @@ function taskAvailability(taskType: string, device: any, deviceTasks: any[]) {
       return ['delivered', 'installed', 'active'].includes(String(device?.status))
         ? { allowed: true, reason: 'يمكن نقل الجهاز إلى عنوان مبدئي جديد أو إلى زبون آخر' }
         : { allowed: false, reason: 'النقل يحتاج جهازاً موجوداً عند الزبون' };
-    case 'device_return':
-      return { allowed: false, reason: 'قواعد الإرجاع غير موثقة بعد' };
     case 'emergency_maintenance':
       return ['active', 'installed', 'faulty', 'out_of_service'].includes(String(device?.status))
         ? { allowed: true, reason: 'يمكن فتح صيانة طارئة مع وصف العطل' }
@@ -396,52 +394,43 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
     }
   }
 
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const columns: ColumnDef<any>[] = [
+    {
+      key: 'id', label: '#',
+      render: t => <Link to={`/tasks/${t.id}`} className="font-mono text-sm text-slate-500 hover:text-sky-600 hover:underline">#{t.id}</Link>,
+    },
+    { key: 'taskType', label: 'النوع', render: t => <span className="text-sm text-slate-700">{t.taskType}</span> },
+    { key: 'taskFamily', label: 'العائلة', render: t => <span className="text-sm text-slate-500">{t.taskFamily}</span> },
+    { key: 'dueDate', label: 'تاريخ الاستحقاق', render: t => <span className="text-sm text-slate-700">{fmt(t.dueDate)}</span> },
+    {
+      key: 'status', label: 'الحالة',
+      render: t => {
+        const st = STATUS_LABEL[t.status] ?? { cls: 'bg-slate-100 text-slate-600', label: t.status };
+        return <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${st.cls}`}>{st.label}</span>;
+      },
+    },
+  ];
+
   return (
-    <SectionShell
-      id="tasks"
-      title="المهام المرتبطة"
-      subtitle="كل المهام الميدانية على هذا الجهاز"
-      actions={
-        <Button size="sm" icon={ClipboardList} onClick={openDialog}>
-          إضافة مهمة جديدة
-        </Button>
-      }
-    >
-      {myTasks.length === 0 ? (
-        <p className="text-xs text-slate-400 italic">لا مهام مرتبطة بهذا الجهاز.</p>
-      ) : (
-        <table className="w-full text-xs">
-          <thead className="text-slate-400 font-bold">
-            <tr className="border-b border-slate-100">
-              <th className="text-right py-2 px-2">#</th>
-              <th className="text-right py-2 px-2">النوع</th>
-              <th className="text-right py-2 px-2">العائلة</th>
-              <th className="text-right py-2 px-2">تاريخ الاستحقاق</th>
-              <th className="text-right py-2 px-2">الحالة</th>
-            </tr>
-          </thead>
-          <tbody>
-            {myTasks.map(t => {
-              const st = STATUS_LABEL[t.status] ?? { cls: 'bg-slate-100 text-slate-600', label: t.status };
-              return (
-                <tr key={t.id} className="border-b border-slate-50 last:border-0">
-                  <td className="py-2 px-2 font-mono text-slate-500">
-                    <Link to={`/tasks/${t.id}`} className="hover:text-sky-600 hover:underline">#{t.id}</Link>
-                  </td>
-                  <td className="py-2 px-2 text-slate-700">{t.taskType}</td>
-                  <td className="py-2 px-2 text-slate-500">{t.taskFamily}</td>
-                  <td className="py-2 px-2 text-slate-700">{fmt(t.dueDate)}</td>
-                  <td className="py-2 px-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${st.cls}`}>
-                      {st.label}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+    <section id="tasks" className="scroll-mt-24">
+      <SmartTable<any>
+        title="المهام المرتبطة"
+        subtitle="كل المهام الميدانية على هذا الجهاز"
+        icon={ClipboardList}
+        data={myTasks}
+        columns={columns}
+        getId={t => t.id}
+        hideFilterBar
+        tableMinWidth={620}
+        headerActions={
+          <Button size="sm" icon={ClipboardList} onClick={openDialog}>
+            إضافة مهمة جديدة
+          </Button>
+        }
+        emptyIcon={ClipboardList}
+        emptyMessage="لا مهام مرتبطة بهذا الجهاز."
+      />
 
       {showDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
@@ -857,7 +846,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
           </div>
         </div>
       )}
-    </SectionShell>
+    </section>
   );
 }
 

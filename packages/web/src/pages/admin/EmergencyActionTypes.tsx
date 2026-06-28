@@ -166,7 +166,6 @@ export default function EmergencyActionTypes() {
           columns={columns}
           getId={(item) => item.id}
           hideFilterBar
-          paginated={false}
           tableMinWidth={620}
           rowClassName={(item) => (!item.isActive ? 'opacity-50 hover:bg-sky-50' : '')}
           emptyIcon={Zap}

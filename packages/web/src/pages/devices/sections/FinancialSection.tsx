@@ -8,7 +8,9 @@
 // And a link to the customer-wide statement (DEC-CT-10).
 
 import { Link } from 'react-router-dom';
+import { ListChecks, Receipt } from 'lucide-react';
 import { SectionShell } from './SectionShell';
+import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 
 interface Props {
   contract: any | null;
@@ -46,6 +48,37 @@ export function FinancialSection({ contract, customerId }: Props) {
   const totalPaid = installments.reduce((s, i) => s + Number(i.paidAmount || 0), 0);
   const totalRemaining = installments.reduce((s, i) => s + Number(i.remainingBalance || 0), 0);
 
+  // Columns mirror the original raw tables 1:1 (design-only migration to <SmartTable>).
+  const installmentColumns: ColumnDef<any>[] = [
+    { key: 'installmentNumber', label: '#', render: i => <span className="font-mono text-sm text-slate-500">{i.installmentNumber}</span> },
+    { key: 'dueDate', label: 'تاريخ الاستحقاق', render: i => <span className="text-sm text-slate-700">{fmt(i.dueDate)}</span> },
+    { key: 'amountSyp', label: 'المبلغ', render: i => <span className="text-sm text-slate-700">{money(i.amountSyp)} ل.س</span> },
+    { key: 'paidAmount', label: 'المسدّد', render: i => <span className="text-sm text-emerald-700">{money(i.paidAmount)} ل.س</span> },
+    { key: 'remainingBalance', label: 'المتبقي', render: i => <span className="text-sm text-rose-700">{money(i.remainingBalance)} ل.س</span> },
+    {
+      key: 'status', label: 'الحالة',
+      render: i => {
+        const st = INSTALLMENT_STATUS_LABEL[i.status] ?? { cls: 'bg-slate-100 text-slate-600', label: i.status };
+        return <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${st.cls}`}>{st.label}</span>;
+      },
+    },
+  ];
+
+  const paymentColumns: ColumnDef<any>[] = [
+    { key: 'receivedAt', label: 'التاريخ', render: p => <span className="text-sm text-slate-700">{fmt(p.receivedAt)}</span> },
+    {
+      key: 'entryType', label: 'النوع',
+      render: p => (
+        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${p.entryType === 'refund' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+          {p.entryType === 'refund' ? 'مرتجع' : 'قبض'}
+        </span>
+      ),
+    },
+    { key: 'method', label: 'الطريقة', render: p => <span className="text-sm text-slate-700">{p.method}</span> },
+    { key: 'amountSyp', label: 'المبلغ', render: p => <span className="text-sm font-bold text-slate-700">{money(p.amountSyp)} ل.س</span> },
+    { key: 'installmentId', label: 'القسط', render: p => <span className="font-mono text-sm text-slate-500">{p.installmentId ?? '—'}</span> },
+  ];
+
   return (
     <SectionShell
       id="financial"
@@ -79,79 +112,34 @@ export function FinancialSection({ contract, customerId }: Props) {
 
       {/* Installments table */}
       <div className="mb-6">
-        <h4 className="text-xs font-black text-slate-500 mb-2">الأقساط ({installments.length})</h4>
-        {installments.length === 0 ? (
-          <p className="text-xs text-slate-400 italic">لا أقساط (دفعة واحدة).</p>
-        ) : (
-          <table className="w-full text-xs">
-            <thead className="text-slate-400 font-bold">
-              <tr className="border-b border-slate-100">
-                <th className="text-right py-2 px-2">#</th>
-                <th className="text-right py-2 px-2">تاريخ الاستحقاق</th>
-                <th className="text-right py-2 px-2">المبلغ</th>
-                <th className="text-right py-2 px-2">المسدّد</th>
-                <th className="text-right py-2 px-2">المتبقي</th>
-                <th className="text-right py-2 px-2">الحالة</th>
-              </tr>
-            </thead>
-            <tbody>
-              {installments.map((i: any) => {
-                const st = INSTALLMENT_STATUS_LABEL[i.status] ?? { cls: 'bg-slate-100 text-slate-600', label: i.status };
-                return (
-                  <tr key={i.id} className="border-b border-slate-50 last:border-0">
-                    <td className="py-2 px-2 font-mono text-slate-500">{i.installmentNumber}</td>
-                    <td className="py-2 px-2 text-slate-700">{fmt(i.dueDate)}</td>
-                    <td className="py-2 px-2 text-slate-700">{money(i.amountSyp)} ل.س</td>
-                    <td className="py-2 px-2 text-emerald-700">{money(i.paidAmount)} ل.س</td>
-                    <td className="py-2 px-2 text-rose-700">{money(i.remainingBalance)} ل.س</td>
-                    <td className="py-2 px-2">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${st.cls}`}>
-                        {st.label}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+        <SmartTable<any>
+          title="الأقساط"
+          subtitle={`${installments.length} قسط`}
+          icon={ListChecks}
+          data={installments}
+          columns={installmentColumns}
+          getId={i => i.id}
+          hideFilterBar
+          tableMinWidth={640}
+          emptyIcon={ListChecks}
+          emptyMessage="لا أقساط (دفعة واحدة)."
+        />
       </div>
 
       {/* Payment entries */}
       <div>
-        <h4 className="text-xs font-black text-slate-500 mb-2">الدفعات ({payments.length})</h4>
-        {payments.length === 0 ? (
-          <p className="text-xs text-slate-400 italic">لا توجد دفعات بعد.</p>
-        ) : (
-          <table className="w-full text-xs">
-            <thead className="text-slate-400 font-bold">
-              <tr className="border-b border-slate-100">
-                <th className="text-right py-2 px-2">التاريخ</th>
-                <th className="text-right py-2 px-2">النوع</th>
-                <th className="text-right py-2 px-2">الطريقة</th>
-                <th className="text-right py-2 px-2">المبلغ</th>
-                <th className="text-right py-2 px-2">القسط</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((p: any) => (
-                <tr key={p.id} className="border-b border-slate-50 last:border-0">
-                  <td className="py-2 px-2 text-slate-700">{fmt(p.receivedAt)}</td>
-                  <td className="py-2 px-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                      p.entryType === 'refund' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
-                    }`}>
-                      {p.entryType === 'refund' ? 'مرتجع' : 'قبض'}
-                    </span>
-                  </td>
-                  <td className="py-2 px-2 text-slate-700">{p.method}</td>
-                  <td className="py-2 px-2 font-bold text-slate-700">{money(p.amountSyp)} ل.س</td>
-                  <td className="py-2 px-2 text-slate-500 font-mono">{p.installmentId ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <SmartTable<any>
+          title="الدفعات"
+          subtitle={`${payments.length} دفعة`}
+          icon={Receipt}
+          data={payments}
+          columns={paymentColumns}
+          getId={p => p.id}
+          hideFilterBar
+          tableMinWidth={560}
+          emptyIcon={Receipt}
+          emptyMessage="لا توجد دفعات بعد."
+        />
       </div>
     </SectionShell>
   );
