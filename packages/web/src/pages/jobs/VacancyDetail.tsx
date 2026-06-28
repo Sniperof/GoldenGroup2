@@ -10,6 +10,7 @@ import {
   MessageSquare, Zap,
 } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
+import SmartTable from '../../components/SmartTable';
 import { motion } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
@@ -451,129 +452,136 @@ export default function VacancyDetail() {
       </div>
 
       {/* ── Candidates Table ── */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
-          <Users className="w-4 h-4 text-sky-500" />
-          <h3 className="text-base font-bold text-slate-800">المرشحون المرتبطون</h3>
-          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">
-            {applications.length}
-          </span>
-        </div>
-        {applications.length === 0 ? (
-          <div className="p-10 text-center text-slate-400">
-            <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">لا يوجد مرشحون لهذا الشاغر</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500">المرشح</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">تاريخ التقديم</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">نسبة التوافق</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">المرحلة</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">الحالة</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {applications.map((app) => {
-                  const matchPct = calculateJobMatchScore(
-                    {
-                      dob: app.applicantDob || undefined,
-                      gender: app.applicantGender,
-                      governorate: app.applicantGovernorate || undefined,
-                      cityOrArea: app.applicantCityOrArea || undefined,
-                      academicQualification: app.applicantAcademicQualification || undefined,
-                      specialization: app.applicantSpecialization || undefined,
-                      drivingLicense: app.applicantDrivingLicense,
-                      computerSkills: app.applicantComputerSkills || undefined,
-                      yearsOfExperience: app.applicantYearsOfExperience || 0,
-                    },
-                    {
-                      governorate: app.vacancyGovernorate || undefined,
-                      cityOrArea: app.vacancyCityOrArea || undefined,
-                      requiredGender: app.vacancyRequiredGender || undefined,
-                      requiredAgeMin: app.vacancyRequiredAgeMin ?? undefined,
-                      requiredAgeMax: app.vacancyRequiredAgeMax ?? undefined,
-                      requiredCertificate: app.vacancyRequiredCertificate || undefined,
-                      requiredMajor: app.vacancyRequiredMajor || undefined,
-                      requiredExperienceYears: app.vacancyRequiredExperienceYears ?? undefined,
-                      requiredSkills: app.vacancyRequiredSkills || undefined,
-                      drivingLicenseRequired: Boolean(app.vacancyDrivingLicenseRequired),
-                      hasCarRequired: Boolean(app.vacancyHasCarRequired),
-                    },
-                  ).score;
-                  const initials = `${app.applicantFirstName?.[0] || ''}${app.applicantLastName?.[0] || ''}`;
-                  const avatarColor = AVATAR_COLORS[app.id % 5];
-                  const unifiedState = getUnifiedApplicationState({
-                    currentStage: app.currentStage,
-                    applicationStatus: app.applicationStatus,
-                    stageStatus: app.stageStatus,
-                    decision: app.decision,
-                    hasScheduledInterview: app.hasScheduledInterview,
-                  });
-                  const dotColor = getUnifiedApplicationStateDotClasses(unifiedState.tone);
-                  return (
-                    <tr key={app.id}
-                      className="border-b border-slate-100 hover:bg-sky-50/30 transition-colors cursor-pointer"
-                      onClick={() => navigate(`/jobs/applications/${app.id}`)}>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${avatarColor}`}>
-                            {initials || '?'}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-slate-800 text-sm">
-                              {app.applicantFirstName} {app.applicantLastName}
-                            </p>
-                            <p className="text-xs text-slate-400">{app.applicantGender || '—'}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 text-xs text-slate-500">
-                        {new Date(app.createdAt).toLocaleDateString('ar-IQ')}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="text-xs font-bold text-slate-700">{matchPct}%</span>
-                          <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${matchPct >= 80 ? 'bg-emerald-400' : matchPct >= 65 ? 'bg-amber-400' : 'bg-red-400'}`}
-                              style={{ width: `${matchPct}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 text-center">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${STAGE_COLORS[app.currentStage]}`}>
-                          {STAGE_LABELS[app.currentStage]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
-                          <span className="text-xs text-slate-600">
-                            {unifiedState.label}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
-                        <button
-                          onClick={() => navigate(`/jobs/applications/${app.id}`)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors">
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+      <SmartTable<JobApplicationListItem>
+        title="المرشحون المرتبطون"
+        icon={Users}
+        data={applications}
+        getId={(app) => app.id}
+        searchKeys={['applicantFirstName', 'applicantLastName']}
+        searchPlaceholder="بحث باسم المرشح..."
+        onRowClick={(app) => navigate(`/jobs/applications/${app.id}`)}
+        emptyIcon={Users}
+        emptyMessage="لا يوجد مرشحون لهذا الشاغر"
+        tableMinWidth={820}
+        defaultSortKey="createdAt"
+        defaultSortDir="desc"
+        columns={[
+          {
+            key: 'applicant',
+            label: 'المرشح',
+            sortable: true,
+            minWidth: '220px',
+            getValue: (app) => `${app.applicantFirstName ?? ''} ${app.applicantLastName ?? ''}`.trim(),
+            render: (app) => {
+              const initials = `${app.applicantFirstName?.[0] || ''}${app.applicantLastName?.[0] || ''}`;
+              const avatarColor = AVATAR_COLORS[app.id % 5];
+              return (
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${avatarColor}`}>
+                    {initials || '?'}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800 text-sm">{app.applicantFirstName} {app.applicantLastName}</p>
+                    <p className="text-xs text-slate-400">{app.applicantGender || '—'}</p>
+                  </div>
+                </div>
+              );
+            },
+          },
+          {
+            key: 'createdAt',
+            label: 'تاريخ التقديم',
+            sortable: true,
+            width: 'w-32',
+            getValue: (app) => app.createdAt ?? '',
+            render: (app) => <span className="text-xs text-slate-500">{new Date(app.createdAt).toLocaleDateString('ar-IQ')}</span>,
+          },
+          {
+            key: 'match',
+            label: 'نسبة التوافق',
+            width: 'w-32',
+            render: (app) => {
+              const matchPct = calculateJobMatchScore(
+                {
+                  dob: app.applicantDob || undefined,
+                  gender: app.applicantGender,
+                  governorate: app.applicantGovernorate || undefined,
+                  cityOrArea: app.applicantCityOrArea || undefined,
+                  academicQualification: app.applicantAcademicQualification || undefined,
+                  specialization: app.applicantSpecialization || undefined,
+                  drivingLicense: app.applicantDrivingLicense,
+                  computerSkills: app.applicantComputerSkills || undefined,
+                  yearsOfExperience: app.applicantYearsOfExperience || 0,
+                },
+                {
+                  governorate: app.vacancyGovernorate || undefined,
+                  cityOrArea: app.vacancyCityOrArea || undefined,
+                  requiredGender: app.vacancyRequiredGender || undefined,
+                  requiredAgeMin: app.vacancyRequiredAgeMin ?? undefined,
+                  requiredAgeMax: app.vacancyRequiredAgeMax ?? undefined,
+                  requiredCertificate: app.vacancyRequiredCertificate || undefined,
+                  requiredMajor: app.vacancyRequiredMajor || undefined,
+                  requiredExperienceYears: app.vacancyRequiredExperienceYears ?? undefined,
+                  requiredSkills: app.vacancyRequiredSkills || undefined,
+                  drivingLicenseRequired: Boolean(app.vacancyDrivingLicenseRequired),
+                  hasCarRequired: Boolean(app.vacancyHasCarRequired),
+                },
+              ).score;
+              return (
+                <div className="flex flex-col items-start gap-1">
+                  <span className="text-xs font-bold text-slate-700">{matchPct}%</span>
+                  <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${matchPct >= 80 ? 'bg-emerald-400' : matchPct >= 65 ? 'bg-amber-400' : 'bg-red-400'}`}
+                      style={{ width: `${matchPct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            },
+          },
+          {
+            key: 'currentStage',
+            label: 'المرحلة',
+            sortable: true,
+            width: 'w-32',
+            getValue: (app) => app.currentStage,
+            render: (app) => (
+              <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${STAGE_COLORS[app.currentStage]}`}>
+                {STAGE_LABELS[app.currentStage]}
+              </span>
+            ),
+          },
+          {
+            key: 'state',
+            label: 'الحالة',
+            width: 'w-40',
+            render: (app) => {
+              const unifiedState = getUnifiedApplicationState({
+                currentStage: app.currentStage,
+                applicationStatus: app.applicationStatus,
+                stageStatus: app.stageStatus,
+                decision: app.decision,
+                hasScheduledInterview: app.hasScheduledInterview,
+              });
+              const dotColor = getUnifiedApplicationStateDotClasses(unifiedState.tone);
+              return (
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+                  <span className="text-xs text-slate-600">{unifiedState.label}</span>
+                </div>
+              );
+            },
+          },
+        ]}
+        actions={(app) => (
+          <button
+            onClick={(e) => { e.stopPropagation(); navigate(`/jobs/applications/${app.id}`); }}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors">
+            <Eye className="w-4 h-4" />
+          </button>
         )}
-      </div>
+      />
 
       {/* ── Edit Modal (preserved) ── */}
       <Modal
