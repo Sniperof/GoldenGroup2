@@ -1456,8 +1456,41 @@ export type OpenTaskStatus =
 export type OpenTaskPhase = 'waiting' | 'planning' | 'execution' | 'closure';
 
 export type OpenTaskType = 'device_demo' | 'emergency_maintenance';
-export type OpenTaskFamily = 'marketing' | 'service' | 'maintenance';
-export type OpenTaskReason = 'new_lead' | 'follow_up' | 'renewal' | 'service_request' | 'other';
+export type OpenTaskFamily = 'marketing' | 'service' | 'maintenance' | 'warranty';
+export type OpenTaskReason =
+  | 'new_lead'
+  | 'follow_up'
+  | 'renewal'
+  | 'service_request'
+  | 'other'
+  | 'sale_delivery'
+  | 'post_maintenance_return'
+  | 'temporary_swap_delivery'
+  | 'replacement_delivery'
+  | 'manual_delivery'
+  | 'golden_warranty_offer'
+  | 'golden_warranty_card_delivery'
+  | 'contract_installment_due'
+  | 'maintenance_receivable_due'
+  | 'golden_warranty_receivable_due'
+  | 'remaining_installment_balance'
+  | 'rescheduled_collection'
+  | 'previous_task_cancelled'
+  | 'manager_followup'
+  | 'data_correction'
+  | 'contract_cancelled'
+  | 'temporary_stop'
+  | 'customer_request'
+  | 'technical_safety'
+  | 'replacement_preparation'
+  | 'maintenance_preparation'
+  | 'device_checkup'
+  | 'manual_checkup'
+  | 'device_retrieval_maintenance'
+  | 'device_retrieval_replacement'
+  | 'device_return_after_maintenance'
+  | 'device_transfer_same_customer_new_address'
+  | 'device_transfer_another_customer';
 
 // Task type configuration (see docs/analysis/task-scheduling-patterns.md)
 export type TaskSchedulingPattern = 'immediate' | 'short_window' | 'long_window' | 'expected_window';
@@ -1698,12 +1731,41 @@ export const OPEN_TASK_REASON_LABELS: Record<OpenTaskReason, string> = {
   renewal: 'تجديد',
   service_request: 'طلب خدمة',
   other: 'أخرى',
+  sale_delivery: 'تسليم بيع',
+  post_maintenance_return: 'إرجاع بعد الصيانة',
+  temporary_swap_delivery: 'تسليم تبديل مؤقت',
+  replacement_delivery: 'تسليم استبدال',
+  manual_delivery: 'تسليم يدوي',
+  golden_warranty_offer: 'عرض ضمان ذهبي',
+  golden_warranty_card_delivery: 'تسليم بطاقة ضمان ذهبي',
+  contract_installment_due: 'استحقاق قسط العقد',
+  maintenance_receivable_due: 'استحقاق صيانة',
+  golden_warranty_receivable_due: 'استحقاق ضمان ذهبي',
+  remaining_installment_balance: 'المتبقي من الأقساط',
+  rescheduled_collection: 'تحصيل مؤجل',
+  previous_task_cancelled: 'إلغاء مهمة سابقة',
+  manager_followup: 'متابعة مدير',
+  data_correction: 'تصحيح بيانات',
+  contract_cancelled: 'إلغاء عقد',
+  temporary_stop: 'توقّف مؤقت',
+  customer_request: 'طلب الزبون',
+  technical_safety: 'سلامة فنية',
+  replacement_preparation: 'تحضير للاستبدال',
+  maintenance_preparation: 'تحضير للصيانة',
+  device_checkup: 'تشييك جهاز',
+  manual_checkup: 'تشييك يدوي',
+  device_retrieval_maintenance: 'استرجاع للصيانة',
+  device_retrieval_replacement: 'استرجاع للاستبدال',
+  device_return_after_maintenance: 'إرجاع بعد الصيانة',
+  device_transfer_same_customer_new_address: 'نقل جهاز لنفس الزبون إلى عنوان جديد',
+  device_transfer_another_customer: 'نقل جهاز إلى زبون آخر',
 };
 
 export const OPEN_TASK_FAMILY_LABELS: Record<OpenTaskFamily, string> = {
   marketing: 'تسويق',
   service: 'خدمة',
   maintenance: 'صيانة',
+  warranty: 'ضمان',
 };
 
 // ── Emergency Maintenance Result ──────────────────────────────────────────────
