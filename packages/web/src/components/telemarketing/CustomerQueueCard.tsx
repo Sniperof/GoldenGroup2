@@ -42,7 +42,7 @@ const CLASSIFICATION_CONFIG: Record<string, { label: string; cls: string }> = {
 };
 
 /** Normalises any raw classification/candidateStatus to FOP / OP / LEAD (or null). */
-export function classificationKey(raw: string | null | undefined, entityType: 'client' | 'candidate'): keyof typeof CLASSIFICATION_CONFIG | null {
+export function classificationKey(raw: string | null | undefined, entityType: 'client' | 'candidate'): 'FOP' | 'OP' | 'LEAD' | null {
     const u = (raw ?? '').toUpperCase();
     if (u === 'FOP') return 'FOP';
     if (u === 'OP') return 'OP';

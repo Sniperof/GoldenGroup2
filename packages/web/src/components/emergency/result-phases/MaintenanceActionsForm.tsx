@@ -92,7 +92,8 @@ function isExecutedPart(p: Pick<SavedPart, 'executionStatus'>) {
 function emptyDraft(): DraftPart {
   return { sparePartId: '', partNameSnapshot: '', partCodeSnapshot: '',
            maintenanceType: '', unitPrice: '0', quantity: '1',
-           retrieved: true, placementState: 'installed', noRetrievalReasonId: '', noRetrievalReasonText: '',
+           retrieved: true, placementState: 'installed', noRetrievalReasonId: '',
+           noRetrievalReasonText: '',
            recommendationStatus: 'required', customerDecision: 'approved',
            executionStatus: 'replaced', customerRefusalReasonId: '', customerRefusalReasonText: '' };
 }

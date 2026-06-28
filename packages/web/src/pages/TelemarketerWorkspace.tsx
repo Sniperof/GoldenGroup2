@@ -458,8 +458,11 @@ export default function TelemarketerWorkspace() {
             const stationLabel = stationId != null
                 ? (geoUnitsById.get(stationId)?.name || cg.addressText || null)
                 : (cg.addressText || null);
-            const classification = client?.candidateStatus ?? null;
-            const classKey = classificationKey(classification, cg.entityType) as 'FOP' | 'OP' | 'LEAD' | null;
+            const classification =
+                client?.candidateStatus === 'OP' || client?.candidateStatus === 'FOP' || client?.candidateStatus === 'LEAD'
+                    ? client.candidateStatus
+                    : null;
+            const classKey = classificationKey(classification, cg.entityType);
             const ratingKey = client?.rating === 'Committed' || client?.rating === 'NotCommitted' ? client.rating : null;
             const ownershipLabel = cg.entityType === 'client'
                 ? (cg.primaryItem.ownership?.ownerLabel || 'عامة')
