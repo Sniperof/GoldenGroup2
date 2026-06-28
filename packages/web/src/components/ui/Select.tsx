@@ -67,7 +67,7 @@ export default function Select<V extends string | number>({
   // Menu is portalled to <body> with fixed positioning so it escapes any
   // ancestor `overflow-hidden` card and never gets clipped. `openUp` flips it
   // above the trigger when there isn't enough room below (bottom of screen/card).
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number; width: number; maxHeight: number; openUp: boolean } | null>(null);
+  const [menuPos, setMenuPos] = useState<{ right: number; top: number; minWidth: number; maxWidth: number; maxHeight: number; openUp: boolean } | null>(null);
   const generatedId = useId();
   const triggerId = id ?? generatedId;
   const listboxId = `${triggerId}-listbox`;
@@ -120,10 +120,14 @@ export default function Select<V extends string | number>({
       // Flip up only when there's genuinely more room above.
       const openUp = spaceBelow < Math.min(MAX, 180) && spaceAbove > spaceBelow;
       const maxHeight = Math.max(120, Math.min(MAX, openUp ? spaceAbove : spaceBelow));
+      // RTL: anchor to the trigger's right edge so the menu can grow leftward to
+      // fit option labels longer than the (often min-width-constrained) trigger,
+      // capped at the viewport's left margin so it never clips off-screen.
       setMenuPos({
-        left: rect.left,
+        right: window.innerWidth - rect.right,
         top: openUp ? rect.top - GAP : rect.bottom + GAP,
-        width: rect.width,
+        minWidth: rect.width,
+        maxWidth: rect.right - MARGIN,
         maxHeight,
         openUp,
       });
@@ -239,9 +243,11 @@ export default function Select<V extends string | number>({
           className="overflow-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg focus:outline-none"
           style={{
             position: 'fixed',
-            left: menuPos.left,
+            right: menuPos.right,
             top: menuPos.top,
-            width: menuPos.width,
+            width: 'max-content',
+            minWidth: menuPos.minWidth,
+            maxWidth: menuPos.maxWidth,
             maxHeight: menuPos.maxHeight,
             transform: menuPos.openUp ? 'translateY(-100%)' : undefined,
             zIndex: 9999,
@@ -269,7 +275,7 @@ export default function Select<V extends string | number>({
                       : 'text-slate-700',
                 ].join(' ')}
               >
-                <span className="inline-flex items-center gap-2 truncate">
+                <span className="inline-flex items-center gap-2">
                   {opt.leading}
                   {opt.label}
                 </span>

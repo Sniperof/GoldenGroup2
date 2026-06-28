@@ -388,7 +388,7 @@ export default function CandidatesEntry() {
                                 {paginatedCandidates.length === 0 ? (
                                     <tr><td colSpan={11} className="px-6 py-12 text-center text-slate-400 font-medium">لا توجد بيانات</td></tr>
                                 ) : (
-                                    paginatedCandidates.map(c => {
+                                    paginatedCandidates.map((c, idx) => {
                                         const nameStr = c.firstName
                                             ? `${c.firstName} ${c.lastName || ''} ${c.nickname ? `(${c.nickname})` : ''}`.trim()
                                             : `${c.nickname || ''} ${c.lastName || ''}`.trim();
@@ -398,7 +398,7 @@ export default function CandidatesEntry() {
                                         const allPhones = c.contacts?.map(con => con.number).join('\n') || '';
 
                                         return (
-                                            <tr key={c.id} className="hover:bg-slate-50 transition-colors h-12 group">
+                                            <tr key={c.id} className={`${idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'} hover:bg-sky-50 transition-colors h-12 group`}>
                                                 <td className="px-5 py-2 font-mono text-xs text-slate-500">#{c.id}</td>
                                                 <td className="px-5 py-2 text-xs text-slate-600 whitespace-nowrap">
                                                     {c.createdAt ? new Date(c.createdAt).toLocaleDateString('ar-SY') : '--'}
@@ -600,8 +600,8 @@ export default function CandidatesEntry() {
                                 {paginatedSheets.length === 0 ? (
                                     <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-400 font-medium font-bold">لا توجد نتائج مطابقة للفلاتر المحددة</td></tr>
                                 ) : (
-                                    paginatedSheets.map(sheet => (
-                                        <tr key={sheet.id} className="hover:bg-amber-50/30 transition-colors h-12 group">
+                                    paginatedSheets.map((sheet, idx) => (
+                                        <tr key={sheet.id} className={`${idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'} hover:bg-amber-50/40 transition-colors h-12 group`}>
                                             <td className="px-5 py-2">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-black text-xs">
