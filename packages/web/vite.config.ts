@@ -18,7 +18,10 @@ export default defineConfig({
     ],
     server: {
         host: '0.0.0.0',
-        port: 5000,
+        // Honor a harness/CI-assigned port (PORT env) so the preview can find
+        // the server; fall back to 5000 for normal local dev.
+        port: Number(process.env.PORT) || 5000,
+        strictPort: !!process.env.PORT,
         allowedHosts: true,
         watch: {
             ignored: ['**/.local/**', '**/.cache/**', '**/.git/**', '**/server/**'],
