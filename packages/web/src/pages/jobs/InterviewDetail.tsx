@@ -8,6 +8,7 @@ import {
   Car, Monitor, Globe, DollarSign
 } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import PermissionGate from '../../components/PermissionGate';
 import Button from '../../components/ui/Button';
 import { fetchInterviewersForApplication } from './interviewerLookup';
@@ -389,7 +390,7 @@ export default function InterviewDetail() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">التاريخ *</label>
-                    <input type="date" value={editForm.interviewDate} onChange={e => setEditForm(p => ({ ...p, interviewDate: e.target.value }))}
+                    <DateField value={editForm.interviewDate} onChange={v => setEditForm(p => ({ ...p, interviewDate: v }))}
                       className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500" />
                   </div>
                   <div>

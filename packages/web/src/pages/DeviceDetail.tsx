@@ -6,6 +6,7 @@ import {
     Zap, Tag, Plus, Pencil, Trash2, Save, ShieldCheck,
 } from 'lucide-react';
 import Modal from '../components/ui/Modal';
+import DateField from '../components/ui/DateField';
 import { api } from '../lib/api';
 import type { DeviceModel, DeviceDiscount, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
@@ -858,19 +859,17 @@ function DiscountModal({ deviceId, editingDiscount, onClose, onSaved }: {
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1.5">من تاريخ <span className="text-red-500">*</span></label>
-                            <input
-                                type="date"
+                            <DateField
                                 value={startDate}
-                                onChange={e => setStartDate(e.target.value)}
+                                onChange={setStartDate}
                                 className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1.5">حتى تاريخ <span className="text-red-500">*</span></label>
-                            <input
-                                type="date"
+                            <DateField
                                 value={endDate}
-                                onChange={e => setEndDate(e.target.value)}
+                                onChange={setEndDate}
                                 className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
                         </div>

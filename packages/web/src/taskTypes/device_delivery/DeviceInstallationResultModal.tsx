@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock, Loader2, MapPin, Plus, Trash2, Wrench, XCircle, Zap } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
@@ -415,7 +416,7 @@ export default function DeviceInstallationResultModal({
                     <Zap className="h-3.5 w-3.5" />
                     تاريخ متابعة التشغيل
                   </span>
-                  <input type="date" value={activationDueDate} onChange={(e) => setActivationDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <DateField value={activationDueDate} onChange={setActivationDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
                 <label className="flex items-center gap-2 pt-6 text-sm font-semibold text-slate-700">
                   <input type="checkbox" checked={customerAcknowledged} onChange={(e) => setCustomerAcknowledged(e.target.checked)} />
@@ -704,7 +705,7 @@ export default function DeviceInstallationResultModal({
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ المتابعة</span>
-                <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
               </label>
             </div>
           )}

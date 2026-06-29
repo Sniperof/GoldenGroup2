@@ -10,6 +10,7 @@ import MapPicker from '../../../components/MapPicker';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import Modal from '../../../components/ui/Modal';
+import DateField from '../../../components/ui/DateField';
 
 interface Props {
   device: any;
@@ -289,7 +290,7 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
               )}
               <label className="block space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ استحقاق المهمة</span>
-                <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
               </label>
               <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
                 <GeoSmartSearch
@@ -364,11 +365,11 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="space-y-1.5">
                   <span className="text-xs font-bold text-slate-500">موعد التنفيذ</span>
-                  <input type="date" value={activationExecutionDate} onChange={(e) => setActivationExecutionDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <DateField value={activationExecutionDate} onChange={setActivationExecutionDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-xs font-bold text-slate-500">التاريخ المطلوب</span>
-                  <input type="date" value={activationDueDate} onChange={(e) => setActivationDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <DateField value={activationDueDate} onChange={setActivationDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
               </div>
               <label className="block space-y-1.5">

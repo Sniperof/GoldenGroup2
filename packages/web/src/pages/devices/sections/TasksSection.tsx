@@ -24,6 +24,7 @@ import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import { api } from '../../../lib/api';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
+import DateField from '../../../components/ui/DateField';
 import { usePermissions } from '../../../hooks/usePermissions';
 import GeoSmartSearch, { type GeoSelection } from '../../../components/GeoSmartSearch';
 
@@ -520,7 +521,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ الاستحقاق</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">
@@ -600,7 +601,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
 
                     <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ المهمة</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">
@@ -643,7 +644,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ المهمة</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">
@@ -685,7 +686,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ المهمة</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">
@@ -755,7 +756,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
 
                     <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ المهمة</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">

@@ -17,6 +17,7 @@ import Modal from '../../components/ui/Modal';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import { TechnicalStateFields, buildTechnicalStatePayload, hasAnyTechnicalReading, type TechStateForm } from '../../components/devices/TechnicalStateFields';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import WarrantyPaymentEntries, { warrantyEntrySyp, warrantyPaymentPayload, type WarrantyPaymentRow } from '../../components/warranty/WarrantyPaymentEntries';
 
 type Mode = 'activate' | 'later' | 'reject';
@@ -208,7 +209,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
             <>
               <label className="flex items-center gap-3 text-sm">
                 <span className="font-bold text-slate-600">تاريخ الوصل (بداية)</span>
-                <input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm" />
+                <DateField value={receiptDate} onChange={setReceiptDate} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm" />
                 <span className="mr-auto text-xs text-emerald-700">المحصلة: {activatedCount} جهاز</span>
               </label>
               <div className="rounded-lg border border-slate-200">
@@ -352,7 +353,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
               {mode === 'later' && (
                 <label className="block space-y-1.5">
                   <span className="text-xs font-bold text-slate-500">التاريخ المتوقع *</span>
-                  <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
               )}
             </div>

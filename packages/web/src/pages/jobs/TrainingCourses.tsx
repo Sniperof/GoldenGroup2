@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -276,9 +277,9 @@ export default function TrainingCourses() {
           placeholder="الفرع..." className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors w-32" />
         <input type="text" value={filters.trainer} onChange={e => setFilter('trainer', e.target.value)}
           placeholder="المدرب..." className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors w-32" />
-        <input type="date" value={filters.start_date} onChange={e => setFilter('start_date', e.target.value)}
+        <DateField value={filters.start_date} onChange={v => setFilter('start_date', v)}
           className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors" />
-        <input type="date" value={filters.end_date} onChange={e => setFilter('end_date', e.target.value)}
+        <DateField value={filters.end_date} onChange={v => setFilter('end_date', v)}
           className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors" />
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -414,8 +415,8 @@ export default function TrainingCourses() {
                   <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
                     <Calendar className="w-3 h-3" /> تاريخ البدء *
                   </label>
-                  <input type="date" value={form.start_date}
-                    onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+                  <DateField value={form.start_date}
+                    onChange={v => setForm(f => ({ ...f, start_date: v }))}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500" />
                 </div>
 
@@ -423,8 +424,8 @@ export default function TrainingCourses() {
                   <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
                     <Calendar className="w-3 h-3" /> تاريخ الانتهاء *
                   </label>
-                  <input type="date" value={form.end_date}
-                    onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+                  <DateField value={form.end_date}
+                    onChange={v => setForm(f => ({ ...f, end_date: v }))}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500" />
                 </div>
 

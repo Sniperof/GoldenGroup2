@@ -19,6 +19,7 @@ import type { GeoUnit } from '../../lib/types';
 import type { ClientReferrer } from '@golden-crm/shared';
 import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import {
     giftConditionStatusLabels,
     type GiftConditionStatus,
@@ -1731,8 +1732,8 @@ export default function ContractForm() {
                                         <label className={labelCls(buyerBirthDate.length > 0)}>
                                             تاريخ الميلاد {star(buyerBirthDate.length > 0)}
                                         </label>
-                                        <input type="date" value={buyerBirthDate}
-                                            onChange={e => setBuyerBirthDate(e.target.value)}
+                                        <DateField value={buyerBirthDate}
+                                            onChange={setBuyerBirthDate}
                                             className={inputCls(buyerBirthDate.length > 0)} />
                                     </div>
 
@@ -1761,8 +1762,8 @@ export default function ContractForm() {
                                         <label className={labelCls(buyerNationalIdIssueDate.length > 0)}>
                                             تاريخ منح الهوية {star(buyerNationalIdIssueDate.length > 0)}
                                         </label>
-                                        <input type="date" value={buyerNationalIdIssueDate}
-                                            onChange={e => setBuyerNationalIdIssueDate(e.target.value)}
+                                        <DateField value={buyerNationalIdIssueDate}
+                                            onChange={setBuyerNationalIdIssueDate}
                                             className={inputCls(buyerNationalIdIssueDate.length > 0)} />
                                     </div>
 
@@ -2303,16 +2304,10 @@ export default function ContractForm() {
 
                     <div className="grid grid-cols-2 gap-4">
                         <Field label="تاريخ التسليم المتوقع">
-                            <div className="relative">
-                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
-                                <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className={`${inputClass} pr-10`} />
-                            </div>
+                            <DateField value={deliveryDate} onChange={setDeliveryDate} className={inputClass} />
                         </Field>
                         <Field label="تاريخ التركيب المتوقع">
-                            <div className="relative">
-                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
-                                <input type="date" value={installationDate} onChange={e => setInstallationDate(e.target.value)} className={`${inputClass} pr-10`} />
-                            </div>
+                            <DateField value={installationDate} onChange={setInstallationDate} className={inputClass} />
                         </Field>
                     </div>
 

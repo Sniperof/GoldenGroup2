@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CalendarClock, CircleCheck, CircleX, Gift, Loader2, X } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { TaskResultModalProps } from '../../components/tasks/types';
+import DateField from '../../components/ui/DateField';
 
 type Mode = 'delivered_successfully' | 'refused_gift' | 'rescheduled';
 
@@ -127,7 +128,7 @@ export default function GiftDeliveryResultModal({ visitId, taskId, task, onClose
           {mode === 'rescheduled' && (
             <label className="block space-y-1.5">
               <span className="text-xs font-bold text-slate-500">تاريخ المتابعة *</span>
-              <input type="date" value={rescheduledDate} onChange={(e) => setRescheduledDate(e.target.value)}
+              <DateField value={rescheduledDate} onChange={setRescheduledDate}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </label>
           )}

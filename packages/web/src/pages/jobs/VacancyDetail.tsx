@@ -10,6 +10,7 @@ import {
   MessageSquare, Zap,
 } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import SmartTable from '../../components/SmartTable';
 import { motion } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
@@ -763,11 +764,11 @@ export default function VacancyDetail() {
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">البداية *</label>
-                      <input type="date" value={formData.startDate || ''} onChange={e => setField('startDate', e.target.value)} disabled={isLocked('full')} className={inputCls(isLocked('full'))} />
+                      <DateField value={formData.startDate || ''} onChange={v => setField('startDate', v)} disabled={isLocked('full')} className={inputCls(isLocked('full'))} />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">الانتهاء *</label>
-                      <input type="date" value={formData.endDate || ''} onChange={e => setField('endDate', e.target.value)} className={inputCls(false)} />
+                      <DateField value={formData.endDate || ''} onChange={v => setField('endDate', v)} className={inputCls(false)} />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">عدد الشواغر</label>

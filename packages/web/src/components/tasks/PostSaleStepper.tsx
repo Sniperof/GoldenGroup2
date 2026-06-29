@@ -17,6 +17,7 @@ import {
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';
+import DateField from '../ui/DateField';
 
 interface PostSaleStepperProps {
   contract: any;
@@ -393,10 +394,9 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
               {/* Date */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">تاريخ التسليم الفعلي</label>
-                <input
-                  type="date"
+                <DateField
                   value={actualDeliveryDate}
-                  onChange={(e) => setActualDeliveryDate(e.target.value)}
+                  onChange={setActualDeliveryDate}
                   className="w-full bg-white border border-slate-200 text-slate-900 rounded-lg p-2.5 text-sm focus:outline-none focus:border-sky-500"
                 />
               </div>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CircleCheck, CircleX, CreditCard, Loader2, Wallet } from 'lucide-react';
 import { api } from '../../lib/api';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import PaymentEntriesList, { newEntry, type PaymentEntry } from '../../components/emergency/PaymentEntriesList';
 
@@ -219,7 +220,7 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ المتابعة *</span>
-                <input type="date" value={nextExpectedDate} onChange={(e) => setNextExpectedDate(e.target.value)}
+                <DateField value={nextExpectedDate} onChange={setNextExpectedDate}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </label>
               <label className="space-y-1.5">

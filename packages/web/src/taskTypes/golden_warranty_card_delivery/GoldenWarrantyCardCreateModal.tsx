@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CreditCard, Loader2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import Modal from '../../components/ui/Modal';
 
 interface CardPick { id: number; label: string; selected: boolean; }
@@ -104,7 +105,7 @@ export default function GoldenWarrantyCardCreateModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1.5 block"><span className="text-xs font-bold text-slate-500">التاريخ المطلوب *</span>
-              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+              <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
             <label className="space-y-1.5 block"><span className="text-xs font-bold text-slate-500">الأولوية</span>
               <Select
                 value={priority}

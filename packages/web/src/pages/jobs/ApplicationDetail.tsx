@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import PermissionGate from '../../components/PermissionGate';
 import { calculateJobMatchScore } from '../../lib/jobMatch';
 import { getUnifiedApplicationState } from '../../lib/applicationState';
@@ -1923,8 +1924,8 @@ export default function ApplicationDetail() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-bold text-slate-500 block mb-1.5">تاريخ المقابلة <span className="text-red-400">*</span></label>
-                    <input type="date" value={interviewForm.interviewDate}
-                      onChange={e => setInterviewForm(f => ({ ...f, interviewDate: e.target.value }))}
+                    <DateField value={interviewForm.interviewDate}
+                      onChange={v => setInterviewForm(f => ({ ...f, interviewDate: v }))}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500"
                     />
                   </div>

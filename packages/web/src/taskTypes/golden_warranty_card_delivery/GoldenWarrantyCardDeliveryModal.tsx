@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { CreditCard, CalendarClock, CircleCheck, CircleX, Loader2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import Modal from '../../components/ui/Modal';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 
@@ -135,7 +136,7 @@ export default function GoldenWarrantyCardDeliveryModal({ visitId, taskId, task,
               {mode === 'reschedule' && (
                 <label className="block space-y-1.5">
                   <span className="text-xs font-bold text-slate-500">التاريخ المتوقع *</span>
-                  <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
               )}
             </div>

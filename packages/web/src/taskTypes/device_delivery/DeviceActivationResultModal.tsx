@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock, Gauge, Loader2, MonitorCheck, XCircle } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import { api } from '../../lib/api';
 import {
   TechnicalStateFields,
@@ -173,7 +174,7 @@ export default function DeviceActivationResultModal({
             <div className="grid gap-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4 md:grid-cols-3">
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ المتابعة</span>
-                <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">وقت المتابعة</span>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BadgeCheck, CalendarPlus, CheckCircle2, ClipboardCheck, HandHeart, XCircle } from 'lucide-react';
 import Modal from '../ui/Modal';
+import DateField from '../ui/DateField';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
@@ -252,10 +253,9 @@ export default function GiftRecordActions({
             <>
               <label className="block text-xs font-bold text-slate-500">
                 تاريخ التسليم المطلوب
-                <input
-                  type="date"
+                <DateField
                   value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
+                  onChange={setDueDate}
                   className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
                 />
               </label>

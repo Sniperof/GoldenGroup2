@@ -5,6 +5,7 @@ import { Due } from '../lib/types';
 import Button from './ui/Button';
 import Input from './ui/Input';
 import Modal from './ui/Modal';
+import DateField from './ui/DateField';
 
 interface CollectionModalProps {
     isOpen: boolean;
@@ -89,11 +90,9 @@ export default function CollectionModal({ isOpen, onClose, due }: CollectionModa
                         {outcome === 'Promise to Pay' && (
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-slate-700">تاريخ الوعد</label>
-                                <input
-                                    type="date"
-                                    required
+                                <DateField
                                     value={promiseDate}
-                                    onChange={(e) => setPromiseDate(e.target.value)}
+                                    onChange={setPromiseDate}
                                     className="w-full p-3 rounded-xl border border-slate-200 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-none text-right"
                                 />
                             </div>

@@ -2,16 +2,15 @@ import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import {
-  Briefcase,
   Lock,
   User,
   AlertCircle,
   Eye,
   EyeOff,
-  Shield,
-  CheckCircle2,
 } from 'lucide-react';
 import logoMark from '../../assets/logo-mark.png';
+import logoName from '../../assets/logo-name.svg';
+import companyArt from '../../assets/company-illustration.svg';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 
@@ -55,55 +54,41 @@ export default function Login() {
       className="min-h-screen bg-slate-50 flex items-stretch justify-center"
       dir="rtl"
     >
-      {/* ── Left Panel: Branding (hidden on mobile, shown on lg+) ── */}
-      <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] relative bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400 overflow-hidden">
-        {/* Animated background pattern */}
-        <div className="absolute inset-0 opacity-10">
+      {/* ── Branding / Stats panel (right side in RTL; hidden on mobile) ── */}
+      <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] relative overflow-hidden bg-gradient-to-br from-sky-700 via-sky-600 to-indigo-600">
+        {/* Soft glow accents */}
+        <div className="pointer-events-none absolute -top-24 -right-24 h-96 w-96 rounded-full bg-sky-400/30 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-16 h-[28rem] w-[28rem] rounded-full bg-indigo-400/25 blur-3xl" />
+
+        {/* Subtle line grid */}
+        <div className="absolute inset-0 opacity-[0.07]">
           <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-                <circle cx="30" cy="30" r="1.5" fill="white" />
+              <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+                <path d="M64 0H0V64" fill="none" stroke="white" strokeWidth="1" />
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill="url(#grid)" />
           </svg>
         </div>
 
-        {/* Floating shapes */}
-        <div className="absolute top-20 left-20 w-72 h-72 bg-white/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-32 right-32 w-96 h-96 bg-white/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-
         {/* Content */}
-        <div className="relative z-10 flex flex-col items-center justify-center text-white px-12 xl:px-20">
-          <div className="mb-8">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-white/20 backdrop-blur-sm rounded-2xl shadow-xl mb-6 transition-transform duration-300 hover:scale-105">
-              <img src={logoMark} alt="Golden Group" className="w-14 h-14 object-contain" />
+        <div className="relative z-10 flex w-full flex-col items-center justify-center px-12 py-16 text-center text-white xl:px-20">
+          {/* Header — centered mark + name wordmark */}
+          <div className="mb-10">
+            <div className="mx-auto mb-5 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-white/15 shadow-lg backdrop-blur-sm">
+              <img src={logoMark} alt="" className="h-14 w-14 object-contain" />
             </div>
+            <img src={logoName} alt="Golden Group" className="mx-auto h-9 w-auto object-contain xl:h-10" />
+            <p className="mt-4 text-lg font-light text-white/80">نظام إدارة العملاء والموارد المتكامل</p>
           </div>
 
-          <h1 className="text-2xl xl:text-2xl font-bold mb-4 text-center tracking-tight">
-            Golden Group
-          </h1>
-          <p className="text-lg xl:text-2xl font-light text-white/90 mb-12 text-center">
-            نظام إدارة العملاء والموارد
-          </p>
-
-          {/* Feature highlights */}
-          <div className="space-y-4 w-full max-w-md">
-            {[
-              { icon: Briefcase, text: 'إدارة العملاء والعقارات' },
-              { icon: Shield, text: 'نظام صلاحيات متقدم' },
-              { icon: CheckCircle2, text: 'تقارير وإحصائيات فورية' },
-            ].map((item, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-xl px-5 py-3 transition-all duration-300 hover:bg-white/15 hover:translate-x-[-4px]"
-              >
-                <item.icon className="w-5 h-5 text-white/90 flex-shrink-0" />
-                <span className="text-base font-medium text-white/95">{item.text}</span>
-              </div>
-            ))}
-          </div>
+          {/* Company illustration — unified operations hub */}
+          <img
+            src={companyArt}
+            alt="منظومة Golden Group الموحّدة: عملاء وأجهزة وفرق وفروع حول لوحة تحكم مركزية"
+            className="w-full max-w-md drop-shadow-xl"
+          />
         </div>
       </div>
 
@@ -149,7 +134,6 @@ export default function Login() {
                 onChange={(e) => setUsername(e.target.value)}
                 onFocus={() => setFocusedField('username')}
                 onBlur={() => setFocusedField(null)}
-                required
                 autoComplete="username"
                 autoFocus
                 disabled={loading}
@@ -166,7 +150,6 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 onFocus={() => setFocusedField('password')}
                 onBlur={() => setFocusedField(null)}
-                required
                 autoComplete="current-password"
                 disabled={loading}
                 placeholder="أدخل كلمة المرور"

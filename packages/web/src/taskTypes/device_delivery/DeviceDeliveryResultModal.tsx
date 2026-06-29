@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CalendarClock, CheckCircle2, Clock, Loader2, MapPin, PackageX, Truck } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
@@ -333,7 +334,7 @@ export default function DeviceDeliveryResultModal({
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ الموعد القادم</span>
-                <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">وقت الموعد القادم</span>
@@ -402,7 +403,7 @@ export default function DeviceDeliveryResultModal({
                 <div className="space-y-4">
                   <label className="block space-y-1.5">
                     <span className="text-xs font-bold text-slate-500">تاريخ التركيب المطلوب</span>
-                    <input type="date" value={installationRequiredDate} onChange={(e) => setInstallationRequiredDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                    <DateField value={installationRequiredDate} onChange={setInstallationRequiredDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                   </label>
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                     <input type="checkbox" checked={installationSameAddress} onChange={(e) => setInstallationSameAddress(e.target.checked)} />

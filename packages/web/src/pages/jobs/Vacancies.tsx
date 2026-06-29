@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -511,11 +512,11 @@ export default function Vacancies() {
         <div className="grid grid-cols-2 gap-5">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">تاريخ البداية <span className="text-red-400">*</span></label>
-            <input type="date" value={formData.startDate || ''} onChange={e => setField('startDate', e.target.value)} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))} />
+            <DateField value={formData.startDate || ''} onChange={v => setField('startDate', v)} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">تاريخ الانتهاء <span className="text-red-400">*</span></label>
-            <input type="date" value={formData.endDate || ''} onChange={e => setField('endDate', e.target.value)} className={inputCls(false)} />
+            <DateField value={formData.endDate || ''} onChange={v => setField('endDate', v)} className={inputCls(false)} />
           </div>
         </div>
         {durationDays !== null && (
@@ -569,11 +570,11 @@ export default function Vacancies() {
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">تاريخ البداية <span className="text-red-400">*</span></label>
-            <input type="date" value={formData.startDate || ''} onChange={e => setField('startDate', e.target.value)} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))} />
+            <DateField value={formData.startDate || ''} onChange={v => setField('startDate', v)} disabled={isFieldLocked('full')} className={inputCls(isFieldLocked('full'))} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">تاريخ الانتهاء <span className="text-red-400">*</span></label>
-            <input type="date" value={formData.endDate || ''} onChange={e => setField('endDate', e.target.value)} className={inputCls(false)} />
+            <DateField value={formData.endDate || ''} onChange={v => setField('endDate', v)} className={inputCls(false)} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">عدد الشواغر <span className="text-red-400">*</span></label>

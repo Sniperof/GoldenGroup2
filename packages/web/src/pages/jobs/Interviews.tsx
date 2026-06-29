@@ -10,6 +10,7 @@ import {
   AlertTriangle, Search
 } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import Select from '../../components/ui/Select';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
@@ -355,10 +356,9 @@ export default function Interviews() {
           className="w-48"
           options={[{ value: '', label: 'كل الوظائف' }, ...vacancies.map(v => ({ value: String(v.id), label: v.title }))]}
         />
-        <input
-          type="date"
+        <DateField
           value={filters.date}
-          onChange={e => setFilter('date', e.target.value)}
+          onChange={v => setFilter('date', v)}
           className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
         />
         {(filters.interviewerName || filters.applicationId || filters.date || filters.jobVacancyId) && (
@@ -526,9 +526,9 @@ export default function Interviews() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">التاريخ *</label>
-                    <input type="date" value={form.interviewDate}
-                    onChange={e => {
-                      setForm(p => ({ ...p, interviewDate: e.target.value }));
+                    <DateField value={form.interviewDate}
+                    onChange={v => {
+                      setForm(p => ({ ...p, interviewDate: v }));
                       setFieldErrors(prev => {
                         const next = { ...prev };
                         delete next.interviewDate;
