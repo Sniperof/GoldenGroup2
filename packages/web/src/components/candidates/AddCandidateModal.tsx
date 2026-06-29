@@ -7,7 +7,7 @@ import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';
-import GiftPromiseInlinePanel from '../gifts/GiftPromiseInlinePanel';
+import GiftPromiseInlinePanel, { type InlineGiftPromiseDraft } from '../gifts/GiftPromiseInlinePanel';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -187,6 +187,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     const [referralType, setReferralType] = useState<ReferralType>('Personal');
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
     const [referralNameSnapshot, setReferralNameSnapshot] = useState('');
+    const [giftPromiseSheet, setGiftPromiseSheet] = useState<InlineGiftPromiseDraft | null>(null);
 
     const [employeeIdInput, setEmployeeIdInput] = useState('');
     const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
@@ -490,6 +491,35 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             } else {
                 await addCandidate(newC as any);
             }
+
+            // وعد هدية من لائحة الأسماء — يُنشأ للوسيط الزبون (best-effort؛ القيد الفريد يمنع التكرار).
+            if (giftPromiseSheet && canCreateSheetGiftPromise && selectedSheet?.referralEntityId) {
+                try {
+                    await api.gifts.records.create({
+                        giftDefinitionId: Number(giftPromiseSheet.giftDefinitionId) || undefined,
+                        beneficiaryType: 'customer_referrer',
+                        beneficiaryClientId: selectedSheet.referralEntityId,
+                        beneficiaryName: selectedSheet.referralNameSnapshot,
+                        conditionLabel: giftPromiseSheet.conditionLabel,
+                        conditionStatus: giftPromiseSheet.conditionStatus,
+                        approvedQuantity: giftPromiseSheet.quantity,
+                        quantity: giftPromiseSheet.quantity,
+                        customerId: selectedSheet.referralEntityId,
+                        sourceBranchId: resolvedBranchId,
+                        responsibleBranchId: resolvedBranchId,
+                        source: {
+                            sourceType: 'name_list',
+                            referralSheetId: selectedSheetId,
+                            sourceLabel: `وعد من لائحة الأسماء #${selectedSheetId}`,
+                            quantity: giftPromiseSheet.quantity,
+                        },
+                    });
+                    setGiftPromiseSheet(null);
+                } catch (giftErr) {
+                    console.error('Failed to create gift promise from name list:', giftErr);
+                }
+            }
+
             if (addAnother) {
                 setCandidateData(initialCandidateState);
                 setError('');
@@ -775,6 +805,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                     sourceType="name_list"
                                     beneficiaryName={selectedSheet.referralNameSnapshot}
                                     disabledReason="وعد الهدية من اللائحة يحتاج أن يكون وسيط اللائحة زبونا مرتبطا بسجل معروف."
+                                    onChange={setGiftPromiseSheet}
                                 />
                             )}
 

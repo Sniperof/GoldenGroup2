@@ -10,6 +10,7 @@ import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
 import { persistOpenTaskSnapshots } from './openTasks.js';
 import { createInstallmentCollectionTasksForContract } from '../services/installmentCollectionTasks.js';
 import { syncContractMovements, recordMovement } from '../services/financialMovements.js';
+import { materializeContractGiftPromises } from '../services/giftPromises.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -55,6 +56,7 @@ const contractSelect = `
   c.offer_team_snapshot AS "offerTeamSnapshot",
   c.contract_referrers AS "contractReferrers",
   c.draft_device_payload AS "draftDevicePayload",
+  c.draft_gift_promises AS "draftGiftPromises",
   -- Physical device fields (source: installed_devices)
   COALESCE(d.serial_number, c.draft_device_payload->>'serialNumber') AS "serialNumber",
   COALESCE(d.status, c.draft_device_payload->>'deviceStatus') AS "deviceStatus",
@@ -1013,6 +1015,14 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       }
     }
 
+    // وعود الهدايا تُحفظ كمسودة على العقد، وتُحوَّل إلى gift_records عند الاعتماد.
+    if (Array.isArray(c.giftPromises) && c.giftPromises.length > 0) {
+      await client.query(
+        `UPDATE contracts SET draft_gift_promises = $1::jsonb WHERE id = $2`,
+        [JSON.stringify(c.giftPromises), contract.id],
+      );
+    }
+
     if (contract.status === 'active') {
       await createInstallmentCollectionTasksForContract(client, Number(contract.id));
     }
@@ -1237,6 +1247,14 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null,
        req.params.id]
     );
+
+    // تحديث وعود الهدايا المسودة (تُحوَّل إلى gift_records عند الاعتماد).
+    if (Array.isArray(c.giftPromises)) {
+      await pgClient.query(
+        `UPDATE contracts SET draft_gift_promises = $1::jsonb WHERE id = $2`,
+        [JSON.stringify(c.giftPromises), req.params.id],
+      );
+    }
 
     if ((c.contractType || 'sale_contract') === 'sale_contract' && derivedStatus === 'active') {
       await applyDevicePayloadToInstalledDevice(pgClient, Number(req.params.id), draftDevicePayload);
@@ -2056,6 +2074,9 @@ router.post('/:id/approve', async (req, res) => {
 
     // سجل الحركات المالية: استحقاق التوقيع + الأقساط + الدفعات (idempotent).
     await syncContractMovements(pgClient, contractId);
+
+    // تحويل وعود الهدايا المسودة إلى gift_records فعلية (الاعتماد فقط).
+    await materializeContractGiftPromises(pgClient, contractId, authContext.userId ?? null);
 
     if (refreshed.customerId) {
       await promoteClientToLifecycleStatus(pgClient, Number(refreshed.customerId), 'OP');

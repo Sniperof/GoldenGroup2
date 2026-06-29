@@ -9,7 +9,7 @@ import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, to
 import Select from '../ui/Select';
 import Input from '../ui/Input';
 import Modal from '../ui/Modal';
-import GiftPromiseInlinePanel from '../gifts/GiftPromiseInlinePanel';
+import GiftPromiseInlinePanel, { type InlineGiftPromiseDraft } from '../gifts/GiftPromiseInlinePanel';
 
 interface Props {
     isOpen: boolean;
@@ -132,6 +132,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     const [clientSearch, setClientSearch] = useState('');
     const [clientSuggestions, setClientSuggestions] = useState<Client[]>([]);
     const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+    const [giftPromise, setGiftPromise] = useState<InlineGiftPromiseDraft | null>(null);
 
     const clientSearchRef = useRef<HTMLDivElement>(null);
 
@@ -296,6 +297,34 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                 createdBy: authUser?.id
             });
 
+            // وعد هدية من لائحة الأسماء — يُنشأ كـ gift_record للوسيط الزبون (best-effort).
+            if (giftPromise && referralType === 'Client' && selectedClientId) {
+                const giftBranchId = selectedBranchId === '' ? (contextBranchId ?? authUser?.branchId ?? null) : Number(selectedBranchId);
+                try {
+                    await api.gifts.records.create({
+                        giftDefinitionId: Number(giftPromise.giftDefinitionId) || undefined,
+                        beneficiaryType: 'customer_referrer',
+                        beneficiaryClientId: selectedClientId,
+                        beneficiaryName: nameSnapshot,
+                        conditionLabel: giftPromise.conditionLabel,
+                        conditionStatus: giftPromise.conditionStatus,
+                        approvedQuantity: giftPromise.quantity,
+                        quantity: giftPromise.quantity,
+                        customerId: selectedClientId,
+                        sourceBranchId: giftBranchId,
+                        responsibleBranchId: giftBranchId,
+                        source: {
+                            sourceType: 'name_list',
+                            referralSheetId: newId,
+                            sourceLabel: `وعد من لائحة الأسماء #${newId}`,
+                            quantity: giftPromise.quantity,
+                        },
+                    });
+                } catch (giftErr) {
+                    console.error('Failed to create gift promise from name list:', giftErr);
+                }
+            }
+
             if (onSheetCreated) onSheetCreated(newId);
             resetState();
             onClose();
@@ -315,6 +344,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         setClientSearch('');
         setClientSuggestions([]);
         setSelectedClientId(null);
+        setGiftPromise(null);
         setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
         setSelectedResponsibleUserId('');
         setNotes('');
@@ -502,6 +532,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             sourceType="name_list"
                             beneficiaryName={nameSnapshot}
                             disabledReason="وعد الهدية من اللائحة يحتاج أن يكون وسيط اللائحة زبونا مرتبطا بسجل معروف."
+                            onChange={setGiftPromise}
                         />
                         <textarea
                             value={notes}
