@@ -396,6 +396,16 @@ a.shadow-lg {
     scrollbar-color: #B4BDC8 #EEF1F4;
 }
 
+/* Fully hide scrollbars — used by horizontal tab strips that provide their
+   own scroll affordance (fade edges + arrows). Overrides the global rule. */
+.no-scrollbar {
+    scrollbar-width: none;        /* Firefox */
+    -ms-overflow-style: none;     /* legacy Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+    display: none;                /* Chrome / Safari */
+}
+
 /* ============================================================
    Range slider for route stations — brand blue
    ============================================================ */

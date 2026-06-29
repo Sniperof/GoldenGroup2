@@ -10,6 +10,7 @@ import { Loader2, Cpu, ExternalLink, Plus, Save, MapPin } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
 
 import { api } from '../../lib/api';
+import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import { DeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
 import { WarrantyStatusBadge } from '../../components/devices/WarrantyStatusBadge';
 import { PossessionHolderChip } from '../../components/devices/PossessionHolderChip';
@@ -373,111 +374,77 @@ export function DevicesTab({ client }: Props) {
     );
   }
 
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const columns: ColumnDef<DeviceRow>[] = [
+    { key: 'model', label: 'الموديل', render: ({ device }) => <span className="text-sm font-bold text-slate-800">{device.deviceModelName}</span> },
+    { key: 'serial', label: 'الرقم التسلسلي', render: ({ device }) => <span className="font-mono text-sm text-slate-600">{device.serialNumber || '—'}</span> },
+    { key: 'status', label: 'الحالة', render: ({ device }) => <DeviceStatusBadge status={device.status} /> },
+    {
+      key: 'warranty', label: 'الكفالة',
+      render: ({ warranty }) => <WarrantyStatusBadge status={warranty?.status} cancellationReason={warranty?.cancellationReason} endDate={warranty?.endDate} />,
+    },
+    { key: 'holder', label: 'الحائز الحالي', render: ({ current }) => <PossessionHolderChip holderType={current?.holderType} reason={current?.reason} /> },
+    {
+      key: 'contract', label: 'رقم العقد',
+      render: ({ device }) => (
+        <div>
+          <span className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${device.deviceSource === 'external' ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700'}`}>
+            {device.deviceSource === 'external' ? 'خارجي' : 'من عقد'}
+          </span>
+          <br />
+          {device.contractNumber ? (
+            <a onClick={(e) => e.stopPropagation()} href={`/contracts/${device.contractId}`} className="font-mono text-sm text-sky-600 hover:underline">
+              #{device.contractNumber}
+            </a>
+          ) : <span className="text-sm text-slate-500">—</span>}
+        </div>
+      ),
+    },
+    { key: 'installedAt', label: 'تاريخ التركيب', render: ({ device }) => <span className="text-sm text-slate-600">{fmt(device.installationDate || device.deliveryDate)}</span> },
+    {
+      key: 'action', label: 'الإجراء',
+      render: () => <span className="inline-flex items-center gap-1 text-sm text-sky-600 font-bold">فتح <ExternalLink className="w-3 h-3" /></span>,
+    },
+  ];
+
   return (
     <div className="space-y-4 max-w-7xl">
-      <header className="flex items-center justify-between gap-4 flex-wrap">
-        <h3 className="text-base font-bold text-slate-800">أجهزة الزبون</h3>
-        <div className="flex items-center gap-1 flex-wrap">
+      <div className="flex items-center justify-end gap-1 flex-wrap">
+        <button
+          type="button"
+          onClick={() => { resetExternalForm(); setExternalModalOpen(true); }}
+          className="ml-2 inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-500"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          جهاز خارجي
+        </button>
+        {FILTERS.map(f => (
           <button
-            type="button"
-            onClick={() => { resetExternalForm(); setExternalModalOpen(true); }}
-            className="ml-2 inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-500"
+            key={f.key}
+            onClick={() => setActiveFilter(f.key)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+              activeFilter === f.key
+                ? 'bg-sky-600 text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
           >
-            <Plus className="h-3.5 w-3.5" />
-            جهاز خارجي
+            {f.label}
           </button>
-          {FILTERS.map(f => (
-            <button
-              key={f.key}
-              onClick={() => setActiveFilter(f.key)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                activeFilter === f.key
-                  ? 'bg-sky-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </header>
-
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-slate-500 font-black sticky top-0">
-              <tr>
-                <th className="text-right py-3 px-4">الموديل</th>
-                <th className="text-right py-3 px-4">الرقم التسلسلي</th>
-                <th className="text-right py-3 px-4">الحالة</th>
-                <th className="text-right py-3 px-4">الكفالة</th>
-                <th className="text-right py-3 px-4">الحائز الحالي</th>
-                <th className="text-right py-3 px-4">رقم العقد</th>
-                <th className="text-right py-3 px-4">تاريخ التركيب</th>
-                <th className="text-right py-3 px-4">الإجراء</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="py-10 text-center text-slate-400 italic">
-                    لا أجهزة تطابق الفلتر الحالي.
-                  </td>
-                </tr>
-              )}
-              {filtered.map(({ device, current, warranty }) => (
-                <tr
-                  key={device.id}
-                  onClick={() => navigate(`/installed-devices/${device.id}`)}
-                  className="border-t border-slate-50 hover:bg-sky-50/40 cursor-pointer transition-colors"
-                >
-                  <td className="py-3 px-4 font-bold text-slate-800">{device.deviceModelName}</td>
-                  <td className="py-3 px-4 font-mono text-slate-600">{device.serialNumber || '—'}</td>
-                  <td className="py-3 px-4">
-                    <DeviceStatusBadge status={device.status} />
-                  </td>
-                  <td className="py-3 px-4">
-                    <WarrantyStatusBadge
-                      status={warranty?.status}
-                      cancellationReason={warranty?.cancellationReason}
-                      endDate={warranty?.endDate}
-                    />
-                  </td>
-                  <td className="py-3 px-4">
-                    <PossessionHolderChip
-                      holderType={current?.holderType}
-                      reason={current?.reason}
-                    />
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${device.deviceSource === 'external' ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700'}`}>
-                      {device.deviceSource === 'external' ? 'خارجي' : 'من عقد'}
-                    </span>
-                    <br />
-                    {device.contractNumber ? (
-                      <a
-                        onClick={(e) => e.stopPropagation()}
-                        href={`/contracts/${device.contractId}`}
-                        className="font-mono text-sky-600 hover:underline"
-                      >
-                        #{device.contractNumber}
-                      </a>
-                    ) : '—'}
-                  </td>
-                  <td className="py-3 px-4 text-slate-600">
-                    {fmt(device.installationDate || device.deliveryDate)}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="inline-flex items-center gap-1 text-sky-600 font-bold">
-                      فتح <ExternalLink className="w-3 h-3" />
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        ))}
       </div>
+
+      <SmartTable<DeviceRow>
+        title="أجهزة الزبون"
+        icon={Cpu}
+        data={filtered}
+        columns={columns}
+        getId={({ device }) => device.id}
+        onRowClick={({ device }) => navigate(`/installed-devices/${device.id}`)}
+        hideFilterBar
+        tableMinWidth={1100}
+        emptyIcon={Cpu}
+        emptyMessage="لا أجهزة تطابق الفلتر الحالي."
+      />
       {externalModalOpen && (
         <ExternalDeviceModalV2
           deviceModelId={externalDeviceModelId}

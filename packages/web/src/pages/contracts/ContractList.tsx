@@ -158,7 +158,6 @@ export default function ContractList() {
         <div className="p-8">
             <SmartTable<Contract>
                 title="إدارة العقود"
-                titlePlacement="page"
                 icon={FileText}
                 scopeIndicator={<BranchScopeIndicator />}
                 data={contracts}

@@ -128,7 +128,6 @@ export default function Emergency() {
         <>
             <SmartTable<MaintenanceRequest>
                 title="لوحة الطوارئ (Emergency Board)"
-                titlePlacement="page"
                 icon={AlertTriangle}
                 data={requests}
                 columns={columns}
