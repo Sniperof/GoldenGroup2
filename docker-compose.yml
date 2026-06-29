@@ -20,7 +20,7 @@ services:
         condition: service_healthy
     networks:
       - internal
-      - proxy-net        # visible to nginx-server-
+      - proxy-net        # visible to nginx-server
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 30s
