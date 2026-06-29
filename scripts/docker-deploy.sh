@@ -1,21 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Golden CRM — Docker Deploy
-#
-# Run from the repo root:
-#   bash scripts/docker-deploy.sh
-#
-# Requirements on the server:
-#   - docker + docker compose v2
-#   - .env file filled (copy from .env.example)
-#   - shared nginx-server configured to proxy to localhost:APP_PORT
+# Run from the repo root: bash scripts/docker-deploy.sh
 # =============================================================================
 
 set -euo pipefail
 
 COMPOSE="docker compose"
-APP_PORT="${APP_PORT:-3880}"
-HEALTH_URL="http://localhost:${APP_PORT}/api/health"
+HEALTH_URL="http://localhost:3000/api/health"
 MAX_RETRIES=20
 SLEEP_SECONDS=3
 
@@ -23,6 +15,10 @@ log() { echo "[docker-deploy] $*"; }
 err() { echo "[docker-deploy] ERROR: $*" >&2; exit 1; }
 
 [[ -f ".env" ]] || err "Missing .env — copy .env.example and fill in the values."
+
+# Verify proxy-net exists (created by nginx-server)
+docker network inspect proxy-net >/dev/null 2>&1 || \
+  err "proxy-net network not found. Start nginx-server first: cd /opt/nginx-server && docker compose up -d"
 
 # 1. Build the image
 log "Building Docker image..."
@@ -44,7 +40,7 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-# 3. Run migrations inside the app container (--no-deps: db is already up)
+# 3. Run migrations
 log "Running database migrations..."
 $COMPOSE run --rm --no-deps \
   -e NODE_ENV=production \
@@ -55,15 +51,13 @@ $COMPOSE run --rm --no-deps \
 log "Starting application..."
 $COMPOSE up -d app
 
-# 5. Health check on the exposed host port
-log "Running health check on ${HEALTH_URL}..."
+# 5. Health check directly on the container
+log "Running health check..."
 for i in $(seq 1 "$MAX_RETRIES"); do
-  if curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
+  if docker exec golden-crm-app wget -qO- http://localhost:3000/api/health >/dev/null 2>&1; then
     log "================================================"
     log "Deploy completed successfully."
-    log "App is running on host port ${APP_PORT}."
-    log "Add this to your nginx-server config:"
-    log "  proxy_pass http://localhost:${APP_PORT};"
+    log "golden-crm-app is live on proxy-net → nginx-server"
     log "================================================"
     exit 0
   fi
@@ -71,4 +65,4 @@ for i in $(seq 1 "$MAX_RETRIES"); do
   sleep "$SLEEP_SECONDS"
 done
 
-err "Health check failed after ${MAX_RETRIES} attempts. Check: docker compose logs app"
+err "Health check failed. Check: docker compose logs app"

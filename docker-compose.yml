@@ -7,6 +7,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: golden-crm-app
     restart: unless-stopped
     env_file: .env
     environment:
@@ -14,13 +15,12 @@ services:
       PORT: "3000"
     volumes:
       - uploads:/app/uploads
-    ports:
-      - "${APP_PORT:-3880}:3000"     # shared nginx proxies to localhost:APP_PORT
     depends_on:
       db:
         condition: service_healthy
     networks:
       - internal
+      - proxy-net        # visible to nginx-server
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 30s
@@ -29,9 +29,9 @@ services:
       retries: 3
 
   # ── PostgreSQL ────────────────────────────────────────────────────────────────
-  # Internal only — not exposed on the host. Access via: docker compose exec db psql
   db:
     image: postgres:17-alpine
+    container_name: golden-crm-db
     restart: unless-stopped
     environment:
       POSTGRES_DB:       ${POSTGRES_DB:-golden_crm}
@@ -40,7 +40,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
-      - internal
+      - internal         # internal only — not reachable from nginx
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-golden} -d ${POSTGRES_DB:-golden_crm}"]
       interval: 5s
@@ -48,9 +48,11 @@ services:
       retries: 10
 
 volumes:
-  pgdata:    # named golden-crm_pgdata — no conflict with other projects
-  uploads:   # named golden-crm_uploads
+  pgdata:
+  uploads:
 
 networks:
   internal:
     driver: bridge
+  proxy-net:
+    external: true       # created by nginx-server's docker-compose
