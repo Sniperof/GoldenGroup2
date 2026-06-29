@@ -1,0 +1,56 @@
+name: golden-crm
+
+services:
+
+  # ── Application ───────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    volumes:
+      - uploads:/app/uploads
+    ports:
+      - "${APP_PORT:-3880}:3000"     # shared nginx proxies to localhost:APP_PORT
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  # Internal only — not exposed on the host. Access via: docker compose exec db psql
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-golden_crm}
+      POSTGRES_USER:     ${POSTGRES_USER:-golden}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-golden} -d ${POSTGRES_DB:-golden_crm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:    # named golden-crm_pgdata — no conflict with other projects
+  uploads:   # named golden-crm_uploads
+
+networks:
+  internal:
+    driver: bridge
