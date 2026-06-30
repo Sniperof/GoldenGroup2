@@ -15,6 +15,11 @@
 
 ## 1. تثبيت Docker
 
+> إذا كان Apache2 مثبتاً أوقفه أولاً وإلا سيتعارض مع بورت 80:
+> ```bash
+> systemctl stop apache2 && systemctl disable apache2
+> ```
+
 ```bash
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
@@ -122,6 +127,7 @@ git clone -b dev https://github.com/Sniperof/GoldenGroup2.git .
 ## 4. إنشاء ملف .env
 
 ```bash
+cd /home/Docker/golden-crm
 cp .env.example .env
 nano .env
 ```
@@ -149,10 +155,11 @@ CORS_ORIGINS=https://YOUR_DOMAIN
 ```bash
 cd /home/Docker/golden-crm
 
-# 1. شغّل قاعدة البيانات (Docker ينتظر healthy تلقائياً قبل ما يبدأ app)
+# 1. شغّل قاعدة البيانات
 docker compose up -d db
 
 # 2. ابنِ التطبيق وشغّله
+# (docker compose up -d app ينتظر db تلقائياً حتى تصبح healthy بسبب depends_on)
 docker compose build app
 docker compose up -d app
 
@@ -172,11 +179,24 @@ curl -sf http://localhost/api/health
 
 ---
 
-## 6. إنشاء حساب superadmin
+## 6. إصلاح النصوص العربية (Mojibake) — مرة وحدة فقط
+
+```bash
+cd /home/Docker/golden-crm
+docker compose exec -T db \
+  psql -U golden -d golden_crm < scripts/fix-mojibake.sql
+```
+
+يصلح البيانات العربية في: `roles`, `permissions`, `system_lists`, `system_settings`, `task_type_config`, `emergency_action_types`, `geo_units`, `branches`
+
+---
+
+## 7. إنشاء حساب superadmin
 
 > مرة وحدة فقط بعد أول نشر.
 
 ```bash
+cd /home/Docker/golden-crm
 docker compose run --rm --no-deps \
   -e NODE_ENV=development \
   app \
@@ -191,7 +211,7 @@ docker compose run --rm --no-deps \
 
 ---
 
-## 7. إعداد Jenkins Agent على السيرفر الجديد
+## 8. إعداد Jenkins Agent على السيرفر الجديد
 
 ### على السيرفر
 
@@ -216,7 +236,9 @@ apt-get install -y openjdk-17-jre
 
 ---
 
-## 8. إعداد Jenkins Pipeline
+## 9. إعداد Jenkins Pipeline
+
+> الـ pipeline يُكتب مباشرة على Jenkins master (inline script) — لا يوجد Jenkinsfile في الريبو.
 
 ### على Jenkins master
 
@@ -289,7 +311,7 @@ pipeline {
 
 ---
 
-## 9. إعداد GitHub Webhook
+## 10. إعداد GitHub Webhook
 
 احصل على Jenkins API Token:
 - Jenkins → اسمك أعلى اليمين → **Configure → API Token → Add new Token**
@@ -298,10 +320,12 @@ pipeline {
 
 | الحقل | القيمة |
 |-------|--------|
-| Payload URL | `https://USERNAME:API_TOKEN@jenkins.itlandfz.com/job/FOLDER/job/JOB_NAME/build?token=TOKEN` |
+| Payload URL | `https://USERNAME:API_TOKEN@jenkins.itlandfz.com/job/GoldenGroup/job/goldengroup-qa/build?token=golden-crm-deploy` |
 | Content type | `application/json` |
 | Which events | `Just the push event` |
 | Active | ✓ |
+
+> غيّر `USERNAME` و `API_TOKEN` واسم الـ job حسب السيرفر المستهدف.
 
 ---
 
@@ -328,7 +352,7 @@ docker compose -f /home/Docker/golden-crm/docker-compose.yml logs app --tail=50
 | system_lists | migration `001` + migrations لاحقة — تلقائي |
 | system_settings, task_type_config, emergency_action_types | migration `001` — تلقائي |
 | geo_units, branches | **فارغة** — تُضاف يدوياً بعد النشر |
-| superadmin user | يدوي — خطوة 6 |
+| superadmin user | يدوي — خطوة 7 |
 
 ---
 
@@ -341,5 +365,7 @@ docker compose -f /home/Docker/golden-crm/docker-compose.yml logs app --tail=50
 | قاعدة البيانات | محفوظة في Docker volume `golden-crm_pgdata` — لا تلمسها أبداً في CI/CD |
 | بورت الداتا بيز | `5432` مكشوف على الهوست — اتصل مباشرة من DBeaver على IP السيرفر |
 | nginx-server | لازم يشتغل أول شيء — ينشئ شبكة `proxy-net` |
+| Apache2 | أوقفه قبل تشغيل nginx إذا كان مثبتاً — يتعارض على بورت 80 |
 | superadmin | شغّل سكريبته مرة وحدة بعد أول deploy فقط |
+| Jenkins pipeline | inline script على Jenkins master — لا يوجد Jenkinsfile في الريبو |
 | CI/CD | يبني ويعيد تشغيل `app` فقط — `db` لا تتأثر أبداً |
