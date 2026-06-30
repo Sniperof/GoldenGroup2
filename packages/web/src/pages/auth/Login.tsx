@@ -52,6 +52,17 @@ export default function Login() {
     py.set(0);
   }
 
+  // ── Staggered entrance for the form card (per-item delay so the
+  //    cascade survives the <form> wrapper; matches the art's spring). ──
+  const cardItem = {
+    hidden: { opacity: 0, y: 14 },
+    visible: (i: number) => ({
+      opacity: 1,
+      y: 0,
+      transition: { type: 'spring', stiffness: 130, damping: 18, delay: 0.18 + i * 0.07 },
+    }),
+  };
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
@@ -153,13 +164,17 @@ export default function Login() {
           </div>
 
           {/* Card */}
-          <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-6 sm:p-8">
-            <div className="text-center mb-6">
+          <motion.div
+            className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-6 sm:p-8"
+            initial={reduceMotion ? false : 'hidden'}
+            animate="visible"
+          >
+            <motion.div variants={cardItem} custom={0} className="text-center mb-6">
               <h2 className="text-lg font-bold text-slate-800">تسجيل الدخول</h2>
               <p className="text-sm text-slate-500 mt-1">
                 أدخل بيانات حسابك للمتابعة
               </p>
-            </div>
+            </motion.div>
 
             {/* Error Alert */}
             <div
@@ -174,6 +189,7 @@ export default function Login() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+              <motion.div variants={cardItem} custom={1}>
               <Input
                 id="username"
                 label="اسم المستخدم"
@@ -188,7 +204,9 @@ export default function Login() {
                 placeholder="أدخل اسم المستخدم"
                 leading={<User className={`w-4 h-4 ${focusedField === 'username' ? 'text-sky-500' : ''}`} />}
               />
+              </motion.div>
 
+              <motion.div variants={cardItem} custom={2}>
               <Input
                 id="password"
                 label="كلمة المرور"
@@ -214,7 +232,9 @@ export default function Login() {
                   </button>
                 }
               />
+              </motion.div>
 
+              <motion.div variants={cardItem} custom={3}>
               <Button
                 type="submit"
                 variant="primary"
@@ -224,15 +244,16 @@ export default function Login() {
               >
                 {loading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
               </Button>
+              </motion.div>
             </form>
 
             {/* Footer note */}
-            <div className="mt-6 text-center">
+            <motion.div variants={cardItem} custom={4} className="mt-6 text-center">
               <p className="text-xs text-slate-400">
                 © {new Date().getFullYear()} Golden Group. جميع الحقوق محفوظة.
               </p>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </div>
       </div>
     </div>
