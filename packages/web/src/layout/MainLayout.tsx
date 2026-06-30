@@ -194,6 +194,8 @@ export default function MainLayout() {
                 </div>
                 <button
                     onClick={toggleSidebar}
+                    aria-label={isMobileMenuOpen ? 'إغلاق القائمة' : 'فتح القائمة'}
+                    aria-expanded={isMobileMenuOpen}
                     className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
                 >
                     {isMobileMenuOpen ? <CloseIcon className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -233,6 +235,7 @@ export default function MainLayout() {
                     {/* Desktop Collapse Toggle — only when expanded; collapsed expands via logo click */}
                     <button
                         onClick={toggleCollapse}
+                        aria-label="طيّ الشريط الجانبي"
                         className={`p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors ${isCollapsed ? 'hidden' : 'hidden lg:flex'}`}
                     >
                         <ChevronRight className="w-5 h-5" />
@@ -240,6 +243,7 @@ export default function MainLayout() {
                     {/* Mobile Close Button */}
                     <button
                         onClick={() => setIsMobileMenuOpen(false)}
+                        aria-label="إغلاق القائمة"
                         className="lg:hidden p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
                     >
                         <CloseIcon className="w-6 h-6" />
@@ -853,6 +857,7 @@ export default function MainLayout() {
                         <button
                             onClick={handleLogout}
                             title="تسجيل الخروج"
+                            aria-label="تسجيل الخروج"
                             className={`p-1.5 rounded-lg hover:bg-red-50 hover:text-red-500 text-slate-400 transition-colors ${isCollapsed ? 'lg:hidden' : ''}`}
                         >
                             <LogOut className="w-4 h-4" />
