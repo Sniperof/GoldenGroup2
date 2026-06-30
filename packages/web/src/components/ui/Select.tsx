@@ -192,7 +192,7 @@ export default function Select<V extends string | number>({
 
   // ---- styling --------------------------------------------------------------
   const triggerBase =
-    'group inline-flex w-full items-center justify-between gap-2 rounded-full font-bold transition-colors focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed';
+    'group inline-flex w-full items-center justify-between gap-2 rounded-full font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 disabled:opacity-60 disabled:cursor-not-allowed';
   const triggerSize = size === 'sm'
     ? 'h-8 px-4 text-sm'
     : 'h-[39px] px-4 text-sm';
