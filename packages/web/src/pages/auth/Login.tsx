@@ -1,5 +1,13 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  motion,
+  useMotionValue,
+  useSpring,
+  useTransform,
+  useReducedMotion,
+  type MotionStyle,
+} from 'framer-motion';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import {
   Lock,
@@ -24,6 +32,25 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  // ── Cursor-reactive 3D parallax for the branding illustration ──
+  const reduceMotion = useReducedMotion();
+  const px = useMotionValue(0); // -0.5 … 0.5 (pointer X within the art)
+  const py = useMotionValue(0); // -0.5 … 0.5 (pointer Y within the art)
+  const spring = { stiffness: 140, damping: 18, mass: 0.6 };
+  const rotateX = useSpring(useTransform(py, [-0.5, 0.5], [9, -9]), spring);
+  const rotateY = useSpring(useTransform(px, [-0.5, 0.5], [-12, 12]), spring);
+
+  function handleArtPointer(e: React.PointerEvent<HTMLDivElement>) {
+    if (reduceMotion) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    px.set((e.clientX - r.left) / r.width - 0.5);
+    py.set((e.clientY - r.top) / r.height - 0.5);
+  }
+  function resetArtPointer() {
+    px.set(0);
+    py.set(0);
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -83,12 +110,33 @@ export default function Login() {
             <p className="mt-4 text-lg font-light text-white/80">نظام إدارة العملاء والموارد المتكامل</p>
           </div>
 
-          {/* Company illustration — unified operations hub */}
-          <img
-            src={companyArt}
-            alt="منظومة Golden Group الموحّدة: عملاء وأجهزة وفرق وفروع حول لوحة تحكم مركزية"
-            className="w-full max-w-md drop-shadow-xl"
-          />
+          {/* Company illustration — cursor-reactive 3D parallax hub.
+              Outer = perspective + spring entrance; inner = live tilt + idle float. */}
+          <motion.div
+            onPointerMove={handleArtPointer}
+            onPointerLeave={resetArtPointer}
+            className="w-full max-w-md [perspective:1100px]"
+            initial={reduceMotion ? false : { opacity: 0, y: 30, scale: 0.92 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 80, damping: 15, mass: 0.9, delay: 0.1 }}
+          >
+            <motion.div
+              style={reduceMotion ? undefined : ({ rotateX, rotateY } as MotionStyle)}
+              animate={reduceMotion ? undefined : { y: [0, -9, 0] }}
+              transition={
+                reduceMotion
+                  ? undefined
+                  : { duration: 6, repeat: Infinity, ease: 'easeInOut', delay: 0.9 }
+              }
+            >
+              <img
+                src={companyArt}
+                alt="منظومة Golden Group الموحّدة: عملاء وأجهزة وفرق وفروع حول لوحة تحكم مركزية"
+                className="w-full drop-shadow-2xl"
+                draggable={false}
+              />
+            </motion.div>
+          </motion.div>
         </div>
       </div>
 
