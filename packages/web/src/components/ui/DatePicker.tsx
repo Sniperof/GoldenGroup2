@@ -49,7 +49,7 @@ export interface DatePickerProps {
   max?: Date;
 }
 
-export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange }: DatePickerProps) {
+export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange, min, max }: DatePickerProps) {
   const initial = value ?? new Date();
   const [year, setYear] = useState(initial.getFullYear());
   const [month, setMonth] = useState(initial.getMonth());
@@ -122,7 +122,16 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
     else setMonth((m) => m + 1);
   };
 
+  // Day-granularity range bounds (min/max are inclusive).
+  const minMs = min ? new Date(min).setHours(0, 0, 0, 0) : null;
+  const maxMs = max ? new Date(max).setHours(23, 59, 59, 999) : null;
+  const isOutOfRange = (day: number) => {
+    const t = new Date(year, month, day).getTime();
+    return (minMs !== null && t < minMs) || (maxMs !== null && t > maxMs);
+  };
+
   const pick = (day: number) => {
+    if (isOutOfRange(day)) return;
     setSelected({ y: year, m: month, d: day });
     onChange?.(new Date(year, month, day));
     onClose();
@@ -137,15 +146,20 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
       const isSelected = selected.d === day && selected.m === month && selected.y === year;
       const isToday =
         today.getDate() === day && today.getMonth() === month && today.getFullYear() === year;
+      const disabled = isOutOfRange(day);
       cells.push(
         <button
           key={`day-${day}`}
           type="button"
           onClick={() => pick(day)}
-          className={`w-8 h-8 mx-auto text-[13px] font-medium rounded-full flex items-center justify-center transition-colors focus:outline-none ${
-            isSelected
-              ? 'bg-sky-500 text-white font-semibold'
-              : `text-slate-700 hover:bg-slate-100 ${isToday ? 'ring-1 ring-sky-300' : ''}`
+          disabled={disabled}
+          aria-disabled={disabled}
+          className={`w-8 h-8 mx-auto text-[13px] font-medium rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
+            disabled
+              ? 'text-slate-300 cursor-not-allowed line-through decoration-slate-300'
+              : isSelected
+                ? 'bg-sky-500 text-white font-semibold'
+                : `text-slate-700 hover:bg-slate-100 ${isToday ? 'ring-1 ring-sky-300' : ''}`
           }`}
         >
           {day}
