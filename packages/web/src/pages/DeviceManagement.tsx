@@ -6,6 +6,7 @@ import {
     AlertCircle, Pencil, Tag,
 } from 'lucide-react';
 import IconButton from '../components/ui/IconButton';
+import Modal from '../components/ui/Modal';
 import { api } from '../lib/api';
 import type { DeviceModel, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -134,7 +135,7 @@ function ImageGrid({ images, primaryImageId, onSetPrimary, onRemove }: {
                         <IconButton icon={X} label="حذف" variant="danger" size="sm" shape="circle" onClick={() => onRemove(img.id)} />
                     </div>
                     {img.id === primaryImageId && (
-                        <div className="absolute top-1 right-1 bg-amber-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">رئيسية</div>
+                        <div className="absolute top-1 right-1 bg-amber-400 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">رئيسية</div>
                     )}
                 </div>
             ))}
@@ -705,17 +706,15 @@ function SparePartPricesModal({ part, onClose, onSaved }: {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
-            <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl overflow-hidden">
-                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-                    <div>
-                        <h3 className="text-base font-bold text-slate-800">سجل أسعار قطعة الصيانة</h3>
-                        <p className="mt-1 text-xs text-slate-500">{part.name} · {part.code}</p>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-                </div>
-
-                <div className="space-y-4 bg-slate-50/60 px-5 py-5">
+        <Modal
+            isOpen
+            onClose={onClose}
+            size="4xl"
+            title="سجل أسعار قطعة الصيانة"
+            subtitle={`${part.name} · ${part.code}`}
+            bodyClassName="bg-slate-50/60"
+        >
+                <div className="space-y-4 px-5 py-5">
                     <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-[180px_1fr_auto]">
                         <div>
                             <label className="mb-1.5 block text-sm font-bold text-slate-700">السعر الجديد</label>
@@ -787,8 +786,7 @@ function SparePartPricesModal({ part, onClose, onSaved }: {
                         </table>
                     </div>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 }
 
@@ -1064,7 +1062,6 @@ const DeviceManagement = () => {
                             <motion.div key="devices-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
                                 <SmartTable<DeviceModel>
                                     title="إدارة الأجهزة"
-                                    titlePlacement="page"
                                     icon={Package}
                                     data={devices}
                                     columns={deviceColumns}
@@ -1099,7 +1096,6 @@ const DeviceManagement = () => {
                             <motion.div key="parts-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
                                 <SmartTable<SparePart>
                                     title="قطع الأجهزة"
-                                    titlePlacement="page"
                                     icon={Cog}
                                     data={parts}
                                     columns={partColumns}
@@ -1158,24 +1154,12 @@ const DeviceManagement = () => {
             )}
 
             {/* ADD/EDIT PART MODAL */}
-            <AnimatePresence>
-                {isAddingPart && (
-                    <div
-                        className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-                        onClick={() => { setIsAddingPart(false); setEditingPart(null); }}
-                    >
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden text-right"
-                            dir="rtl"
-                            onClick={e => e.stopPropagation()}
-                        >
-                            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                                <h2 className="text-lg font-bold text-slate-800">{editingPart ? 'تعديل قطعة غيار' : 'إضافة قطعة غيار'}</h2>
-                                <IconButton icon={X} label="إغلاق" onClick={() => { setIsAddingPart(false); setEditingPart(null); }} />
-                            </div>
+            <Modal
+                isOpen={isAddingPart}
+                onClose={() => { setIsAddingPart(false); setEditingPart(null); }}
+                size="lg"
+                title={editingPart ? 'تعديل قطعة غيار' : 'إضافة قطعة غيار'}
+            >
                             <form onSubmit={handlePartSubmit} className="p-6 space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
@@ -1271,10 +1255,7 @@ const DeviceManagement = () => {
                                     </button>
                                 </div>
                             </form>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+            </Modal>
         </>
     );
 };

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Modal from '../ui/Modal';
+import DateField from '../ui/DateField';
 import { AlertCircle, Loader2, RotateCcw, XCircle } from 'lucide-react';
 import type {
   MarketingVisit,
@@ -383,10 +384,9 @@ export default function VisitLifecycleActionModal({
 
                     <label className="block">
                       <span className="mb-2 block text-xs font-bold text-slate-600">{mode === 'reschedule' ? 'التاريخ المتوقع' : 'التاريخ المطلوب'}</span>
-                      <input
-                        type="date"
+                      <DateField
                         value={task.targetDate}
-                        onChange={(event) => updateTaskState(task.openTaskId, { targetDate: event.target.value })}
+                        onChange={(v) => updateTaskState(task.openTaskId, { targetDate: v })}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
                       />
                     </label>

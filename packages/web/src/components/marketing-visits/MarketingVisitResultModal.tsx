@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import Modal from '../ui/Modal';
+import DateField from '../ui/DateField';
 import type {
   DeviceModel,
   Employee,
@@ -449,10 +450,9 @@ export default function MarketingVisitResultModal({
               <label className="text-sm font-bold text-slate-700">
                 التاريخ المتوقع <span className="text-red-500">*</span>
               </label>
-              <input
-                type="date"
+              <DateField
                 value={followUpDueDate}
-                onChange={(event) => setFollowUpDueDate(event.target.value)}
+                onChange={setFollowUpDueDate}
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
               />
             </div>

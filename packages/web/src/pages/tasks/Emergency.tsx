@@ -4,7 +4,7 @@ import { api } from '../../lib/api';
 import type { MaintenanceRequest } from '../../lib/types';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../../components/SmartTable';
-import { AnimatePresence, motion } from 'framer-motion';
+import Modal from '../../components/ui/Modal';
 
 const priorityConfig = {
     Critical: { label: 'حرج جداً', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200', icon: AlertCircle },
@@ -128,7 +128,6 @@ export default function Emergency() {
         <>
             <SmartTable<MaintenanceRequest>
                 title="لوحة الطوارئ (Emergency Board)"
-                titlePlacement="page"
                 icon={AlertTriangle}
                 data={requests}
                 columns={columns}
@@ -150,30 +149,16 @@ export default function Emergency() {
             />
 
             {/* Details Modal */}
-            <AnimatePresence>
-                {selectedRequest && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedRequest(null)}>
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
-                            onClick={e => e.stopPropagation()}
-                        >
-                            {/* Modal Header */}
-                            <div className="p-5 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
-                                <div>
-                                    <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                                        <AlertTriangle className="w-5 h-5 text-orange-500" />
-                                        طلب صيانة #{selectedRequest.id}
-                                    </h3>
-                                    <p className="text-sm text-slate-500 mt-1">{selectedRequest.customerName} — {selectedRequest.deviceModelName}</p>
-                                </div>
-                                <button onClick={() => setSelectedRequest(null)} className="p-1 hover:bg-slate-200 rounded-full transition-colors">✕</button>
-                            </div>
-
+            <Modal
+                isOpen={!!selectedRequest}
+                onClose={() => setSelectedRequest(null)}
+                size="2xl"
+                title={<span className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-orange-500" />طلب صيانة #{selectedRequest?.id}</span>}
+                subtitle={selectedRequest ? `${selectedRequest.customerName} — ${selectedRequest.deviceModelName}` : undefined}
+            >
+                {selectedRequest && (<>
                             {/* Tabs */}
-                            <div className="flex border-b border-slate-100 px-5 gap-6">
+                            <div className="flex border-b border-slate-100 px-5 gap-6 sticky top-0 z-10 bg-white">
                                 <button onClick={() => setActiveTab('details')} className={`py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'details' ? 'border-sky-500 text-sky-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
                                     <FileText className="w-4 h-4 inline-block ml-1" /> التفاصيل
                                 </button>
@@ -186,7 +171,7 @@ export default function Emergency() {
                             </div>
 
                             {/* Modal Content */}
-                            <div className="p-6 overflow-y-auto flex-1">
+                            <div className="p-6">
                                 {activeTab === 'details' && (
                                     <div className="space-y-6">
                                         <div className="grid grid-cols-2 gap-4">
@@ -380,10 +365,8 @@ export default function Emergency() {
                                     </div>
                                 )}
                             </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+                </>)}
+        </Modal>
         </>
     );
 }

@@ -293,7 +293,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                                                 ))}
                                             </div>
                                         </div>
-                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border ${s.unit.level === 1 ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
+                                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium border ${s.unit.level === 1 ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
                                                 s.unit.level === 2 ? 'bg-blue-50 text-blue-600 border-blue-200' :
                                                     s.unit.level === 3 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
                                                         'bg-amber-50 text-amber-600 border-amber-200'
@@ -355,7 +355,7 @@ export function LocationBadge({ location, geoPath, govName }: LocationBadgeProps
             onMouseLeave={() => setShowTooltip(false)}
         >
             {displayGov && (
-                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
+                <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
                     {displayGov}
                 </span>
             )}

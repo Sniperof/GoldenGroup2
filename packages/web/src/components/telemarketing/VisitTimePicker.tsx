@@ -89,7 +89,7 @@ export default function VisitTimePicker({
             {/* Booked-times awareness for the team */}
             {normalizedBooked.length > 0 && (
                 <div className="space-y-1.5">
-                    <p className="text-[11px] font-bold text-slate-400">
+                    <p className="text-xs font-bold text-slate-400">
                         أوقات محجوزة لهذا الفريق اليوم — تجنّبها:
                     </p>
                     <div className="flex flex-wrap gap-1.5">

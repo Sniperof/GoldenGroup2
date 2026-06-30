@@ -406,7 +406,6 @@ export default function DeviceDemo() {
           columns={columns}
           getId={(row) => row.id}
           hideFilterBar
-          paginated={false}
           tableMinWidth={1900}
           emptyIcon={Monitor}
           emptyMessage="لا توجد مهام عروض أجهزة"

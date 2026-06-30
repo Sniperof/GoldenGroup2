@@ -341,7 +341,7 @@ export default function CostsForm({
                   }`}>
                   {finalDecision === d.value && <CheckCircle2 className="h-4 w-4" />}
                   <span>{d.label}</span>
-                  <span className={`text-[9px] font-normal ${finalDecision === d.value ? 'opacity-75' : 'text-slate-400'}`}>{d.description}</span>
+                  <span className={`text-xs font-normal ${finalDecision === d.value ? 'opacity-75' : 'text-slate-400'}`}>{d.description}</span>
                 </button>
               ))}
             </div>
@@ -500,7 +500,7 @@ export default function CostsForm({
                       paymentType === pt.value ? 'border-rose-400 bg-rose-50 text-rose-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                     }`}>
                     <span>{pt.label}</span>
-                    <span className="font-normal text-[9px] opacity-60">{pt.desc}</span>
+                    <span className="font-normal text-xs opacity-60">{pt.desc}</span>
                   </button>
                 ))}
               </div>

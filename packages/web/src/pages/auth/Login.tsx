@@ -1,17 +1,24 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  motion,
+  useMotionValue,
+  useSpring,
+  useTransform,
+  useReducedMotion,
+  type MotionStyle,
+} from 'framer-motion';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import {
-  Briefcase,
   Lock,
   User,
   AlertCircle,
   Eye,
   EyeOff,
-  Shield,
-  CheckCircle2,
 } from 'lucide-react';
 import logoMark from '../../assets/logo-mark.png';
+import logoName from '../../assets/logo-name.svg';
+import companyArt from '../../assets/company-illustration.svg';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 
@@ -25,6 +32,36 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  // ── Cursor-reactive 3D parallax for the branding illustration ──
+  const reduceMotion = useReducedMotion();
+  const px = useMotionValue(0); // -0.5 … 0.5 (pointer X within the art)
+  const py = useMotionValue(0); // -0.5 … 0.5 (pointer Y within the art)
+  const spring = { stiffness: 140, damping: 18, mass: 0.6 };
+  const rotateX = useSpring(useTransform(py, [-0.5, 0.5], [9, -9]), spring);
+  const rotateY = useSpring(useTransform(px, [-0.5, 0.5], [-12, 12]), spring);
+
+  function handleArtPointer(e: React.PointerEvent<HTMLDivElement>) {
+    if (reduceMotion) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    px.set((e.clientX - r.left) / r.width - 0.5);
+    py.set((e.clientY - r.top) / r.height - 0.5);
+  }
+  function resetArtPointer() {
+    px.set(0);
+    py.set(0);
+  }
+
+  // ── Staggered entrance for the form card (per-item delay so the
+  //    cascade survives the <form> wrapper; matches the art's spring). ──
+  const cardItem = {
+    hidden: { opacity: 0, y: 14 },
+    visible: (i: number) => ({
+      opacity: 1,
+      y: 0,
+      transition: { type: 'spring', stiffness: 130, damping: 18, delay: 0.18 + i * 0.07 },
+    }),
+  };
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -55,55 +92,62 @@ export default function Login() {
       className="min-h-screen bg-slate-50 flex items-stretch justify-center"
       dir="rtl"
     >
-      {/* ── Left Panel: Branding (hidden on mobile, shown on lg+) ── */}
-      <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] relative bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400 overflow-hidden">
-        {/* Animated background pattern */}
-        <div className="absolute inset-0 opacity-10">
+      {/* ── Branding / Stats panel (right side in RTL; hidden on mobile) ── */}
+      <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] relative overflow-hidden bg-gradient-to-br from-sky-700 via-sky-600 to-indigo-600">
+        {/* Soft glow accents */}
+        <div className="pointer-events-none absolute -top-24 -right-24 h-96 w-96 rounded-full bg-sky-400/30 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-16 h-[28rem] w-[28rem] rounded-full bg-indigo-400/25 blur-3xl" />
+
+        {/* Subtle line grid */}
+        <div className="absolute inset-0 opacity-[0.07]">
           <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-                <circle cx="30" cy="30" r="1.5" fill="white" />
+              <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+                <path d="M64 0H0V64" fill="none" stroke="white" strokeWidth="1" />
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill="url(#grid)" />
           </svg>
         </div>
 
-        {/* Floating shapes */}
-        <div className="absolute top-20 left-20 w-72 h-72 bg-white/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-32 right-32 w-96 h-96 bg-white/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-
         {/* Content */}
-        <div className="relative z-10 flex flex-col items-center justify-center text-white px-12 xl:px-20">
-          <div className="mb-8">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-white/20 backdrop-blur-sm rounded-2xl shadow-xl mb-6 transition-transform duration-300 hover:scale-105">
-              <img src={logoMark} alt="Golden Group" className="w-14 h-14 object-contain" />
+        <div className="relative z-10 flex w-full flex-col items-center justify-center px-12 py-16 text-center text-white xl:px-20">
+          {/* Header — centered mark + name wordmark */}
+          <div className="mb-10">
+            <div className="mx-auto mb-5 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-white/15 shadow-lg backdrop-blur-sm">
+              <img src={logoMark} alt="" className="h-14 w-14 object-contain" />
             </div>
+            <img src={logoName} alt="Golden Group" className="mx-auto h-9 w-auto object-contain xl:h-10" />
+            <p className="mt-4 text-lg font-light text-white/80">نظام إدارة العملاء والموارد المتكامل</p>
           </div>
 
-          <h1 className="text-2xl xl:text-2xl font-bold mb-4 text-center tracking-tight">
-            Golden Group
-          </h1>
-          <p className="text-lg xl:text-2xl font-light text-white/90 mb-12 text-center">
-            نظام إدارة العملاء والموارد
-          </p>
-
-          {/* Feature highlights */}
-          <div className="space-y-4 w-full max-w-md">
-            {[
-              { icon: Briefcase, text: 'إدارة العملاء والعقارات' },
-              { icon: Shield, text: 'نظام صلاحيات متقدم' },
-              { icon: CheckCircle2, text: 'تقارير وإحصائيات فورية' },
-            ].map((item, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-xl px-5 py-3 transition-all duration-300 hover:bg-white/15 hover:translate-x-[-4px]"
-              >
-                <item.icon className="w-5 h-5 text-white/90 flex-shrink-0" />
-                <span className="text-base font-medium text-white/95">{item.text}</span>
-              </div>
-            ))}
-          </div>
+          {/* Company illustration — cursor-reactive 3D parallax hub.
+              Outer = perspective + spring entrance; inner = live tilt + idle float. */}
+          <motion.div
+            onPointerMove={handleArtPointer}
+            onPointerLeave={resetArtPointer}
+            className="w-full max-w-md [perspective:1100px]"
+            initial={reduceMotion ? false : { opacity: 0, y: 30, scale: 0.92 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 80, damping: 15, mass: 0.9, delay: 0.1 }}
+          >
+            <motion.div
+              style={reduceMotion ? undefined : ({ rotateX, rotateY } as MotionStyle)}
+              animate={reduceMotion ? undefined : { y: [0, -9, 0] }}
+              transition={
+                reduceMotion
+                  ? undefined
+                  : { duration: 6, repeat: Infinity, ease: 'easeInOut', delay: 0.9 }
+              }
+            >
+              <img
+                src={companyArt}
+                alt="منظومة Golden Group الموحّدة: عملاء وأجهزة وفرق وفروع حول لوحة تحكم مركزية"
+                className="w-full drop-shadow-2xl"
+                draggable={false}
+              />
+            </motion.div>
+          </motion.div>
         </div>
       </div>
 
@@ -120,13 +164,17 @@ export default function Login() {
           </div>
 
           {/* Card */}
-          <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-6 sm:p-8">
-            <div className="text-center mb-6">
+          <motion.div
+            className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-6 sm:p-8"
+            initial={reduceMotion ? false : 'hidden'}
+            animate="visible"
+          >
+            <motion.div variants={cardItem} custom={0} className="text-center mb-6">
               <h2 className="text-lg font-bold text-slate-800">تسجيل الدخول</h2>
               <p className="text-sm text-slate-500 mt-1">
                 أدخل بيانات حسابك للمتابعة
               </p>
-            </div>
+            </motion.div>
 
             {/* Error Alert */}
             <div
@@ -141,6 +189,7 @@ export default function Login() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+              <motion.div variants={cardItem} custom={1}>
               <Input
                 id="username"
                 label="اسم المستخدم"
@@ -149,14 +198,15 @@ export default function Login() {
                 onChange={(e) => setUsername(e.target.value)}
                 onFocus={() => setFocusedField('username')}
                 onBlur={() => setFocusedField(null)}
-                required
                 autoComplete="username"
                 autoFocus
                 disabled={loading}
                 placeholder="أدخل اسم المستخدم"
                 leading={<User className={`w-4 h-4 ${focusedField === 'username' ? 'text-sky-500' : ''}`} />}
               />
+              </motion.div>
 
+              <motion.div variants={cardItem} custom={2}>
               <Input
                 id="password"
                 label="كلمة المرور"
@@ -166,7 +216,6 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 onFocus={() => setFocusedField('password')}
                 onBlur={() => setFocusedField(null)}
-                required
                 autoComplete="current-password"
                 disabled={loading}
                 placeholder="أدخل كلمة المرور"
@@ -183,7 +232,9 @@ export default function Login() {
                   </button>
                 }
               />
+              </motion.div>
 
+              <motion.div variants={cardItem} custom={3}>
               <Button
                 type="submit"
                 variant="primary"
@@ -193,15 +244,16 @@ export default function Login() {
               >
                 {loading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
               </Button>
+              </motion.div>
             </form>
 
             {/* Footer note */}
-            <div className="mt-6 text-center">
+            <motion.div variants={cardItem} custom={4} className="mt-6 text-center">
               <p className="text-xs text-slate-400">
                 © {new Date().getFullYear()} Golden Group. جميع الحقوق محفوظة.
               </p>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </div>
       </div>
     </div>

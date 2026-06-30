@@ -73,15 +73,15 @@ export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsC
     const rating = ratingDisplay(attrs.rating);
 
     const statusChip = booked ? (
-        <span className="text-[11px] text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 shrink-0">
+        <span className="text-xs text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 shrink-0">
             <CheckCircle2 className="w-3 h-3" /> محجوز{apptTime ? ` ${apptTime}` : ''}
         </span>
     ) : closed ? (
-        <span className="text-[11px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200 shrink-0">
+        <span className="text-xs text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200 shrink-0">
             {manualClose ? 'مغلقة يدوياً' : 'مغلقة'}
         </span>
     ) : contacted ? (
-        <span className="text-[11px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1 shrink-0">
+        <span className="text-xs text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1 shrink-0">
             <History className="w-3 h-3" /> تم التواصل ({contactedCount})
         </span>
     ) : null;
@@ -104,7 +104,7 @@ export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsC
             <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                 {/* Line 1 — full name + status chip */}
                 <div className="flex items-center justify-between gap-2">
-                    <p className="text-[13px] font-bold text-slate-800 truncate">
+                    <p className="text-sm font-bold text-slate-800 truncate">
                         {attrs.fullName}
                         {attrs.nickname && <span className="text-slate-400 font-medium"> ({attrs.nickname})</span>}
                     </p>
@@ -115,10 +115,10 @@ export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsC
                 {(classCfg || rating) && (
                     <div className="flex items-center gap-1.5 flex-wrap">
                         {classCfg && (
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${classCfg.cls}`}>{classCfg.label}</span>
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full border ${classCfg.cls}`}>{classCfg.label}</span>
                         )}
                         {rating && (
-                            <span className={`text-[10px] font-bold inline-flex items-center gap-0.5 ${rating.committed ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            <span className={`text-xs font-bold inline-flex items-center gap-0.5 ${rating.committed ? 'text-emerald-600' : 'text-amber-600'}`}>
                                 <Star className="w-3 h-3" />{rating.label}
                             </span>
                         )}
@@ -126,7 +126,7 @@ export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsC
                 )}
 
                 {/* Line 3 — station · tasks · cross-team / ownership */}
-                <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-500 font-bold">
+                <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 font-bold">
                     {attrs.stationLabel && (
                         <span className="inline-flex items-center gap-0.5 min-w-0">
                             <MapPin className="w-3 h-3 text-slate-400 shrink-0" />

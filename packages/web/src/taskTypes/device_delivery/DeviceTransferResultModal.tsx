@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock, Loader2, Repeat, X, XCircle } from 'lucide-react';
 import { api } from '../../lib/api';
+import DateField from '../../components/ui/DateField';
 
 type TransferDecision =
   | 'transferred_successfully'
@@ -174,7 +175,7 @@ export default function DeviceTransferResultModal({
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ الموعد الجديد</span>
-                <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">وقت الموعد</span>
