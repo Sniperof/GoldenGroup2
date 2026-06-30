@@ -26,11 +26,15 @@ docker --version
 
 ## 2. إعداد nginx-server (مشترك بين كل المشاريع)
 
+> لازم يشتغل **قبل** أي مشروع لأنه يُنشئ شبكة `proxy-net`.
+
+### إنشاء المجلدات
+
 ```bash
 mkdir -p /home/Docker/nginx-reverse-proxy/volume/{conf.d,html,certificates}
 ```
 
-أنشئ `docker-compose.yml`:
+### إنشاء docker-compose.yml
 
 ```bash
 cat > /home/Docker/nginx-reverse-proxy/docker-compose.yml << 'EOF'
@@ -57,10 +61,10 @@ networks:
 EOF
 ```
 
-أنشئ كونفيغ المشروع:
+### إنشاء كونفيغ Golden CRM
 
 ```bash
-cat > /home/Docker/nginx-reverse-proxy/volume/conf.d/golden-crm.conf << 'EOF'
+cat > /home/Docker/nginx-reverse-proxy/volume/conf.d/reverse_proxy.conf << 'EOF'
 server {
     listen 80;
     server_name YOUR_DOMAIN;
@@ -87,7 +91,7 @@ EOF
 
 > غيّر `YOUR_DOMAIN` للدومين الفعلي.
 
-شغّل nginx:
+### تشغيل nginx
 
 ```bash
 cd /home/Docker/nginx-reverse-proxy
@@ -95,7 +99,9 @@ docker compose up -d
 docker ps | grep nginx
 ```
 
-لإضافة مشروع جديد لاحقاً — أضف ملف `.conf` في `volume/conf.d/` ثم:
+### لإضافة مشروع جديد لاحقاً
+
+أضف `server { }` block جديد داخل `volume/conf.d/reverse_proxy.conf` ثم:
 
 ```bash
 docker exec nginx-server nginx -s reload
@@ -106,8 +112,8 @@ docker exec nginx-server nginx -s reload
 ## 3. تجهيز مجلد المشروع
 
 ```bash
-mkdir -p /root/golden-crm
-cd /root/golden-crm
+mkdir -p /home/Docker/golden-crm
+cd /home/Docker/golden-crm
 git clone -b dev https://github.com/Sniperof/GoldenGroup2.git .
 ```
 
@@ -141,14 +147,20 @@ CORS_ORIGINS=https://YOUR_DOMAIN
 > هاي الخطوة تشتغل **مرة وحدة فقط** على سيرفر جديد. بعدها CI/CD يتولى كل شيء.
 
 ```bash
-cd /root/golden-crm
+cd /home/Docker/golden-crm
 
-# شغّل قاعدة البيانات أولاً وانتظر حتى تصبح healthy
+# 1. شغّل قاعدة البيانات (Docker ينتظر healthy تلقائياً قبل ما يبدأ app)
 docker compose up -d db
 
-# شغّل التطبيق (يبني الصورة + يشغّل الـ migrations تلقائياً)
+# 2. ابنِ التطبيق وشغّله
 docker compose build app
 docker compose up -d app
+
+# 3. شغّل الـ migrations
+docker compose run --rm --no-deps \
+  -e NODE_ENV=production \
+  app \
+  node ./node_modules/tsx/dist/cli.mjs packages/api/migrate.ts
 ```
 
 تحقق من الـ health:
@@ -181,14 +193,14 @@ docker compose run --rm --no-deps \
 
 ## 7. إعداد Jenkins Agent على السيرفر الجديد
 
-### على السيرفر:
+### على السيرفر
 
 ```bash
 mkdir -p /home/Docker/jenkins-agent
 apt-get install -y openjdk-17-jre
 ```
 
-### على Jenkins master:
+### على Jenkins master
 
 1. **Manage Jenkins → Nodes → New Node**
    - Node name: اسم السيرفر (مثلاً `prod`)
@@ -206,12 +218,12 @@ apt-get install -y openjdk-17-jre
 
 ## 8. إعداد Jenkins Pipeline
 
-### على Jenkins master:
+### على Jenkins master
 
 1. **New Item → Pipeline**
 2. تحت **Build Triggers**: فعّل **Trigger builds remotely**
    - Token: `golden-crm-deploy` (أو أي token تختاره)
-3. تحت **Pipeline → Pipeline script** الصق (غيّر `label` و`branch` حسب السيرفر):
+3. تحت **Pipeline → Pipeline script** الصق (غيّر `label` حسب اسم الـ Node):
 
 ```groovy
 pipeline {
@@ -227,7 +239,7 @@ pipeline {
         stage('Pull') {
             steps {
                 sh '''
-                    cd /root/golden-crm
+                    cd /home/Docker/golden-crm
                     git fetch origin dev
                     git reset --hard origin/dev
                 '''
@@ -237,7 +249,7 @@ pipeline {
         stage('Build & Deploy') {
             steps {
                 sh '''
-                    cd /root/golden-crm
+                    cd /home/Docker/golden-crm
                     docker compose build app
                     docker compose up -d app
                 '''
@@ -247,7 +259,7 @@ pipeline {
         stage('Migrate') {
             steps {
                 sh '''
-                    cd /root/golden-crm
+                    cd /home/Docker/golden-crm
                     docker compose run --rm --no-deps \
                         -e NODE_ENV=production \
                         app \
@@ -303,7 +315,7 @@ curl -sf http://YOUR_DOMAIN/api/health
 docker ps
 
 # الـ logs
-docker compose -f /root/golden-crm/docker-compose.yml logs app --tail=50
+docker compose -f /home/Docker/golden-crm/docker-compose.yml logs app --tail=50
 ```
 
 ---
@@ -324,9 +336,10 @@ docker compose -f /root/golden-crm/docker-compose.yml logs app --tail=50
 
 | الموضوع | التفصيل |
 |---------|---------|
-| الـ migrations | تشتغل تلقائياً عند بدء التطبيق — آمنة للتشغيل المتكرر |
+| الـ migrations | تشتغل يدوياً عبر `migrate.ts` — آمنة للتشغيل المتكرر (idempotent) |
 | الـ uploads | محفوظة في Docker volume `golden-crm_uploads` — لا تُحذف عند redeploy |
 | قاعدة البيانات | محفوظة في Docker volume `golden-crm_pgdata` — لا تلمسها أبداً في CI/CD |
-| nginx-server | مشترك بين كل المشاريع — لا تحذفه |
+| بورت الداتا بيز | `5432` مكشوف على الهوست — اتصل مباشرة من DBeaver على IP السيرفر |
+| nginx-server | لازم يشتغل أول شيء — ينشئ شبكة `proxy-net` |
 | superadmin | شغّل سكريبته مرة وحدة بعد أول deploy فقط |
 | CI/CD | يبني ويعيد تشغيل `app` فقط — `db` لا تتأثر أبداً |
