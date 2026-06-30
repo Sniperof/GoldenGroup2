@@ -68,6 +68,9 @@ EOF
 
 ### إنشاء كونفيغ Golden CRM
 
+> الاسم المستخدم في `proxy_pass` هو `app` — وهو اسم الـ service في docker-compose.yml كما يتحلّ على شبكة `proxy-net`.
+> يستخدم `resolver 127.0.0.11` (Docker DNS) مع `set $upstream` حتى يتحلّ الاسم عند كل طلب وليس عند الـ reload فقط.
+
 ```bash
 cat > /home/Docker/nginx-reverse-proxy/volume/conf.d/reverse_proxy.conf << 'EOF'
 server {
@@ -81,14 +84,28 @@ server {
     gzip_min_length 1000;
     gzip_types text/plain text/css application/javascript application/json image/svg+xml;
 
+    resolver 127.0.0.11 valid=30s;
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|webp)$ {
+        set $upstream app:3000;
+        proxy_pass         http://$upstream;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection      "";
+        proxy_set_header   Host            $host;
+        expires            1y;
+        add_header         Cache-Control "public, immutable";
+    }
+
     location / {
-        proxy_pass         http://golden-crm-app:3000;
+        set $upstream app:3000;
+        proxy_pass         http://$upstream;
         proxy_http_version 1.1;
         proxy_set_header   Connection      "";
         proxy_set_header   Host            $host;
         proxy_set_header   X-Real-IP       $remote_addr;
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_read_timeout 60s;
+        add_header         Cache-Control "no-store";
     }
 }
 EOF
@@ -161,8 +178,8 @@ docker compose up -d db
 # 2. اضبط عدد الـ replicas حسب CPU cores على هالسيرفر
 nproc   # خذ الرقم وحطه في docker-compose.yml → deploy.replicas
 
-# 3. ابنِ التطبيق وشغّله
-# (docker compose up -d app ينتظر db تلقائياً حتى تصبح healthy بسبب depends_on)
+# 3. ابنِ التطبيق وشغّله (يشغّل عدد replicas = nproc)
+# (ينتظر db تلقائياً حتى تصبح healthy بسبب depends_on)
 docker compose build app
 docker compose up -d app
 
@@ -173,10 +190,10 @@ docker compose run --rm --no-deps \
   node ./node_modules/tsx/dist/cli.mjs packages/api/migrate.ts
 ```
 
-تحقق من الـ health:
+تحقق من الـ health مباشرة داخل container:
 
 ```bash
-curl -sf http://localhost/api/health
+docker exec golden-crm-app-1 wget -qO- http://127.0.0.1:3000/api/health
 # المتوقع: {"status":"ok"}
 ```
 
@@ -241,6 +258,7 @@ apt-get install -y openjdk-17-jre
 ## 9. إعداد Jenkins Pipeline
 
 > الـ pipeline يُكتب مباشرة على Jenkins master (inline script) — لا يوجد Jenkinsfile في الريبو.
+> الـ Health Check يستخدم `docker exec` لأن Jenkins agent يشتغل داخل container فـ `localhost` عنده لا يصل لـ nginx.
 
 ### على Jenkins master
 
@@ -295,8 +313,18 @@ pipeline {
         stage('Health Check') {
             steps {
                 sh '''
-                    sleep 10
-                    curl -sf http://localhost/api/health
+                    echo "Waiting for app to start..."
+                    sleep 15
+                    for i in $(seq 1 10); do
+                        if docker exec golden-crm-app-1 wget -qO- http://127.0.0.1:3000/api/health; then
+                            echo "Health check passed"
+                            exit 0
+                        fi
+                        echo "Attempt $i failed, retrying in 5s..."
+                        sleep 5
+                    done
+                    echo "Health check failed"
+                    exit 1
                 '''
             }
         }
@@ -334,13 +362,13 @@ pipeline {
 ## التحقق النهائي
 
 ```bash
-# التطبيق يعمل
-curl -sf http://YOUR_DOMAIN/api/health
+# التطبيق يعمل — من داخل container
+docker exec golden-crm-app-1 wget -qO- http://127.0.0.1:3000/api/health
 
-# الـ containers شغّالة — المتوقع: 3 app replicas + 1 db
+# الـ containers شغّالة — المتوقع: N app replicas + 1 db
 docker ps | grep golden-crm
 
-# لوغز الـ 3 replicas مع بعض
+# لوغز الـ replicas
 docker compose -f /home/Docker/golden-crm/docker-compose.yml logs app --tail=20
 ```
 
@@ -368,8 +396,14 @@ docker compose -f /home/Docker/golden-crm/docker-compose.yml logs app --tail=20
 | بورت الداتا بيز | `5432` مكشوف على الهوست — اتصل مباشرة من DBeaver على IP السيرفر |
 | nginx-server | لازم يشتغل أول شيء — ينشئ شبكة `proxy-net` |
 | Apache2 | أوقفه قبل تشغيل nginx إذا كان مثبتاً — يتعارض على بورت 80 |
+| nginx upstream | استخدم `app` (اسم الـ service) وليس `golden-crm-app` — هذا هو الاسم الصحيح على `proxy-net` |
+| nginx resolver | `resolver 127.0.0.11` مطلوب مع `set $upstream` حتى يعمل الـ reload بدون أخطاء |
+| IPv6 / healthcheck | Alpine يحلّ `localhost` كـ IPv6 — استخدم `127.0.0.1` دائماً في الـ healthcheck |
 | superadmin | شغّل سكريبته مرة وحدة بعد أول deploy فقط |
 | Jenkins pipeline | inline script على Jenkins master — لا يوجد Jenkinsfile في الريبو |
+| Jenkins health check | يستخدم `docker exec` لأن Jenkins agent container لا يصل لـ nginx عبر `localhost` |
 | CI/CD | يبني ويعيد تشغيل `app` فقط — `db` لا تتأثر أبداً |
-| الـ replicas | عدد الـ replicas = ناتج `nproc` على السيرفر — عدّل `deploy.replicas` في `docker-compose.yml` قبل أول deploy |
-| توزيع الطلبات | nginx يوزّع تلقائياً على كل الـ replicas عبر Docker DNS |
+| الـ replicas | عدد الـ replicas = ناتج `nproc` — عدّل `deploy.replicas` في `docker-compose.yml` قبل أول deploy |
+| توزيع الطلبات | nginx يوزّع تلقائياً على كل الـ replicas عبر Docker DNS round-robin |
+| PostgreSQL tuning | إعدادات الأداء محسوبة لـ 8GB RAM — عدّل `command` في `docker-compose.yml` حسب السيرفر |
+| log rotation | Docker logs محدودة بـ 10MB × 5 ملفات لكل container — لا يملأ الـ disk |
